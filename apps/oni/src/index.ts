@@ -8,6 +8,7 @@ import { automationWire } from "./composition/automation-wire";
 import { channelWire } from "./composition/channel-wire";
 import { a2aContacts } from "./composition/a2a-contacts";
 import { ownerContactFor } from "./composition/owner-contact";
+import { createLiveVoice } from "./composition/live-voice";
 import { ownerAnswerAuthentication } from "./composition/answer-authentication";
 import { typingRouteFor } from "./composition/typing-route";
 import { webhookContacts } from "./composition/webhook-contacts";
@@ -44,6 +45,7 @@ import { canonicalJson, SessionTransition, type PlainValue } from "@oni/protocol
 import {
   type ChannelDeliveryRoute,
   type ProviderTypingRoute,
+  type ProviderVoiceRoute,
   type GatewayRouter,
   createChannelStores,
   decodeChannelFailure,
@@ -116,7 +118,7 @@ import { createMediaResolver } from "./composition/media";
 import { inboxHandler } from "./composition/attachments";
 import { type MediaInputPorts, inboxPartBytes, mediaDerive } from "./composition/media-input";
 import type { DeliveryMedia } from "./composition/delivery-media";
-import { makeStt, resolveAuthFilePath } from "@oni/llm";
+import { makeRealtime, makeStt, resolveAuthFilePath } from "@oni/llm";
 import type { Channel } from "@oni/protocol";
 import { type WsParts, wsParts } from "./composition/ws-parts";
 import { createSessionForkExecutor } from "./composition/session-fork";
@@ -474,6 +476,7 @@ export async function startOni(options: StartOptions = {}) {
     // The Session entity client: THE delivery path for message and timer
     // traffic (W5.2 plan §1) — the RPC ack means the receiver committed.
     const entityClient = await runAppBoot(runtime, Core.sessionClient);
+    const executeSessionTool = await runAppBoot(runtime, Core.sessionTool);
     // #1258: bind the deadline cancel door — `signal{control: cancel}` through
     // the entity's one deliver door, keyed by the alarm occurrence.
     const cancelChildSession: DelegationDeadlineDeps["cancel"] = ({ child, occurrenceId }) =>
@@ -870,6 +873,20 @@ export async function startOni(options: StartOptions = {}) {
     // declaration executes against — injected holders (tests) bind here too.
     services.composed.alarms.bind(await createMonitorPorts(runtime, alarmPlane));
     const typingRoutes = new Map<string, ProviderTypingRoute>();
+    const voiceRoutes = new Map<string, ProviderVoiceRoute>();
+    const liveVoice = createLiveVoice({
+      routes: voiceRoutes,
+      realtime: makeRealtime({ authFilePath: resolveAuthFilePath() }),
+      persons: plane.stores.persons,
+      role: (sessionId) => plane.read.sessions.list().find((row) => row.id === sessionId)?.role,
+      id: services.entropy.id,
+      executeTool: executeSessionTool,
+      run: (effect, signal) => runAppEffect(runtime, effect, signal),
+      ended: (outcome) => {
+        if (outcome.releaseFailure !== undefined)
+          incident(`live call ${outcome.call} release failed`, new Error(outcome.releaseFailure));
+      },
+    });
     // Live table: channel components register and revoke their own outbound
     // routes (declared beside the typing routes; the resident's draft arm reads it).
     const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
@@ -904,6 +921,7 @@ export async function startOni(options: StartOptions = {}) {
         // #1258: a `to.new` send carrying `deadline_ms` arms the
         // delegation.deadline purpose through the live activation's arm verb.
         contacts: {
+          call: liveVoice.call,
           // The one Effect boundary the bundle gets (#1248): the app runtime.
           run: (effect) => runAppEffect(runtime, effect),
           // #1569 lane 8: a reachable Person with no active budget is the Owner's to approve;
@@ -1048,6 +1066,7 @@ export async function startOni(options: StartOptions = {}) {
       ),
       deliveryRoutes,
       typingRoutes,
+      voiceRoutes,
       webhookHandlers,
       autoReplies,
       // #1600: an Owner instance's account is the Owner — its platform id joins the
@@ -1223,6 +1242,13 @@ export async function startOni(options: StartOptions = {}) {
     const turns = await runAppBoot(runtime, sessionRuntime.turns);
     services.entityPorts.bind({
       approvalPolicy: sessionRuntime.options.approvalPolicy, dispatchOutbound: turns.dispatchOutbound,
+      runTool: turns.tool((input, call) =>
+        Bundle.createTurnDispatcher(input, sessionRuntime.options).pipe(
+          Effect.flatMap((dispatcher) => dispatcher.execute(call, {
+            sessionId: input.sessionId, turnId: input.turnId, signal: input.signal,
+          })),
+        ), services.scope, (runner) => (input) =>
+          liveTurns.wrapRunner(input.sessionId, runner)(input)),
       runTurn: (input) =>
         sessionRunner(input.authority.sessionId) === "process"
           ? Effect.tryPromise({
@@ -1371,7 +1397,7 @@ export async function startOni(options: StartOptions = {}) {
      * the entity client instead.
      */
     const sessionFacade = (id: string): AppSessionHandle | undefined => {
-      if (liveTurns.get(id) === undefined) return undefined;
+      if (liveTurns.get(id) === undefined && !liveVoice.has(id)) return undefined;
       return {
         id,
         approvals: {
@@ -1408,7 +1434,6 @@ export async function startOni(options: StartOptions = {}) {
         interrupt: () =>
           Effect.gen(function* () {
             const entry = liveTurns.get(id);
-            if (entry === undefined) return;
             // The durable interrupt row first (cancellation is chain evidence),
             // then the turn's own boundary drain consumes it and aborts the wave.
             // #1346: the row lands through the session's one `Deliver` door as
@@ -1418,8 +1443,9 @@ export async function startOni(options: StartOptions = {}) {
             // the durable commit; the live turn holds its seal until this
             // interrupt has landed and drained, so an interrupt issued while
             // the turn is live always aborts it.
-            const release = entry.hold();
-            yield* entityClient(id)
+            if (entry !== undefined) {
+              const release = entry.hold();
+              yield* entityClient(id)
               .Deliver({
                 kind: "signal",
                 body: JSON.stringify({ content: "", control: "interrupt" }),
@@ -1433,6 +1459,11 @@ export async function startOni(options: StartOptions = {}) {
                 ),
                 Effect.ensuring(Effect.sync(release)),
               );
+            }
+            if (liveVoice.has(id)) yield* Effect.tryPromise({
+              try: () => liveVoice.end(id, "interrupted"),
+              catch: (error) => new AgentFailure({ operation: "call.interrupt", cause: String(error) }),
+            });
           }),
         tools: {
           add: (additions) =>
@@ -1449,6 +1480,7 @@ export async function startOni(options: StartOptions = {}) {
     const stop = async () => {
       await boundServer.stop(true);
       await watchSources.closeAll();
+      await liveVoice.endAll("shutdown");
       await supervisor.stopAll();
       await runAppEffect(runtime, shutdownSessions(sessionRuntime, recovery));
       if (cells !== undefined)

@@ -2,10 +2,10 @@ import type * as SessionHandleStore from "../store/fence";
 import { CommitRefused, FenceRefused, SessionNotFound, type LedgerError } from "../store/errors";
 import { canonicalJson, PlainObjectSchema, type LedgerAction } from "@oni/protocol";
 import { z } from "zod";
-import { Cause, Context, Effect, Option, type Scope, type Semaphore } from "effect";
+import { Cause, Context, Effect, Option, type Deferred, type Scope, type Semaphore } from "effect";
 import { Entity, type Envelope } from "effect/cluster";
 import type { SessionEntityAuthority, SessionEntityPorts } from "./run";
-import { AdmissionFailure, AlarmRpc, DeliverRpc, ReadRpc, ResolveRpc } from "../journal/messages";
+import { AdmissionFailure, AlarmRpc, DeliverRpc, ReadRpc, ResolveRpc, ToolTurnRpc } from "../journal/messages";
 import { armAction, ArmRefused, type AlarmChainReads, type AlarmDrainConfig, type AlarmFired, type AlarmSendRefused, type ArmVerb } from "../ports/alarm";
 import { isReservedAlarmPurpose } from "@oni/protocol";
 
@@ -27,9 +27,9 @@ export class SessionEntityContext extends Context.Service<SessionEntityContext, 
   "@oni/agent/cluster/SessionEntityContext",
 ) {}
 
-export const SessionEntity = Entity.make("Session", [DeliverRpc, ResolveRpc, AlarmRpc, ReadRpc]);
+export const SessionEntity = Entity.make("Session", [DeliverRpc, ResolveRpc, AlarmRpc, ReadRpc, ToolTurnRpc]);
 
-type SessionRpcs = typeof DeliverRpc | typeof ResolveRpc | typeof AlarmRpc | typeof ReadRpc;
+type SessionRpcs = typeof DeliverRpc | typeof ResolveRpc | typeof AlarmRpc | typeof ReadRpc | typeof ToolTurnRpc;
 
 export type SessionRequest = Envelope.Request<SessionRpcs>;
 
@@ -42,7 +42,11 @@ export interface ActivationHandle {
   readonly drain: AlarmDrainConfig;
   readonly scope: Scope.Scope;
     readonly gate: Semaphore.Semaphore;
-    readonly live: { current: object | undefined };
+    readonly live: { current: Deferred.Deferred<void> | undefined };
+  readonly toolCalls: Map<string, {
+    readonly controller: AbortController;
+    readonly done: Deferred.Deferred<void>;
+  } | null>;
     readonly closing: { current: boolean };
   readonly forwards: ForwardState;
   readonly keepAlive: (enabled: boolean) => Effect.Effect<void>;

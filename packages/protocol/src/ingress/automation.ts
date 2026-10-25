@@ -27,6 +27,8 @@ export const Trigger = z.discriminatedUnion("type", [
     .strict(),
   z.object({ type: z.literal("webhook"), secretRef: Id }).strict(),
   z.object({ type: z.literal("github"), event: Id }).strict(),
+  /** A person joining or moving into a voice channel on the named surface. */
+  z.object({ type: z.literal("call"), surface: Id }).strict(),
   z.object({ type: z.literal("on_demand") }).strict(),
 ]);
 export type Trigger = z.infer<typeof Trigger>;

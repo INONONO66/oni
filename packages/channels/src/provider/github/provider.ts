@@ -24,6 +24,7 @@ export const GitHubProvider: ChannelProvider<GitHubCredentials, "github"> = {
     media: false,
     react: false,
     typing: false,
+    voice: false,
   },
   credentials: z
     .object({

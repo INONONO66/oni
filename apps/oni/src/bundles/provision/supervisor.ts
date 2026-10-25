@@ -1,4 +1,4 @@
-import type { AccountIdentity, ChannelDeliveryRoute, ProviderTypingRoute } from "@oni/channels";
+import type { AccountIdentity, ChannelDeliveryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
 import { ThrownError } from "../../thrown";
 import { Actor } from "@oni/protocol";
 import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../../channels";
@@ -80,6 +80,7 @@ export interface SupervisorDeps {
   readonly bindAccount?: (platform: string, account: AccountIdentity) => void;
   readonly deliveryRoutes: Map<string, ChannelDeliveryRoute>;
   readonly typingRoutes: Map<string, ProviderTypingRoute>;
+  readonly voiceRoutes?: Map<string, ProviderVoiceRoute>;
   readonly webhookHandlers: Map<string, (request: Request) => Promise<Response>>;
   /** #1569 lane 7: the `<platform>:owner` surfaces whose declaration lets the reply door answer through the account. */
   readonly autoReplies?: Set<string>;
@@ -105,6 +106,15 @@ interface PlatformGrant {
 /** The tier enum runs from the most trusted down; a larger rank is a lesser tier. */
 function tierRank(tier: Actor.TrustTier): number {
   return Actor.TrustTier.options.indexOf(tier);
+}
+
+function registerVoiceRoute(
+  routes: Map<string, ProviderVoiceRoute> | undefined,
+  surface: string,
+  route: ProviderVoiceRoute | undefined,
+): () => void {
+  if (route !== undefined) routes?.set(surface, route);
+  return () => { routes?.delete(surface); };
 }
 
 export interface ChannelSupervisor {
@@ -193,6 +203,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     if (built.typingRoute !== undefined) {
       deps.typingRoutes.set(surfaceId, built.typingRoute);
     }
+    const revokeVoice = registerVoiceRoute(deps.voiceRoutes, surfaceId, built.voiceRoute);
     if (built.webhookHandler !== undefined) {
       deps.webhookHandlers.set(webhookKey, built.webhookHandler);
     }
@@ -203,6 +214,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
       deps.autoReplies?.delete(surfaceId);
       deps.deliveryRoutes.delete(surfaceId);
       deps.typingRoutes.delete(surfaceId);
+      revokeVoice();
       revokeGrant();
     };
     const failure = await built.surface.start(deps.traceId()).then(() => undefined, ThrownError.parse);

@@ -2,7 +2,7 @@ import { storedActionRow } from "../store/action-row";
 import { CommitRefused, FenceRefused, type LedgerError } from "../store/errors";
 import { parsePlainJson } from "../store/storage/sqlite-l0-rows";
 import { Delivery, SessionTransition, type LedgerAction } from "@oni/protocol";
-import { Cause, Effect, Exit, Option, Schema, type Scope } from "effect";
+import { Cause, Deferred, Effect, Exit, Option, Schema, type Scope } from "effect";
 import { LeaseLost, SessionAdmissionRefused, type SessionError } from "../ports/failure";
 import { createSessionAdmission, decideSessionAdmission } from "./admission";
 import { createSessionRecovery } from "./recovery";
@@ -126,7 +126,7 @@ function consumePending(handle: ActivationHandle, items: readonly Delivery.Row[]
 
 function detachTurn(handle: ActivationHandle, body: Effect.Effect<void, SessionError>): Effect.Effect<void, SessionError> {
   return Effect.gen(function* () {
-    const token = {};
+    const token = yield* Deferred.make<void>();
     handle.live.current = token;
     yield* handle.keepAlive(true);
     yield* Effect.forkIn(
@@ -134,7 +134,7 @@ function detachTurn(handle: ActivationHandle, body: Effect.Effect<void, SessionE
         Effect.ensuring(Effect.suspend(() => {
           if (handle.live.current !== token) return Effect.void;
           handle.live.current = undefined;
-          return handle.keepAlive(false);
+          return Deferred.succeed(token, undefined).pipe(Effect.andThen(handle.keepAlive(false)));
         })),
         Effect.onError((cause) =>
           Cause.hasInterruptsOnly(cause)

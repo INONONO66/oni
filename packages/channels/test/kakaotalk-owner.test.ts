@@ -532,6 +532,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
       react: false,
       media: KAKAOTALK_MEDIA_LIMITS,
       typing: true,
+      voice: false,
     });
     expect(provider.owner?.listen).toBe(true);
     expect(provider.owner?.credentials.safeParse(CREDENTIALS).success).toBe(true);

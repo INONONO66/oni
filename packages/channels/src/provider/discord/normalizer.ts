@@ -2,6 +2,29 @@ import type { Channel } from "@oni/protocol";
 import { kindOfMime } from "../../support/media-kind";
 import type { InboundNormalizer } from "../../types";
 import type { DiscordInteraction, DiscordMessage, DiscordReaction } from "./types";
+import type { DiscordVoiceStateUpdate } from "./sdk";
+
+/** One guild voice join or move, with gateway dispatch identity rather than a synthetic chat body. */
+export function discordCall(
+  state: DiscordVoiceStateUpdate, sequence: number, sessionId: string, selfId: string,
+): Channel.InboundMessage | null {
+  if (!state.guild_id || !state.channel_id || state.user_id === selfId) return null;
+  return {
+    sender: { kind: "external", surface: "discord", externalId: state.user_id },
+    facts: {
+      eventId: `call:${state.guild_id}:${state.user_id}:${sessionId}:${sequence}`,
+      event: "call",
+      surface: "discord",
+      workspaceId: state.guild_id,
+      channelId: state.channel_id,
+      author: { externalId: state.user_id, isBot: false },
+      addressees: [{ externalId: selfId }],
+      dm: false,
+      payload: state,
+      render: `joined voice channel ${state.channel_id}`,
+    },
+  };
+}
 
 function discordPostback(
   message: DiscordInteraction,

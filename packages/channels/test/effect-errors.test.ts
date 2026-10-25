@@ -6,6 +6,9 @@ import type { ChannelError } from "../src/errors";
 const failures = {
   AttachmentRefused: new Errors.AttachmentRefused({ reason: "too_large", maxBytes: 2 }),
   MediaTooLarge: new Errors.MediaTooLarge({ kind: "audio", bytes: 3, limit: 2 }),
+  VoiceJoinRefused: new Errors.VoiceJoinRefused({
+    reason: "not_started", surface: "discord", detail: "fixture",
+  }),
   AutomationEnableRefused: new Errors.AutomationEnableRefused({
     id: "fixture",
     reason: "approval_required",
@@ -44,7 +47,8 @@ const failures = {
     responseHeaders: { "retry-after": "7" },
     responseBody: "{}",
   }),
-} satisfies { [Tag in ChannelError["_tag"]]: Extract<ChannelError, { _tag: Tag }> };
+} satisfies { [Tag in (ChannelError | Errors.VoiceJoinRefused)["_tag"]]:
+  Extract<ChannelError | Errors.VoiceJoinRefused, { _tag: Tag }> };
 
 test("every channel error export is a unique yieldable tagged failure in the closed union", () => {
   const constructors = Object.values(Errors).filter(

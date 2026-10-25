@@ -55,6 +55,7 @@ function triggerMatches(trigger: Ingress.Trigger, input: Ingress.Input): boolean
     case "webhook": return input.event === "webhook" && trigger.secretRef === input.secretRef;
     case "github": return input.event === "github" && trigger.event === input.githubEvent;
     case "schedule": return input.event === "schedule" && input.channelId === scheduleTickChannel(trigger.cron);
+    case "call": return input.event === "call" && trigger.surface === input.surface;
     case "on_demand": return false;
   }
 }

@@ -1,6 +1,6 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import type { Database } from "bun:sqlite";
-import { type LedgerSession, type ObservationSink, SessionGeneration } from "@oni/protocol";
+import { canonicalJson, type LedgerSession, type ObservationSink, SessionGeneration, Tool } from "@oni/protocol";
 import { Context, type Crypto, Data, Deferred, Duration, Effect, Exit, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
@@ -28,6 +28,7 @@ import { prepareConfiguration } from "./generations";
 import { forkSession, ForkRefused, type ForkInput } from "./fork";
 import { createSessionRequests, requestAuthorityKernel } from "./request";
 import { assembleSessionRuntime, type SessionHostRuntime, type SessionRuntimeOptions } from "./runtime";
+import { createSessionEntityRunTool } from "./tool-turn";
 
 const ENTITY_REAPER_INTERVAL_MS = 5_000;
 
@@ -111,6 +112,17 @@ export const sessionClient = Effect.map(SessionEntity.client, (client) => (sessi
   return { Deliver: session.Deliver, Resolve: session.Resolve, Alarm: session.Alarm };
 });
 
+/** Bind once at composition; every call enters the session's current activation. */
+export const sessionTool = Effect.map(SessionEntity.client, (client) =>
+  (sessionId: string, input: { readonly sourceTurnId: string; readonly call: Tool.Call; readonly waitMs: number }) =>
+    client(sessionId).Tool({ op: "run", ...input, call: canonicalJson(input.call) }).pipe(
+      Effect.onInterrupt(() =>
+        client(sessionId).Tool({ op: "cancel", callId: input.call.id }).pipe(Effect.orDie, Effect.asVoid),
+      ),
+      Effect.map((result) => Tool.Result.parse(JSON.parse(result))),
+    ),
+);
+
 class SessionBindingError extends Data.TaggedError("SessionBindingError")<{
   readonly message: string;
 }> {}
@@ -128,6 +140,7 @@ export function createSessionPortsSlot() {
     ready: Deferred.await(ready),
     get approvalPolicy() { return resolve().approvalPolicy; },
     runTurn: (input) => Effect.suspend(() => resolve().runTurn(input)),
+    get runTool() { return resolve().runTool; },
     onRequestReady: (id) => bound?.onRequestReady?.(id),
     requestDomainRevisions: (request) => resolve().requestDomainRevisions?.(request) ?? {},
     sendAlarm: (id, occurrence) =>
@@ -319,6 +332,7 @@ function planeOver(
         openKernel: (id) => requestAuthorityKernel(plane.openKernel(id), id),
       }),
       turn: createSessionEntityRunTurn,
+      tool: createSessionEntityRunTool,
       redrive: outboundRedrivePort,
     }),
     attach: (tables) => tables(catalog.database),

@@ -17,7 +17,7 @@ import { hydrateSessionHistory, refreshSessionHistory } from "../../inspect/hist
 import { observeDrained, scopeObservation } from "../observation/bus";
 import { runAgent } from "../loop/turn";
 import type { ResolvedSessionRuntime, SessionBoundaryResult, SessionControllerState, SessionRunner, SessionRunnerInput, SessionRunnerResult } from "./runtime";
-import { InboundAuthorityViolated, promptInboundAuthority, runnerOutputMissingResult, sessionStopEvidence } from "./turn-open";
+import { turnInboundAuthority, InboundAuthorityViolated, runnerOutputMissingResult, sessionStopEvidence } from "./turn-open";
 import { dispatchSessionOutbound, outboundOpen } from "./outbound";
 
 interface TurnInput {
@@ -95,8 +95,7 @@ export function createSessionTurn(
         const hydrated = hydrateSessionHistory(kernel, sessionId);
         const promptId = hydrated.messages.filter((message) => message.role === "user").at(-1)?.id;
         // The prompt's origin is its action row's intent — a point read, not a whole-chain fold.
-        const origin = promptId === undefined ? undefined : kernel.actionById(promptId)?.intent;
-        const inbound = promptInboundAuthority(promptId, origin?.value);
+        const inbound = turnInboundAuthority(kernel, input.turnId, promptId);
         if (inbound.violation !== undefined) {
           const observations = yield* ObservationService;
           scopeObservation(observations, { sessionId, turnId: input.turnId }, { now: clock, id: entropy }).publish(

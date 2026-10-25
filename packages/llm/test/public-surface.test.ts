@@ -75,6 +75,7 @@ describe("model barrel public surface", () => {
       "coerceApiError",
       "isContextOverflow",
       "makeLlmService",
+      "makeRealtime",
       "makeStt",
       "readProviderRows",
       "resolveAuthFilePath",

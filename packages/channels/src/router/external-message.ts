@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { createHash } from "node:crypto";
 import type { ChannelStores } from "./stores.js";
 import type { PolicyEvaluationInput } from "@oni/agent";
 import { type Gateway, Ingress, resolveTarget as eventTarget, targetKey } from "@oni/protocol";
@@ -116,11 +117,28 @@ function projectDisposition(
   route: ReturnType<typeof resolveIngress>["route"],
   outcome: Effect.Success<ReturnType<typeof matchIngress>>,
   eventId: string,
+  event: Gateway.IngressFacts["event"],
 ) {
   if (route.requestExecution.kind === "request") return undefined;
   if (outcome.route !== undefined) return undefined;
-  return outcome.pending.some((group) => group.inputs.some((member) => member.eventId === eventId))
-    ? "grouped" : undefined;
+  if (outcome.pending.some((group) => group.inputs.some((member) => member.eventId === eventId)))
+    return "grouped";
+  return event === "call" ? "call_unrouted" : undefined;
+}
+
+function dispositionDecision(
+  disposition: string | undefined, row: Ingress.RoutingDecisionPayload | undefined,
+  event: ReturnType<typeof resolveIngress>["event"], facts: Gateway.IngressFacts,
+  at: number, input: ReturnType<typeof ingressInput>["input"],
+): Ingress.RoutingDecisionPayload | undefined {
+  if (disposition !== "call_unrouted") return row;
+  return Ingress.Events.RoutingDecision.schema.parse({
+    traceId: event.traceId, time: at, inboundId: event.id,
+    surface: facts.surface, mode: "direct", stage: "automation",
+    outcome: "record", decision: "filtered", by: "rule/call-unrouted",
+    reason: "call_unrouted", factsUsed: ["event"],
+    factsDigest: createHash("sha256").update(JSON.stringify(input)).digest("hex"),
+  });
 }
 
 function resolveTarget(
@@ -193,7 +211,7 @@ export function externalMessage(
     const granted = grantAutomation(resolved.route, outcome.route?.automationId);
     const route = closingRoute === undefined
       ? recordKernelRoute(stores, granted, ports.sink, at) : granted;
-    const disposition = projectDisposition(route, outcome, event.id);
+    const disposition = projectDisposition(route, outcome, event.id, facts.event);
     const target = resolveTarget(route, outcome, resolved.existing ?? ports.id(), ports.id);
     const egressBudget = resolveEgressBudget(route, budgets, stores, event.meta?.actor?.actorId, target, at);
     const message = buildMessage(route, identities, addressed, egressBudget);
@@ -217,7 +235,7 @@ export function externalMessage(
       pending: outcome.pending,
       disposition: disposition ?? (automation === undefined && !message.grantTier &&
         outcome.rows[0]?.stage === "automation" ? outcome.rows[0].decision : undefined),
-      decision: outcome.rows[0], automation };
+      decision: dispositionDecision(disposition, outcome.rows[0], event, facts, at, ingress.input), automation };
   });
 }
 

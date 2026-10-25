@@ -134,6 +134,38 @@ test("a filtered event records one ingress row and no session journal row", asyn
   expect(ledger().kernel.actionById(id)).toBeUndefined();
 });
 
+test("an unrouted call records a filtered decision without preparing or running a prompt", async () => {
+  registerOwnerDm();
+  const id = "discord:owner-workspace:owner-dm:call-one";
+  const call = { ...ownerFacts, eventId: "call-one", event: "call" as const, dm: false,
+    payload: { user_id: ownerSender.externalId, channel_id: ownerFacts.channelId } };
+  let prepared = 0;
+  let ran = 0;
+  const router = makeRouter({
+    prepare: () => { prepared += 1; throw new Error("call must not prepare"); },
+    run: () => { ran += 1; throw new Error("call must not run"); },
+  });
+  expect(await runEffect(router.ingest(ownerSender, call)))
+    .toEqual({ status: "blocked_pre", reasonCode: "call_unrouted" });
+  expect(ledger().stores.automations.decisions(id)).toEqual([
+    expect.objectContaining({ decision: "filtered", reason: "call_unrouted",
+      by: "rule/call-unrouted", factsUsed: ["event"] }),
+  ]);
+  expect([prepared, ran, commits.length]).toEqual([0, 0, 0]);
+  addTrigger("call-trigger", {
+    triggers: [{ type: "call", surface: "discord" }], conditions: {}, target: "session:worker",
+  });
+  const next = { ...call, eventId: "call-two" };
+  const matchedRouter = makeRouter();
+  expect(await runEffect(matchedRouter.ingest(ownerSender, next)))
+    .toMatchObject({ status: "executed", handle: { target: "worker" } });
+  expect(commits).toHaveLength(1);
+  expect(commits[0]?.kind).toBe("action");
+  expect(JSON.parse(commits[0]?.content ?? "").event.messages[0].body).toBeDefined();
+  expect((await runEffect(matchedRouter.ingest(ownerSender, { ...ownerFacts, eventId: "ordinary" }))).status)
+    .toBe("executed");
+});
+
 test("a rate-limited automation records refused while ordinary delivery still executes", async () => {
   registerOwnerDm();
   addTrigger("limited", { limits: { maxRunsPerDay: 1 } });

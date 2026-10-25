@@ -19,6 +19,11 @@ export const ProviderRow = z
     api: z.enum(["responses", "chat"]).optional(),
     /** Speech-to-text model id; `Stt` uses the first row that names one. */
     transcription: z.string().min(1).optional(),
+    realtime: z.object({
+      model: z.string().min(1),
+      endpoint: z.url().refine((value) => value.startsWith("ws:") || value.startsWith("wss:")),
+      voice: z.string().min(1),
+    }).strict().optional(),
   })
   .strict();
 export type ProviderRow = z.infer<typeof ProviderRow>;

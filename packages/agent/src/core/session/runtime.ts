@@ -6,7 +6,7 @@ import type { SessionPolicyRefusal } from "../journal/messages";
 
 import type { SessionKernel } from "./entity";
 import type { InspectRequest, InspectionPage } from "../../inspect";
-import type { Delivery, LedgerAction, LedgerSession, ObservationSink, SessionGeneration, ConfigureDisabled, SessionHistory, SessionTurn, SessionTransition } from "@oni/protocol";
+import type { Delivery, LedgerAction, LedgerSession, ObservationSink, SessionGeneration, ConfigureDisabled, SessionHistory, SessionTurn, SessionTransition, Tool } from "@oni/protocol";
 import type { ChatAgentConfig } from "../ports/types";
 import type { decideSessionAdmission } from "./admission";
 import type { Generation } from "../composition/compose";
@@ -172,6 +172,7 @@ export interface SessionHostRuntime {
   readonly turns: Effect.Effect<{
     readonly dispatchOutbound: SessionEntityPorts["dispatchOutbound"];
     run(runner: SessionRunner, scope: Scope.Scope): SessionEntityPorts["runTurn"];
+    tool(execute: SessionToolExecution, scope: Scope.Scope, wrap?: (runner: SessionRunner) => SessionRunner): NonNullable<SessionEntityPorts["runTool"]>;
   }, never, SessionEntryServices>;
   close(): Effect.Effect<void, SessionError>;
 }
@@ -183,6 +184,7 @@ export function assembleSessionRuntime(
     readonly requests: (runtime: SessionRuntime, authority: "borrow" | "adopt") => Effect.Effect<SessionRequestPort, never, Entropy>;
     readonly turn: (runner: SessionRunner, runtime: ResolvedSessionRuntime, scope: Scope.Scope) => SessionEntityPorts["runTurn"];
     readonly redrive: (runtime: ResolvedSessionRuntime) => SessionEntityPorts["dispatchOutbound"];
+    readonly tool: (execute: SessionToolExecution, runtime: ResolvedSessionRuntime, scope: Scope.Scope, wrap?: (runner: SessionRunner) => SessionRunner) => NonNullable<SessionEntityPorts["runTool"]>;
   },
 ): SessionHostRuntime {
   const runtime: SessionRuntime = {
@@ -201,6 +203,7 @@ export function assembleSessionRuntime(
     turns: resolveSessionRuntime(runtime).pipe(Effect.map((resolved) => ({
       dispatchOutbound: operations.redrive(resolved),
       run: (runner, scope) => operations.turn(runner, resolved, scope),
+      tool: (execute, scope, wrap) => operations.tool(execute, resolved, scope, wrap),
     }))),
     close: () => closeSessions(runtime),
   };
@@ -340,6 +343,12 @@ export interface SessionEntityPorts {
   readonly ready?: Effect.Effect<void>;
   /** Runs one admitted decision to a durable boundary; the ack follows its commits. */
   readonly runTurn: (input: SessionEntityTurnInput) => Effect.Effect<void, SessionError>;
+  readonly runTool?: (input: {
+    readonly authority: SessionEntityAuthority;
+    readonly kernel: SessionKernel;
+    readonly call: Tool.Call;
+    readonly sourceTurnId: string;
+  }) => Effect.Effect<Tool.Result, SessionError>;
   /**
    * A turn recovered in this activation and parked on a still-open request re-reads it through this
    * doorbell: the app-side answer path never saw that turn.
@@ -384,6 +393,11 @@ export interface SessionEntityPorts {
   /** Fired synchronously after every committed arm so native handles follow the chain. */
   readonly onArmed?: (notice: import("../ports/alarm").AlarmArmNotice) => void;
 }
+
+export type SessionToolExecution = (
+  input: SessionRunnerInput,
+  call: Tool.Call,
+) => Effect.Effect<Tool.Result, ExecutionError, RunnerServices>;
 
 export interface SessionControllerState {
   active: Fiber.Fiber<SessionRunnerResult | undefined, SessionError> | undefined;

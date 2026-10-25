@@ -16,6 +16,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "StoredEndpoint",
     "StoredIdentity",
     "Vault",
+    "VoiceJoinRefused",
     "WebSocketHandler",
     "WebhookCredentials",
     "activeBudgetFor",
