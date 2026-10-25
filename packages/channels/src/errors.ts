@@ -27,6 +27,12 @@ export class MediaTooLarge extends Data.TaggedError("MediaTooLarge")<{
   readonly limit: number;
 }> {}
 
+export class VoiceJoinRefused extends Data.TaggedError("VoiceJoinRefused")<{
+  readonly reason: "address_incomplete" | "not_started" | "busy" | "join_failed" | "aborted";
+  readonly surface: string;
+  readonly detail: string;
+}> {}
+
 export class AutomationEnableRefused extends Data.TaggedError("AutomationEnableRefused")<{
   readonly reason: "approval_required" | "not_found";
   readonly id: string;

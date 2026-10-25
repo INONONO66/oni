@@ -13,6 +13,7 @@ import { deliveryActions } from "../journal/delivery";
 import { generationForOpen } from "../journal/commit";
 import type { SessionTurnPorts } from "./admission";
 import { hydrateSessionHistory, restoreSessionHistory, RestoreRefused, type HydratedSessionHistory } from "../../inspect/history";
+import { externalToolOrigin } from "./turn-open";
 
 type RecoveryError = SessionError;
 
@@ -67,6 +68,21 @@ export function createSessionRecovery(
   function resumeTurn(open: OpenTurn): Effect.Effect<SessionRunnerResult, RecoveryError> {
     return Effect.gen(function* () {
       yield* awaitRetainedRunner();
+      if (externalToolOrigin(kernel, open.turnId) !== undefined) {
+        yield* Effect.scoped(Effect.gen(function* () {
+          const captured = yield* runtime.generations.capture({
+            sessionId, generation: open.toolsGeneration,
+          });
+          yield* captured.provide(createExecutor({
+            ledger: createExecutionLedger(open.turnId),
+            approvalPolicy: runtime.approvalPolicy,
+            identity: { sessionId, role: kernel.row(sessionId).role, parentActionId: open.turnId, turnId: open.turnId },
+          }).pipe(Effect.flatMap((executor) => executor.recover()))).pipe(Effect.provide(runtime.services));
+        }));
+        const result = { kind: "error" as const, text: "external tool turn interrupted; outcome may be unknown" };
+        yield* seal(open, result);
+        return result;
+      }
       if (kernel.pendingMessages(sessionId).some((item) => item.kind === "interrupt" || item.kind === "cancel")) {
         const interrupted = { kind: "interrupted" as const };
         yield* seal(open, interrupted);

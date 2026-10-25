@@ -17,6 +17,7 @@ export function createWebhookProvider(
       media: false,
       react: false,
       typing: false,
+      voice: false,
     },
     credentials: WebhookCredentials,
     settings: z.record(z.string(), z.never()),

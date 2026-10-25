@@ -32,7 +32,7 @@ function createInstagramOwnerArm(sdk: InstagramOwnerSdk = instagramOwnerSdk()): 
       "Owner session from the Instagram login (password, 2FA or challenge), sealed into the vault as the SDK's session state (the login helper lands with its own lane)",
       "the Owner accepts automation under their own account: Instagram watches for automated behaviour, so keep the account's sends sparse",
     ],
-    capabilities: { deliver: true, react: false, media: false, typing: false },
+    capabilities: { deliver: true, react: false, media: false, typing: false, voice: false },
     listen: true,
     create(credentials, posture, publish, options) {
       const surface = new InstagramOwnerAdapter(credentials, posture, publish, options, sdk);
@@ -64,6 +64,7 @@ export function createInstagramProvider(
       media: false,
       react: false,
       typing: false,
+      voice: false,
     },
     owner: createInstagramOwnerArm(ownerSdk),
     credentials: z.custom<never>(() => false, {

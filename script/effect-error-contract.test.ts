@@ -148,7 +148,7 @@ const packages: readonly PackageEntry[] = [
   { name: "agent", path: "agent/src/core/ports/failure", module: Agent, union: "SessionError", carrier: "AgentFailure", carrierPath: "agent/src/core/ports/failure", failures: agent, thrown: [Agent.AgentInvariantViolation, Agent.SessionCommitError] },
   { name: "agent store", path: "agent/src/core/store/errors", module: Store, union: "LedgerError", carrier: "AgentFailure", carrierPath: "agent/src/core/store/errors", failures: store, thrown: [Store.LedgerInvariant, Store.CatalogUpgradeRefused] },
   { name: "llm", path: "llm/src/errors", module: Llm, union: "LlmError", carrier: "LlmOperationFailure", carrierPath: "llm/src/errors", failures: llm, thrown: [] },
-  { name: "channels", path: "channels/src/errors", module: Channels, union: "ChannelError", carrier: "ChannelsFailure", carrierPath: "channels/src/errors", failures: channels, thrown: [] },
+  { name: "channels", path: "channels/src/errors", module: Channels, union: "ChannelError", carrier: "ChannelsFailure", carrierPath: "channels/src/errors", failures: channels, thrown: [Channels.VoiceJoinRefused] },
   { name: "machines", path: "machines/src/errors", module: Machines, union: "MachineError", carrier: "MachinesFailure", carrierPath: "machines/src/errors", failures: machines, thrown: [] },
   { name: "machines ipc", path: "machines/src/ipc/errors", module: Ipc, union: "IpcError", carrier: "MachinesFailure", carrierPath: "machines/src/errors", failures: ipc, thrown: [] },
   { name: "codemode", path: "codemode/src/errors", module: Code, union: "CodeError", carrier: "MachinesFailure", carrierPath: "machines/src/errors", failures: code, thrown: [] },

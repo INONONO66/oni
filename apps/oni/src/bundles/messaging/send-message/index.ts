@@ -64,7 +64,7 @@ const SendMessageInput = z
         "Instead of a letter, put this emoji on the message the contact wrote (to.conversation.replyToMessageId names it). Channel contacts only.",
       ),
     kind: z
-      .enum(["prompt", "interrupt", "resume"])
+      .enum(["prompt", "interrupt", "resume", "call"])
       .default("prompt")
       .describe("prompt is the default letter; interrupt and resume steer a running session."),
     reply_to: Id.optional().describe(
@@ -85,7 +85,9 @@ const SendMessageInput = z
       ),
   })
   .strict()
-  .refine((input) => (input.message === undefined) !== (input.react === undefined), {
+  .refine((input) => input.kind === "call"
+    ? input.react === undefined
+    : (input.message === undefined) !== (input.react === undefined), {
     message: "exactly one of message or react",
   });
 type SendMessageInput = z.output<typeof SendMessageInput>;
@@ -107,6 +109,7 @@ function outboundPayload(input: SendMessageInput): Outbound.Payload {
 
 /** The tool's vocabulary folded onto the gateway's consumer surface. */
 function toGatewaySend(input: SendMessageInput, now: number, consented = false): Gateway.SendMessage {
+  if (input.kind === "call") throw new ToolRefused("send_message", "call_target: calls have no gateway send");
   return {
     // #1569 lane 8: the Owner approved this invocation — the fact the gate admits a budget-less send on.
     ...(consented ? { consented: true as const } : {}),
@@ -251,6 +254,7 @@ interface DelegationDeadlinePort {
 type RunContactEffect = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 
 export interface ContactPorts {
+  readonly call?: CallPort;
   readonly run?: RunContactEffect;
   readonly cli?: CliRunnerPort;
   readonly webhook?: WebhookContactPort;
@@ -261,6 +265,23 @@ export interface ContactPorts {
   readonly budgets?: () => readonly Gateway.SocialBudget[];
   /** #1569 lane 8: the Person rows — the grant fact (`reach`) the consent hook reads, and the revision the Owner's answer binds to. */
   readonly persons?: Pick<PersonStore, "get">;
+}
+
+export interface CallPort {
+  start(input: {
+    readonly contact: string;
+    readonly surface: string;
+    readonly channelId: string;
+    readonly opening?: string;
+    readonly sessionId: string;
+    readonly turnId: string;
+  }): Promise<{
+    readonly contact: string;
+    readonly status: "joined";
+    readonly call: string;
+    readonly surface: string;
+    readonly channelId: string;
+  }>;
 }
 
 /**
@@ -279,7 +300,7 @@ function ownerConsent(
   at: number,
 ): { readonly required: boolean; readonly domainRevisions: Readonly<Record<string, number>> } {
   const direct = { required: false, domainRevisions: {} };
-  if (input.to.kind !== "contact" || contacts.budgets === undefined || contacts.persons === undefined) return direct;
+  if (input.kind === "call" || input.to.kind !== "contact" || contacts.budgets === undefined || contacts.persons === undefined) return direct;
   if (parseContactAddress(input.to.id) !== undefined) return direct;
   const person = contacts.persons.get(input.to.id);
   if (person?.reach !== true) return direct;
@@ -492,7 +513,9 @@ function createContactRegistry(ports: ContactPorts): ReadonlyMap<ContactKind, Co
 
 // ─── the tool face ───
 
-const SendMessageOutput = z.union([Gateway.SendMessageHandle, ContactOutcome]);
+const SendMessageOutput = z.union([Gateway.SendMessageHandle, ContactOutcome, z.object({
+  contact: Id, status: z.literal("joined"), call: Id, surface: Id, channelId: Id,
+}).strict()]);
 
 /** Connector dispatch at the tool's Promise boundary: effects run on the injected runner only. */
 function routeContact(
@@ -537,6 +560,26 @@ function armChildDeadline(
   );
 }
 
+function startCall(
+  input: SendMessageInput,
+  context: { readonly sessionId: string; readonly turnId: string },
+  port: CallPort | undefined,
+) {
+  const target = input.to;
+  if (target.kind !== "contact" || parseContactAddress(target.id) !== undefined ||
+    target.surface === undefined || target.conversation?.channelId === undefined)
+    throw new ToolRefused("send_message", "call_target: a person contact needs a surface and voice channel");
+  if (target.as === "owner")
+    throw new ToolRefused("send_message", "call_as_owner: calls use the bot account");
+  if (port === undefined)
+    throw new ToolRefused("send_message", "call_unavailable: live calls are not composed");
+  return port.start({
+    contact: target.id, surface: target.surface, channelId: target.conversation.channelId,
+    ...(input.message === undefined ? {} : { opening: typeof input.message === "string" ? input.message : Outbound.text(outboundPayload(input)) }),
+    sessionId: context.sessionId, turnId: context.turnId,
+  });
+}
+
 /** The catalog is static: without a composed gateway the tool exists and refuses. */
 export function createSendMessageTool(
   port: MessagePort | undefined,
@@ -548,11 +591,12 @@ export function createSendMessageTool(
     name: "send_message",
     category: "authority",
     description:
-      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), a declared CLI agent on an attached machine (cli:<id> — the letter is typed into its terminal; the reply is a prompt pointing at the child's admitted rows), a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`), or a declared A2A peer (a2a:<id> — the letter goes to the agent as message/send; its answer, or where its task stands, is returned on the result, with `thread` for reply_to to continue the exchange). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session. A letter to a person on a channel for whom the Owner declared no social budget waits for the Owner's consent.",
+      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), a declared CLI agent on an attached machine (cli:<id> — the letter is typed into its terminal; the reply is a prompt pointing at the child's admitted rows), a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`), or a declared A2A peer (a2a:<id> — the letter goes to the agent as message/send; its answer, or where its task stands, is returned on the result, with `thread` for reply_to to continue the exchange). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session. A letter to a person on a channel for whom the Owner declared no social budget waits for the Owner's consent. A call joins the Owner's voice channel and talks with them live; it returns once joined.",
     input: SendMessageInput,
     output: SendMessageOutput,
     visibility: { model: ["resident", "child"], cell: ["resident", "child"] },
     async execute(input, context) {
+      if (input.kind === "call") return startCall(input, context, contacts.call);
       const address = input.to.kind === "contact" ? parseContactAddress(input.to.id) : undefined;
       if (address !== undefined) return routeContact(registry, contacts, address, input, context);
       if (port === undefined)

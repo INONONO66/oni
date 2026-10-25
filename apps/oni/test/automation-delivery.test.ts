@@ -6,6 +6,23 @@ import { runAppEffect } from "../src/gateway";
 
 const suite = residentSuite();
 
+test("a matched call fact delivers one action without joining a voice route", async () => {
+  const f = await automationFixture(suite);
+  const target = await f.target();
+  f.stores.automations.add(automationRecord({
+    triggers: [{ type: "call", surface: "discord" }],
+    target: `session:${target}`, kind: "action",
+  }));
+  const result = await f.ingest({ ...automationFacts, event: "call" });
+  expect(result.status).toBe("executed");
+  if (result.status !== "executed") throw new Error("call automation refused");
+  const actions = f.plane.openKernel(target).historyPage(target, { afterRevision: 0 }).actions;
+  expect(actions.filter((row) => row.kind === "action" && row.id === result.handle.messageId)).toHaveLength(1);
+  expect(f.stores.automations.decisions(result.handle.messageId)).toContainEqual(expect.objectContaining({
+    decision: "matched", target: `session:${target}`,
+  }));
+});
+
 for (const target of ["new", "session"] as const) {
   for (const kind of ["prompt", "action"] as const) {
     test(`${target}/${kind} reaches the real entity once with the record's instructions and receipt`, async () => {

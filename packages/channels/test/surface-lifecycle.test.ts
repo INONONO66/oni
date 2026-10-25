@@ -36,7 +36,7 @@ describe("GitHubAdapter lifecycle", () => {
 });
 
 describe("DiscordAdapter lifecycle", () => {
-  it("stop publishes shutdown and is safe before start", () => {
+  it("stop publishes shutdown and is safe before start", async () => {
     const events: z.infer<typeof Operational.Events.Info.schema>[] = [];
     const adapter = new DiscordAdapter(
       "token",
@@ -47,7 +47,7 @@ describe("DiscordAdapter lifecycle", () => {
       },
       injectedOptions(),
     );
-    adapter.stop("trace-dc-1");
+    await adapter.stop("trace-dc-1");
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ traceId: "trace-dc-1", component: "server" });
   });

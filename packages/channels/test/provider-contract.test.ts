@@ -4,6 +4,9 @@ import { injectedOptions } from "./helpers/injected";
 import type { OwnerArm, ProviderRuntime } from "../src/provider/contract";
 import { ChannelProviders } from "../src/provider/registry";
 import type { PublishPort } from "../src/types";
+import { createDiscordProvider } from "../src/provider/discord/provider";
+import { emptyVoiceStream, fakeDiscordSdk } from "./helpers/discord-sdk";
+import type { DiscordVoiceHandle } from "../src/provider/discord/sdk";
 
 /**
  * Provider conformance: every registry entry honors the contract's structural
@@ -184,6 +187,33 @@ const cases: readonly ConformanceCase[] = [
 ];
 
 describe("provider conformance", () => {
+  test("Discord bot alone exposes voice, and stopping its surface leaves the joined handle", async () => {
+    const fake = fakeDiscordSdk();
+    let left = 0;
+    const ended = Promise.withResolvers<void>();
+    const handle: DiscordVoiceHandle = {
+      pcmIn: emptyVoiceStream(), pcmOut: { write: async () => undefined },
+      events: (async function* (): AsyncGenerator<{ type: "ready" }, void, void> {
+        yield { type: "ready" };
+        await ended.promise;
+      })(),
+      leave: async () => { left += 1; ended.resolve(); },
+    };
+    fake.sdk.joinVoice = async () => handle;
+    const provider = createDiscordProvider(fake.sdk);
+    const runtime = provider.create({ token: "token" }, {}, noopPublish, injectedOptions());
+    expect(provider.capabilities.voice).toBe(true);
+    expect(provider.owner?.capabilities.voice).toBe(false);
+    expect(runtime.voiceRoute).toBeDefined();
+    expect(fake.listener.started).toBe(0);
+    runtime.surface.onMessage(async () => undefined);
+    await runtime.surface.start("boot");
+    await runtime.voiceRoute?.({ surface: "discord", channelId: "voice",
+      workspaceId: "guild", speakerExternalId: "owner" });
+    await runtime.surface.stop("stop");
+    expect(left).toBe(1);
+    expect(fake.listener.stopped).toBe(1);
+  });
   test("registry keys equal provider ids", () => {
     for (const [key, provider] of Object.entries(ChannelProviders))
       expect(provider.id).toBe(key as keyof typeof ChannelProviders);
@@ -207,6 +237,7 @@ describe("provider conformance", () => {
         expect(runtime.surface.id).toBe(`${kase.provider.id}:owner`);
         expect(runtime.deliveryRoute !== undefined).toBe(arm.capabilities.deliver);
         expect(runtime.typingRoute !== undefined).toBe(arm.capabilities.typing);
+        expect(runtime.voiceRoute !== undefined).toBe(arm.capabilities.voice);
         expect(runtime.webhookHandler !== undefined).toBe(kase.webhook ?? false);
         expect(arm.listen).toBe(true);
       });
@@ -246,6 +277,7 @@ describe("provider conformance", () => {
         expect(runtime.deliveryRoute !== undefined).toBe(kase.provider.capabilities.deliver);
         expect(runtime.webhookHandler !== undefined).toBe(kase.provider.capabilities.webhook);
         expect(runtime.typingRoute !== undefined).toBe(kase.provider.capabilities.typing);
+        expect(runtime.voiceRoute !== undefined).toBe(kase.provider.capabilities.voice);
       });
       test("a conversation hint is honored or refused, never silently delivered as a DM (#1490)", async () => {
         const runtime = kase.build(noopPublish);

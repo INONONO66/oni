@@ -39,7 +39,7 @@ function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<Sla
       "Owner session from the Slack QR login, sealed into the vault (the login helper lands with its own lane): client token xoxc- plus the d cookie",
       "the Owner accepts automation under their own account (declared outbound grant)",
     ],
-    capabilities: { deliver: true, react: true, media: false, typing: false },
+    capabilities: { deliver: true, react: true, media: false, typing: false, voice: false },
     listen: true,
     create(credentials, posture, publish, options) {
       const surface = new SlackOwnerAdapter(credentials, posture, publish, options, sdk);
@@ -78,6 +78,7 @@ export function createSlackProvider(
       media: SLACK_MEDIA_LIMITS,
       react: true,
       typing: false,
+      voice: false,
     },
     owner: createSlackOwnerArm(ownerSdk),
     credentials: z

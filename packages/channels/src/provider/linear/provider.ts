@@ -23,7 +23,7 @@ const LinearOwnerArm: OwnerArm<LinearOwnerCredentials> = {
     "a workspace webhook for the Issue and Comment resources posts to the public /linear/webhook endpoint with the signing secret",
     "the Owner's personal API key comments back as the Owner and names the Owner's own actions; without it the instance is ingress-only and mentions go unread",
   ],
-  capabilities: { deliver: true, react: false, media: false, typing: false },
+  capabilities: { deliver: true, react: false, media: false, typing: false, voice: false },
   listen: true,
   create(credentials, posture, publish, options) {
     const surface = new LinearAdapter(credentials, posture, publish, {
@@ -59,6 +59,7 @@ export const LinearProvider: ChannelProvider<never, "linear", LinearOwnerCredent
     media: false,
     react: false,
     typing: false,
+    voice: false,
   },
   owner: LinearOwnerArm,
   credentials: z.custom<never>(() => false, {

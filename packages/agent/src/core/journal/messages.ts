@@ -163,3 +163,25 @@ export const ReadRpc = Rpc.make("Read", {
   success: ReadPage,
   error: AdmissionFailure,
 });
+
+/** Admission failures append nothing; a busy caller can decide whether to ask again. */
+export class ToolTurnRefused extends Schema.TaggedError<ToolTurnRefused>(
+  "@oni/agent/cluster/ToolTurnRefused",
+)("ToolTurnRefused", {
+  code: Schema.Literals(["busy", "closed", "origin", "malformed", "unavailable", "duplicate"]),
+}) {}
+
+/** A live caller owns this request; unlike deliveries it must not replay after disconnect. */
+export const ToolTurnRpc = Rpc.make("Tool", {
+  payload: Schema.Union([
+    Schema.Struct({
+      op: Schema.Literal("run"),
+      sourceTurnId: Schema.String,
+      call: Schema.String,
+      waitMs: Schema.Number,
+    }),
+    Schema.Struct({ op: Schema.Literal("cancel"), callId: Schema.String }),
+  ]),
+  success: Schema.String,
+  error: Schema.Union([ToolTurnRefused, AdmissionFailure]),
+});

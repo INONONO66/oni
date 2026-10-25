@@ -1,5 +1,6 @@
 import type { Channel, Gateway, Outbound } from "@oni/protocol";
 import type { AttachmentFetch, EffectRunner, MediaResolver, PublishPort } from "../types.js";
+import type { ProviderVoiceRoute } from "./voice.js";
 import { z } from "zod";
 
 /**
@@ -100,6 +101,8 @@ interface ProviderCapabilities {
   readonly react: boolean;
   /** The runtime exposes `typingRoute`. */
   readonly typing: boolean;
+  /** The runtime exposes `voiceRoute`: a call joins a voice channel and exchanges PCM with one speaker. */
+  readonly voice: boolean;
 }
 
 /**
@@ -124,6 +127,8 @@ export interface ProviderRuntime {
   readonly account?: () => AccountIdentity | undefined;
   /** The platform's authenticated download for the references its normalizer emits; absent when they are public URLs. */
   readonly attachments?: AttachmentFetch;
+  /** Joins a voice channel on this started surface; present only where the provider declares voice. */
+  readonly voiceRoute?: ProviderVoiceRoute;
 }
 
 /**
@@ -145,7 +150,7 @@ export interface ProviderRuntime {
 export interface OwnerArm<TCredentials> {
   readonly credentials: z.ZodType<TCredentials, TCredentials>;
   readonly preconditions: readonly string[];
-  readonly capabilities: Pick<ProviderCapabilities, "deliver" | "react" | "media" | "typing">;
+  readonly capabilities: Pick<ProviderCapabilities, "deliver" | "react" | "media" | "typing" | "voice">;
   /** Whether the account's own listener exists (#1569 lane 6); where false the instance only sends. */
   readonly listen: boolean;
   create(

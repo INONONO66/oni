@@ -13,7 +13,7 @@
   "dependencies": {
     "@oni/agent": "workspace:*",
     "@oni/protocol": "workspace:*",
-    "agent-messenger": "github:INONONO66/agent-messenger#2e97492a9ff80cef98fe7790144d846e974cb83e",
+    "agent-messenger": "github:INONONO66/agent-messenger#5ff4c722f11a090c36d5b96039de2f96759c75ab",
     "effect": "4.0.0-rc.118",
     "zod": "^4.5.4"
   },

@@ -11,7 +11,12 @@
       "id": "openai",
       "npm": "@ai-sdk/openai",
       "api": "responses",
-      "transcription": "gpt-4o-transcribe"
+      "transcription": "gpt-4o-transcribe",
+      "realtime": {
+        "model": "gpt-realtime-2.1",
+        "endpoint": "wss://api.openai.com/v1/realtime",
+        "voice": "marin"
+      }
     }
   ]
 }

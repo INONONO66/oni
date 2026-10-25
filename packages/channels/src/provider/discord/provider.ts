@@ -31,7 +31,7 @@ function createDiscordOwnerArm(sdk: DiscordOwnerSdk = discordOwnerSdk()): OwnerA
       "Owner session from the Discord remote-auth (QR) login, sealed into the vault (the login helper lands with its own lane): the account token",
       "the Owner accepts automation under their own account (declared outbound grant and intake posture)",
     ],
-    capabilities: { deliver: true, react: true, media: DISCORD_MEDIA_LIMITS, typing: true },
+    capabilities: { deliver: true, react: true, media: DISCORD_MEDIA_LIMITS, typing: true, voice: false },
     listen: true,
     create(credentials, posture, publish, options) {
       const surface = new DiscordOwnerAdapter(credentials, posture, publish, options, sdk);
@@ -75,12 +75,14 @@ export function createDiscordProvider(
       media: DISCORD_MEDIA_LIMITS,
       react: true,
       typing: true,
+      voice: true,
     },
     credentials: z.object({ token: z.string().min(1) }).strict(),
     settings: z.record(z.string(), z.never()),
     preconditions: [
       "MESSAGE CONTENT gateway intent enabled in the developer portal",
       "bot invited to the target guild with read/send permissions",
+      "bot has Connect and Speak on the voice channel; GUILD_VOICE_STATES is sent in Identify (no portal switch)",
     ],
     create(credentials, config, publish, options) {
       const surface = new DiscordAdapter(credentials.token, config, publish, options, sdk);
@@ -90,6 +92,7 @@ export function createDiscordProvider(
           surface
             .deliver(externalId, payload, idempotencyKey, conversation)
             .then(kernelDeliveryReceipt),
+        voiceRoute: (input) => surface.joinVoice(input),
         // POST /channels/{id}/typing shows the indicator for about ten seconds.
         typingRoute: {
           everyMs: 8_000,

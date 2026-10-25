@@ -95,9 +95,15 @@ describe("npm package staging", () => {
       name: string;
       bin: Record<string, string>;
       dependencies: Record<string, string>;
+      optionalDependencies: Record<string, string>;
     };
     expect(manifest.name).toBe("oni");
-    expect(manifest.dependencies).toEqual({ "classic-level": expect.stringMatching(/^\d+\.\d+\.\d+$/) });
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "@discordjs/voice", "@snazzah/davey", "classic-level", "opusscript", "prism-media",
+    ]);
+    expect(Object.keys(manifest.optionalDependencies)).toEqual(["@discordjs/opus"]);
+    for (const version of Object.values({ ...manifest.dependencies, ...manifest.optionalDependencies }))
+      expect(version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(existsSync(join(staging, manifest.bin.oni ?? ""))).toBe(true);
     // W5.2: no migration plane ships; the schema is embedded in the bundle.
     expect(existsSync(join(staging, "migration"))).toBe(false);
@@ -111,9 +117,10 @@ describe("npm package staging", () => {
     // links the workspace's resolution of each one there instead.
     const sdkDir = dirname(Bun.resolveSync("agent-messenger/package.json", join(repoRoot, "packages", "channels")));
     mkdirSync(join(staging, "node_modules"));
-    for (const [name, version] of Object.entries(manifest.dependencies)) {
+    for (const [name, version] of Object.entries({ ...manifest.dependencies, ...manifest.optionalDependencies })) {
       const resolved = Bun.resolveSync(`${name}/package.json`, sdkDir);
       expect((JSON.parse(readFileSync(resolved, "utf-8")) as { version: string }).version).toBe(version);
+      if (name.startsWith("@")) mkdirSync(join(staging, "node_modules", name.split("/")[0] ?? ""), { recursive: true });
       symlinkSync(dirname(resolved), join(staging, "node_modules", name));
     }
 

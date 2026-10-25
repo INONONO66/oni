@@ -12,7 +12,7 @@
  * and no default credential — absence of config is absence of the component.
  */
 
-import type { AccountIdentity, AttachmentFetch, ChannelProvider, EffectRunner, MediaResolver, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "@oni/channels";
+import type { AccountIdentity, AttachmentFetch, ChannelProvider, EffectRunner, MediaResolver, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
 import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider, OwnerPosture } from "@oni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@oni/protocol";
 import { Result } from "effect";
@@ -42,6 +42,7 @@ export interface BuiltChannel {
   /** Outbound seam, keyed by `surface.id`: present only for channels the Resident can message into. */
   readonly deliveryRoute?: ProviderDeliveryRoute;
   readonly typingRoute?: ProviderTypingRoute;
+  readonly voiceRoute?: ProviderVoiceRoute;
   /** Ingress seam: present only for webhook-fed channels. */
   readonly webhookHandler?: (request: Request) => Promise<Response>;
   /** #1600: the account the runtime speaks as, known after start; an Owner instance's becomes the Owner Person's endpoint. */
@@ -101,6 +102,7 @@ function providerRow(
         ...(autoReply && outbound ? { autoReply: true } : {}),
         ...(runtime.deliveryRoute === undefined || !outbound ? {} : { deliveryRoute: runtime.deliveryRoute }),
         ...(runtime.typingRoute === undefined || !outbound ? {} : { typingRoute: runtime.typingRoute }),
+        ...(runtime.voiceRoute === undefined || !outbound ? {} : { voiceRoute: runtime.voiceRoute }),
         ...(runtime.webhookHandler === undefined ? {} : { webhookHandler: runtime.webhookHandler }),
         ...(runtime.account === undefined ? {} : { account: runtime.account }),
       };

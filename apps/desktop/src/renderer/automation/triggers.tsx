@@ -10,6 +10,7 @@ const DEFAULT_TRIGGER = {
   message: { type: "message", surface: "", event: "message" },
   webhook: { type: "webhook", secretRef: "" },
   github: { type: "github", event: "" },
+  call: { type: "call", surface: "" },
   on_demand: { type: "on_demand" },
 } as const satisfies Record<Ingress.Trigger["type"], Ingress.Trigger>;
 
@@ -35,6 +36,8 @@ function TriggerFields({ trigger, error, onChange }: {
       return <Field label="Secret reference" error={error("secretRef")} hint="A stored reference, never the secret itself."><Input value={trigger.secretRef} onInput={(event) => onChange({ ...trigger, secretRef: event.currentTarget.value })} /></Field>;
     case "github":
       return <Field label="GitHub event" error={error("event")}><Input value={trigger.event} onInput={(event) => onChange({ ...trigger, event: event.currentTarget.value })} placeholder="pull_request.opened" /></Field>;
+    case "call":
+      return <Field label="Surface" error={error("surface")} hint="Someone joining a voice channel on this surface."><Input value={trigger.surface} onInput={(event) => onChange({ ...trigger, surface: event.currentTarget.value })} placeholder="discord" /></Field>;
     case "on_demand":
       return <p className="text-body text-fg-muted">Runs when explicitly invoked.</p>;
   }
@@ -57,7 +60,7 @@ export function Triggers({ value, errors, onChange }: {
           const type = TriggerType.parse(event.target.value);
           onChange(value.map((row, i) => i === index ? DEFAULT_TRIGGER[type] : row));
         }}>
-          <option value="message">Message</option><option value="schedule">Schedule</option><option value="webhook">Webhook</option><option value="github">GitHub</option><option value="on_demand">On demand</option>
+          <option value="message">Message</option><option value="schedule">Schedule</option><option value="webhook">Webhook</option><option value="github">GitHub</option><option value="call">Call</option><option value="on_demand">On demand</option>
         </Select></Field>
         <TriggerFields trigger={trigger} error={(field) => errors.get(`triggers.${index}.${field}`)} onChange={(next) => onChange(value.map((row, i) => i === index ? next : row))} />
         <div><ActionButton onClick={() => { setKeys(keys.filter((_, i) => i !== index)); onChange(value.filter((_, i) => i !== index)); }}>Remove trigger {index + 1}</ActionButton></div>

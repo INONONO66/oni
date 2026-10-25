@@ -98,6 +98,8 @@ export interface OniConfig {
      * model; absent leaves speech-to-text on the bundled rows.
      */
     readonly transcriptionRows?: readonly ProviderRow[];
+    /** Configured realtime providers; absent selects the bundled provider. */
+    readonly realtimeRows?: readonly ProviderRow[];
   };
   /**
    * Absent means this brain has no body: no socket is bound and machine-backed
@@ -730,6 +732,7 @@ function modelFromEnv(env: Record<string, string | undefined>): OniConfig["model
     ...(headers === undefined ? {} : { headers }),
     ...(fallbacks === undefined ? {} : { fallbacks }),
     ...(rows.some((candidate) => candidate.transcription !== undefined) ? { transcriptionRows: rows } : {}),
+    ...(rows.some((candidate) => candidate.realtime !== undefined) ? { realtimeRows: rows } : {}),
   };
 }
 

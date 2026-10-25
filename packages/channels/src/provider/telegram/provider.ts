@@ -29,6 +29,7 @@ export function createTelegramProvider(
       media: TELEGRAM_MEDIA_LIMITS,
       react: true,
       typing: true,
+      voice: false,
     },
     credentials: z.object({ token: z.string().min(1) }).strict(),
     settings: z.record(z.string(), z.never()),

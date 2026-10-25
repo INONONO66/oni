@@ -15,6 +15,7 @@ test.each([
   { trigger: { type: "webhook", secretRef: "hook" }, event: "webhook", selector: { secretRef: "hook" } },
   { trigger: { type: "github", event: "pull_request.opened" }, event: "github", selector: { githubEvent: "pull_request.opened" } },
   { trigger: { type: "schedule", cron: "* * * * *", tz: "UTC" }, event: "schedule", selector: { channelId: "cron:* * * * *" } },
+  { trigger: { type: "call", surface: "discord" }, event: "call", selector: { surface: "discord" } },
 ] as const)("specialized trigger matches its input and rejects the wrong selector", ({ trigger, event, selector }) => {
   const automation = Ingress.Automation.parse({ ...record, triggers: [trigger] });
   expect(match([automation], { ...input, event, ...selector }, { now: 0 }).route?.kind).toBe("action");

@@ -24,6 +24,7 @@ export function createA2AProvider(peers: PeerResolver, card: A2ACardFacts): Chan
       media: false,
       react: false,
       typing: false,
+      voice: false,
     },
     credentials: A2ACredentials,
     settings: z.record(z.string(), z.never()),

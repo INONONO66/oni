@@ -1,9 +1,10 @@
 export { WebSocketHandler } from "./websocket.js";
 export type { WsConnection } from "./websocket.js";
-export { AttachmentRefused, AutomationConfigurationError, ChannelsFailure, decodeChannelFailure, SendAdmissionConflict } from "./errors.js";
+export { AttachmentRefused, AutomationConfigurationError, ChannelsFailure, decodeChannelFailure, SendAdmissionConflict, VoiceJoinRefused } from "./errors.js";
 export type { ChannelError } from "./errors.js";
 export type { AccountIdentity, ChannelProvider, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "./provider/contract.js";
 export { OwnerPosture } from "./provider/contract.js";
+export type { PcmVoiceHandle, ProviderVoiceRoute, VoiceEvent } from "./provider/voice.js";
 export { OwnerLogins, type OwnerLogin } from "./provider/owner-login.js";
 export { inboundOnce } from "./support/inbound-once.js";
 export { activeBudgetFor } from "./router/messaging/admission.js";

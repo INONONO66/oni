@@ -22,7 +22,7 @@ import { CommitRefused } from "../../src/core/store/errors";
 import { armAction, AlarmWakeError, type AlarmCapability } from "../../src/core/ports/alarm";
 import { writerLoop, type ActivationHandle, type SessionKernel } from "../../src/core/session/entity";
 import { forwardState } from "../../src/core/session/entity-activation";
-import { AdmissionFailure, AlarmOccurrence, type AlarmRpc, type DeliverRpc, type ReadRpc, type ResolveRpc } from "../../src/core/journal/messages";
+import { AdmissionFailure, AlarmOccurrence, type AlarmRpc, type DeliverRpc, type ReadRpc, type ResolveRpc, type ToolTurnRpc } from "../../src/core/journal/messages";
 import type { SessionEntityPorts } from "../../src/core/session/run";
 import { clusterTempDir, makeTurnPort, resolvedRunner } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
@@ -37,7 +37,7 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-type SessionRpcs = typeof DeliverRpc | typeof ResolveRpc | typeof AlarmRpc | typeof ReadRpc;
+type SessionRpcs = typeof DeliverRpc | typeof ResolveRpc | typeof AlarmRpc | typeof ReadRpc | typeof ToolTurnRpc;
 type SessionRequest = Envelope.Request<SessionRpcs>;
 type SessionReplier = Entity.Replier<SessionRpcs>;
 
@@ -169,6 +169,7 @@ function makeWriterWorld(
       scope,
       gate,
       live: { current: undefined },
+      toolCalls: new Map(),
       closing: { current: false },
       forwards: forwardState(),
       keepAlive: () => Effect.void,
@@ -405,10 +406,11 @@ test("interruption fails every queued envelope with AdmissionFailure{shutdown}",
         inputId: "req-shutdown:input",
       }),
       envelope(sessionId, "Read", { model: "history", cursor: 0 }),
+      envelope(sessionId, "Tool", { op: "run", sourceTurnId: "p1", call: "{}", waitMs: 1 }),
     ]);
     yield* Fiber.interrupt(fiber);
-    const failed = yield* takeN(world.failures, 4);
-    expect(failed.map((entry) => entry.tag).sort()).toEqual(["Alarm", "Deliver", "Read", "Resolve"]);
+    const failed = yield* takeN(world.failures, 5);
+    expect(failed.map((entry) => entry.tag).sort()).toEqual(["Alarm", "Deliver", "Read", "Resolve", "Tool"]);
     for (const entry of failed) {
       expect(entry.error).toBeInstanceOf(AdmissionFailure);
       if (entry.error instanceof AdmissionFailure) expect(entry.error.code).toBe("shutdown");

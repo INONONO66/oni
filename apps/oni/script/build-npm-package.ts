@@ -29,12 +29,17 @@ const staging = process.argv[2] ?? join(appDir, "dist-npm");
  * dependencies; the resolver records the version the bundler would have
  * inlined so the pin and the bundle can never drift apart.
  */
-const NATIVE_ADDONS = ["classic-level"];
 const nativeAddonVersions = new Map<string, string>();
+const sdkDir = dirname(Bun.resolveSync("agent-messenger/package.json", join(appDir, "..", "..", "packages", "channels")));
+for (const name of ["opusscript", "@discordjs/opus", "@snazzah/davey"]) {
+  const manifest = Bun.resolveSync(`${name}/package.json`, sdkDir);
+  const { version } = JSON.parse(readFileSync(manifest, "utf-8")) as { readonly version: string };
+  nativeAddonVersions.set(name, version);
+}
 const externalNativeAddons: BunPlugin = {
   name: "external-native-addons",
   setup(build) {
-    build.onResolve({ filter: new RegExp(`^(${NATIVE_ADDONS.join("|")})$`) }, (args) => {
+    build.onResolve({ filter: /^(classic-level|@discordjs\/voice|prism-media)$/ }, (args) => {
       const manifest = Bun.resolveSync(`${args.path}/package.json`, dirname(args.importer));
       const { version } = JSON.parse(readFileSync(manifest, "utf-8")) as { readonly version: string };
       nativeAddonVersions.set(args.path, version);
@@ -72,7 +77,8 @@ const manifest = {
   type: "module",
   bin: { oni: "bin/oni.js" },
   files: ["bin", "dist", "README.md"],
-  dependencies: Object.fromEntries([...nativeAddonVersions].sort(([a], [b]) => a.localeCompare(b))),
+  dependencies: Object.fromEntries([...nativeAddonVersions].filter(([name]) => name !== "@discordjs/opus").sort(([a], [b]) => a.localeCompare(b))),
+  optionalDependencies: { "@discordjs/opus": nativeAddonVersions.get("@discordjs/opus") },
   repository: { type: "git", url: "git+https://github.com/INONONO66/oni.git" },
   engines: { node: ">=20" },
   publishConfig: { access: "public" },

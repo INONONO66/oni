@@ -208,6 +208,7 @@ test.each([
   { type: "webhook", fields: [["Secret reference", "secret:hook"]], trigger: { type: "webhook", secretRef: "secret:hook" } },
   { type: "github", fields: [["GitHub event", "pull_request.opened"]], trigger: { type: "github", event: "pull_request.opened" } },
   { type: "message", fields: [["Surface", "slack"], ["Event", "reaction"]], trigger: { type: "message", surface: "slack", event: "reaction" } },
+  { type: "call", fields: [["Surface", "discord"]], trigger: { type: "call", surface: "discord" } },
   { type: "on_demand", fields: [], trigger: { type: "on_demand" } },
 ] as const)("edits $type trigger fields without losing the record identity", async ({ type, fields, trigger }) => {
   const fixture = createAutomationFixture();

@@ -47,7 +47,7 @@ export { receivedMessageAction, staleActionBacklog } from "./journal/delivery";
 export { armAction, firedAction, alarmDisposition, AlarmSendRefused, ArmRefused, AlarmWakeError, type AlarmCapability, type AlarmArmNotice, type AlarmChainReads, type AlarmDisposition, type AlarmDrainConfig, type AlarmFired, type AlarmPurposeRegistry, type AlarmSweepConfig, type AlarmWakeContext, type AlarmWakeOutcome, type ArmVerb } from "./ports/alarm";
 export { foldAlarmChains, openAlarmIds, type AlarmArmRow, type AlarmChainView } from "./session/alarm-read";
 export { SessionEntity, SessionEntityContext, type SessionKernel } from "./session/entity";
-export { Ledger, OpenRefused, openLedger, sessionClient, createSessionPortsSlot, sessionFilePath, type ClusterServices, type LedgerConfig, type LedgerHost, type LedgerPlane, type LedgerStoreConfig } from "./session/host";
+export { Ledger, OpenRefused, openLedger, sessionClient, sessionTool, createSessionPortsSlot, sessionFilePath, type ClusterServices, type LedgerConfig, type LedgerHost, type LedgerPlane, type LedgerStoreConfig } from "./session/host";
 export type { SessionHostRuntime, SessionRuntimeOptions } from "./session/runtime";
 export { makeObservationBus, observationBusLayer, scopeObservation } from "./observation/bus";
 export { forkSession, ForkRefused, isForkBoundary, DEFAULT_FORK_COPY_BYTE_CAP, type ForkInput, type ForkPorts, type ForkReceipt, type ForkRefusalReason } from "./session/fork";
@@ -56,6 +56,7 @@ export { sessionReadModel, type SessionReadModel } from "./read-model/session";
 export { readCatalog } from "./read-model/catalog";
 export { prepareSession } from "./session/create";
 export { turnIntent } from "./store/session-reads";
+export { ToolTurnRefused } from "./journal/messages";
 
 export {
   CATALOG_SCHEMA, bootstrapStoreDatabase,

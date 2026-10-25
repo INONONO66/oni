@@ -1,9 +1,9 @@
-import { Core } from "@oni/agent";
+import { Bundle, Core } from "@oni/agent";
 type SessionHandle = Core.SessionHandle;
 type SessionRunner = Core.SessionRunner;
 type ObservationPublishFailure = Core.ObservationPublishFailure;
 import { type ChannelStore, createActorRegistry, createChannelGrantStore, createChannelInstanceStore, createMachineEnrollmentStore, createPersonStore, createSecretStore, openChannelStore } from "@oni/channels";
-import { Context, Deferred, Effect, Exit, Layer } from "effect";
+import { Context, Deferred, Effect, Exit, Layer, type Scope } from "effect";
 
 /**
  * Cluster plane composition (W5.2 #1197 plan §1): the core host (`Core.openLedger`)
@@ -179,6 +179,21 @@ export interface SessionLivePlane {
   ids(): readonly string[];
   /** Publishes the turn's live surfaces for the runner's lifetime; nested turns keep the outermost entry. */
   wrapRunner(sessionId: string, runner: SessionRunner): SessionRunner;
+}
+
+/** The entity's external tool turn uses the same dispatcher and live-turn lifetime as the app runner. */
+export function bindSessionToolTurn(
+  turns: Effect.Success<Core.SessionHostRuntime["turns"]>,
+  options: Core.SessionRuntimeOptions,
+  scope: Scope.Scope,
+  liveTurns: SessionLivePlane,
+): NonNullable<Core.SessionEntityPorts["runTool"]> {
+  return turns.tool((input, call) =>
+    Bundle.createTurnDispatcher(input, options).pipe(
+      Effect.flatMap((dispatcher) => dispatcher.execute(call, {
+        sessionId: input.sessionId, turnId: input.turnId, signal: input.signal,
+      })),
+    ), scope, (runner) => (input) => liveTurns.wrapRunner(input.sessionId, runner)(input));
 }
 
 type EntityClient = Effect.Success<typeof Core.sessionClient>;

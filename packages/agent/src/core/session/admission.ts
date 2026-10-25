@@ -5,7 +5,7 @@ import { CommitRefused, type LedgerError } from "../store/errors";
 
 import type { CommitReceipt } from "../store/services";
 import { ObservationSink, type RunnerServices } from "../ports/ports";
-import { canonicalDigest, Journal, type SessionGeneration, type Delivery, type LedgerAction, type LedgerSession, type PlainValue, } from "@oni/protocol";
+import { canonicalDigest, Journal, Delivery, PlainObjectSchema, type Tool, type SessionGeneration, type LedgerAction, type LedgerSession, type PlainValue, } from "@oni/protocol";
 import { createExecutor } from "../loop/executor";
 import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES } from "../ports/tool-output";
 import { AgentFailure, CommitFailed, type ExecutionError, type SessionError } from "../ports/failure";
@@ -14,7 +14,7 @@ import type { ResolvedSessionRuntime, SessionRunnerResult } from "./run";
 import type { ExecutionLedger } from "../loop/executor";
 import type { SessionKernel } from "./entity";
 import { turnIntentAction } from "../journal/turn-rows";
-import { deliveryActions, inputRowKind, boundaryConsumption, consumptionSettings } from "../journal/delivery";
+import { deliveryActions, receivedMessageAction, inputRowKind, boundaryConsumption, consumptionSettings } from "../journal/delivery";
 import { policyRefusalResult } from "../journal/commit";
 import type { SessionControllerState } from "./run";
 import { observeDrained } from "../observation/bus";
@@ -23,6 +23,12 @@ import { commitSessionRequest } from "./request";
 import { commitFoldBatch } from "../journal/compaction";
 
 type AdmissionError = SessionError;
+
+interface ExternalTurn {
+  readonly call: Tool.Call;
+  readonly sourceTurnId: string;
+  readonly origin: Delivery.Origin;
+}
 
 interface AdmissionSnapshot {
   readonly row: LedgerSession.Row;
@@ -170,7 +176,27 @@ export function createSessionAdmission(
     });
   }
 
-  function startTurn(): Effect.Effect<SessionRunnerResult | undefined, AdmissionError> {
+  function turnInputs(external?: ExternalTurn) {
+    const backlog = kernel.pendingMessagesSince(sessionId);
+    if (external === undefined) return {
+      ...boundaryConsumption(backlog.rows, "turn_end", consumptionSettings(kernel, sessionId), kernel.compactionHead(sessionId)),
+      intake: [], backlog,
+    };
+    const item = Delivery.Row.parse({
+      id: entropy(), sessionId, kind: "action", content: "", status: "pending",
+      consumedBy: null, consumedAt: null, createdAt: clock(), ordinal: kernel.row(sessionId).revision + 1,
+      origin: { encodingVersion: 1, value: {
+        ...PlainObjectSchema.parse(external.origin.value),
+        sourceTurnId: external.sourceTurnId, toolCall: external.call,
+      } },
+    });
+    return {
+      consumed: [item], stale: [], backlog,
+      intake: [receivedMessageAction({ ...item, parentActionId: null, at: item.createdAt })],
+    };
+  }
+
+  function startTurn(external?: ExternalTurn): Effect.Effect<SessionRunnerResult | undefined, AdmissionError> {
     return Effect.scoped(Effect.gen(function* () {
       yield* awaitRetainedRunner();
       yield* adoptComposedManifest();
@@ -179,13 +205,7 @@ export function createSessionAdmission(
       const observations = yield* captured.provide(ObservationSink);
       // Turn end: steer and followUp rows are both eligible, each capped by its
       // width; the stale split lives INSIDE boundaryConsumption.
-      const backlog = kernel.pendingMessagesSince(sessionId);
-      const { consumed: pending, stale } = boundaryConsumption(
-        backlog.rows,
-        "turn_end",
-        consumptionSettings(kernel, sessionId),
-        kernel.compactionHead(sessionId),
-      );
+      const { consumed: pending, stale, intake, backlog } = turnInputs(external);
       const evaluatedPrompts = yield* captured.provide(evaluatePromptPolicies(pending)).pipe(Effect.provide(runtime.services));
       if (evaluatedPrompts.refusal !== undefined) {
         yield* consumePolicyBlockedDeliveries(pending);
@@ -219,7 +239,7 @@ export function createSessionAdmission(
       });
       yield* commitSession({
         expectedRevision: kernel.row(sessionId).revision,
-        actions: [...deliveries, envelope],
+        actions: [...intake, ...deliveries, envelope],
         state: "running",
       });
       observeDrained(delivered, turnId, "before_llm", clock(), observations, entropy);

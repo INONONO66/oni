@@ -27,7 +27,7 @@ function createKakaoTalkOwnerArm(sdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk()): 
       "the Owner accepts automation under their own account: one session per device slot, a second login on the same slot kicks this one",
       "AGENT_MESSENGER_CONFIG_DIR names where the SDK keeps the LOCO sync state (no secret)",
     ],
-    capabilities: { deliver: true, react: false, media: KAKAOTALK_MEDIA_LIMITS, typing: true },
+    capabilities: { deliver: true, react: false, media: KAKAOTALK_MEDIA_LIMITS, typing: true, voice: false },
     listen: true,
     create(credentials, posture, publish, options) {
       const surface = new KakaoTalkOwnerAdapter(credentials, posture, publish, options, sdk);
@@ -64,6 +64,7 @@ export function createKakaoTalkProvider(
       media: false,
       react: false,
       typing: true,
+      voice: false,
     },
     owner: createKakaoTalkOwnerArm(ownerSdk),
     credentials: z.custom<never>(() => false, {

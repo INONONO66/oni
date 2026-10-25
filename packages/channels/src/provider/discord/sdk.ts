@@ -3,8 +3,12 @@ import {
   DiscordBotError,
   DiscordBotListener,
   DiscordIntent,
+  DiscordVoiceError,
+  joinVoice,
 } from "agent-messenger/discordbot";
-import type { DiscordBotListenerEventMap } from "agent-messenger/discordbot";
+import type { DiscordBotListenerEventMap, DiscordVoiceHandle, DiscordVoiceStateUpdate } from "agent-messenger/discordbot";
+export { DiscordVoiceError };
+export type { DiscordVoiceStateUpdate, DiscordVoiceHandle };
 import { DiscordApiError } from "../../errors";
 import { transportFailure, type TransportFailure } from "../../support/transport-failure";
 import { z } from "zod";
@@ -39,6 +43,8 @@ export interface DiscordApi {
 
 export interface DiscordBotApi extends DiscordApi {
   respondToInteraction(id: string, token: string, type?: number): Promise<void>;
+  getChannel(channelId: string): Promise<{ guild_id?: string; type: number }>;
+  getUser(userId: string): Promise<{ bot?: boolean }>;
 }
 
 /** The SDK's gateway event map, re-exported so the surface never imports the SDK itself. */
@@ -51,34 +57,44 @@ export interface DiscordBotEvents {
   ): this;
   start(): Promise<void>;
   stop(): void;
+  botUserId(): string | undefined;
 }
 
 /** Construction seams: the real SDK in production, scripted fakes in tests. */
 export interface DiscordSdk {
   client(): DiscordBotApi;
   listener(client: DiscordBotApi, options: { readonly intents: number }): DiscordBotEvents;
+  joinVoice(guildId: string, channelId: string, options: {
+    listener: DiscordBotEvents; speakerId: string; signal?: AbortSignal;
+  }): Promise<DiscordVoiceHandle>;
 }
 
 /**
  * The intents this surface consumes. MESSAGE CONTENT is privileged: without
- * the portal switch Discord delivers empty bodies and no error, which is why
- * the provider lists it as an operator precondition.
+ * the portal switch Discord delivers empty bodies and no error. GuildVoiceStates
+ * is not privileged and needs only the Identify bit, not a portal switch.
  */
 export const DISCORD_INTENTS: number =
   DiscordIntent.Guilds |
   DiscordIntent.GuildMessages |
   DiscordIntent.GuildMessageReactions |
+  DiscordIntent.GuildVoiceStates |
   DiscordIntent.DirectMessages |
   DiscordIntent.DirectMessageReactions |
   DiscordIntent.MessageContent;
 
-export function discordSdk(): DiscordSdk {
+export function discordSdk(voiceJoin: typeof joinVoice = joinVoice): DiscordSdk {
   return {
     client: () => new CheckedDiscordBotClient({ retries: 0 }),
     listener: (client, options) => {
       if (!(client instanceof DiscordBotClient))
         throw new DiscordApiError({ message: "Discord listener requires its SDK client" });
       return new DiscordBotListener(client, { intents: options.intents });
+    },
+    joinVoice: (guildId, channelId, options) => {
+      if (!(options.listener instanceof DiscordBotListener))
+        throw new DiscordApiError({ message: "Discord voice requires its SDK listener" });
+      return voiceJoin(guildId, channelId, { ...options, listener: options.listener });
     },
   };
 }

@@ -7,6 +7,10 @@ type Handler = (...args: never[]) => void;
 /** The SDK's READY info: the bot user and its session. */
 export const READY = { user: { id: "bot", username: "oni" }, sessionId: "session" };
 
+export async function* emptyVoiceStream<T>(): AsyncIterable<T> {
+  yield* [];
+}
+
 /**
  * A scripted stand-in for the SDK gateway listener: the test emits the
  * dispatches Discord would have pushed. `start()` runs the scripted opening
@@ -19,11 +23,15 @@ export class FakeDiscordListener implements DiscordBotEvents {
   started = 0;
   stopped = 0;
   intents: number | undefined;
+  private currentBotId: string | undefined;
 
   constructor(
     private readonly onStart: (self: FakeDiscordListener) => void = (self) =>
       self.emit("connected", READY),
-  ) {}
+  ) {
+    this.on("connected", ({ user }) => { this.currentBotId = user.id; });
+    this.on("disconnected", () => { this.currentBotId = undefined; });
+  }
 
   on<K extends keyof DiscordBotListenerEventMap>(
     event: K,
@@ -46,6 +54,11 @@ export class FakeDiscordListener implements DiscordBotEvents {
 
   stop(): void {
     this.stopped += 1;
+    this.currentBotId = undefined;
+  }
+
+  botUserId(): string | undefined {
+    return this.currentBotId;
   }
 
   emit<K extends keyof DiscordBotListenerEventMap>(
@@ -73,6 +86,18 @@ export class FakeDiscordClient extends ScriptedClient implements DiscordBotApi {
     this.calls.push({ method: "createMessage", channelId });
     this.failures.check("createMessage");
     return Promise.resolve({ id: "m-17" });
+  }
+
+  getChannel(channelId: string): Promise<{ guild_id?: string; type: number }> {
+    this.calls.push({ method: "getChannel", channelId });
+    this.failures.check("getChannel");
+    return Promise.resolve({ guild_id: "guild", type: 2 });
+  }
+
+  getUser(userId: string): Promise<{ bot?: boolean }> {
+    this.calls.push({ method: "getUser", messageId: userId });
+    this.failures.check("getUser");
+    return Promise.resolve({ bot: false });
   }
 
   createDm(userId: string): Promise<{ id: string }> {
@@ -120,6 +145,9 @@ export function fakeDiscordSdk(listener?: FakeDiscordListener): {
       listener: (_client, options) => {
         events.intents = options.intents;
         return events;
+      },
+      joinVoice: async () => {
+        throw new Error("fake joinVoice must be supplied by the test");
       },
     },
   };

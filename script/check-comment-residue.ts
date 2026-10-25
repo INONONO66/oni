@@ -307,6 +307,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
   ["packages/agent/src/core/session/outbound.ts", [0, 0]],
   ["packages/agent/src/core/session/runtime.ts", [0, 0]],
   ["packages/agent/src/core/session/turn-open.ts", [0, 0]],
+  ["packages/agent/src/core/session/tool-turn.ts", [0, 0]],
   ["packages/agent/src/core/ports/failure.ts", [0, 0]],
   ["packages/agent/src/core/session/fork.ts", [0, 0]],
   ["packages/agent/src/core/gate/bind.ts", [0, 0]],

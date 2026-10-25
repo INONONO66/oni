@@ -1,15 +1,16 @@
 import * as SessionHandleStore from "../store/fence";
 import { FenceRefused } from "../store/errors";
-import { Cause, Duration, Effect, Option, Queue, Semaphore } from "effect";
+import { Cause, Deferred, Duration, Effect, Option, Queue, Semaphore } from "effect";
 import { Entity, type Envelope, type Sharding } from "effect/cluster";
 import { logRestoredHistory } from "./recovery";
 import type { SessionEntityAuthority } from "./run";
-import { AdmissionFailure, type AlarmRpc, type DeliverRpc, type ReadPage, type ReadRpc, type ResolveRpc } from "../journal/messages";
+import { AdmissionFailure, type AlarmRpc, type DeliverRpc, type ReadPage, type ReadRpc, type ResolveRpc, type ToolTurnRpc } from "../journal/messages";
 import type { AlarmDrainConfig } from "../ports/alarm";
 import { renderReadModel } from "./read";
 import { SessionEntity, SessionEntityContext, adoptFence, armResumeOnPassivation, entityArmVerb, forwardState, resendArmedAlarms, rotateActivationFence, type ActivationHandle, type SessionReplier, type SessionRequest } from "./entity-activation";
 import { deliver, drain, resolveCommand } from "./entity-delivery";
 import { alarmOccurrence } from "./entity-alarm";
+import { executeExternalTool } from "./tool-turn";
 
 function readProjection(
   handle: ActivationHandle,
@@ -55,6 +56,8 @@ function refuse(
       return replier.fail(request as Envelope.Request<typeof AlarmRpc>, failure);
     case "Read":
       return replier.fail(request as Envelope.Request<typeof ReadRpc>, failure);
+    case "Tool":
+      return replier.fail(request as Envelope.Request<typeof ToolTurnRpc>, failure);
   }
 }
 
@@ -126,6 +129,24 @@ export function writerLoop(
           handle.scope,
         ).pipe(Effect.asVoid);
       }
+      case "Tool": {
+        const req = request as Envelope.Request<typeof ToolTurnRpc>;
+        if (req.payload.op === "cancel") {
+          const active = handle.toolCalls.get(req.payload.callId);
+          if (active === undefined) handle.toolCalls.set(req.payload.callId, null);
+          active?.controller.abort();
+          return (active == null ? Effect.void : Deferred.await(active.done)).pipe(
+            Effect.andThen(replier.succeed(req, "")),
+          );
+        }
+        return Effect.forkIn(
+          executeExternalTool(handle, req.payload).pipe(
+            Effect.exit,
+            Effect.flatMap((exit) => replier.complete(req, exit)),
+          ),
+          handle.scope,
+        ).pipe(Effect.asVoid);
+      }
     }
   };
 
@@ -184,6 +205,7 @@ function activate(drainConfig: AlarmDrainConfig) {
         scope,
         gate,
         live: { current: undefined },
+        toolCalls: new Map(),
         closing,
         forwards: forwardState(),
         keepAlive: (enabled) =>
