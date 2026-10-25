@@ -147,6 +147,24 @@ function reasons<E>(exit: Exit.Exit<readonly RealtimeEvent[], E>): string[] {
 }
 
 describe("realtime socket", () => {
+  test("a configured endpoint query survives beside the model selection", async () => {
+    const authFilePath = await credentials({ type: "api", key: "key" });
+    const socket = new Socket();
+    const urls: string[] = [];
+    const exit = await runTestExit(Effect.scoped(makeRealtime({
+      authFilePath,
+      rows: [ProviderRow.parse({
+        id: "openai", npm: "@ai-sdk/openai",
+        realtime: { endpoint: "wss://hub.test/v1/realtime?api-version=v1", model: "custom", voice: "marin" },
+      })],
+      socket: (url) => { urls.push(url); return socket; },
+    }).open(request)));
+    expect(Exit.isSuccess(exit)).toBe(true);
+    const url = new URL(urls[0] ?? "https://missing.test");
+    expect(url.searchParams.get("model")).toBe("custom");
+    expect(url.searchParams.get("api-version")).toBe("v1");
+  });
+
   test("sends exact session configuration, bearer and encoded model URL", async () => {
     const socket = new Socket();
     const seen: { url: string; headers: Readonly<Record<string, string>> }[] = [];

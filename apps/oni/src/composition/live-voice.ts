@@ -72,17 +72,14 @@ async function joinVoice(route: ProviderVoiceRoute, request: CallRequest, speake
 }
 
 function failedCall(
-  error: string | Error,
+  error: Error,
   handle: PcmVoiceHandle | undefined,
-  stopped: boolean,
   joinedSettled: boolean,
   joined: ReturnType<typeof Promise.withResolvers<void>>,
 ): CallEndReason {
-  if (handle === undefined) joined.reject(error);
-  else if (!stopped && error instanceof Core.ToolRefused) joined.reject(error);
-  else if (!stopped && error instanceof Error && !joinedSettled)
-    joined.reject(refused("call_realtime_failed", error.message));
-  return typeof error === "string" && isEndReason(error) ? error : "realtime_error";
+  if (handle === undefined || error instanceof Core.ToolRefused) joined.reject(error);
+  else if (!joinedSettled) joined.reject(refused("call_realtime_failed", error.message));
+  return isEndReason(error.message) ? error.message : "realtime_error";
 }
 
 function finalOutcome(sessionId: string, call: string, reason: CallEndReason, releaseFailure?: string): LiveCallEnd {
@@ -128,6 +125,7 @@ function runCall(
   joined: () => void,
   release: () => Promise<void>,
   signal: AbortSignal,
+  admission: AbortSignal,
 ): Promise<CallEndReason> {
   const down = createDownsampler();
   const up = createUpsampler();
@@ -150,7 +148,7 @@ function runCall(
           }).pipe(Effect.orDie),
         });
         joined();
-        const tools = Stream.runForEach(session.toolCalls, (call) => dispatchTool(input, session, call, request, callId, signal))
+        const tools = Stream.runForEach(session.toolCalls, (call) => dispatchTool(input, session, call, request, callId, admission))
           .pipe(Effect.andThen(Effect.promise(release)), Effect.as("realtime_closed" as CallEndReason));
         return yield* Effect.raceAllFirst([tools, endOnRealtimeEvents(session, release)]);
       }),
@@ -188,6 +186,7 @@ export function createLiveVoice(input: LiveVoiceInputs): {
     const callId = input.id();
     const specs = Core.currentInvocation().cell.specs;
     const controller = new AbortController();
+    const admission = new AbortController();
     const joined = Promise.withResolvers<void>();
     let reason: CallEndReason = "realtime_closed";
     let handle: PcmVoiceHandle | undefined;
@@ -201,12 +200,17 @@ export function createLiveVoice(input: LiveVoiceInputs): {
         if (failure !== undefined) releaseFailure = String(failure);
       });
     };
+    // Every terminal path closes tool admission before it waits on the voice leave.
+    const terminate = (): Promise<void> => {
+      admission.abort();
+      return releaseVoice();
+    };
     const stop = async (next: CallEndReason) => {
       if (!stopped) {
         stopped = true;
         reason = next;
         controller.abort();
-        await releaseVoice();
+        await terminate();
       }
       await done;
     };
@@ -216,15 +220,12 @@ export function createLiveVoice(input: LiveVoiceInputs): {
         .then((voice) => {
           handle = voice;
           return runCall(input, request, voice, specs, callId, endpoint.externalId,
-            joined.resolve, releaseVoice, controller.signal);
+            joined.resolve, terminate, controller.signal, admission.signal);
         }, ThrownError.parse).then((value) => value, ThrownError.parse);
       if (outcome instanceof Error) {
-        if (!stopped) {
-          reason = failedCall(outcome, handle, stopped, joinedSettled, joined);
-          if (isEndReason(outcome.message)) reason = outcome.message;
-        }
+        if (!stopped) reason = failedCall(outcome, handle, joinedSettled, joined);
       } else reason = outcome;
-      await releaseVoice();
+      await terminate();
       joined.reject(refused("call_realtime_failed", "call ended before the realtime session opened"));
       active.delete(request.sessionId);
       if (releaseFailure !== undefined)

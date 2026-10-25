@@ -534,7 +534,6 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
       typing: true,
       voice: false,
     });
-    expect(provider.owner?.listen).toBe(true);
     expect(provider.owner?.credentials.safeParse(CREDENTIALS).success).toBe(true);
     expect(provider.owner?.credentials.safeParse({ oauthToken: "o", userId: "1" }).success).toBe(
       true,

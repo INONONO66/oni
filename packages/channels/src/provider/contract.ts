@@ -106,6 +106,20 @@ interface ProviderCapabilities {
 }
 
 /**
+ * A webhook platform answered in text alone: it renders markdown itself and
+ * enforces no per-message limit, and nothing but text goes out.
+ */
+export const WEBHOOK_TEXT_CAPABILITIES: ProviderCapabilities = {
+  deliver: true,
+  webhook: true,
+  render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null },
+  media: false,
+  react: false,
+  typing: false,
+  voice: false,
+};
+
+/**
  * One constructed channel instance: the surface plus its optional seams. The
  * seams mirror `ProviderCapabilities` — a provider declaring `deliver` MUST
  * return `deliveryRoute`, one declaring `webhook` MUST return

@@ -435,7 +435,7 @@ describe("Discord bot voice route and call facts", () => {
     await adapter.stop("stop");
   });
 
-  it("releases a disconnected handle even without an event consumer", async () => {
+  it("releases a disconnected handle without an event consumer, and leaving it keeps the live replacement", async () => {
     const fake = await started();
     const { adapter } = fake;
     const terminated = Promise.withResolvers<void>();
@@ -449,10 +449,11 @@ describe("Discord bot voice route and call facts", () => {
     let joins = 0;
     fake.sdk.joinVoice = async () => (++joins === 1 ? first.handle : second.handle);
     const address = { ...voiceAddress, channelId: "voice" };
-    await adapter.joinVoice(address);
+    const oldHandle = await adapter.joinVoice(address);
     terminated.resolve();
     await consumed.promise;
     await adapter.joinVoice(address);
+    await oldHandle.leave();
     await adapter.stop("stop");
     expect(joins).toBe(2);
     expect(second.left.count).toBe(1);

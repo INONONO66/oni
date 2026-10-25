@@ -41,6 +41,7 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
   const calls = runSyncEffect(Queue.unbounded<RealtimeToolCall>());
   const events = runSyncEffect(Queue.unbounded<RealtimeEvent | null>());
   const answeredCalls = runSyncEffect(Queue.unbounded<string>());
+  const pulledCalls = runSyncEffect(Queue.unbounded<string>());
   const outputs: Uint8Array[] = [];
   const responses: { id: string; value: PlainValue }[] = [];
   const outcomes: { sessionId: string; call: string; reason: CallEndReason; releaseFailure?: string }[] = [];
@@ -77,7 +78,7 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
       ? Effect.fail(new TransportFailure({ operation: "realtime.socket", message: "handshake rejected", cause: "rejected" }))
       : Effect.promise(() => opening ?? Promise.resolve()).pipe(Effect.andThen(Effect.acquireRelease(
       Effect.succeed({
-        toolCalls: Stream.fromQueue(calls),
+        toolCalls: Stream.fromQueue(calls).pipe(Stream.tap((call) => Queue.offer(pulledCalls, call.callId))),
         events: Stream.fromQueue(events).pipe(Stream.takeWhile((event) => event !== null)),
         respondTool: (id: string, value: PlainValue) => Effect.sync(() => {
           responses.push({ id, value });
@@ -142,7 +143,7 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
     return receipt;
   };
   return {
-    plane, kernel, world, sessionId, execute, driver, routes, inbound, voiceEvents, calls, events, answeredCalls,
+    plane, kernel, world, sessionId, execute, driver, routes, inbound, voiceEvents, calls, events, answeredCalls, pulledCalls,
     joined: joined.promise, answered: answered.promise, audioWritten: audioWritten.promise, leaveStarted: leaveStarted.promise, ended: ended.promise,
     speech: speech.promise, capturedSpeech, responses, outputs, outcomes, incidents,
     leaves: () => leaves, closes: () => closes, bodyCalls: () => bodyCalls,
@@ -340,6 +341,29 @@ test("stopping closes tool admission before a held voice leave settles", async (
     leave.resolve();
     await bounded(stopping);
   }
+  expect(f.bodyCalls()).toBe(0);
+});
+
+test("the Owner leaving closes tool admission before a held voice leave settles", async () => {
+  const f = fixture();
+  await bounded(f.execute());
+  const leave = Promise.withResolvers<void>();
+  f.holdLeave(leave.promise);
+  try {
+    await runEffect(Queue.offer(f.voiceEvents, { type: "speaker_left", externalId: "owner-user" }));
+    await bounded(f.leaveStarted);
+    // The tool stream pulls the barrier only after it has fully dispatched the call before it.
+    for (const callId of ["after-departure", "barrier"]) {
+      await runEffect(Queue.offer(f.calls, { callId, name: "probe", arguments: { n: 91 } }));
+      expect(await bounded(runEffect(Queue.take(f.pulledCalls)))).toBe(callId);
+    }
+    expect(f.bodyCalls()).toBe(0);
+    expect(f.responses).toEqual([]);
+  } finally {
+    leave.resolve();
+    await bounded(f.ended);
+  }
+  expect(f.outcomes[0]?.reason).toBe("owner_left");
   expect(f.bodyCalls()).toBe(0);
 });
 

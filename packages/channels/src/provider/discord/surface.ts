@@ -333,7 +333,7 @@ export class DiscordAdapter extends BotState implements Channel.Surface {
         try {
           await raw.leave();
         } finally {
-          live.delete(guild);
+          release();
         }
       },
     };
