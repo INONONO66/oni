@@ -1172,6 +1172,15 @@ waiting for its first hello when it is stopped. Receipts:
 `apps/oni/test/channel-lifecycle.test.ts`, and the fork's
 `src/platforms/telegram/account.test.ts`.
 
+Gate fix PR #1664 (G5S B1): the fork dist pin is now `6374b5b7` (source
+`be06d64b`). A stop that lands while the account client's start is still
+creating its directories or loading the TDLib binding now ends that start
+with `session_lost` before any native client exists. Before, the SDK close
+returned at once, the adapter released session custody, and the late start
+created a TDLib client that was never closed natively. Receipts: the fork's
+`src/platforms/telegram/account.test.ts` (a close in each window before
+native allocation).
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on
