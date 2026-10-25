@@ -518,15 +518,15 @@ impl Pty {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pty::fixture::script;
     use std::future::Future;
-    use std::os::unix::fs::PermissionsExt;
 
     async fn terminal(responses: &str) -> (tempfile::TempDir, Pty) {
         let root = tempfile::tempdir().expect("control script directory");
-        let script = root.path().join("terminal");
-        std::fs::write(
-            &script,
-            format!(
+        let script = script(
+            root.path(),
+            "terminal",
+            &format!(
                 "#!/bin/sh\n\
                  if [ \"$1\" = -V ]; then exit 0; fi\n\
                  printf '%%begin 1 1 1\\n%%end 1 1 1\\n'\n\
@@ -536,10 +536,7 @@ mod tests {
                    printf '%%%s 2 1 1\\n' \"$outcome\"\n\
                  done\n"
             ),
-        )
-        .expect("script fixture");
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))
-            .expect("script permissions");
+        );
         let pty = Pty::new(script.to_str().expect("utf8"), None, "g".into()).await;
         (root, pty)
     }
@@ -697,11 +694,11 @@ mod tests {
     #[tokio::test]
     async fn control_that_exits_before_startup_reply_is_gone() {
         let root = tempfile::tempdir().expect("script directory");
-        let script = root.path().join("exits");
-        std::fs::write(&script, "#!/bin/sh\nif [ \"$1\" = -V ]; then exit 0; fi\n")
-            .expect("script fixture");
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))
-            .expect("script permissions");
+        let script = script(
+            root.path(),
+            "exits",
+            "#!/bin/sh\nif [ \"$1\" = -V ]; then exit 0; fi\n",
+        );
         let pty = Pty::new(script.to_str().expect("utf8"), None, "g".into()).await;
         assert_eq!(failure(pty.list().await), ControlError::Gone.to_string());
     }

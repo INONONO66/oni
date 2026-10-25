@@ -203,8 +203,8 @@ impl Control {
 #[cfg(test)]
 mod tests {
     use super::{octal, read_output, Control, ControlError};
+    use crate::pty::fixture::script;
     use crate::pty::registry::Registry;
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::Arc;
     use tokio::sync::{mpsc, Mutex};
 
@@ -284,14 +284,11 @@ mod tests {
             .starts_with("tmux control client unavailable: "));
 
         let root = tempfile::tempdir().expect("script directory");
-        let closed = root.path().join("closed");
-        std::fs::write(
-            &closed,
-            "#!/bin/sh\nexec 0<&-\nprintf '%%begin 1 1 1\\n%%end 1 1 1\\n'\n",
-        )
-        .expect("closed-input script");
-        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o700))
-            .expect("executable");
+        let closed = script(
+            root.path(),
+            "closed",
+            "#!/bin/sh\nexec 0<&-\nprintf '%%begin 1 1 1\\n%%end 1 1 1\\n'\nexec sleep 60\n",
+        );
         let mut control = Control::start(closed.to_str().expect("utf8"), None, registry)
             .await
             .expect("startup reply after closing input");
@@ -307,9 +304,9 @@ mod tests {
     #[tokio::test]
     async fn control_routes_pane_output_and_rejects_failed_commands() {
         let root = tempfile::tempdir().expect("script directory");
-        let script = root.path().join("control");
-        std::fs::write(
-            &script,
+        let script = script(
+            root.path(),
+            "control",
             "#!/bin/sh\n\
              printf '%%begin 1 1 1\\n%%end 1 1 1\\n'\n\
              while IFS= read -r line; do\n\
@@ -322,10 +319,7 @@ mod tests {
                  exit) printf '%%exit\\n'; exit 0 ;;\n\
                esac\n\
              done\n",
-        )
-        .expect("fake control stream");
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))
-            .expect("executable");
+        );
         let registry = Arc::new(Mutex::new(Registry::new("g".into())));
         registry
             .lock()
@@ -410,11 +404,11 @@ mod tests {
     #[tokio::test]
     async fn control_times_out_when_startup_has_no_reply() {
         let root = tempfile::tempdir().expect("script directory");
-        let silent = root.path().join("silent");
-        std::fs::write(&silent, "#!/bin/sh\nwhile IFS= read -r line; do :; done\n")
-            .expect("silent script");
-        std::fs::set_permissions(&silent, std::fs::Permissions::from_mode(0o700))
-            .expect("executable");
+        let silent = script(
+            root.path(),
+            "silent",
+            "#!/bin/sh\nwhile IFS= read -r line; do :; done\n",
+        );
         let registry = Arc::new(Mutex::new(Registry::new("g".into())));
         assert_eq!(
             Control::start_with_deadline(
