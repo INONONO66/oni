@@ -9,6 +9,16 @@ const apiHash = "a".repeat(32);
 const environment = { apiId: "1234", apiHash, dataDir: "/service/.oni/telegram/owner", isTTY: true };
 const signedOwner = async () => ({ userId: "owner-42" });
 
+function refusedLogin(isTTY = true) {
+  let starts = 0;
+  const deps: LoginDeps = {
+    logins: { ...OwnerLogins, telegram: async () => { starts += 1; return { userId: "1" }; } },
+    declare: async () => { throw new Error("unexpected declaration"); },
+    id: () => "req-1", telegram: { ...environment, isTTY },
+  };
+  return { deps, starts: () => starts };
+}
+
 function captureLogin(deps: LoginDeps) {
   const output: string[] = [];
   const errors: string[] = [];
@@ -29,20 +39,14 @@ describe("private Telegram login", () => {
       ["--print"], ["--phone", "123"], ["--code", "123"], ["--password", "secret"],
       ["--api-id", "123"], ["--api-hash", apiHash], ["extra"], ["--auto-reply"],
     ]) expect(() => parseLoginArgs(["telegram", ...flags])).toThrow();
-    let starts = 0;
-    const deps: LoginDeps = {
-      logins: { ...OwnerLogins, telegram: async () => { starts += 1; return { userId: "1" }; } },
-      declare: async () => { throw new Error("unexpected declaration"); },
-      id: () => "req-1",
-      telegram: { ...environment, isTTY: false },
-    };
+    const { deps, starts } = refusedLogin(false);
     const out: string[] = [];
     const err: string[] = [];
     expect(await login(["telegram"], deps, {
       ask: async () => { throw new Error("unexpected prompt"); },
       stdout: (line) => out.push(line), stderr: (line) => err.push(line),
     })).toBe(1);
-    expect(starts).toBe(0);
+    expect(starts()).toBe(0);
     expect(out).toEqual([]);
     expect(err).toEqual(["Telegram login requires an interactive terminal"]);
   });
@@ -56,18 +60,13 @@ describe("private Telegram login", () => {
     [[apiHash], "unexpected login argument"],
     [["--0123456789abcdef"], "unexpected login argument"],
   ] as const)("a rejected argv %j never echoes its value", async (flags, first) => {
-    let starts = 0;
-    const deps: LoginDeps = {
-      logins: { ...OwnerLogins, telegram: async () => { starts += 1; return { userId: "1" }; } },
-      declare: async () => { throw new Error("unexpected declaration"); },
-      id: () => "req-1", telegram: environment,
-    };
+    const { deps, starts } = refusedLogin();
     const errors: string[] = [];
     expect(await login(["telegram", ...flags], deps, {
       ask: async () => { throw new Error("unexpected prompt"); },
       stdout: () => { throw new Error("unexpected output"); }, stderr: (line) => errors.push(line),
     })).toBe(1);
-    expect(starts).toBe(0);
+    expect(starts()).toBe(0);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.split("\n")[0]).toBe(first);
     for (const secret of [apiHash, "24680", "hunter2-secret", "0123456789abcdef"])

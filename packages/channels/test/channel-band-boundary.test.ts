@@ -81,6 +81,7 @@ function isAllowed(specifier: string, path: string): boolean {
     return true;
   }
   if (specifier === "bun:sqlite" && path.startsWith(SQLITE_BAND_DIR)) return true;
+  if (specifier === "bun:ffi" && path === "src/provider/telegram/owner-custody.ts") return true;
   const dependency = packageName(specifier);
   if (DRIVER_ALLOWED_PACKAGES.has(dependency)) return true;
   if (SDK_SUBPATH_HOMES.get(specifier) === path) return true;

@@ -265,6 +265,31 @@ describe("Telegram account Owner", () => {
     await runtime.surface.stop("stop");
   });
 
+  test("explicit native refusals are rejected: a refused size names kind and bytes, a revoked key withdraws", async () => {
+    const dir = await directory();
+    const fake = fakeTelegramOwner({ onSend: async (_chatId, content) => {
+      throw content.kind === "text"
+        ? new TelegramOwnerError("AUTH_KEY_UNREGISTERED", "session_lost", true)
+        : new TelegramOwnerError("FILE_TOO_BIG", "media_too_large", true);
+    } });
+    const runtime = mounted(fake, dir, "none",
+      async () => ({ bytes: new Uint8Array([1, 2]), name: "photo.png", mime: "image/png" }));
+    const withdrawn: string[] = [];
+    runtime.onWithdrawn?.((reason) => withdrawn.push(reason));
+    await runtime.surface.start("start");
+    const photo: Outbound.Payload = { kind: "message", parts: [{ kind: "image", ref: "machine:photo" }] };
+    const refusedSize = { value: "rejected", reason: "media_too_large image 2" } as const;
+    expect(await runtime.deliveryRoute?.("peer", photo, "big")).toEqual(refusedSize);
+    // A definite refusal is not retained: the same key dispatches again.
+    expect(await runtime.deliveryRoute?.("peer", photo, "big")).toEqual(refusedSize);
+    expect(fake.sends).toHaveLength(2);
+    expect(await runtime.deliveryRoute?.("peer", Outbound.payload("hello"), "revoked")).toEqual({ value: "rejected" });
+    expect(withdrawn).toEqual(["session_lost"]);
+    expect(runtime.account?.()).toBeUndefined();
+    expect(fake.sends).toHaveLength(3);
+    await runtime.surface.stop("stop");
+  });
+
   test("media send session loss is uncertain, withdraws readiness and cannot resend", async () => {
     const dir = await directory();
     const fake = fakeTelegramOwner({ onSend: async () => {
@@ -377,7 +402,7 @@ describe("Telegram account Owner", () => {
       (_kind, event) => { events.push(JSON.stringify(event)); }, { ...injectedOptions(), telegramDataDir: dir });
     await runtime?.surface.start("start");
     await expect(runtime?.surface.stop("stop")).rejects.toMatchObject({ code: "session_lost" });
-    expect((await lstat(join(dir, "session.lock"))).isDirectory()).toBe(true);
+    expect((await lstat(join(dir, "session.lock"))).isFile()).toBe(true);
     expect(events.filter((event) => event.includes("telegram owner close unconfirmed; session custody retained"))).toHaveLength(1);
     expect(events.filter((event) => event.includes("telegram owner instance stopped"))).toEqual([]);
     await expect(telegramOwnerLogin({ credentials, dataDir: dir, prompt: async () => "x" }, fakeTelegramOwner().sdk))
@@ -389,7 +414,7 @@ describe("Telegram account Owner", () => {
     const fake = fakeTelegramOwner({ onClose: async () => { throw new TelegramOwnerError("close unconfirmed", "session_lost"); } });
     await expect(telegramOwnerLogin({ credentials, dataDir: dir, prompt: async () => "x" }, fake.sdk))
       .rejects.toMatchObject({ code: "session_lost" });
-    expect((await lstat(join(dir, "session.lock"))).isDirectory()).toBe(true);
+    expect((await lstat(join(dir, "session.lock"))).isFile()).toBe(true);
   });
 
   test("a failed start with an unconfirmed close keeps the start cause and custody", async () => {
@@ -397,7 +422,7 @@ describe("Telegram account Owner", () => {
     const fake = fakeTelegramOwner({ states: [{ state: "phone" }], onClose: async () => { throw new Error("close unconfirmed"); } });
     const runtime = mounted(fake, dir);
     await expect(runtime.surface.start("start")).rejects.toMatchObject({ code: "login_action_required" });
-    expect((await lstat(join(dir, "session.lock"))).isDirectory()).toBe(true);
+    expect((await lstat(join(dir, "session.lock"))).isFile()).toBe(true);
   });
 
   test("terminal state before start resolves refuses mount and closes once", async () => {
@@ -432,7 +457,8 @@ describe("Telegram account Owner", () => {
     expect(fake.calls.at(-1)).toBe("close");
     expect((await lstat(join(dir, "db"))).mode & 0o777).toBe(0o700);
     expect((await lstat(join(dir, "files"))).mode & 0o777).toBe(0o700);
-    await expect(lstat(join(dir, "session.lock"))).rejects.toMatchObject({ code: "ENOENT" });
+    const released = await ownerSession(dir);
+    await released.release();
   });
 
   test("busy custody refuses before constructing a second client, symlinked directory refuses", async () => {
@@ -451,7 +477,7 @@ describe("Telegram account Owner", () => {
       .rejects.toMatchObject({ code: "session_lost" });
   });
 
-  test("recovers only dead PID locks and refuses malformed PID locks", async () => {
+  test("refuses an old directory lock without removing its contents", async () => {
     const dir = await directory();
     await mkdir(join(dir, "session.lock"));
     await writeFile(join(dir, "session.lock", "pid"), "not-a-pid");
@@ -462,18 +488,18 @@ describe("Telegram account Owner", () => {
     expect(fake.calls).toEqual([]);
   });
 
-  test("recovers a provably dead PID and tightens existing private directories", async () => {
+  test("reuses an unlocked stable file and tightens existing private directories", async () => {
     const dir = await directory();
     await mkdir(join(dir, "db"), { mode: 0o755 });
     await mkdir(join(dir, "files"), { mode: 0o755 });
     await chmod(dir, 0o755);
-    await mkdir(join(dir, "session.lock"));
-    await writeFile(join(dir, "session.lock", "pid"), "999999999");
+    await writeFile(join(dir, "session.lock"), "999999999", { mode: 0o644 });
     const fake = fakeTelegramOwner();
     expect(await telegramOwnerLogin({ credentials, dataDir: dir, prompt: async () => "x" }, fake.sdk))
       .toEqual({ userId: "owner-1" });
     for (const path of [dir, join(dir, "db"), join(dir, "files")])
       expect((await lstat(path)).mode & 0o777).toBe(0o700);
+    expect((await lstat(join(dir, "session.lock"))).mode & 0o777).toBe(0o600);
   });
 
   test("refuses an existing symlinked DB and does not construct a client", async () => {
@@ -486,12 +512,14 @@ describe("Telegram account Owner", () => {
     expect(fake.calls).toEqual([]);
   });
 
-  test("failed PID publication removes the lock instead of holding the session", async () => {
+  test("a symlinked lock refuses without changing its target", async () => {
     const dir = await directory();
-    await expect(ownerSession(dir, async () => {
-      throw new Error("disk full");
-    })).rejects.toThrow("disk full");
-    await expect(lstat(join(dir, "session.lock"))).rejects.toMatchObject({ code: "ENOENT" });
+    const target = join(dir, "untouched");
+    await writeFile(target, "prior");
+    await symlink(target, join(dir, "session.lock"));
+    await expect(ownerSession(dir)).rejects.toMatchObject({ code: "session_in_use" });
+    expect(await readFile(target, "utf8")).toBe("prior");
+    await rm(join(dir, "session.lock"));
     const held = await ownerSession(dir);
     await held.release();
   });

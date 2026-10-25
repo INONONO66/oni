@@ -23,6 +23,40 @@ import { eventSignal } from "./helpers/event-signal";
 
 const suite = residentSuite();
 
+function ownerConfig(inbox: string, wsToken: string) {
+  const machines = testMachinesPlane();
+  return suite.config("oni-owner-app-", {
+    wsToken,
+    kek: { kind: "ok", kek: Vault.kekOf(new Uint8Array(32).fill(7)) },
+    machines: { ...machines, inbox, self: {
+      ...machines.self, exports: [...machines.self.exports, { name: "inbox", path: inbox }],
+    } },
+  });
+}
+
+function ownerCli(home: string, port: number, token: string, fake: ReturnType<typeof fakeTelegramOwner>) {
+  const dataDir = join(home, ".oni", "telegram", "owner");
+  mkdirSync(join(home, ".oni"), { recursive: true });
+  writeFileSync(join(home, ".oni", "env"), [
+    "ONI_WS_HOST=127.0.0.1", `ONI_WS_PORT=${port}`, `ONI_WS_TOKEN=${token}`,
+    "ONI_TELEGRAM_API_ID=123", `ONI_TELEGRAM_API_HASH=${"a".repeat(32)}`,
+  ].join("\n"));
+  const base = createCliDeps(home);
+  const output: string[] = [];
+  const errors: string[] = [];
+  const prompts: string[] = [];
+  const deps = {
+    ...base,
+    stdout: (line: string) => { output.push(line); },
+    stderr: (line: string) => { errors.push(line); },
+    ask: async (question: string) => { prompts.push(question); throw new Error("unexpected prompt"); },
+    login: { ...base.login, telegram: { ...base.login.telegram, dataDir, isTTY: true },
+      logins: { ...base.login.logins, telegram: (input: Parameters<typeof telegramOwnerLogin>[0]) =>
+        telegramOwnerLogin(input, fake.sdk) } },
+  };
+  return { deps, output, errors, prompts };
+}
+
 test("local Owner login, mounted ingress stream and two CLI history pages share one real app", async () => {
   const home = suite.tempDir("oni-owner-local-");
   const storage = suite.tempDir("oni-owner-inbox-");
@@ -71,15 +105,8 @@ test("local Owner login, mounted ingress stream and two CLI history pages share 
     },
   });
   const providers = { ...ChannelProviders, telegram: createTelegramProvider(undefined, fake.sdk) };
-  const machines = testMachinesPlane();
   const app = await suite.boot({
-    config: suite.config("oni-owner-local-app-", {
-      wsToken: "owner-local-token",
-      kek: { kind: "ok", kek: Vault.kekOf(new Uint8Array(32).fill(7)) },
-      machines: { ...machines, inbox, self: {
-        ...machines.self, exports: [...machines.self.exports, { name: "inbox", path: inbox }],
-      } },
-    }),
+    config: ownerConfig(inbox, "owner-local-token"),
     channelProviders: providers,
     telegramDataDir: dataDir,
     llm: {
@@ -91,25 +118,7 @@ test("local Owner login, mounted ingress stream and two CLI history pages share 
     },
   });
   const plane = await planeOf(app.runtime);
-  mkdirSync(join(home, ".oni"), { recursive: true });
-  writeFileSync(join(home, ".oni", "env"), [
-    "ONI_WS_HOST=127.0.0.1", `ONI_WS_PORT=${app.port}`,
-    "ONI_WS_TOKEN=owner-local-token",
-    "ONI_TELEGRAM_API_ID=123", `ONI_TELEGRAM_API_HASH=${"a".repeat(32)}`,
-  ].join("\n"));
-  const base = createCliDeps(home);
-  const output: string[] = [];
-  const errors: string[] = [];
-  const prompts: string[] = [];
-  const deps = {
-    ...base,
-    stdout: (line: string) => { output.push(line); },
-    stderr: (line: string) => { errors.push(line); },
-    ask: async (question: string) => { prompts.push(question); throw new Error("unexpected prompt"); },
-    login: { ...base.login, telegram: { ...base.login.telegram, dataDir, isTTY: true },
-      logins: { ...base.login.logins, telegram: (input: Parameters<typeof telegramOwnerLogin>[0]) =>
-        telegramOwnerLogin(input, fake.sdk) } },
-  };
+  const { deps, output, errors, prompts } = ownerCli(home, app.port, "owner-local-token", fake);
   expect(await runCli(["login", "telegram"], deps)).toBe(0);
   expect(errors).toEqual([]);
   expect(prompts).toEqual([]);
@@ -216,32 +225,13 @@ test("app shutdown aborts a held Owner inbox download before the account closes"
     },
     onClose: async () => { order.push("close"); },
   });
-  const machines = testMachinesPlane();
   const app = await suite.boot({
-    config: suite.config("oni-owner-shutdown-app-", {
-      wsToken: "owner-shutdown-token",
-      kek: { kind: "ok", kek: Vault.kekOf(new Uint8Array(32).fill(7)) },
-      machines: { ...machines, inbox, self: {
-        ...machines.self, exports: [...machines.self.exports, { name: "inbox", path: inbox }],
-      } },
-    }),
+    config: ownerConfig(inbox, "owner-shutdown-token"),
     channelProviders: { ...ChannelProviders, telegram: createTelegramProvider(undefined, fake.sdk) },
     telegramDataDir: dataDir,
     llm: { resolveModel: fakeProviderModel, run: () => Effect.succeed({ type: "stop" as const }) },
   });
-  mkdirSync(join(home, ".oni"), { recursive: true });
-  writeFileSync(join(home, ".oni", "env"), [
-    "ONI_WS_HOST=127.0.0.1", `ONI_WS_PORT=${app.port}`, "ONI_WS_TOKEN=owner-shutdown-token",
-    "ONI_TELEGRAM_API_ID=123", `ONI_TELEGRAM_API_HASH=${"a".repeat(32)}`,
-  ].join("\n"));
-  const base = createCliDeps(home);
-  const deps = {
-    ...base, stdout: () => undefined, stderr: () => undefined,
-    ask: async () => { throw new Error("unexpected prompt"); },
-    login: { ...base.login, telegram: { ...base.login.telegram, dataDir, isTTY: true },
-      logins: { ...base.login.logins, telegram: (input: Parameters<typeof telegramOwnerLogin>[0]) =>
-        telegramOwnerLogin(input, fake.sdk) } },
-  };
+  const { deps } = ownerCli(home, app.port, "owner-shutdown-token", fake);
   expect(await runCli(["login", "telegram"], deps)).toBe(0);
   order.length = 0;
   fake.emit({ ...ownerMessage, messageId: "200",

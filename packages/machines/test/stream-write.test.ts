@@ -12,12 +12,16 @@ import { createFsDriver } from "./helpers/native";
 import { connectIpcClient } from "./ipc/helpers/native";
 import { socketPath } from "./helpers/socket-path";
 
-async function fixture(run: (root: string, write: ReturnType<Awaited<ReturnType<typeof wireHost>>["get"]>["fs"]["writeStream"]) => Promise<void>) {
+type Host = Awaited<ReturnType<typeof wireHost>>;
+async function fixture(run: (
+  root: string, write: ReturnType<Host["get"]>["fs"]["writeStream"],
+  host: Host, daemon: Awaited<ReturnType<typeof wireDaemon>>,
+) => Promise<void>) {
   const root = mkdtempSync(join(tmpdir(), "oni-stream-write-"));
   const host = await wireHost(socketPath());
   const daemon = await wireDaemon(host.endpoints.unix ?? "", root);
   try {
-    await run(root, host.get("m-1").fs.writeStream);
+    await run(root, host.get("m-1").fs.writeStream, host, daemon);
   } finally {
     await daemon.close();
     await host.close();
@@ -126,29 +130,49 @@ test("exclusive publication refuses a destination created after begin", async ()
   });
 });
 
-test("abort during a blocked producer next cancels without waiting for the producer", async () => {
-  await fixture(async (root, write) => {
+test.each(["abort", "detach then abort"] as const)(
+  "%s during a blocked producer cancels without waiting and releases the producer", async (stop) => {
+  await fixture(async (root, write, _host, daemon) => {
     const controller = new AbortController();
-    const { promise: pulling, resolve: entered } = Promise.withResolvers<void>();
-    let returned = 0;
-    const chunks: AsyncIterable<Uint8Array> = {
-      [Symbol.asyncIterator]() {
-        return {
-          next: () => { entered(); return new Promise<IteratorResult<Uint8Array>>(() => undefined); },
-          return: () => { returned += 1; return new Promise<IteratorResult<Uint8Array>>(() => undefined); },
-        };
-      },
-    };
+    const { chunks, pulling, counter } = blockedProducer();
     const result = write(join(root, "blocked"), chunks, bounds(1, 1, controller.signal));
     await pulling;
+    if (stop === "detach then abort") await daemon.close();
     controller.abort();
     await expect(result).rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "closed" });
-    expect(returned).toBe(1);
+    expect(counter.returned).toBe(1);
     expect(readdirSync(root)).toEqual([]);
   });
 });
 
 type Fault = "ack_seq" | "ack_bytes" | "ack_last" | "begin_seq" | "digest" | "lost_finish" | "blocked_ack" | "detach" | "disk_full";
+async function connectStream(
+  path: string, root: string,
+  handle: (request: Machine.FsStreamRequest, respond: (answer: Machine.FsStreamResult) => void) => Promise<void>,
+) {
+  const client = await connectIpcClient(path, {
+    onRequest: (method, params, respond) => {
+      if (method !== Machine.WireMethod.FsStream) throw new Error(`unexpected ${method}`);
+      return handle(Machine.FsStreamRequest.parse(params), respond);
+    },
+  });
+  expect(await client.call(Machine.WireMethod.Attach, {
+    ...offer(root), peer: { kind: "daemon", contractVersion: Machine.contractVersion },
+  })).toMatchObject({ status: "attached" });
+  return client;
+}
+
+async function closeStream(
+  root: string, host: Host, driver: ReturnType<typeof createFsDriver>,
+  client: Awaited<ReturnType<typeof connectIpcClient>>,
+) {
+  driver.abortAll();
+  driver.close();
+  await client.close();
+  await host.close();
+  rmSync(root, { recursive: true, force: true });
+}
+
 function faultResponse(request: Machine.FsStreamRequest, answer: Machine.FsStreamResult, fault: Fault): Machine.FsStreamResult {
   if (request.op === "begin" && answer.status === "begun" && fault === "begin_seq") return { ...answer, seq: 1 };
   if (request.op !== "write" || request.last || answer.status !== "written") return answer;
@@ -165,10 +189,7 @@ test.each(["ack_seq", "ack_bytes", "ack_last", "begin_seq", "digest", "lost_fini
     const driver = createFsDriver(new Map([["docs", root]]));
     const controller = new AbortController();
     const { promise: ackEntered, resolve: entered } = Promise.withResolvers<void>();
-    const client = await connectIpcClient(path, {
-      onRequest: async (method, params, respond) => {
-        if (method !== Machine.WireMethod.FsStream) throw new Error(`unexpected ${method}`);
-        const request = Machine.FsStreamRequest.parse(params);
+    const client = await connectStream(path, root, async (request, respond) => {
         if (request.op === "write" && !request.last && (fault === "blocked_ack" || fault === "detach")) {
           entered();
           return;
@@ -184,12 +205,8 @@ test.each(["ack_seq", "ack_bytes", "ack_last", "begin_seq", "digest", "lost_fini
           return;
         }
         respond(faultResponse(request, answer, fault));
-      },
     });
     try {
-      expect(await client.call(Machine.WireMethod.Attach, {
-        ...offer(root), peer: { kind: "daemon", contractVersion: Machine.contractVersion },
-      })).toMatchObject({ status: "attached" });
       const destination = join(root, "target");
       const pending = host.get("m-1").fs.writeStream(destination, bytes([Buffer.from("payload")]), bounds(7, 7, controller.signal));
       if (fault === "blocked_ack" || fault === "detach") {
@@ -207,11 +224,7 @@ test.each(["ack_seq", "ack_bytes", "ack_last", "begin_seq", "digest", "lost_fini
         expect(readdirSync(root)).toEqual(["target"]);
       }
     } finally {
-      driver.abortAll();
-      driver.close();
-      await client.close();
-      await host.close();
-      rmSync(root, { recursive: true, force: true });
+      await closeStream(root, host, driver, client);
     }
   },
 );
@@ -230,42 +243,15 @@ function blockedProducer() {
   return { chunks, pulling, counter };
 }
 
-test("daemon detach during a blocked producer still releases the producer after the failed transfer abort", async () => {
-  const root = mkdtempSync(join(tmpdir(), "oni-stream-detach-"));
-  const host = await wireHost(socketPath());
-  const daemon = await wireDaemon(host.endpoints.unix ?? "", root);
-  try {
-    const controller = new AbortController();
-    const { chunks, pulling, counter } = blockedProducer();
-    const result = host.get("m-1").fs.writeStream(join(root, "blocked"), chunks, bounds(1, 1, controller.signal));
-    await pulling;
-    await daemon.close();
-    controller.abort();
-    await expect(result).rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "closed" });
-    expect(counter.returned).toBe(1);
-    expect(readdirSync(root)).toEqual([]);
-  } finally {
-    await host.close();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("caller interruption during a blocked producer aborts the transfer and releases the producer", async () => {
-  const root = mkdtempSync(join(tmpdir(), "oni-stream-interrupt-"));
-  const host = await wireHost(socketPath());
-  const daemon = await wireDaemon(host.endpoints.unix ?? "", root);
-  try {
+  await fixture(async (root, _write, host) => {
     const { chunks, pulling, counter } = blockedProducer();
     const fiber = fork(host.native.get("m-1").fs.writeStream(join(root, "interrupted"), chunks, bounds(1)));
     await pulling;
     await exit(Fiber.interrupt(fiber));
     expect(counter.returned).toBe(1);
     expect(readdirSync(root)).toEqual([]);
-  } finally {
-    await daemon.close();
-    await host.close();
-    rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test("a held write acknowledgment stops the producer until the machine acknowledges the chunk", async () => {
@@ -275,10 +261,7 @@ test("a held write acknowledgment stops the producer until the machine acknowled
   const driver = createFsDriver(new Map([["docs", root]]));
   const { promise: ackHeld, resolve: held } = Promise.withResolvers<() => void>();
   let holding = true;
-  const client = await connectIpcClient(path, {
-    onRequest: async (method, params, respond) => {
-      if (method !== Machine.WireMethod.FsStream) throw new Error(`unexpected ${method}`);
-      const request = Machine.FsStreamRequest.parse(params);
+  const client = await connectStream(path, root, async (request, respond) => {
       const answer = await driver.stream(request);
       if (request.op === "write" && !request.last && holding) {
         holding = false;
@@ -286,12 +269,8 @@ test("a held write acknowledgment stops the producer until the machine acknowled
         return;
       }
       respond(answer);
-    },
   });
   try {
-    expect(await client.call(Machine.WireMethod.Attach, {
-      ...offer(root), peer: { kind: "daemon", contractVersion: Machine.contractVersion },
-    })).toMatchObject({ status: "attached" });
     const part = Buffer.alloc(1_000, 0x41);
     const count = 4;
     let pulls = 0;
@@ -309,10 +288,6 @@ test("a held write acknowledgment stops the producer until the machine acknowled
     expect(pulls).toBe(count);
     expect(readFileSync(join(root, "acked")).byteLength).toBe(part.length * count);
   } finally {
-    driver.abortAll();
-    driver.close();
-    await client.close();
-    await host.close();
-    rmSync(root, { recursive: true, force: true });
+    await closeStream(root, host, driver, client);
   }
 });

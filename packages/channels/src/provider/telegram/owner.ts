@@ -77,6 +77,8 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
   private readonly threads = new Map<string, string>();
   private readonly replies = new Map<string, string>();
   private readonly pending: TelegramOwnerMessage[] = [];
+  private generation = 0;
+  private starting: Promise<void> | undefined;
   private closing: Promise<void> | undefined;
   private terminal: OwnerWithdrawal | undefined;
   private readonly withdrawals = new Set<(reason: OwnerWithdrawal) => void>();
@@ -129,42 +131,63 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
     return this.identity === undefined ? undefined : { externalId: this.identity };
   }
 
-  async start(traceId: string): Promise<void> {
+  start(traceId: string): Promise<void> {
+    if (this.starting !== undefined) return this.starting;
+    if (this.client !== undefined)
+      return Promise.reject(new TelegramOwnerError("Telegram instance already started", "session_in_use"));
+    const generation = this.generation;
+    this.starting = this.open(traceId, generation).catch(async (error: Error) => {
+      // An unconfirmed close keeps custody; the start failure stays the cause.
+      await this.close(traceId).catch(() => undefined);
+      throw error;
+    }).finally(() => { this.starting = undefined; });
+    return this.starting;
+  }
+
+  private async open(traceId: string, generation: number): Promise<void> {
+    await this.closing;
+    this.checkGeneration(generation);
+    this.closing = undefined;
+    this.terminal = undefined;
     if (this.options.telegramDataDir === undefined)
       throw new TelegramOwnerError("Telegram session directory absent", "session_lost");
     const session = await ownerSession(this.options.telegramDataDir);
+    if (generation !== this.generation) {
+      await session.release();
+      this.checkGeneration(generation);
+    }
     this.release = session.release;
-    await (async () => {
-      const client = this.sdk.client();
-      this.client = client;
-      this.unsubscribeState = client.onState((state) => this.stateChanged(state));
-      this.unsubscribe = client.onMessage((message) => {
-        if (this.terminal !== undefined) return;
-        if (this.identity === undefined) this.pending.push(message);
-        else this.accept(message);
-      });
-      const result = await client.start({
-        apiId: Number(this.credentials.apiId),
-        apiHash: this.credentials.apiHash,
-        databaseDir: session.databaseDir,
-        filesDir: session.filesDir,
-      });
-      if (this.terminal !== undefined)
-        throw new TelegramOwnerError("Telegram session changed during start", this.terminal);
-      if (result.state !== "ready")
-        throw new TelegramOwnerError(`Telegram requires ${result.state}`, "login_action_required");
-      if (!result.userId?.trim()) throw new TelegramOwnerError("Telegram identity absent", "session_lost");
-      this.identity = result.userId;
-      for (const message of this.pending.splice(0)) this.accept(message);
-      this.publish(Operational.Events.Info, {
-        traceId, time: this.options.now(), component: "server",
-        msg: "telegram owner instance started", context: { userId: result.userId },
-      });
-    })().catch(async (error: Error) => {
-      // An unconfirmed close is published by stop and keeps custody; the start failure stays the cause.
-      await this.stop(traceId).catch(() => undefined);
-      throw error;
+    const client = this.sdk.client();
+    this.client = client;
+    this.unsubscribeState = client.onState((state) => this.stateChanged(state));
+    this.unsubscribe = client.onMessage((message) => {
+      if (this.terminal !== undefined) return;
+      if (this.identity === undefined) this.pending.push(message);
+      else this.accept(message);
     });
+    const result = await client.start({
+      apiId: Number(this.credentials.apiId),
+      apiHash: this.credentials.apiHash,
+      databaseDir: session.databaseDir,
+      filesDir: session.filesDir,
+    });
+    this.checkGeneration(generation);
+    if (this.terminal !== undefined)
+      throw new TelegramOwnerError("Telegram session changed during start", this.terminal);
+    if (result.state !== "ready")
+      throw new TelegramOwnerError(`Telegram requires ${result.state}`, "login_action_required");
+    if (!result.userId?.trim()) throw new TelegramOwnerError("Telegram identity absent", "session_lost");
+    this.identity = result.userId;
+    for (const message of this.pending.splice(0)) this.accept(message);
+    this.publish(Operational.Events.Info, {
+      traceId, time: this.options.now(), component: "server",
+      msg: "telegram owner instance started", context: { userId: result.userId },
+    });
+  }
+
+  private checkGeneration(generation: number): void {
+    if (generation !== this.generation)
+      throw new TelegramOwnerError("Telegram start was stopped", "session_lost");
   }
 
   private accept(message: TelegramOwnerMessage): void {
@@ -204,6 +227,13 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
   }
 
   async stop(traceId: string): Promise<void> {
+    this.generation++;
+    const closing = this.close(traceId);
+    const starting = this.starting?.then(() => undefined, () => undefined);
+    await Promise.all([closing, starting]);
+  }
+
+  private close(traceId: string): Promise<void> {
     if (this.closing !== undefined) return this.closing;
     this.identity = undefined;
     this.pending.length = 0;
@@ -288,21 +318,19 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
     conversation?: Gateway.Conversation,
   ): Promise<DeliveryReceipt> {
     const chatId = conversation?.channelId ?? externalId;
-    const threadId = this.nativeId(this.threads, chatId, conversation?.threadId);
-    if (threadId !== undefined && !/^(forum|thread|direct|saved):[1-9]\d*$/.test(threadId))
-      return Promise.resolve({ value: "not_sent", reason: "thread_unavailable" });
-    const replyTo = this.nativeId(this.replies, chatId, conversation?.replyToMessageId);
-    if (payload.kind === "message" && Outbound.parts(payload).some((part) =>
-      part.kind === "image" || part.kind === "file" || part.kind === "audio" || part.kind === "video")
-      && this.options.media === undefined)
-      return Promise.resolve({ value: "not_sent", reason: "media_unavailable" });
-    const client = this.client;
+    let reason: string | undefined;
     return deliverKeyed(
       this.outbound, key,
-      // Readiness is checked per new attempt, so a retained uncertain key keeps its receipt (R07).
-      () => this.identity === undefined || client === undefined
-        ? Promise.reject(new TelegramOwnerError("Telegram owner is not ready", "not_sent"))
-        : translate(payload, { renderMarkdown: (text) => text, messageLimit: TEXT_LIMIT }, {
+      () => {
+        // Mutable admission belongs to a new attempt, never a retained receipt.
+        const threadId = this.nativeId(this.threads, chatId, conversation?.threadId);
+        reason = this.admission(payload, threadId);
+        if (reason !== undefined) throw new TelegramOwnerError(reason, "not_sent");
+        const replyTo = this.nativeId(this.replies, chatId, conversation?.replyToMessageId);
+        const client = this.client;
+        if (this.identity === undefined || client === undefined)
+          throw new TelegramOwnerError("Telegram owner is not ready", "not_sent");
+        return translate(payload, { renderMarkdown: (text) => text, messageLimit: TEXT_LIMIT }, {
         text: (chunk) => ownerSend(client, chatId, chunk, replyTo, threadId)
           .catch((error: Error) => {
             this.methodFailure(error);
@@ -320,12 +348,27 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
             }).then(({ messageId }) => ({ externalMessageId: messageId }))
               .catch((error: Error) => {
                 this.methodFailure(error);
+                // The platform's own size refusal names no limit; the receipt keeps what was refused.
+                if (error instanceof TelegramOwnerError && error.requestRefused && error.code === "media_too_large")
+                  reason = `media_too_large ${kind} ${bytes.bytes.byteLength}`;
                 throw error;
               }),
         },
-      }, this.options.media),
-      (error) => error instanceof TelegramOwnerError && error.code === "not_sent",
+        }, this.options.media);
+      },
+      // An explicit native refusal is definite whatever its recovery code (FILE_TOO_BIG, AUTH_KEY_UNREGISTERED).
+      (error) => error instanceof TelegramOwnerError && (error.code === "not_sent" || error.requestRefused),
       this.publish, this.options,
-    );
+    ).then((receipt) => reason === undefined || receipt.value !== "not_sent" ? receipt : { ...receipt, reason });
+  }
+
+  private admission(payload: Outbound.Payload, threadId: string | undefined): string | undefined {
+    if (threadId !== undefined && !/^(forum|thread|direct|saved):[1-9]\d*$/.test(threadId))
+      return "thread_unavailable";
+    if (payload.kind === "message" && Outbound.parts(payload).some((part) =>
+      part.kind === "image" || part.kind === "file" || part.kind === "audio" || part.kind === "video")
+      && this.options.media === undefined)
+      return "media_unavailable";
+    return undefined;
   }
 }
