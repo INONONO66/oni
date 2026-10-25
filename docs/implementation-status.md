@@ -1148,6 +1148,30 @@ build on the host (#1648) and the Owner's API id/hash and private sign-in
 `apps/oni/test/{telegram-owner-local,channel-history,cli-history-socket,cli-telegram-login,cli-login,attachment-inbox,attachment-inbox-stream,npm-package}.test.ts`,
 and the fork's `src/platforms/telegram/account.test.ts`.
 
+DoD sweep PR #1663 (G5S): review r1 of the landed diff (1 High, 8 Medium)
+fixed. The fork dist pin is now `0bae10f2` (source `e7da329c`): an abort
+before the download request's reply ends the download without an unhandled
+rejection, a byte send is staged under its requested filename reduced to one
+safe segment, an explicit TDLib `sendMessage` error reply marks the error
+`requestRefused`, and native inputs, updates and history are parsed at their
+boundary. Session custody is now an exclusive nonblocking `flock` held on the
+open descriptor of a stable, private `session.lock` file: closing the
+descriptor (or the holder's exit) releases it and the file is never unlinked,
+replacing the pid lock and its dead-holder recovery. The adapter fences its
+start with a stop generation, releases custody acquired after a stop and
+joins a start in flight; the provisioning supervisor serializes
+reconciliation, stops pending mounts in `stopAll`, publishes routes only after
+startup and account binding, and refuses a second declaration of a busy
+surface with `session_in_use` without touching the incumbent's routes. Topic,
+media and readiness admission run inside a new attempt, so a retained
+`unknown` receipt is answered first. An explicit native refusal is
+`rejected` whatever its recovery code, and a refused size carries
+`media_too_large <kind> <bytes>`. SDK listener custody settles a start still
+waiting for its first hello when it is stopped. Receipts:
+`packages/channels/test/{telegram-owner,telegram-owner-lifecycle,sdk-listener}.test.ts`,
+`apps/oni/test/channel-lifecycle.test.ts`, and the fork's
+`src/platforms/telegram/account.test.ts`.
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on
