@@ -255,33 +255,33 @@ mod tests {
 
     #[test]
     fn target_kind_classifies_entries_and_invalid_parent_descriptor() {
-        let temp = tempfile::TempDir::new().unwrap();
+        let temp = tempfile::TempDir::new().expect("temp dir");
         let file = temp.path().join("regular");
-        std::fs::write(&file, []).unwrap();
-        std::fs::create_dir(temp.path().join("folder")).unwrap();
-        std::os::unix::fs::symlink("regular", temp.path().join("link")).unwrap();
-        let root: OwnedFd = File::open(temp.path()).unwrap().into();
+        std::fs::write(&file, []).expect("seed file");
+        std::fs::create_dir(temp.path().join("folder")).expect("create dir");
+        std::os::unix::fs::symlink("regular", temp.path().join("link")).expect("symlink");
+        let root: OwnedFd = File::open(temp.path()).expect("open fd").into();
         assert_eq!(target_kind(&root, "regular"), Ok(()));
         assert_eq!(target_kind(&root, "missing"), Ok(()));
         assert_eq!(target_kind(&root, "link"), Err(Reason::PathEscapesExport));
         assert_eq!(target_kind(&root, "folder"), Err(Reason::WrongKind));
-        let descriptor: OwnedFd = File::open(&file).unwrap().into();
+        let descriptor: OwnedFd = File::open(&file).expect("open fd").into();
         assert_eq!(target_kind(&descriptor, "child"), Err(Reason::WrongKind));
     }
 
     #[test]
     fn vacant_refuses_every_existing_entry_and_maps_eexist() {
-        let temp = tempfile::TempDir::new().unwrap();
+        let temp = tempfile::TempDir::new().expect("temp dir");
         let file = temp.path().join("regular");
-        std::fs::write(&file, []).unwrap();
-        std::fs::create_dir(temp.path().join("folder")).unwrap();
-        std::os::unix::fs::symlink("missing", temp.path().join("dangling")).unwrap();
-        let root: OwnedFd = File::open(temp.path()).unwrap().into();
+        std::fs::write(&file, []).expect("seed file");
+        std::fs::create_dir(temp.path().join("folder")).expect("create dir");
+        std::os::unix::fs::symlink("missing", temp.path().join("dangling")).expect("symlink");
+        let root: OwnedFd = File::open(temp.path()).expect("open fd").into();
         assert_eq!(vacant(&root, "missing"), Ok(()));
         for name in ["regular", "folder", "dangling"] {
             assert_eq!(vacant(&root, name), Err(Reason::AlreadyExists), "{name}");
         }
-        let descriptor: OwnedFd = File::open(&file).unwrap().into();
+        let descriptor: OwnedFd = File::open(&file).expect("open fd").into();
         assert_eq!(vacant(&descriptor, "child"), Err(Reason::WrongKind));
         assert_eq!(open_reason(rustix::io::Errno::EXIST), Reason::AlreadyExists);
     }

@@ -27,7 +27,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Effect, Exit, Result, Scope } from "effect";
+import { Effect, Result } from "effect";
 import { type BusEvent, Machine } from "../packages/protocol/src/index.js";
 import {
   createMachineHost,
@@ -37,6 +37,7 @@ import {
   type MachineHost,
   type MachineInfo,
 } from "../packages/machines/src/index.js";
+import { acquire, run } from "../packages/machines/test/ipc/helpers/effects.js";
 
 export const MCLIENT = resolve(import.meta.dir, "../clients/target/debug/mclient");
 const MACHINE = "conformance";
@@ -68,12 +69,6 @@ function check(condition: boolean, message: string): asserts condition {
 function record(line: string): void {
   receipts.push(line);
   console.log(`ok ${receipts.length} - ${line}`);
-}
-
-async function run<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  const result = await Effect.runPromise(Effect.result(effect));
-  if (Result.isFailure(result)) throw result.failure;
-  return result.success;
 }
 
 function within<A>(promise: Promise<A>, label: string): Promise<A> {
@@ -219,7 +214,7 @@ function sha256(data: Uint8Array): string {
 async function refusal(
   effect: Effect.Effect<object, MachineRefusalError | Error>,
 ): Promise<string> {
-  const result = await Effect.runPromise(Effect.result(effect));
+  const result = await run(Effect.result(effect));
   check(Result.isFailure(result), "expected a refusal, got a value");
   check(
     result.failure instanceof MachineRefusalError,
@@ -432,27 +427,27 @@ const NO_TOOL_PORT = new MachineRefusalError({
 async function conformance(setup: Fixture): Promise<void> {
   const enrollment = await enroll(setup);
   const events = eventLog();
-  const scope = Effect.runSync(Scope.make());
+  const acquired = await acquire(
+    createMachineHost({
+      listen: { unix: setup.socket },
+      id: () => `conformance-${crypto.randomUUID()}`,
+      dispatcherBound: 64,
+      enrollment: (id) => (id === enrollment.machineId ? enrollment : undefined),
+      generations: createMemoryGenerationStore(),
+      events: events.sink,
+      now: Date.now,
+      callTool: () => Effect.fail(NO_TOOL_PORT),
+    }),
+  );
+  const host = acquired.value;
   try {
-    const host = await run(
-      createMachineHost({
-        listen: { unix: setup.socket },
-        id: () => `conformance-${crypto.randomUUID()}`,
-        dispatcherBound: 64,
-        enrollment: (id) => (id === enrollment.machineId ? enrollment : undefined),
-        generations: createMemoryGenerationStore(),
-        events: events.sink,
-        now: Date.now,
-        callTool: () => Effect.fail(NO_TOOL_PORT),
-      }).pipe(Effect.provideService(Scope.Scope, scope)),
-    );
     const first = await attach(setup, events.next(Machine.Events.Attached));
     await exercise(host, attachedInfo(host, "first attach"), setup);
     const second = await reconnect(host, setup, events, first);
     await staleGeneration(host, setup, events, second);
     await withoutTmux(host, setup, events);
   } finally {
-    await run(Scope.close(scope, Exit.void));
+    await acquired.close();
   }
 }
 

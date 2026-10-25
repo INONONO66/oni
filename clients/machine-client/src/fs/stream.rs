@@ -432,15 +432,15 @@ mod tests {
     // outcomes run here too so this copy of write_chunk is fully exercised.
     #[test]
     fn write_chunk_refuses_without_advancing_offset_and_writes_otherwise() {
-        let temp = tempfile::TempDir::new().unwrap();
+        let temp = tempfile::TempDir::new().expect("temp dir");
         let path = temp.path().join("file");
-        std::fs::write(&path, []).unwrap();
+        std::fs::write(&path, []).expect("seed file");
         let data = BASE64.encode(b"data");
-        let mut readonly = transfer(File::open(&path).unwrap());
+        let mut readonly = transfer(File::open(&path).expect("open fd"));
         let failed = write_chunk(&mut readonly, 0, &data, None, false);
         assert_eq!(refused(failed), Some(Reason::IoError));
         assert_eq!(readonly.offset, 0);
-        let mut writable = transfer(File::create(&path).unwrap());
+        let mut writable = transfer(File::create(&path).expect("create file"));
         let oversize = BASE64.encode(vec![0; WRITE_MAX_BYTES + 1]);
         let too_large = write_chunk(&mut writable, 0, &oversize, None, false);
         assert_eq!(refused(too_large), Some(Reason::TooLarge));
@@ -452,6 +452,6 @@ mod tests {
         let written = write_chunk(&mut writable, 0, &data, None, false);
         assert_eq!(refused(written), None);
         assert_eq!(writable.offset, 4);
-        assert_eq!(std::fs::read(&path).unwrap(), b"data");
+        assert_eq!(std::fs::read(&path).expect("read back"), b"data");
     }
 }

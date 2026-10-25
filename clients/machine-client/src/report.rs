@@ -268,10 +268,13 @@ mod tests {
     #[test]
     fn failed_counters_fail_the_load_sample() {
         assert_eq!(page_bytes(16_384).expect("page"), 16_384);
-        assert_eq!(page_bytes(-1).unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(
+            page_bytes(-1).expect_err("negative page size").kind(),
+            io::ErrorKind::Other
+        );
         assert_eq!(average(1, [0.25]).expect("average"), 0.25);
         for read in [-1, 0] {
-            let error = average(read, [0.0]).unwrap_err();
+            let error = average(read, [0.0]).expect_err("failed loadavg");
             assert_eq!(error.kind(), io::ErrorKind::Other);
             assert!(error.to_string().starts_with("getloadavg: "));
         }
@@ -312,7 +315,7 @@ mod tests {
     fn failed_system_call_is_named() {
         assert!(ensure(true, "call").is_ok());
         assert!(ensure(false, "getloadavg")
-            .unwrap_err()
+            .expect_err("failed call")
             .to_string()
             .starts_with("getloadavg: "));
     }

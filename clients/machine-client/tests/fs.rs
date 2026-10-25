@@ -8,17 +8,17 @@ use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 fn driver(root: &Path) -> FsDriver {
-    FsDriver::open([("notes".to_owned(), root.to_path_buf())]).unwrap()
+    FsDriver::open([("notes".to_owned(), root.to_path_buf())]).expect("driver")
 }
 
 fn op(driver: &FsDriver, value: Value) -> Value {
-    let request: FsRequest = serde_json::from_value(value).unwrap();
-    serde_json::to_value(driver.execute(&request)).unwrap()
+    let request: FsRequest = serde_json::from_value(value).expect("decode request");
+    serde_json::to_value(driver.execute(&request)).expect("encode result")
 }
 
 fn stream(driver: &mut FsDriver, value: Value) -> Value {
-    let request: FsStreamRequest = serde_json::from_value(value).unwrap();
-    serde_json::to_value(driver.stream(&request)).unwrap()
+    let request: FsStreamRequest = serde_json::from_value(value).expect("decode request");
+    serde_json::to_value(driver.stream(&request)).expect("encode result")
 }
 
 fn begin(id: &str, mode: &str, path: &str) -> Value {
@@ -36,7 +36,7 @@ fn write(id: &str, seq: i64, bytes: &[u8], last: bool, digest: Option<&str>) -> 
 
 #[test]
 fn operations_preserve_read_write_list_stat_results() {
-    let temp = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
     let driver = driver(temp.path());
     let data = BASE64.encode(b"hello");
     assert_eq!(
@@ -66,9 +66,9 @@ fn operations_preserve_read_write_list_stat_results() {
 
 #[test]
 fn operation_caps_and_missing_export_are_typed() {
-    let temp = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
     let driver = driver(temp.path());
-    fs::write(temp.path().join("large"), vec![1; READ_MAX_BYTES + 1]).unwrap();
+    fs::write(temp.path().join("large"), vec![1; READ_MAX_BYTES + 1]).expect("seed file");
     let read = op(
         &driver,
         json!({"op":"read","export":"notes","path":"large"}),
@@ -102,17 +102,23 @@ fn operation_caps_and_missing_export_are_typed() {
 
 #[test]
 fn listing_is_bounded_and_sorted() {
-    let temp = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
     for n in 0..1001 {
-        fs::write(temp.path().join(format!("item-{n:04}")), []).unwrap();
+        fs::write(temp.path().join(format!("item-{n:04}")), []).expect("seed file");
     }
     let value = op(
         &driver(temp.path()),
         json!({"op":"list","export":"notes","path":""}),
     );
-    assert_eq!(value["value"]["entries"].as_array().unwrap().len(), 1000);
+    assert_eq!(
+        value["value"]["entries"]
+            .as_array()
+            .expect("entries array")
+            .len(),
+        1000
+    );
     assert_eq!(value["value"]["truncated"], true);
-    let entries = value["value"]["entries"].as_array().unwrap();
+    let entries = value["value"]["entries"].as_array().expect("entries array");
     assert!(entries
         .windows(2)
         .all(|pair| pair[0]["name"].as_str() <= pair[1]["name"].as_str()));
@@ -122,17 +128,17 @@ fn listing_is_bounded_and_sorted() {
 #[test]
 fn links_inside_export_work_and_escaping_links_refuse() {
     use std::os::unix::fs::symlink;
-    let temp = TempDir::new().unwrap();
-    let outside = TempDir::new().unwrap();
-    fs::create_dir(temp.path().join("inner")).unwrap();
-    fs::write(temp.path().join("inner/data"), b"safe").unwrap();
-    fs::write(outside.path().join("data"), b"secret").unwrap();
-    symlink("inner", temp.path().join("alias")).unwrap();
-    symlink("inner/data", temp.path().join("file-link")).unwrap();
-    symlink("inner/new", temp.path().join("write-link")).unwrap();
-    symlink("../../", temp.path().join("inner/up")).unwrap();
-    symlink(outside.path(), temp.path().join("outside")).unwrap();
-    symlink("up/data", temp.path().join("inner/nested")).unwrap();
+    let temp = TempDir::new().expect("temp dir");
+    let outside = TempDir::new().expect("temp dir");
+    fs::create_dir(temp.path().join("inner")).expect("create dir");
+    fs::write(temp.path().join("inner/data"), b"safe").expect("seed file");
+    fs::write(outside.path().join("data"), b"secret").expect("seed file");
+    symlink("inner", temp.path().join("alias")).expect("symlink");
+    symlink("inner/data", temp.path().join("file-link")).expect("symlink");
+    symlink("inner/new", temp.path().join("write-link")).expect("symlink");
+    symlink("../../", temp.path().join("inner/up")).expect("symlink");
+    symlink(outside.path(), temp.path().join("outside")).expect("symlink");
+    symlink("up/data", temp.path().join("inner/nested")).expect("symlink");
     let driver = driver(temp.path());
     assert_eq!(
         op(
@@ -155,7 +161,10 @@ fn links_inside_export_work_and_escaping_links_refuse() {
         )["status"],
         "completed"
     );
-    assert_eq!(fs::read(temp.path().join("inner/new")).unwrap(), b"new");
+    assert_eq!(
+        fs::read(temp.path().join("inner/new")).expect("read back"),
+        b"new"
+    );
     assert_eq!(
         op(
             &driver,
@@ -187,8 +196,8 @@ fn links_inside_export_work_and_escaping_links_refuse() {
 
 #[test]
 fn thirty_third_transfer_is_refused_without_evicting_existing() {
-    let temp = TempDir::new().unwrap();
-    fs::write(temp.path().join("source"), b"data").unwrap();
+    let temp = TempDir::new().expect("temp dir");
+    fs::write(temp.path().join("source"), b"data").expect("seed file");
     let mut driver = driver(temp.path());
     for n in 0..32 {
         assert_eq!(
@@ -211,14 +220,16 @@ fn thirty_third_transfer_is_refused_without_evicting_existing() {
 }
 
 fn key(value: &Value) -> usize {
-    let request: FsStreamRequest = serde_json::from_value(value.clone()).unwrap();
-    serde_json::to_string(&request).unwrap().len()
+    let request: FsStreamRequest = serde_json::from_value(value.clone()).expect("decode request");
+    serde_json::to_string(&request)
+        .expect("encode request")
+        .len()
 }
 
 #[test]
 fn retained_counts_open_transfers_and_replay_caches_until_aborted() {
-    let temp = TempDir::new().unwrap();
-    fs::write(temp.path().join("source"), b"data").unwrap();
+    let temp = TempDir::new().expect("temp dir");
+    fs::write(temp.path().join("source"), b"data").expect("seed file");
     let mut driver = driver(temp.path());
     for n in 0..3 {
         assert_eq!(
@@ -229,7 +240,7 @@ fn retained_counts_open_transfers_and_replay_caches_until_aborted() {
     assert_eq!((driver.retained(), driver.retained_bytes()), (3, 0));
     let read = json!({"op":"read","transferId":"t0","seq":0});
     let chunk = stream(&mut driver, read.clone());
-    let read_bytes = key(&read) + chunk["data"].as_str().unwrap().len();
+    let read_bytes = key(&read) + chunk["data"].as_str().expect("chunk data").len();
     assert_eq!(driver.retained_bytes(), read_bytes);
     assert_eq!(
         stream(&mut driver, begin("w", "write", "target"))["status"],
@@ -249,8 +260,8 @@ fn retained_counts_open_transfers_and_replay_caches_until_aborted() {
 
 #[test]
 fn read_chunk_replay_only_accepts_latest_matching_request() {
-    let temp = TempDir::new().unwrap();
-    fs::write(temp.path().join("source"), vec![3; WRITE_MAX_BYTES + 1]).unwrap();
+    let temp = TempDir::new().expect("temp dir");
+    fs::write(temp.path().join("source"), vec![3; WRITE_MAX_BYTES + 1]).expect("seed file");
     let mut driver = driver(temp.path());
     assert_eq!(
         stream(&mut driver, begin("r", "read", "source"))["status"],
@@ -284,8 +295,8 @@ fn read_chunk_replay_only_accepts_latest_matching_request() {
 
 #[test]
 fn staged_write_publishes_only_after_digest_and_finish() {
-    let temp = TempDir::new().unwrap();
-    fs::write(temp.path().join("target"), b"old").unwrap();
+    let temp = TempDir::new().expect("temp dir");
+    fs::write(temp.path().join("target"), b"old").expect("seed file");
     let mut driver = driver(temp.path());
     assert_eq!(
         stream(&mut driver, begin("w", "write", "target"))["status"],
@@ -310,7 +321,10 @@ fn staged_write_publishes_only_after_digest_and_finish() {
         stream(&mut driver, json!({"op":"finish","transferId":"w"}))["reason"],
         "invalid_sequence"
     );
-    assert_eq!(fs::read(temp.path().join("target")).unwrap(), b"old");
+    assert_eq!(
+        fs::read(temp.path().join("target")).expect("read back"),
+        b"old"
+    );
     assert_eq!(
         stream(
             &mut driver,
@@ -327,13 +341,16 @@ fn staged_write_publishes_only_after_digest_and_finish() {
         stream(&mut driver, json!({"op":"finish","transferId":"w"}))["status"],
         "finished"
     );
-    assert_eq!(fs::read(temp.path().join("target")).unwrap(), b"new!");
+    assert_eq!(
+        fs::read(temp.path().join("target")).expect("read back"),
+        b"new!"
+    );
     assert!(!staged.exists());
 }
 
 #[test]
 fn finish_refuses_and_discards_staging_when_publication_fails() {
-    let temp = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
     let mut driver = driver(temp.path());
     assert_eq!(
         stream(&mut driver, begin("p", "write", "target"))["status"],
@@ -344,19 +361,19 @@ fn finish_refuses_and_discards_staging_when_publication_fails() {
         stream(&mut driver, write("p", 0, b"data", true, Some(&digest)))["status"],
         "written"
     );
-    fs::create_dir(temp.path().join("target")).unwrap();
-    fs::write(temp.path().join("target/keep"), []).unwrap();
+    fs::create_dir(temp.path().join("target")).expect("create dir");
+    fs::write(temp.path().join("target/keep"), []).expect("seed file");
     assert_eq!(
         stream(&mut driver, json!({"op":"finish","transferId":"p"}))["reason"],
         "io_error"
     );
     assert!(temp.path().join("target/keep").exists());
-    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(temp.path()).expect("read dir").count(), 1);
 }
 
 #[test]
 fn abort_and_drop_discard_unfinished_staging() {
-    let temp = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
     let mut driver = driver(temp.path());
     stream(&mut driver, begin("a", "write", "a"));
     stream(&mut driver, write("a", 0, b"incomplete", false, None));
@@ -368,17 +385,17 @@ fn abort_and_drop_discard_unfinished_staging() {
     stream(&mut driver, begin("b", "write", "b"));
     drop(driver);
     assert!(!temp.path().join("b").exists());
-    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(temp.path()).expect("read dir").count(), 0);
 }
 
 #[test]
 fn export_open_failure_and_directory_shapes() {
-    let temp = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
     assert!(FsDriver::open([("missing".to_owned(), temp.path().join("absent"))]).is_err());
-    fs::write(temp.path().join("not-directory"), []).unwrap();
+    fs::write(temp.path().join("not-directory"), []).expect("seed file");
     assert!(FsDriver::open([("file".to_owned(), temp.path().join("not-directory"))]).is_err());
-    fs::create_dir(temp.path().join("folder")).unwrap();
-    fs::write(temp.path().join("file"), []).unwrap();
+    fs::create_dir(temp.path().join("folder")).expect("create dir");
+    fs::write(temp.path().join("file"), []).expect("seed file");
     let driver = driver(temp.path());
     assert_eq!(
         op(&driver, json!({"op":"stat","export":"notes","path":""}))["value"]["kind"],
@@ -408,38 +425,41 @@ fn export_open_failure_and_directory_shapes() {
 #[test]
 fn special_entries_and_link_boundaries_have_typed_results() {
     use std::os::unix::fs::{symlink, FileTypeExt};
-    let temp = TempDir::new().unwrap();
-    let outside = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
+    let outside = TempDir::new().expect("temp dir");
     let root = temp.path();
-    fs::create_dir(root.join("folder")).unwrap();
-    symlink("folder", root.join("link")).unwrap();
-    symlink("folder/../folder", root.join("normalized")).unwrap();
-    symlink("./folder", root.join("dotted")).unwrap();
+    fs::create_dir(root.join("folder")).expect("create dir");
+    symlink("folder", root.join("link")).expect("symlink");
+    symlink("folder/../folder", root.join("normalized")).expect("symlink");
+    symlink("./folder", root.join("dotted")).expect("symlink");
     symlink(
-        root.canonicalize().unwrap().join("folder"),
+        root.canonicalize().expect("canonical root").join("folder"),
         root.join("absolute"),
     )
-    .unwrap();
-    symlink(outside.path(), root.join("escaped")).unwrap();
-    symlink("loop", root.join("loop")).unwrap();
+    .expect("symlink");
+    symlink(outside.path(), root.join("escaped")).expect("symlink");
+    symlink("loop", root.join("loop")).expect("symlink");
     let pipe = root.join("pipe");
     assert!(std::process::Command::new("mkfifo")
         .arg(&pipe)
         .status()
-        .unwrap()
+        .expect("mkfifo")
         .success());
-    assert!(fs::metadata(&pipe).unwrap().file_type().is_fifo());
+    assert!(fs::metadata(&pipe)
+        .expect("fifo metadata")
+        .file_type()
+        .is_fifo());
     let _reader = rustix::fs::open(
         &pipe,
         rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NONBLOCK,
         rustix::fs::Mode::empty(),
     )
-    .unwrap();
+    .expect("open fifo reader");
     let mut client = driver(root);
     let entries = op(&client, json!({"op":"list","export":"notes","path":""}));
     assert!(entries["value"]["entries"]
         .as_array()
-        .unwrap()
+        .expect("entries array")
         .iter()
         .any(|entry| entry["name"] == "pipe"
             && entry["kind"] == "other"
@@ -516,8 +536,8 @@ fn special_entries_and_link_boundaries_have_typed_results() {
 
 #[test]
 fn stream_rejects_invalid_begins_and_chunks() {
-    let temp = TempDir::new().unwrap();
-    fs::write(temp.path().join("source"), b"data").unwrap();
+    let temp = TempDir::new().expect("temp dir");
+    fs::write(temp.path().join("source"), b"data").expect("seed file");
     let mut driver = driver(temp.path());
     assert_eq!(
         stream(&mut driver, begin("x", "read", "source"))["status"],
@@ -588,23 +608,29 @@ fn exclusive_write(path: &str, bytes: &[u8]) -> Value {
 #[test]
 fn exclusive_write_creates_once_and_refuses_occupied_or_linked_leaves() {
     use std::os::unix::fs::symlink;
-    let temp = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
     let root = temp.path();
-    fs::create_dir(root.join("inbox")).unwrap();
-    fs::write(root.join("sibling"), b"untouched").unwrap();
-    symlink("../sibling", root.join("inbox/link")).unwrap();
-    symlink("inbox", root.join("alias")).unwrap();
+    fs::create_dir(root.join("inbox")).expect("create dir");
+    fs::write(root.join("sibling"), b"untouched").expect("seed file");
+    symlink("../sibling", root.join("inbox/link")).expect("symlink");
+    symlink("inbox", root.join("alias")).expect("symlink");
     let driver = driver(root);
     assert_eq!(
         op(&driver, exclusive_write("inbox/link", b"bytes"))["reason"],
         "already_exists"
     );
-    assert_eq!(fs::read(root.join("sibling")).unwrap(), b"untouched");
+    assert_eq!(
+        fs::read(root.join("sibling")).expect("read back"),
+        b"untouched"
+    );
     assert_eq!(
         op(&driver, exclusive_write("alias/escape", b"bytes"))["status"],
         "refused"
     );
-    assert_eq!(fs::read_dir(root.join("inbox")).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_dir(root.join("inbox")).expect("read dir").count(),
+        1
+    );
     assert_eq!(
         op(&driver, exclusive_write("inbox/new", b"bytes")),
         json!({"status":"completed","value":{"op":"write","bytesWritten":5}})
@@ -613,7 +639,10 @@ fn exclusive_write_creates_once_and_refuses_occupied_or_linked_leaves() {
         op(&driver, exclusive_write("inbox/new", b"replace"))["reason"],
         "already_exists"
     );
-    assert_eq!(fs::read(root.join("inbox/new")).unwrap(), b"bytes");
+    assert_eq!(
+        fs::read(root.join("inbox/new")).expect("read back"),
+        b"bytes"
+    );
     assert_eq!(
         op(&driver, exclusive_write("inbox", b"bytes"))["reason"],
         "already_exists"
@@ -624,12 +653,12 @@ fn exclusive_write_creates_once_and_refuses_occupied_or_linked_leaves() {
 #[test]
 fn exclusive_begin_refuses_existing_file_directory_and_symlink() {
     use std::os::unix::fs::symlink;
-    let temp = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
     let root = temp.path();
-    fs::write(root.join("file"), b"old").unwrap();
-    fs::create_dir(root.join("folder")).unwrap();
-    symlink("file", root.join("link")).unwrap();
-    symlink("folder", root.join("alias")).unwrap();
+    fs::write(root.join("file"), b"old").expect("seed file");
+    fs::create_dir(root.join("folder")).expect("create dir");
+    symlink("file", root.join("link")).expect("symlink");
+    symlink("folder", root.join("alias")).expect("symlink");
     let mut driver = driver(root);
     for path in ["file", "folder", "link"] {
         assert_eq!(
@@ -642,8 +671,8 @@ fn exclusive_begin_refuses_existing_file_directory_and_symlink() {
         stream(&mut driver, exclusive_begin("alias", "alias/new"))["status"],
         "refused"
     );
-    assert_eq!(fs::read_dir(root).unwrap().count(), 4);
-    assert_eq!(fs::read(root.join("file")).unwrap(), b"old");
+    assert_eq!(fs::read_dir(root).expect("read dir").count(), 4);
+    assert_eq!(fs::read(root.join("file")).expect("read back"), b"old");
 }
 
 #[cfg(unix)]
@@ -651,9 +680,9 @@ fn exclusive_begin_refuses_existing_file_directory_and_symlink() {
 fn exclusive_finish_refuses_a_competing_leaf_and_discards_staging() {
     use std::os::unix::fs::symlink;
     for kind in ["file", "symlink"] {
-        let temp = TempDir::new().unwrap();
+        let temp = TempDir::new().expect("temp dir");
         let root = temp.path();
-        fs::write(root.join("sibling"), b"untouched").unwrap();
+        fs::write(root.join("sibling"), b"untouched").expect("seed file");
         let mut driver = driver(root);
         assert_eq!(
             stream(&mut driver, exclusive_begin("x", "target"))["status"],
@@ -665,9 +694,9 @@ fn exclusive_finish_refuses_a_competing_leaf_and_discards_staging() {
             true
         );
         if kind == "file" {
-            fs::write(root.join("target"), b"winner").unwrap();
+            fs::write(root.join("target"), b"winner").expect("seed file");
         } else {
-            symlink("sibling", root.join("target")).unwrap();
+            symlink("sibling", root.join("target")).expect("symlink");
         }
         assert_eq!(
             stream(&mut driver, json!({"op":"finish","transferId":"x"}))["reason"],
@@ -679,15 +708,18 @@ fn exclusive_finish_refuses_a_competing_leaf_and_discards_staging() {
         } else {
             b"untouched"
         };
-        assert_eq!(fs::read(root.join("target")).unwrap(), expected);
-        assert_eq!(fs::read(root.join("sibling")).unwrap(), b"untouched");
-        assert_eq!(fs::read_dir(root).unwrap().count(), 2);
+        assert_eq!(fs::read(root.join("target")).expect("read back"), expected);
+        assert_eq!(
+            fs::read(root.join("sibling")).expect("read back"),
+            b"untouched"
+        );
+        assert_eq!(fs::read_dir(root).expect("read dir").count(), 2);
     }
 }
 
 #[test]
 fn exclusive_stream_publishes_a_fresh_target() {
-    let temp = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
     let mut driver = driver(temp.path());
     assert_eq!(
         stream(&mut driver, exclusive_begin("f", "fresh"))["status"],
@@ -699,13 +731,16 @@ fn exclusive_stream_publishes_a_fresh_target() {
         stream(&mut driver, json!({"op":"finish","transferId":"f"}))["status"],
         "finished"
     );
-    assert_eq!(fs::read(temp.path().join("fresh")).unwrap(), b"fresh");
-    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    assert_eq!(
+        fs::read(temp.path().join("fresh")).expect("read back"),
+        b"fresh"
+    );
+    assert_eq!(fs::read_dir(temp.path()).expect("read dir").count(), 1);
 }
 
 #[test]
 fn schema_valid_non_canonical_base64_is_refused_without_unwinding() {
-    let temp = TempDir::new().unwrap();
+    let temp = TempDir::new().expect("temp dir");
     let mut driver = driver(temp.path());
     assert_eq!(
         stream(&mut driver, begin("w", "write", "target"))["status"],
@@ -718,7 +753,7 @@ fn schema_valid_non_canonical_base64_is_refused_without_unwinding() {
     )
     .expect("schema admits the payload");
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        serde_json::to_value(driver.stream(&request)).unwrap()
+        serde_json::to_value(driver.stream(&request)).expect("encode result")
     }))
     .expect("stream must not unwind");
     assert_eq!(result["status"], "refused");
@@ -733,11 +768,11 @@ fn schema_valid_non_canonical_base64_is_refused_without_unwinding() {
 #[test]
 fn links_to_the_export_root_list_the_root() {
     use std::os::unix::fs::symlink;
-    let temp = TempDir::new().unwrap();
-    let root = temp.path().canonicalize().unwrap();
-    fs::write(root.join("file"), b"data").unwrap();
-    symlink(".", root.join("relative")).unwrap();
-    symlink(&root, root.join("absolute")).unwrap();
+    let temp = TempDir::new().expect("temp dir");
+    let root = temp.path().canonicalize().expect("canonical root");
+    fs::write(root.join("file"), b"data").expect("seed file");
+    symlink(".", root.join("relative")).expect("symlink");
+    symlink(&root, root.join("absolute")).expect("symlink");
     let driver = driver(&root);
     let expected = op(&driver, json!({"op":"list","export":"notes","path":""}));
     assert_eq!(expected["status"], "completed");
@@ -752,14 +787,14 @@ fn links_to_the_export_root_list_the_root() {
 
 #[test]
 fn stream_refuses_invalid_payloads_and_truncated_sources() {
-    let temp = TempDir::new().unwrap();
-    fs::write(temp.path().join("source"), b"data").unwrap();
+    let temp = TempDir::new().expect("temp dir");
+    fs::write(temp.path().join("source"), b"data").expect("seed file");
     let mut driver = driver(temp.path());
     assert_eq!(
         stream(&mut driver, begin("r", "read", "source"))["status"],
         "begun"
     );
-    fs::write(temp.path().join("source"), []).unwrap();
+    fs::write(temp.path().join("source"), []).expect("seed file");
     assert_eq!(
         stream(&mut driver, json!({"op":"read","transferId":"r","seq":0}))["reason"],
         "io_error"

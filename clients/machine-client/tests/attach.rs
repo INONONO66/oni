@@ -181,12 +181,13 @@ fn attachment_refusal_classifies_terminal_reasons() {
         "unsupported_contract",
         "peer_key_mismatch",
     ] {
-        let error = result(json!({"status":"refused","reason":reason})).unwrap_err();
+        let error = result(json!({"status":"refused","reason":reason})).expect_err("refusal");
         assert!(matches!(error, AttachError::Terminal(_)));
         assert_eq!(error.exit_code(), 3);
         assert_eq!(error.reason(), reason);
     }
-    let retrying = result(json!({"status":"refused","reason":"machine_not_enrolled"})).unwrap_err();
+    let retrying =
+        result(json!({"status":"refused","reason":"machine_not_enrolled"})).expect_err("refusal");
     assert!(matches!(retrying, AttachError::Call(_)));
     assert_eq!(retrying.exit_code(), 2);
     let attached = result(json!({"status":"attached","effectiveCapabilities":["fs.read"],"effectiveExports":["home"],"generation":9})).expect("attached");
@@ -352,7 +353,7 @@ fn tailnet_names_resolve_through_status_json() {
     );
     assert_eq!(
         config::resolve_peer("other", status)
-            .unwrap_err()
+            .expect_err("unknown peer")
             .to_string(),
         "host_unresolved"
     );
@@ -535,7 +536,9 @@ async fn pin_mismatch_join_is_refused_as_terminal() {
         host_pin: Some("00".repeat(32)),
         ..join_options(&host.endpoint)
     };
-    let error = attach::join(&options, home.path(), &[]).await.unwrap_err();
+    let error = attach::join(&options, home.path(), &[])
+        .await
+        .expect_err("join failure");
     assert_eq!(
         (error.exit_code(), error.reason().as_str()),
         (3, "peer_key_mismatch")
