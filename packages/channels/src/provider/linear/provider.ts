@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ChannelsFailure } from "../../errors.js";
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
-import type { ChannelProvider, OwnerArm } from "../contract.js";
+import { type ChannelProvider, type OwnerArm, WEBHOOK_TEXT_CAPABILITIES } from "../contract.js";
 import { LinearAdapter } from "./surface.js";
 import type { LinearOwnerCredentials } from "./types.js";
 
@@ -51,16 +51,8 @@ const LinearOwnerArm: OwnerArm<LinearOwnerCredentials> = {
 export const LinearProvider: ChannelProvider<never, "linear", LinearOwnerCredentials> = {
   id: "linear",
   ingest: "webhook",
-  capabilities: {
-    deliver: true,
-    webhook: true,
-    // Linear renders markdown natively and comments carry no driver-enforced limit.
-    render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null },
-    media: false,
-    react: false,
-    typing: false,
-    voice: false,
-  },
+  // Linear renders markdown natively and comments carry no driver-enforced limit.
+  capabilities: WEBHOOK_TEXT_CAPABILITIES,
   owner: LinearOwnerArm,
   credentials: z.custom<never>(() => false, {
     message: "linear has no bot account; declare the instance with identity: owner",

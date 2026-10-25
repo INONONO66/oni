@@ -1,6 +1,6 @@
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import { z } from "zod";
-import type { ChannelProvider } from "../contract.js";
+import { type ChannelProvider, WEBHOOK_TEXT_CAPABILITIES } from "../contract.js";
 import { GitHubAdapter } from "./surface.js";
 
 interface GitHubCredentials {
@@ -16,16 +16,8 @@ interface GitHubCredentials {
 export const GitHubProvider: ChannelProvider<GitHubCredentials, "github"> = {
   id: "github",
   ingest: "webhook",
-  capabilities: {
-    deliver: true,
-    webhook: true,
-    // GitHub renders markdown natively and comments carry no driver-enforced limit.
-    render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null },
-    media: false,
-    react: false,
-    typing: false,
-    voice: false,
-  },
+  // GitHub renders markdown natively and comments carry no driver-enforced limit.
+  capabilities: WEBHOOK_TEXT_CAPABILITIES,
   credentials: z
     .object({
       secret: z.string().min(1),

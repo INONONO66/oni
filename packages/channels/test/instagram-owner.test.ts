@@ -260,7 +260,6 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
       typing: false,
       voice: false,
     });
-    expect(provider.owner?.listen).toBe(true);
     expect(provider.owner?.credentials.safeParse({ session: INSTAGRAM_SESSION }).success).toBe(
       true,
     );

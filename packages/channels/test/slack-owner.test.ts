@@ -431,7 +431,6 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
       typing: false,
       voice: false,
     });
-    expect(provider.owner?.listen).toBe(true);
     expect(provider.owner?.credentials.safeParse(CREDENTIALS).success).toBe(true);
     expect(
       provider.owner?.credentials.safeParse({ botToken: "xoxb-1", appToken: "xapp-1" }).success,

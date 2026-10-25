@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { DeliveryNotSent } from "../../errors.js";
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
-import type { ChannelProvider } from "../contract.js";
+import { type ChannelProvider, WEBHOOK_TEXT_CAPABILITIES } from "../contract.js";
 import { A2AAdapter, type A2ACardFacts, type PeerResolver } from "./surface.js";
 export type { A2ACardFacts, PeerResolver } from "./surface.js";
 import { A2ACredentials } from "./types.js";
@@ -16,16 +16,8 @@ export function createA2AProvider(peers: PeerResolver, card: A2ACardFacts): Chan
   return {
     id: "a2a",
     ingest: "webhook",
-    capabilities: {
-      deliver: true,
-      webhook: true,
-      // The answer is a text part; the peer renders it as it sees fit.
-      render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null },
-      media: false,
-      react: false,
-      typing: false,
-      voice: false,
-    },
+    // The answer is a text part; the peer renders it as it sees fit.
+    capabilities: WEBHOOK_TEXT_CAPABILITIES,
     credentials: A2ACredentials,
     settings: z.record(z.string(), z.never()),
     preconditions: [
