@@ -4,7 +4,7 @@ import { z } from "zod";
 import { VoiceJoinRefused } from "../src/errors";
 import { SlackOwnerAdapter } from "../src/provider/slack/owner";
 import { SlackHuddleError } from "../src/provider/slack/owner-sdk";
-import { fakeHuddle, fakeSlackOwnerSdk } from "./helpers/slack-owner-sdk";
+import { FakeSlackOwnerListener, fakeHuddle, fakeSlackOwnerSdk, type HuddleEvent } from "./helpers/slack-owner-sdk";
 import { inboundQueue } from "./helpers/inbound-queue";
 import { injectedOptions } from "./helpers/injected";
 import { bounded } from "./helpers/bounded";
@@ -101,7 +101,7 @@ test("a failed fork event iterator emits a safe error and releases the active se
   const h = fakeHuddle();
   f.setJoin(async () => ({
     ...h.handle,
-    events: (async function* () {
+    events: (async function* (): AsyncGenerator<HuddleEvent, void, void> {
       yield { type: "ready" as const };
       throw new Error("secret browser URL");
     })(),
@@ -125,7 +125,7 @@ test("stop retains terminal handle custody until cleanup settles", async () => {
   const entered = Promise.withResolvers<void>();
   f.setJoin(async () => ({
     ...h.handle,
-    events: (async function* () {
+    events: (async function* (): AsyncGenerator<HuddleEvent, void, void> {
       yield { type: "disconnected" as const, reason: "room_closed" };
     })(),
     leave: async () => {
@@ -203,6 +203,121 @@ test("one pending call is busy, stop aborts it and cleans a late raw handle", as
   await stopped;
   expect(raw.leaves).toBe(1);
 });
+
+test("voice refuses admission before the RTM hello", async () => {
+  const entered = Promise.withResolvers<void>();
+  const listener = new FakeSlackOwnerListener(() => entered.resolve());
+  const fake = fakeSlackOwnerSdk({}, listener);
+  const adapter = new SlackOwnerAdapter(credential, posture, () => undefined, injectedOptions(), fake.sdk);
+  adapter.onMessage(() => Promise.resolve());
+  fake.setJoin(async () => fakeHuddle().handle);
+  const starting = adapter.start("start");
+  await bounded(entered.promise);
+  await expect(adapter.joinVoice(address)).rejects.toMatchObject({ _tag: "VoiceJoinRefused", reason: "not_started" });
+  expect(fake.joins).toEqual([]);
+  listener.emit("error", new Error("rtm_connect_failed"));
+  await expect(starting).rejects.toThrow();
+  await adapter.stop("stop");
+});
+
+test("stop fences authentication completing after teardown", async () => {
+  const f = fixture("none");
+  const entered = Promise.withResolvers<void>();
+  const auth = Promise.withResolvers<{ user_id: string; team_id: string }>();
+  f.client.testAuth = () => { entered.resolve(); return auth.promise; };
+  const starting = f.adapter.start("start");
+  await bounded(entered.promise);
+  await f.adapter.stop("stop");
+  auth.resolve({ user_id: "U-owner", team_id: "T1" });
+  await expect(starting).rejects.toThrow();
+  await expect(f.adapter.joinVoice(address)).rejects.toMatchObject({ _tag: "VoiceJoinRefused", reason: "not_started" });
+  expect(f.joins).toEqual([]);
+  expect(f.listener.started).toBe(0);
+});
+
+test("stop reports rejected late-handle cleanup and join maps the refusal", async () => {
+  const f = fixture("none");
+  const entered = Promise.withResolvers<void>();
+  const raw = fakeHuddle();
+  const resolved = Promise.withResolvers<typeof raw.handle>();
+  f.setJoin(() => { entered.resolve(); return resolved.promise; });
+  await f.adapter.start("start");
+  const joining = f.adapter.joinVoice(address);
+  await bounded(entered.promise);
+  const stopped = f.adapter.stop("stop");
+  const joinOutcome = joining.then(() => "joined", (error: VoiceJoinRefused) => error);
+  const stopOutcome = stopped.then(() => "stopped", (error: VoiceJoinRefused) => error);
+  resolved.resolve({
+    ...raw.handle,
+    leave: async () => {
+      await raw.handle.leave();
+      throw new SlackHuddleError("voice_join_failed", "cleanup_timeout");
+    },
+  });
+  expect(await bounded(joinOutcome)).toMatchObject({
+    _tag: "VoiceJoinRefused", reason: "join_failed", detail: "cleanup_timeout",
+  });
+  expect(await bounded(stopOutcome)).toMatchObject({
+    _tag: "VoiceJoinRefused", reason: "join_failed", detail: "cleanup_timeout",
+  });
+  expect(raw.leaves).toBe(1);
+});
+
+test.each([null, undefined])("explicit leave with room id %s allows a newer same-room call", async (roomId) => {
+  const f = fixture();
+  await acceptedEntry(f);
+  f.listener.emit("user_huddle_changed", {
+    type: "user_huddle_changed", user: {
+      id: "U-owner", team_id: "T1",
+      profile: { huddle_state: "not_in_a_huddle", ...(roomId === undefined ? {} : { huddle_state_call_id: roomId }) },
+    }, event_ts: "1700.2",
+  });
+  const next = f.next();
+  f.changed("1700.3");
+  expect((await next).facts.eventId).toBe("call:slack:T1:U-owner:1700.3:R1");
+  expect(f.inbound.map((message) => message.facts.eventId)).toEqual([
+    "call:slack:T1:U-owner:1700.1:R1", "call:slack:T1:U-owner:1700.3:R1",
+  ]);
+  await f.adapter.stop("stop");
+});
+
+test.each([false, true])("an old room conflict %s preserves the current pending association", async (conflict) => {
+  const f = fixture();
+  await f.adapter.start("start");
+  f.room("R1", "C1");
+  f.changed("1700.1", "R2");
+  if (conflict) f.room("R1", "C3");
+  const next = f.next();
+  f.room("R2", "C2");
+  expect((await next).facts.channelId).toBe("C2");
+  expect(f.inbound.filter((message) => message.facts.event === "call")).toHaveLength(1);
+  if (conflict) {
+    f.changed("1700.2", "R1");
+    expect(f.inbound.filter((message) => message.facts.event === "call")).toHaveLength(1);
+  }
+  await f.adapter.stop("stop");
+});
+
+test.each([["9.9", "10.0"], ["10.1", "11.0"]] as const)(
+  "integer timestamp progression %s to %s admits the newer room and refuses stale updates",
+  async (firstTs, secondTs) => {
+    const f = fixture();
+    await f.adapter.start("start");
+    f.room("R1", "C1");
+    f.room("R2", "C2");
+    const first = f.next();
+    f.changed(firstTs, "R1");
+    expect((await first).facts.channelId).toBe("C1");
+    f.changed(secondTs, "R2");
+    f.changed(firstTs, "R1");
+    const dispatched = f.next();
+    f.listener.message({ channel: "D2", user: "U-other", text: "sentinel", ts: "1701.1" });
+    await dispatched;
+    expect(f.inbound.filter((message) => message.facts.event === "call").map((message) => message.facts.channelId))
+      .toEqual(["C1", "C2"]);
+    await f.adapter.stop("stop");
+  },
+);
 
 test("Owner state resolves in either event order and never mistakes the room for a channel", async () => {
   const f = fixture();
