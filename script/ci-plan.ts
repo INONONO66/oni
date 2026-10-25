@@ -95,6 +95,8 @@ export function planChanges(
       path.startsWith("clients/") ||
       path.startsWith("packages/protocol/") ||
       path === "script/generate-machine-schema.ts" ||
+      path === "script/check-clients-conformance.ts" ||
+      path === "script/check-clients-conformance.test.ts" ||
       path === ".github/workflows/ci.yml",
   );
   const selection = selectChanges(paths, topology);

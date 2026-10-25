@@ -56,6 +56,9 @@ export const scriptsLanes = {
     "run-quality-mutations-compiler.test.ts",
     "run-quality-mutations-operators.test.ts",
   ],
+  // Needs the prebuilt clients/target/debug/mclient: run by the Clients Rust
+  // CI job (`bun run clients:conformance`), never by a script partition.
+  "clients-conformance": ["check-clients-conformance.test.ts"],
 } as const;
 export type ScriptsLane = keyof typeof scriptsLanes;
 export const scriptPartitions = [

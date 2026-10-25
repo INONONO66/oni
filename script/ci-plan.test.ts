@@ -66,6 +66,8 @@ test("merge-group planning is full and global", () => {
 test.each([
   ["clients/machine-client/src/main.rs", true],
   ["packages/protocol/src/index.ts", true],
+  ["script/check-clients-conformance.ts", true],
+  ["script/check-clients-conformance.test.ts", true],
   ["packages/machines/src/index.ts", false],
 ])("selects the Clients Rust lane as %s changes", (path, clients) => {
   expect(planChanges([path]).clients).toBe(clients);

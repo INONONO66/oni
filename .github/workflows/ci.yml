@@ -100,6 +100,18 @@ jobs:
       - run: bun run script/generate-machine-schema.ts --check
       - run: bun run clients:lint
       - run: bun run clients:test
+      - run: bun run clients:conformance
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: coverage-clients-conformance
+          # Multi-path like the other coverage uploads so the patch gate keeps
+          # the `script/coverage/` ancestor that names the lane prefix.
+          path: |
+            packages/*/coverage/
+            script/coverage/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Gate native line coverage (build.rs is not measured)
         run: cd clients && cargo llvm-cov --workspace --tests --locked --fail-under-lines 100
 
@@ -350,11 +362,11 @@ jobs:
 
   patch-coverage:
     name: Patch Coverage
-    needs: [plan, tests, scripts-contracts]
+    needs: [plan, clients, tests, scripts-contracts]
     # Every changed executable line must be exercised by the PR's own test
     # evidence (#1116). Deep audits (mutation, census) run on the schedule in
     # quality-mutation.yml, not per PR.
-    if: "!cancelled() && github.event_name == 'pull_request' && needs.plan.outputs.verify == 'true' && needs.tests.result == 'success' && needs.scripts-contracts.result == 'success'"
+    if: "!cancelled() && github.event_name == 'pull_request' && needs.plan.outputs.verify == 'true' && needs.tests.result == 'success' && needs.scripts-contracts.result == 'success' && (needs.clients.result == 'success' || needs.clients.result == 'skipped')"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
