@@ -135,31 +135,33 @@ export function externalToolOrigin(kernel: SessionKernel, turnId: string): Deliv
   return undefined;
 }
 
+function restriction(origin: Delivery.Origin): number {
+  const decision = inboundAuthority(origin.value);
+  if (decision.violation !== undefined) return 2;
+  return decision.authority === "act" ? 0 : 1;
+}
+
+/** A batched turn is governed by its most restrictive delivery, never its most permissive one. */
+function governingOrigin(kernel: SessionKernel, turnId: string): Delivery.Origin | undefined {
+  let governing: Delivery.Origin | undefined;
+  for (const id of turnIntent(kernel.actionById(turnId))?.deliveryIds ?? []) {
+    const row = kernel.actionById(id);
+    if ((row?.kind !== "prompt" && row?.kind !== "action") || externalToolCall(row.intent.value) !== undefined) continue;
+    if (governing === undefined || restriction(row.intent) > restriction(governing)) governing = row.intent;
+  }
+  return governing;
+}
+
 export function turnInboundAuthority(kernel: SessionKernel, turnId: string, promptId: string | undefined) {
-  const external = externalToolOrigin(kernel, turnId);
-  const action = turnIntent(kernel.actionById(turnId))?.deliveryIds
-    .map((id) => kernel.actionById(id))
-    .find((row) => row?.kind === "action" && externalToolCall(row.intent.value) === undefined);
-  const origin = promptId === undefined ? undefined : kernel.actionById(promptId)?.intent;
-  if (external !== undefined) return inboundAuthority(external.value);
-  if (action !== undefined && turnIntent(kernel.actionById(turnId))?.deliveryIds
-    .every((id) => kernel.actionById(id)?.kind !== "prompt")) return inboundAuthority(action.intent.value);
-  return promptInboundAuthority(promptId, origin?.value);
+  const origin = externalToolOrigin(kernel, turnId) ?? governingOrigin(kernel, turnId);
+  if (origin !== undefined) return inboundAuthority(origin.value);
+  return promptInboundAuthority(promptId, promptId === undefined ? undefined : kernel.actionById(promptId)?.intent.value);
 }
 
 /** Reuse the recorded initiating treatment, never a tier chosen by an external model. */
 export function toolSourceOrigin(kernel: SessionKernel, sessionId: string, turnId: string): Delivery.Origin | undefined {
-  const turn = kernel.actionById(turnId);
-  if (turn?.sessionId !== sessionId) return undefined;
-  const intent = turnIntent(turn);
-  let actionOrigin: Delivery.Origin | undefined;
-  for (const id of [...(intent?.deliveryIds ?? [])].reverse()) {
-    const action = kernel.actionById(id);
-    if (action?.kind === "prompt") return action.intent;
-    if (action?.kind === "action" && externalToolCall(action.intent.value) === undefined)
-      actionOrigin ??= action.intent;
-  }
-  return actionOrigin ?? externalToolOrigin(kernel, turnId);
+  if (kernel.actionById(turnId)?.sessionId !== sessionId) return undefined;
+  return governingOrigin(kernel, turnId) ?? externalToolOrigin(kernel, turnId);
 }
 
 /** A runner with no output is a typed missing-output failure, not a policy refusal. */

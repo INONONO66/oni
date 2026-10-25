@@ -76,9 +76,14 @@ export function makeRealtime(input: {
       };
       const socket = yield* Effect.acquireRelease(
         Effect.try({
-          try: () => (input.socket ?? ((url, options) => new WebSocket(url, { headers: options.headers })))(
-            `${selected.realtime.endpoint}?model=${encodeURIComponent(selected.realtime.model)}`, { headers },
-          ),
+          try: () => {
+            const url = new URL(selected.realtime.endpoint);
+            url.searchParams.delete("model");
+            // Percent-encode the model (not form `+`), beside any configured query.
+            const query = url.searchParams.toString();
+            url.search = `${query}${query === "" ? "" : "&"}model=${encodeURIComponent(selected.realtime.model)}`;
+            return (input.socket ?? ((href, options) => new WebSocket(href, { headers: options.headers })))(url.href, { headers });
+          },
           catch: () => transport("Realtime socket could not open"),
         }),
         () => Effect.sync(() => {

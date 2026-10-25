@@ -198,9 +198,10 @@ test("a distinct external call id still runs after another call seals", () =>
     expect(executions).toBe(2);
   }))));
 
-test("a distinct external call id scans past the first history page", () =>
+test("a call id sealed beyond the first history page refuses its replay", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
-    const { world, input } = yield* sealedWorld();
+    let executions = 0;
+    const { world, input } = yield* sealedWorld({ definitions: [countedProbe(() => { executions++; })] });
     yield* world.tool(input);
     const row = world.kernel.row(world.sessionId);
     const actions: ReturnType<typeof turnStopAction>[] = [];
@@ -214,9 +215,11 @@ test("a distinct external call id scans past the first history page", () =>
       ...world.handle.authority, now: 1, expectedRevision: row.revision, state: row.state,
       actions,
     });
-    expect((yield* world.tool({
-      ...input, call: { ...input.call, id: "after-page" },
-    })).structuredContent).toEqual({ n: 7 });
+    const afterPage = { ...input, call: { ...input.call, id: "after-page" } };
+    expect((yield* world.tool(afterPage)).structuredContent).toEqual({ n: 7 });
+    expect(world.kernel.row(world.sessionId).revision).toBeGreaterThan(256);
+    expect(yield* Effect.flip(world.tool(afterPage))).toEqual(new ToolTurnRefused({ code: "duplicate" }));
+    expect(executions).toBe(2);
   }))));
 
 test("a recorded external call remains busy while its body is in flight", () =>
@@ -285,6 +288,34 @@ test.each([
       ...input, sourceTurnId: _name === "missing" ? "absent" : input.sourceTurnId,
     }))).toEqual(new ToolTurnRefused({ code: "origin" }));
     expect(world.kernel.row(world.sessionId).revision).toBe(before);
+  }))));
+
+test.each([
+  ["evidence_only", "full_access"],
+  ["full_access", "evidence_only"],
+] as const)("a batched %s and %s turn and its external tools share the restricted authority", (first, last) =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    let turnAuthority: string | undefined;
+    const world = yield* toolTurnWorld({
+      definitions: [probe],
+      runner: (turn) => {
+        turnAuthority = turn.authority;
+        return Effect.succeed({ kind: "result", text: "" });
+      },
+    });
+    const row = world.kernel.row(world.sessionId);
+    yield* world.kernel.commit({
+      ...world.handle.authority, now: 1, state: row.state, expectedRevision: row.revision,
+      actions: [first, last].map((inboundTreatment, index) => receivedMessageAction({
+        id: `batch-${index}`, sessionId: world.sessionId, kind: "action", content: "call event",
+        origin: { encodingVersion: 1, value: { kind: "external", inboundTreatment } },
+        parentActionId: null, at: 1,
+      })),
+    });
+    yield* drain(world.handle);
+    yield* world.settled;
+    expect(turnAuthority).toBe("evidence_only");
+    expect(yield* Effect.flip(world.tool(source(world)))).toEqual(new ToolTurnRefused({ code: "origin" }));
   }))));
 
 test("an action-only turn never borrows an earlier trusted prompt", () =>

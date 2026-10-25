@@ -951,6 +951,8 @@ Receipts: `packages/channels/test/{discord-surface,discord-sdk,discord-normalize
 `apps/oni/test/{live-voice,live-pcm,automation-delivery,npm-package}.test.ts`,
 and the fork's `src/platforms/discordbot/voice.test.ts`.
 
+DoD sweep PR #1660 (G3S): review r1 of the landed diff (3 High, 3 Medium) fixed; every terminal path of a live call closes tool admission before the voice leave, a batched turn and its external tools share the most restrictive delivery's authority, an old Discord voice handle never releases its replacement, and a realtime endpoint keeps its own query.
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on
