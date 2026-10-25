@@ -26,12 +26,12 @@ afterEach(async () => {
 const target = { kind: "contact", id: "person:owner", surface: "discord:bot", conversation: { channelId: "voice" } } as const;
 const request = { to: target, kind: "call" as const };
 
-function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failResponse = false, opening?: Promise<void>, modelPcm = new Uint8Array([1, 0])) {
+function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failResponse = false, opening?: Promise<void>, modelPcm = new Uint8Array([1, 0]), surface = "discord:bot") {
   const plane = testPlane();
   planes.push(plane);
   plane.stores.persons.put({
     id: "person:owner", displayName: "Owner", kind: "human", trustTier: "owner",
-    endpoints: [{ channel: "discord", externalId: "owner-user" }],
+    endpoints: [{ channel: surface.split(":")[0] ?? surface, externalId: surface === "slack:owner" ? "T1:U-owner" : "owner-user" }],
     revision: 0, createdBy: "owner", updatedAt: 1,
   });
   const sessionId = crypto.randomUUID();
@@ -72,7 +72,12 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
       if (failLeave) throw new Error("voice release refused");
     },
   };
-  const routes = new Map<string, ProviderVoiceRoute>([["discord:bot", async () => { joined.resolve(); return handle; }]]);
+  const routeInputs: Parameters<ProviderVoiceRoute>[0][] = [];
+  const routes = new Map<string, ProviderVoiceRoute>([[surface, async (input) => {
+    routeInputs.push(input);
+    joined.resolve();
+    return handle;
+  }]]);
   const realtime: Realtime = {
     open: ({ audioIn, audioOut }) => failRealtime
       ? Effect.fail(new TransportFailure({ operation: "realtime.socket", message: "handshake rejected", cause: "rejected" }))
@@ -129,7 +134,7 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
   const runTool = bindSessionToolTurn(turns, world.runtime, world.handle.scope, createSessionLivePlane());
   Object.assign(world.handle.env.ports, { runTool });
   cleanups.push(async () => { await driver.endAll("shutdown"); });
-  const execute = async (value = request) => {
+  const execute = async (value: Parameters<typeof send.execute>[0] = request) => {
     let receipt: Tool.Result | undefined;
     world.run((input) => world.execute(input, { id: "send-call", tool: "send_message", input: value }).pipe(
       Effect.map((result) => {
@@ -143,7 +148,7 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
     return receipt;
   };
   return {
-    plane, kernel, world, sessionId, execute, driver, routes, inbound, voiceEvents, calls, events, answeredCalls, pulledCalls,
+    plane, kernel, world, sessionId, execute, driver, routes, routeInputs, inbound, voiceEvents, calls, events, answeredCalls, pulledCalls,
     joined: joined.promise, answered: answered.promise, audioWritten: audioWritten.promise, leaveStarted: leaveStarted.promise, ended: ended.promise,
     speech: speech.promise, capturedSpeech, responses, outputs, outcomes, incidents,
     leaves: () => leaves, closes: () => closes, bodyCalls: () => bodyCalls,
@@ -153,6 +158,29 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
     holdLeave: (pending: Promise<void>) => { holdLeave = pending; },
   };
 }
+
+test.each([false, true])("a Slack Owner call retains its complete speaker id and %s gate decision", async (deny) => {
+  const f = fixture(deny, false, 5_000, false, undefined, new Uint8Array([1, 0]), "slack:owner");
+  const receipt = await bounded(f.execute({
+    to: { kind: "contact", id: "person:owner", surface: "slack:owner", conversation: { channelId: "C1" } },
+    kind: "call", message: "answer briefly",
+  }));
+  expect(receipt.isError).toBeUndefined();
+  expect(f.routeInputs).toMatchObject([{
+    surface: "slack:owner", channelId: "C1", speakerExternalId: "T1:U-owner",
+  }]);
+  await runEffect(Queue.offer(f.calls, { callId: "probe-slack", name: "probe", arguments: { n: 7 } }));
+  await bounded(f.answered);
+  expect(f.responses).toEqual([{
+    id: "probe-slack", value: deny ? { error: "probe refused: live_probe_denied" } : { n: 7 },
+  }]);
+  expect(f.bodyCalls()).toBe(deny ? 0 : 1);
+  await runEffect(Queue.offer(f.voiceEvents, { type: "speaker_left", externalId: "T1:U-owner" }));
+  await bounded(f.ended);
+  expect(f.outcomes[0]?.reason).toBe("owner_left");
+  expect(f.leaves()).toBe(1);
+  expect(f.closes()).toBe(1);
+});
 
 test("a completed Resident turn admits a later tool in a separate gated turn", async () => {
   const f = fixture();

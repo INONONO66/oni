@@ -570,7 +570,7 @@ function startCall(
     target.surface === undefined || target.conversation?.channelId === undefined)
     throw new ToolRefused("send_message", "call_target: a person contact needs a surface and voice channel");
   if (target.as === "owner")
-    throw new ToolRefused("send_message", "call_as_owner: calls use the bot account");
+    throw new ToolRefused("send_message", "call_as_owner: calls use the selected voice surface's account");
   if (port === undefined)
     throw new ToolRefused("send_message", "call_unavailable: live calls are not composed");
   return port.start({

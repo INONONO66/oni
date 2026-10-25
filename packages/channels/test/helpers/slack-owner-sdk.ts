@@ -5,6 +5,7 @@ import type {
   SlackOwnerEvents,
   SlackOwnerSdk,
 } from "../../src/provider/slack/owner-sdk";
+import type { SlackHuddleHandle } from "../../src/provider/slack/owner-sdk";
 import type { SlackCall } from "./slack-sdk";
 
 type Handler = (...args: never[]) => void;
@@ -34,6 +35,13 @@ export class FakeSlackOwnerListener implements SlackOwnerEvents {
     const list = this.handlers.get(event) ?? [];
     list.push(listener as Handler);
     this.handlers.set(event, list);
+    return this;
+  }
+  off<K extends keyof SlackOwnerEventMap>(
+    event: K,
+    listener: (...args: SlackOwnerEventMap[K]) => void,
+  ): this {
+    this.handlers.set(event, (this.handlers.get(event) ?? []).filter((handler) => handler !== listener));
     return this;
   }
 
@@ -141,20 +149,56 @@ export function fakeSlackOwnerSdk(
   readonly listener: FakeSlackOwnerListener;
   /** What the surface built the listener with; `undefined` until it did. */
   readonly listenerClient: () => SlackOwnerApi | undefined;
+  readonly joins: { workspaceId: string; channelId: string; speakerId: string; credentials: { token: string; cookie: string } }[];
+  readonly setJoin: (join: SlackOwnerSdk["joinHuddle"]) => void;
 } {
   const client = new FakeSlackOwnerClient(script);
   const events = listener ?? new FakeSlackOwnerListener();
   let built: SlackOwnerApi | undefined;
+  const joins: { workspaceId: string; channelId: string; speakerId: string; credentials: { token: string; cookie: string } }[] = [];
+  let join: SlackOwnerSdk["joinHuddle"] = async () => {
+    throw new Error("unscripted huddle join");
+  };
   return {
     client,
     listener: events,
     listenerClient: () => built,
+    joins,
+    setJoin: (next: SlackOwnerSdk["joinHuddle"]) => { join = next; },
     sdk: {
       client: () => client,
       listener: (owner) => {
         built = owner;
         return events;
       },
+      joinHuddle: (workspaceId, channelId, options) => {
+        joins.push({ workspaceId, channelId, speakerId: options.speakerId, credentials: options.credentials });
+        return join(workspaceId, channelId, options);
+      },
     },
+  };
+}
+
+/** The external SDK's already-ready handle, with a controllable event stream. */
+export function fakeHuddle() {
+  const events: (SlackHuddleHandle["events"] extends AsyncIterable<infer T> ? T : never)[] = [];
+  let wake = Promise.withResolvers<void>();
+  let closed = false;
+  let leaves = 0;
+  return {
+    emit(event: (typeof events)[number]) { events.push(event); wake.resolve(); },
+    get leaves() { return leaves; },
+    handle: {
+      pcmIn: (async function* () { yield new Uint8Array([1, 0, 2, 0]); })(),
+      pcmOut: { write: async (_pcm: Uint8Array) => undefined },
+      events: (async function* () {
+        while (!closed || events.length > 0) {
+          const next = events.shift();
+          if (next !== undefined) yield next;
+          else { await wake.promise; wake = Promise.withResolvers<void>(); }
+        }
+      })(),
+      leave: async () => { leaves += 1; closed = true; wake.resolve(); },
+    } satisfies SlackHuddleHandle,
   };
 }

@@ -45,6 +45,27 @@ const context = {
   signal: new AbortController().signal,
 } as const;
 
+test("a Slack Owner call uses the same call port rather than the message gateway", async () => {
+  const starts: object[] = [];
+  const tool = createSendMessageTool(undefined, () => 1, {
+    call: { start: async (input) => {
+      starts.push(input);
+      return { contact: input.contact, status: "joined", call: "call-1", surface: input.surface, channelId: input.channelId };
+    } },
+  });
+  const receipt = await tool.execute({
+    to: { kind: "contact", id: "person:owner", surface: "slack:owner", conversation: { channelId: "C1" } },
+    kind: "call", message: "join this huddle",
+  }, context);
+  expect(receipt).toEqual({ contact: "person:owner", status: "joined", call: "call-1", surface: "slack:owner", channelId: "C1" });
+  expect(starts).toEqual([{ contact: "person:owner", surface: "slack:owner", channelId: "C1", opening: "join this huddle", sessionId: "sender", turnId: "turn-1" }]);
+  await expect(tool.execute({
+    to: { kind: "contact", id: "person:owner", surface: "slack:owner", conversation: { channelId: "C1" }, as: "owner" },
+    kind: "call",
+  }, context)).rejects.toThrow("call_as_owner:");
+  expect(starts).toHaveLength(1);
+});
+
 test("contact addresses parse per kind; channel ids and unknown kinds are no connector address, and no cli id is a literal (#1512)", () => {
   expect(parseContactAddress("cli:claude-code")).toEqual({ kind: "cli", id: "claude-code" });
   expect(parseContactAddress("webhook:hook-1")).toEqual({ kind: "webhook", id: "hook-1" });
