@@ -205,7 +205,10 @@ mod tests {
     use super::{octal, read_output, Control, ControlError};
     use crate::pty::fixture::script;
     use crate::pty::registry::Registry;
+    use std::os::fd::AsFd;
     use std::sync::Arc;
+    use tokio::io::unix::AsyncFd;
+    use tokio::io::Interest;
     use tokio::sync::{mpsc, Mutex};
 
     struct FailedReader;
@@ -292,6 +295,28 @@ mod tests {
         let mut control = Control::start(closed.to_str().expect("utf8"), None, registry)
             .await
             .expect("startup reply after closing input");
+        // The script's own close does not make the pipe readerless: a process
+        // another test thread is spawning holds a copy of every descriptor of
+        // this process until its exec. Wait for the kernel's no-reader state
+        // (write side closed); it is final, so the write below must fail.
+        let duplicate = control
+            .stdin
+            .as_fd()
+            .try_clone_to_owned()
+            .expect("input descriptor");
+        // SAFETY: the OwnedFd owns its open descriptor for the AsyncFd's lifetime.
+        let input = unsafe { AsyncFd::register_with_interest(duplicate, Interest::WRITABLE) }
+            .expect("input readiness");
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let mut closed = false;
+            while !closed {
+                let mut ready = input.writable().await.expect("input readiness");
+                closed = ready.ready().is_write_closed();
+                ready.clear_ready();
+            }
+        })
+        .await
+        .expect("every reader closed the input");
         let refused = control.command("emit").await.expect_err("broken pipe");
         assert!(
             refused

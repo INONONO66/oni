@@ -841,8 +841,14 @@ mod tests {
 
     #[tokio::test]
     async fn control_exit_notice_after_other_notifications_marks_sessions_lost() {
-        let (_root, pty) =
-            terminal("disconnect) printf '%%end 2 1 1\\n%%sessions-changed\\n%%exit\\n' ;;").await;
+        // Nothing is written after `%exit`: the reader drops stdout there, so a
+        // later write would kill the script with SIGPIPE and race the next
+        // command's write. The script keeps its input open until it reads it.
+        let (_root, pty) = terminal(
+            "disconnect) printf '%%end 2 1 1\\n%%sessions-changed\\n%%exit\\n'; \
+             read -r line; exit 0 ;;",
+        )
+        .await;
         pty.registry.lock().await.register("sample").expect("space");
         assert_eq!(
             pty.command("disconnect").await.expect("reply before exit"),

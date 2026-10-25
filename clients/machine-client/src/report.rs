@@ -128,7 +128,12 @@ fn total_memory() -> io::Result<u64> {
 
 #[cfg(target_os = "linux")]
 pub fn rss_bytes() -> io::Result<u64> {
-    statm_rss_bytes(&fs::read_to_string("/proc/self/statm")?, page_size()?)
+    resident(&fs::read_to_string("/proc/self/statm")?, page_size()?)
+}
+
+#[cfg(target_os = "linux")]
+fn resident(statm: &str, page_size: u64) -> io::Result<u64> {
+    statm_rss_bytes(statm, page_size)
         .ok_or_else(|| io::Error::other("/proc/self/statm has no resident field"))
 }
 
@@ -247,6 +252,24 @@ mod tests {
         assert_eq!(statm_rss_bytes("100", 4096), None);
         assert_eq!(statm_rss_bytes("100 x", 4096), None);
         assert_eq!(statm_rss_bytes("100 2", u64::MAX), Some(u64::MAX));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_counters_name_the_missing_field() {
+        assert_eq!(
+            meminfo("NoSuchCounter")
+                .expect_err("absent meminfo key")
+                .to_string(),
+            "/proc/meminfo has no NoSuchCounter"
+        );
+        assert_eq!(resident("100 25", 4096).expect("resident"), 25 * 4096);
+        assert_eq!(
+            resident("100", 4096)
+                .expect_err("statm without resident field")
+                .to_string(),
+            "/proc/self/statm has no resident field"
+        );
     }
 
     #[test]
