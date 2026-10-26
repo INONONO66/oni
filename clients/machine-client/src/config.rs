@@ -49,6 +49,8 @@ pub struct ClientConfig {
     pub tags: Vec<String>,
     pub memory_budget_mb: u64,
     pub unix: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tmux_socket: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]

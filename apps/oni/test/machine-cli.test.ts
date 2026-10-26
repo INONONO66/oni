@@ -117,7 +117,7 @@ test("machine attach CLI composes real runners; eval pipelines two machine handl
   } finally {
     await runEffect(cells.close());
     for (const child of children) child.kill("SIGTERM");
-    expect(await Promise.all(exits)).toEqual([143, 143]);
+    expect(await Promise.all(exits)).toEqual([0, 0]);
     await runEffect(host.close());
     events.close();
     rmSync(base, { recursive: true, force: true });
@@ -160,7 +160,7 @@ test("machine attach CLI reaches a network host over pinned TLS", async () => {
     expect(Buffer.from(read.data).toString()).toBe("over-the-wire");
   } finally {
     cli.child.kill("SIGTERM");
-    expect(await cli.exited).toBe(143);
+    expect(await cli.exited).toBe(0);
     await runEffect(host.close());
     events.close();
     rmSync(base, { recursive: true, force: true });

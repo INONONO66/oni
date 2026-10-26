@@ -263,6 +263,7 @@ pub async fn join(
         exports: config::parse_exports(&options.exports)?,
         memory_budget_mb: options.memory_budget_mb,
         unix: options.unix.clone(),
+        tmux_socket: None,
     };
     config::save(&config, &directory)?;
     let public_key = config::identity(&directory, &config.machine_id)?;
@@ -521,7 +522,12 @@ pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
     let generation = std::collections::hash_map::RandomState::new()
         .build_hasher()
         .finish();
-    let pty = Pty::new("tmux", None, format!("{generation:016x}")).await;
+    let pty = Pty::new(
+        "tmux",
+        config.tmux_socket.clone(),
+        format!("{generation:016x}"),
+    )
+    .await;
     let socket = directory.join(config::AGENT_HOOK_SOCKET);
     let options = AgentOptions {
         registry: directory.to_path_buf(),
@@ -556,7 +562,20 @@ pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
     let mut permissions = tokio::task::JoinSet::new();
     permissions.spawn(hook::serve(hook::bind(&socket)?, service.clone()));
     let hooks = service.hooks(HEARTBEAT);
-    match run(&config, directory, service.capabilities(), &hooks).await? {}
+    let mut terminated = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let mut interrupted =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    let result = tokio::select! {
+        result = run(&config, directory, service.capabilities(), &hooks) => match result {
+            Ok(never) => match never {},
+            Err(error) => Err(error),
+        },
+        _ = terminated.recv() => Ok(()),
+        _ = interrupted.recv() => Ok(()),
+    };
+    service.detached();
+    permissions.abort_all();
+    result
 }
 
 const UPLINK_BOUND: usize = 16;

@@ -13,7 +13,6 @@ import { planeOf } from "./helpers/ledger";
 type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;
 import {
-  attachMachineDaemon as attachDaemon,
   createMachineHost as createHost,
   createMemoryGenerationStore,
 } from "@oni/machines";
@@ -213,22 +212,11 @@ test("a cell drives a named persistent terminal through m.pty (#1273)", async ()
     },
   });
   const plane = await planeOf(app.runtime);
-  const daemon = await acquireEffect(attachDaemon({
-    id: testIds("pty-e2e-daemon"),
-    dispatcherBound: 8,
-    socketPath,
-    fsExports: new Map([["shell", "/"]]),
-    pty: { socketName: tmuxSocket },
-    offer: {
-      machineId: MACHINE_ID,
-      offeredCapabilities: appEnrollment.allowedCapabilities,
-      exports: [{ name: "shell", path: "/" }],
-      daemonVersion: "test",
-      platform: `${process.platform}-${process.arch}`,
-      offeredAt: 1,
-    },
-  }));
-  suite.defer(() => runEffect(daemon.close()));
+  const daemon = await attachAppMclient({
+    socketPath, machineId: MACHINE_ID, root: "/",
+    exports: [{ name: "shell", path: "/" }], tmuxSocket,
+  });
+  suite.defer(() => daemon.stop());
   suite.defer(() => {
     Bun.spawnSync(["tmux", "-L", tmuxSocket, "kill-server"]);
   });

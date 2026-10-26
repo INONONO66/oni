@@ -18,5 +18,6 @@ pub fn client_config(root: &Path, export: Option<&str>) -> ClientConfig {
             .collect(),
         memory_budget_mb: 96,
         unix: None,
+        tmux_socket: None,
     }
 }

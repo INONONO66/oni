@@ -1,6 +1,6 @@
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { Effect } from "effect";
-import { expect, spyOn, test } from "bun:test";
+import { beforeAll, expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
 import type { Core } from "@oni/agent";
 import { Bus, newTraceId } from "./helpers/bus";
@@ -10,12 +10,11 @@ import { foldAlarmChains, watchStateOf } from "../src/bundles/alarms/index";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { planeOf } from "./helpers/ledger";
 import { residentSuite, fakeProviderModel } from "./helpers/resident-suite";
-import { attachMachineDaemon } from "@oni/machines";
-import { acquireEffect, runEffect } from "./helpers/scoped-effect";
-import { testIds } from "./helpers/test-entropy";
+import { attachAppMclient, mclientBinary } from "./helpers/mclient";
 import { testSelfMachine } from "./helpers/self-machine";
 
 const suite = residentSuite();
+beforeAll(mclientBinary, 300_000);
 type Plane = Awaited<ReturnType<typeof planeOf>>;
 
 function monitorConfig(prefix: string) {
@@ -199,12 +198,11 @@ test("a monitor watch observes a named tmux terminal and leaves it open", async 
       }),
     },
   });
-  const daemon = await acquireEffect(attachMachineDaemon({
-    dispatcherBound: 8, socketPath: machinesSocket, id: testIds("monitor-pty-daemon"),
-    offer: { machineId: "m-1", daemonVersion: "0.1.0", platform: "darwin", offeredAt: 2000,
-      offeredCapabilities: ["pty.session"], exports: [{ name: "shell", path: "/" }] },
-    fsExports: new Map([["shell", "/"]]), pty: { socketName: tmuxSocket },
-  }));
+  const daemon = await attachAppMclient({
+    socketPath: machinesSocket, machineId: "m-1", root: "/",
+    exports: [{ name: "shell", path: "/" }], tmuxSocket,
+  });
+  suite.defer(() => daemon.stop());
   const { ws, plane } = await monitorConnection(app);
   // The waiting commit follows install's cursor baseline, before the trigger.
   await awaitWaiting(plane, () => sendPrompt(ws, "watch the terminal"), "terminal watch did not suspend", 10_000);
@@ -224,7 +222,7 @@ test("a monitor watch observes a named tmux terminal and leaves it open", async 
   expect(Delivery.text(z.object({ content: Delivery.Content }).parse(prompt.effect.value).content)).toContain("WAKE-7342");
   const tree = sessionTree(arm.sessionId, plane.sessionStore(arm.sessionId).actions);
   expect(tree.filter((action) => action.kind === "alarm" && action.id.endsWith(":delivered"))).toHaveLength(1);
-  await runEffect(daemon.close());
+  await daemon.stop();
   expect(Bun.spawnSync(["tmux", "-L", tmuxSocket, "has-session", "-t", "qa"], { stderr: "pipe" }).exitCode).toBe(0);
 }, 60_000);
 

@@ -17,6 +17,7 @@ export interface MclientSettings {
   readonly exports: readonly { readonly name: string; readonly path: string }[];
   readonly tags: readonly string[];
   readonly memoryBudgetMb: number;
+  readonly tmuxSocket?: string;
 }
 
 /** Rust persists its generation, hook socket and metrics beside this private file. */

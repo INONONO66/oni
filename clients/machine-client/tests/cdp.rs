@@ -209,6 +209,7 @@ fn settings(root: &Path) -> ClientConfig {
         exports: vec![],
         memory_budget_mb: 96,
         unix: Some(root.join("host.sock")),
+        tmux_socket: None,
     }
 }
 

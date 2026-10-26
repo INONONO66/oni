@@ -17,19 +17,6 @@ export function foreign<A>(body: () => Promise<A>): Effect.Effect<A, Native.Mach
 export function refusingToolPort(): Effect.Effect<never, Native.MachineError> {
   return Effect.fail(new Native.MachineRefusalError({ reason: "host_tool_missing", message: "host_tool_missing: this host was wired without a tool port" }));
 }
-export interface CodeRunner {
-  readonly native?: Native.CodeRunner;
-  runCode(request: Machine.CellRequest, call: (call: Machine.ToolCall) => Promise<Machine.ToolCallResult>, signal: AbortSignal): Promise<Machine.CellResult>;
-  peekCode(cellId: string): Machine.CellOutput;
-  close(): Promise<void>;
-}
-function nativeRunner(runner: CodeRunner): Native.CodeRunner {
-  return runner.native ?? {
-    runCode: (request, call, signal) => foreign(() => runner.runCode(request, (request) => run(call(request)), signal)),
-    peekCode: runner.peekCode,
-    close: () => foreign(() => runner.close()),
-  };
-}
 function machineHandle(native: Native.StreamingMachineHandle) {
   return { native,
     fs: {
@@ -66,14 +53,6 @@ export async function createMachineHost(options: Omit<Parameters<typeof Native.c
   };
 }
 export type MachineHost = Awaited<ReturnType<typeof createMachineHost>>;
-type NativeDaemonOptions = Parameters<typeof Native.attachMachineDaemon>[0];
-type DaemonConnection =
-  | Omit<Extract<NativeDaemonOptions, { socketPath: string }>, "runner" | "id" | "dispatcherBound">
-  | Omit<Extract<NativeDaemonOptions, { tcp: { host: string; port: number } }>, "runner" | "id" | "dispatcherBound">;
-export async function attachMachineDaemon(options: DaemonConnection & { id?: () => string; dispatcherBound?: number; runner?: CodeRunner }) {
-  const { value: native, close } = await acquire(Native.attachMachineDaemon({ ...options, id: options.id ?? sequentialIds("daemon-req"), dispatcherBound: options.dispatcherBound ?? 256, runner: options.runner ? nativeRunner(options.runner) : undefined }));
-  return { native, get attachment() { return native.attachment; }, get closed() { return run(native.closed); }, close: async () => { await run(native.close()); await close(); } };
-}
 export function createFsDriver(...args: Parameters<typeof fsDriver>) {
   const native = sync(fsDriver(...args));
   const driver = (...params: Parameters<typeof native>) => run(native(...params));

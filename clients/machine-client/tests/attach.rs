@@ -41,7 +41,24 @@ fn config() -> ClientConfig {
         }],
         memory_budget_mb: 96,
         unix: None,
+        tmux_socket: None,
     }
+}
+
+#[test]
+fn optional_tmux_socket_round_trips_without_changing_default_settings() {
+    let default = config();
+    let serialized = serde_json::to_value(&default).expect("settings");
+    assert!(serialized.get("tmuxSocket").is_none());
+    let parsed: ClientConfig = serde_json::from_value(serialized).expect("default settings");
+    assert!(parsed.tmux_socket.is_none());
+
+    let mut named = default;
+    named.tmux_socket = Some("oni-private-server".into());
+    let serialized = serde_json::to_value(&named).expect("named settings");
+    assert_eq!(serialized["tmuxSocket"], "oni-private-server");
+    let parsed: ClientConfig = serde_json::from_value(serialized).expect("named settings");
+    assert_eq!(parsed.tmux_socket.as_deref(), Some("oni-private-server"));
 }
 
 fn join_options(host: &str) -> JoinOptions {
@@ -1059,6 +1076,134 @@ fn exported(host: &FakeHost, root: &Path, directory: &Path) -> ClientConfig {
     settings.unix = Some(host.endpoint.clone().into());
     config::save(&settings, directory).expect("save");
     settings
+}
+
+#[tokio::test]
+async fn sigterm_detaches_and_removes_a_blocked_staged_transfer() {
+    use nix::{
+        sys::signal::{kill, Signal},
+        unistd::Pid,
+    };
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let root = tempfile::tempdir().expect("export root");
+    exported(&host, root.path(), directory.path());
+    let path = directory.path().join("client.json");
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .args(["run", "--config", path.to_str().expect("utf8 path")])
+        .kill_on_drop(true)
+        .spawn()
+        .expect("mclient process");
+    let scenario = async {
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(reply(
+            &request,
+            json!({"status":"attached","generation":1,
+            "effectiveCapabilities":["fs.write"],"effectiveExports":["notes"]}),
+        ))
+        .await;
+        let report = expect(&mut host, "machine.report").await;
+        host.send(reply(&report, json!({"status":"accepted"})))
+            .await;
+        host.send(
+            json!({"v":2,"type":"request","id":"stage","method":"machine.fs_stream",
+            "params":{"op":"begin","transferId":"blocked","mode":"write",
+                "export":"notes","path":"target"}}),
+        )
+        .await;
+        loop {
+            let frame = host.incoming.recv().await.expect("stream answer");
+            if frame["id"] == "stage" {
+                assert_eq!(frame["result"]["status"], "begun", "{frame}");
+                break;
+            }
+            host.send(reply(&frame, json!({"status":"accepted"}))).await;
+        }
+        assert_eq!(std::fs::read_dir(root.path()).expect("root").count(), 1);
+        let pid = i32::try_from(child.id().expect("live process")).expect("pid fits i32");
+        kill(Pid::from_raw(pid), Signal::SIGTERM).expect("terminate");
+        assert_eq!(child.wait().await.expect("process exit").code(), Some(0));
+        assert_eq!(std::fs::read_dir(root.path()).expect("root").count(), 0);
+    };
+    tokio::time::timeout(Duration::from_secs(10), scenario)
+        .await
+        .expect("staged transfer shutdown");
+}
+
+#[tokio::test]
+async fn named_tmux_socket_keeps_client_sessions_off_the_default_server() {
+    use nix::{
+        sys::signal::{kill, Signal},
+        unistd::Pid,
+    };
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let root = tempfile::tempdir().expect("export root");
+    let socket = format!("oni-mclient-test-{}", std::process::id());
+    let session = format!("oni-mclient-session-{}", std::process::id());
+    let mut settings = exported(&host, root.path(), directory.path());
+    settings.tmux_socket = Some(socket.clone());
+    config::save(&settings, directory.path()).expect("private settings");
+    let path = directory.path().join("client.json");
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .args(["run", "--config", path.to_str().expect("utf8 path")])
+        .env("TERM", "xterm")
+        .kill_on_drop(true)
+        .spawn()
+        .expect("mclient process");
+    let scenario = async {
+        let request = expect(&mut host, "machine.attach").await;
+        assert!(request["params"]["offeredCapabilities"]
+            .as_array()
+            .expect("capabilities")
+            .contains(&json!("pty.session")));
+        host.send(reply(
+            &request,
+            json!({"status":"attached","generation":1,
+            "effectiveCapabilities":["pty.session"],"effectiveExports":["notes"]}),
+        ))
+        .await;
+        let report = expect(&mut host, "machine.report").await;
+        host.send(reply(&report, json!({"status":"accepted"})))
+            .await;
+        host.send(
+            json!({"v":2,"type":"request","id":"pty","method":"machine.pty_open",
+            "params":{"name":session,"cwd":root.path()}}),
+        )
+        .await;
+        loop {
+            let frame = host.incoming.recv().await.expect("PTY answer");
+            if frame["id"] == "pty" {
+                assert_eq!(frame["result"]["status"], "ok", "{frame}");
+                break;
+            }
+            host.send(reply(&frame, json!({"status":"accepted"}))).await;
+        }
+        let named = std::process::Command::new("tmux")
+            .args(["-L", &socket, "has-session", "-t", &format!("={session}")])
+            .env("TERM", "xterm")
+            .status()
+            .expect("named server list");
+        let default = std::process::Command::new("tmux")
+            .args(["has-session", "-t", &format!("={session}")])
+            .env("TERM", "xterm")
+            .status()
+            .expect("default server list");
+        assert!(named.success());
+        assert!(!default.success());
+        let pid = i32::try_from(child.id().expect("live process")).expect("pid fits i32");
+        kill(Pid::from_raw(pid), Signal::SIGTERM).expect("terminate");
+        assert_eq!(child.wait().await.expect("process exit").code(), Some(0));
+    };
+    let outcome = tokio::time::timeout(Duration::from_secs(10), scenario).await;
+    if child.id().is_some() {
+        let _ = child.kill().await;
+    }
+    let _ = std::process::Command::new("tmux")
+        .args(["-L", &socket, "kill-server"])
+        .env("TERM", "xterm")
+        .status();
+    outcome.expect("named PTY round trip");
 }
 
 #[tokio::test]

@@ -48,6 +48,7 @@ export interface MclientSettings {
   readonly exports: readonly { readonly name: string; readonly path: string }[];
   readonly tags: readonly string[];
   readonly memoryBudgetMb: number;
+  readonly tmuxSocket?: string;
 }
 
 function writeMclientSettings(path: string, settings: MclientSettings): void {
@@ -114,6 +115,7 @@ export async function attachMclient(options: {
   readonly root: string;
   readonly exports?: MclientSettings["exports"];
   readonly tags?: readonly string[];
+  readonly tmuxSocket?: string;
 }): Promise<AttachedMclient> {
   const binary = await mclientBinary();
   const unix = options.host.endpoints.unix;
@@ -124,6 +126,7 @@ export async function attachMclient(options: {
     machineId: options.machineId, name: options.machineId, host: "localhost", unix,
     exports: options.exports ?? [{ name: "workspace", path: options.root }],
     tags: options.tags ?? [], memoryBudgetMb: 96,
+    ...(options.tmuxSocket === undefined ? {} : { tmuxSocket: options.tmuxSocket }),
   });
   const pending = admission({ list: options.host.list, events: options.events, machineId: options.machineId });
   const child = Bun.spawn([binary, "run", "--config", configPath], {

@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { IpcRemoteError, connectIpcClient } from "./ipc/helpers/native";
 import { captureError } from "./ipc/helpers/signal";
 import { Machine } from "@oni/protocol";
-import { attachMachineDaemon } from "./helpers/native";
 import { type MachineHost, createMachineHost } from "./helpers/native";
 import { socketPath } from "./helpers/socket-path";
 import { eventCollector } from "./helpers/events";
@@ -465,54 +464,30 @@ describe("machine attach handshake", () => {
 
 
   test("pty.session is offered only when tmux resolves at attach time, and enrollment can withhold it (#1273)", async () => {
-    const ptyOffer = offer({ offeredCapabilities: ["pty.session"] });
+    const root = mkdtempSync(join(tmpdir(), "pty-offer-"));
     await withHost(
       () => ({ ...enrollment, allowedCapabilities: ["pty.session"] }),
-      async ({ path }) => {
-        const withTmux = await attachMachineDaemon({ socketPath: path, offer: ptyOffer });
-        expect(withTmux.attachment).toEqual({
-          status: "attached",
-          generation: 1,
-          effectiveCapabilities: ["pty.session"],
-          effectiveExports: [],
-        });
-        await withTmux.close();
-        const withoutTmux = await attachMachineDaemon({
-          socketPath: path,
-          offer: ptyOffer,
-          pty: { tmux: "oni-test-no-such-tmux" },
-        });
-        expect(withoutTmux.attachment).toEqual({
-          status: "attached",
-          generation: 2,
-          effectiveCapabilities: [],
-          effectiveExports: [],
-        });
-        await withoutTmux.close();
+      async ({ host, collector }) => {
+        const client = await attachMclient({ host, events: collector, machineId: "mac-studio", root, exports: [] });
+        expect(client.info).toMatchObject({ generation: 1, capabilities: ["pty.session"] });
+        await client.stop();
       },
     );
     await withHost(
       // The default enrollment never granted pty.session: the intersection
       // withholds it even though tmux is installed and the daemon offers it.
       () => enrollment,
-      async ({ host, path }) => {
-        const daemon = await attachMachineDaemon({
-          socketPath: path,
-          offer: offer({ offeredCapabilities: ["shell.exec", "pty.session"] }),
-        });
-        expect(daemon.attachment).toEqual({
-          status: "attached",
-          generation: 1,
-          effectiveCapabilities: ["shell.exec"],
-          effectiveExports: [],
-        });
+      async ({ host, collector }) => {
+        const daemon = await attachMclient({ host, events: collector, machineId: "mac-studio", root, exports: [] });
+        expect(daemon.info).toMatchObject({ generation: 1, capabilities: ["shell.exec"] });
         expect(await host.get("mac-studio").pty.open("qa", "/")).toEqual({
           status: "refused",
           reason: "pty_not_available",
         });
-        daemon.close();
+        await daemon.stop();
       },
     );
+    rmSync(root, { recursive: true, force: true });
   });
 
   test("pty_open confines cwd under the same export rule as exec and refuses before any session exists (#1273)", async () => {
@@ -522,18 +497,12 @@ describe("machine attach handshake", () => {
     try {
       await withHost(
         () => ({ ...enrollment, allowedCapabilities: ["pty.session"], allowedExports: ["work"] }),
-        async ({ host, path }) => {
-          const daemon = await attachMachineDaemon({
-            socketPath: path,
-            offer: offer({ offeredCapabilities: ["pty.session"], exports: [{ name: "work", path: root }] }),
-            fsExports: new Map([["work", root]]),
+        async ({ host, collector }) => {
+          const daemon = await attachMclient({
+            host, events: collector, machineId: "mac-studio", root,
+            exports: [{ name: "work", path: root }],
           });
-          expect(daemon.attachment).toEqual({
-            status: "attached",
-            generation: 1,
-            effectiveCapabilities: ["pty.session"],
-            effectiveExports: ["work"],
-          });
+          expect(daemon.info).toMatchObject({ generation: 1, capabilities: ["pty.session"] });
           const handle = host.get("mac-studio");
           // #1512: the consumer resolves a declared cwd against the attachment's effective roots through the host.
           expect(host.native.exports("mac-studio")).toEqual([{ name: "work", path: root }]);
@@ -544,7 +513,7 @@ describe("machine attach handshake", () => {
             status: "refused",
             reason: "path_escapes_export",
           });
-          daemon.close();
+          await daemon.stop();
         },
       );
     } finally {

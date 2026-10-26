@@ -58,6 +58,7 @@ export async function attachAppMclient(options: {
   readonly root: string;
   readonly exports?: readonly { readonly name: string; readonly path: string }[];
   readonly tags?: readonly string[];
+  readonly tmuxSocket?: string;
 }) {
   const directory = mkdtempSync(join(tmpdir(), "oni-app-client-"));
   const configPath = join(directory, "client.json");
@@ -65,6 +66,7 @@ export async function attachAppMclient(options: {
     machineId: options.machineId, name: options.machineId, host: "localhost",
     unix: options.socketPath, exports: options.exports ?? [{ name: "workspace", path: options.root }],
     tags: options.tags ?? [], memoryBudgetMb: 96,
+    ...(options.tmuxSocket === undefined ? {} : { tmuxSocket: options.tmuxSocket }),
   });
   const admitted = Promise.withResolvers<void>();
   const unsubscribe = Bus.subscribe(Machine.Events.Attached, (event) => {

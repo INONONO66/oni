@@ -165,7 +165,7 @@ async fn execute(
         .arg(request.cmd.as_str())
         .current_dir(cwd)
         .env_clear()
-        .env("PATH", "/usr/bin:/bin")
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -273,6 +273,30 @@ mod tests {
             assert_eq!(body["exitCode"], json!(code));
             assert_eq!(body["signal"], json!(signal));
         }
+    }
+
+    #[tokio::test]
+    async fn exec_inherits_client_path() {
+        let root = tempfile::tempdir().expect("export");
+        let request = ExecRequest {
+            cmd: "printf '%s' \"$PATH\"".parse().expect("command"),
+            cwd: root.path().to_str().expect("utf8").into(),
+        };
+        let (_sender, receiver) = watch::channel(false);
+        let result = Exec::new(DEFAULT_DEADLINE)
+            .execute(&request, &[root.path().to_owned()], receiver)
+            .await
+            .expect("execution");
+        let wire = serde_json::to_value(result).expect("wire");
+        let output = STANDARD
+            .decode(wire["stdout"].as_str().expect("stdout"))
+            .expect("base64 stdout");
+        assert_eq!(
+            output,
+            std::env::var_os("PATH")
+                .unwrap_or_default()
+                .as_encoded_bytes()
+        );
     }
 
     #[tokio::test]

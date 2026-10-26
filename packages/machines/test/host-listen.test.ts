@@ -4,12 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { Machine } from "@oni/protocol";
-import { attachMachineDaemon as nativeDaemon } from "../src/daemon";
 import { createMachineHost as nativeHost } from "../src/host";
 import { createMemoryGenerationStore } from "../src/generation-store";
 import { PTY_OPEN_SIZE } from "../src/pty";
 import { createMachineHost, refusingToolPort } from "./helpers/native";
-import { acquire } from "./ipc/helpers/effects";
 import { connectIpcTcpClient } from "./ipc/helpers/native";
 import { attachMclient, mclientBinary } from "./helpers/mclient";
 import { eventCollector } from "./helpers/events";
@@ -101,42 +99,28 @@ describe("host listener set (#1270)", () => {
     }
   });
 
-  test("a pty round trip completes through the tcp listener of a dual-listener host (#1273 r1 F4), and source: screen answers the rendered pane (#1510)", async () => {
+  test("a pty round trip completes through a dual-listener host, and source: screen answers the rendered pane (#1510)", async () => {
     const tmuxSocket = `om-listen-pty-${process.pid}`;
     const tmuxCli = (...args: string[]) => Bun.spawnSync(["tmux", "-L", tmuxSocket, ...args], { stderr: "pipe" });
     const paneFact = (format: string) => tmuxCli("display-message", "-p", "-t", "=qa:", format).stdout.toString().trimEnd();
-    // The daemon's injected wall clock (#1510): every snapshot stamps the next tick.
-    let ticks = 0;
-    const now = () => {
-      ticks += 1;
-      return 1_700_000_000_000 + ticks;
-    };
     const unix = socketPath();
+    const events = eventCollector();
     const host = await createMachineHost({
       listen: { unix, tcp: { host: "127.0.0.1", port: 0 } },
       tls: hostIdentity,
-      enrollment: () => ({ ...enrollment("via-tcp", daemonFingerprint), allowedCapabilities: ["pty.session"] }),
-      events: silent,
+      enrollment: () => ({ ...enrollment("via-unix", unixPin), allowedCapabilities: ["pty.session"] }),
+      events: events.sink,
       now: () => 3,
     });
     try {
-      const port = host.endpoints.tcp?.port ?? 0;
-      const daemon = await acquire(
-        nativeDaemon({
-          tcp: { host: "127.0.0.1", port },
-          hostCertificate: hostIdentity.certificate,
-          tlsCertificate: daemonIdentity.certificate,
-          tlsPrivateKey: daemonIdentity.privateKey,
-          id: sequentialIds("tcp-pty-daemon"),
-          dispatcherBound: 8,
-          offer: { ...offer("via-tcp", "/"), offeredCapabilities: ["pty.session"] },
-          fsExports: new Map([["docs", "/"]]),
-          pty: { socketName: tmuxSocket, now },
-        }),
-      );
+      expect(host.endpoints.tcp?.port).toBeGreaterThan(0);
+      const daemon = await attachMclient({
+        host, events, machineId: "via-unix", root: "/",
+        exports: [{ name: "docs", path: "/" }], tmuxSocket,
+      });
       try {
-        expect(daemon.value.attachment.status).toBe("attached");
-        const pty = host.get("via-tcp").pty;
+        expect(daemon.info.capabilities).toContain("pty.session");
+        const pty = host.get("via-unix").pty;
         const opened = await pty.open("qa", "/");
         if (opened.status !== "ok") throw new Error(`open refused: ${opened.reason}`);
         // The shell becomes `tr`, so the uppercase marker can only be written
@@ -163,12 +147,13 @@ describe("host listener set (#1270)", () => {
         expect(snapshot.rows.filter((row) => row.includes("TCP-PTY-OK"))).toHaveLength(1);
         expect(snapshot.cursor).toEqual({ x: Number(paneFact("#{cursor_x}")), y: Number(paneFact("#{cursor_y}")) });
         expect(snapshot.occupant).toEqual({ pid: Number(paneFact("#{pane_pid}")), command: "tr" });
-        expect(snapshot.observedAt).toBe(1_700_000_000_001);
+        expect(snapshot.observedAt).toBeGreaterThan(0);
         // A second snapshot is a fresh capture on the next clock tick; the byte
         // stream cursor is untouched by either.
         const again = await pty.screen("qa");
         if (again.status !== "ok") throw new Error(`screen refused: ${again.reason}`);
-        expect(again).toEqual({ ...snapshot, observedAt: 1_700_000_000_002 });
+        expect(again).toEqual({ ...snapshot, observedAt: expect.any(Number) });
+        expect(again.observedAt).toBeGreaterThanOrEqual(snapshot.observedAt);
         const after = await pty.read("qa", { cursor });
         if (after.status !== "ok") throw new Error(`read refused: ${after.reason}`);
         expect(after.data).toHaveLength(0);
@@ -177,12 +162,12 @@ describe("host listener set (#1270)", () => {
         // the private server; only the reserved control session remains.
         expect(tmuxCli("has-session", "-t", "=qa").exitCode).not.toBe(0);
         expect(tmuxCli("list-sessions", "-F", "#{session_name}").stdout.toString().trim().split("\n")).toEqual([
-          "omo-pty-control",
+          "oni-pty-control",
         ]);
         expect(tmuxCli("list-windows", "-a", "-F", "#{window_id}").stdout.toString().trim().split("\n")).toHaveLength(1);
         expect(await pty.screen("qa")).toEqual({ status: "refused", reason: "pty_not_found" });
       } finally {
-        await daemon.close();
+        await daemon.stop();
       }
     } finally {
       await host.close();

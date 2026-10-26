@@ -1,12 +1,14 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Machine } from "@oni/protocol";
-import { attachMachineDaemon, createMachineHost } from "./helpers/native";
+import { createMachineHost } from "./helpers/native";
 import { eventCollector } from "./helpers/events";
+import { attachMclient, mclientBinary } from "./helpers/mclient";
 
 const socketName = `oni-pty-fact-${process.pid}`;
+beforeAll(mclientBinary, 300_000);
 afterAll(() => {
   Bun.spawnSync(["tmux", "-L", socketName, "kill-server"]);
 });
@@ -24,14 +26,9 @@ test("a host terminal read publishes byte count and cursor without output bytes"
     }),
     events: events.sink, now: () => 42,
   });
-  const daemon = await attachMachineDaemon({
-    socketPath: socket,
-    offer: {
-      machineId: "worker", platform: `${process.platform}-${process.arch}`, daemonVersion: "test",
-      offeredCapabilities: [Machine.WellKnownCapability.ptySession], offeredAt: 2,
-      exports: [{ name: "work", path: root }],
-    },
-    fsExports: new Map([["work", root]]), pty: { socketName },
+  const daemon = await attachMclient({
+    host, events, machineId: "worker", root,
+    exports: [{ name: "work", path: root }], tmuxSocket: socketName,
   });
   try {
     const terminal = host.get("worker").pty;
@@ -49,7 +46,7 @@ test("a host terminal read publishes byte count and cursor without output bytes"
     });
     await terminal.close("output-fact");
   } finally {
-    await daemon.close();
+    await daemon.stop();
     host.close();
     rmSync(root, { recursive: true, force: true });
   }
