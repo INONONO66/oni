@@ -368,7 +368,7 @@ export namespace Gateway {
   export const IngressFacts = MessageContract.IngressFacts;
   export type IngressFacts = z.infer<typeof IngressFacts>;
 
-  /** One inbound attachment, also carried beside a delivered prompt's text as `Delivery.Commit.parts`. */
+  /** One inbound attachment, also carried as a media part inside a delivery's `Delivery.Content`. */
   export const MediaPart = MediaPartSchema;
   export type MediaPart = z.infer<typeof MediaPart>;
 

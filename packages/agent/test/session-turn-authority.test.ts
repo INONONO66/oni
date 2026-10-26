@@ -143,7 +143,7 @@ test("a prompt with no recorded origin fails the turn typed and never runs the r
             turnId: "ghost-turn",
             deliveryId: "ghost-message",
             kind: "prompt",
-            content: "who am I from?",
+            content: [{ kind: "text", text: "who am I from?" }],
             origin: { encodingVersion: 1, value: {} },
             boundary: "before_llm",
           },

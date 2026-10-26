@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Gateway, Ingress } from "@oni/protocol";
+import { Delivery, type Gateway, Ingress } from "@oni/protocol";
 import { ledger, resetLedger } from "./helpers/ledger.js";
 import { openRequest } from "./helpers/requests.js";
 import { runEffect } from "./helpers/effect.js";
@@ -82,8 +82,8 @@ test.each(["action", "prompt"] as const)("a restored %s group uses gated dispatc
   await runEffect(makeRouter({ observe: (_sender, observation) => observations.push(observation) }).advance(10_000));
   expect(commits).toHaveLength(1);
   expect(commits[0]?.kind).toBe(kind);
-  expect(commits[0]?.content).toContain("hello resident");
-  expect(commits[0]?.content).toContain("second body");
+  expect(Delivery.text(commits[0]?.content ?? [])).toContain("hello resident");
+  expect(Delivery.text(commits[0]?.content ?? [])).toContain("second body");
   expect(observations.map((observation) => observation.kind))
     .toEqual(["message.sent", "message.admitted", "message.committed"]);
   expect(ledger().stores.automations.groups()).toEqual([]);
@@ -148,7 +148,7 @@ test("a grouped new target and all members survive closing and reopening SQLite"
     await runEffect(resumed.advance());
     expect(commits).toHaveLength(1);
     expect(`session:${commits[0]?.sessionId}`).toBe(target);
-    expect(JSON.parse(commits[0]?.content ?? "{}").event.messages).toHaveLength(2);
+    expect(JSON.parse(Delivery.text(commits[0]?.content ?? [])).event.messages).toHaveLength(2);
     expect(ledger().stores.automations.matchedToday("admission", 10_000)).toBe(1);
     await runEffect(resumed.ingest(ownerSender, facts));
     expect(ledger().stores.automations.decisions(id)).toEqual([

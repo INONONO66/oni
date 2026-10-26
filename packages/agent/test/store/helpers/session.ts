@@ -1,8 +1,27 @@
 import { Effect, Result } from "effect";
 import type * as SessionHandleStore from "../../../src/core/store/fence";
 import type { LedgerError } from "../../../src/core/store/errors";
-import type { LedgerSession } from "@oni/protocol";
+import type { LedgerAction, LedgerSession } from "@oni/protocol";
 import { runLedgerSync } from "./effect";
+
+export function promptAction(input: {
+  readonly id: string;
+  readonly parentId: string | null;
+  readonly sessionId: string;
+  readonly content: string;
+  readonly ts: number;
+}): LedgerAction.Append {
+  return {
+    id: input.id,
+    parentId: input.parentId,
+    sessionId: input.sessionId,
+    kind: "prompt",
+    intent: { encodingVersion: 1, value: { source: "test" } },
+    effect: { encodingVersion: 1, value: { deliveryKind: "prompt", content: [{ kind: "text", text: input.content }] } },
+    irreversible: true,
+    ts: input.ts,
+  };
+}
 
 /** A real configured L0 session row on the given kernel; no legacy JSON writer. */
 export function materializeSession<E = never>(

@@ -6,8 +6,10 @@ import { Delivery, SessionGeneration, type LedgerSession, type SessionTransition
 import { Effect } from "effect";
 import {
   createMessageDeliveryCommit,
+  deliverPayload,
   materializeDeliveryTarget,
   messageMaterialization,
+  pendingDeliveryRow,
 } from "../src/composition/message-session";
 import { outboundMessage } from "../src/composition/terminal-message";
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
@@ -34,7 +36,7 @@ function deliveryCommit(
     id: `${id}:message`,
     sessionId: id,
     kind: "prompt",
-    content: "hello",
+    content: [{ kind: "text", text: "hello" }],
     origin,
     createdAt: 100,
     parentActionId: null,
@@ -159,62 +161,130 @@ test("delivery target creation indexes the genesis in one core write and a repea
   }
 });
 
-test("entity delivery refuses bytes that do not match the outbound letter", async () => {
-  const plane = testPlane();
-  const message: SessionTransition.OutboundMessage = {
-    messageId: "letter",
-    sourceSessionId: "child",
-    sourceActionId: "terminal",
-    destinationSessionId: "parent",
-    requestId: "request",
-    replyTo: "request",
-    terminal: "completed",
-    content: "CHILD_RESULT",
-    digest: "digest",
-  };
-  const executor = await runEffect(
+const message: SessionTransition.OutboundMessage = {
+  messageId: "letter",
+  sourceSessionId: "child",
+  sourceActionId: "terminal",
+  destinationSessionId: "parent",
+  requestId: "request",
+  replyTo: "request",
+  terminal: "completed",
+  content: "CHILD_RESULT",
+  digest: "digest",
+};
+
+async function outboundExecutor() {
+  return runEffect(
     createExecutor({
       approvalPolicy: APPROVAL_POLICY,
       identity: { sessionId: "child", role: "child", parentActionId: "terminal" },
       ledger: { commit: () => Effect.die(new Error("unused executor commit")) },
     }).pipe(Effect.provide(runnerTestLayer)),
   );
-  const unreachable = () => Effect.die(new Error("entity client must not run"));
-  const commit = createMessageDeliveryCommit({
-    plane,
-    client: () => ({
-      Deliver: unreachable,
-      Resolve: unreachable,
-      Alarm: unreachable,
-      Read: unreachable,
-    }),
-    clock: () => 100,
-  });
-  try {
-    await expect(
-      runEffect(
-        commit({
-          id: "different-letter",
-          sessionId: message.destinationSessionId,
-          kind: "prompt",
-          content: message.content,
-          origin: { encodingVersion: 1, value: message },
-          createdAt: 100,
-          parentActionId: null,
-        }).pipe(
-          Effect.provideService(outboundMessage, {
-            input: { message, ledger: { commit: () => Effect.die(new Error("unused source ledger")) } },
-            executor,
-          }),
-        ),
-      ),
-    ).rejects.toMatchObject({
-      _tag: "AgentFailure",
-      operation: "message.commit",
-      cause: "outbound delivery binding mismatch",
+}
+
+for (const { name, id, content } of [
+  {
+    name: "bytes that do not match the outbound letter",
+    id: "different-letter",
+    content: [{ kind: "text", text: message.content }],
+  },
+  {
+    name: "an appended text part with matching outbound ids",
+    id: message.messageId,
+    content: [{ kind: "text", text: message.content }, { kind: "text", text: "extra" }],
+  },
+  {
+    name: "an appended image part with matching outbound ids",
+    id: message.messageId,
+    content: [
+      { kind: "text", text: message.content },
+      { kind: "image", ref: "self:/extra.png", mime: "image/png" },
+    ],
+  },
+] satisfies { name: string; id: string; content: Delivery.Commit["content"] }[]) {
+  test(`entity delivery refuses ${name}`, async () => {
+    const plane = testPlane();
+    const executor = await outboundExecutor();
+    const unreachable = () => Effect.die(new Error("entity client must not run"));
+    const commit = createMessageDeliveryCommit({
+      plane,
+      client: () => ({
+        Deliver: unreachable,
+        Resolve: unreachable,
+        Alarm: unreachable,
+        Read: unreachable,
+      }),
+      clock: () => 100,
     });
-    expect(plane.listSessions()).toEqual([]);
-  } finally {
-    plane.close();
-  }
+    try {
+      await expect(
+        runEffect(
+          commit({
+            id,
+            sessionId: message.destinationSessionId,
+            kind: "prompt",
+            content,
+            origin: { encodingVersion: 1, value: message },
+            createdAt: 100,
+            parentActionId: null,
+          }).pipe(
+            Effect.provideService(outboundMessage, {
+              input: { message, ledger: { commit: () => Effect.die(new Error("unused source ledger")) } },
+              executor,
+            }),
+          ),
+        ),
+      ).rejects.toMatchObject({
+        _tag: "AgentFailure",
+        operation: "message.commit",
+        cause: "outbound delivery binding mismatch",
+      });
+      expect(plane.listSessions()).toEqual([]);
+    } finally {
+      plane.close();
+    }
+  });
+}
+
+test("entity delivery accepts the exact one-text-part outbound letter", async () => {
+  const input: Delivery.Commit = {
+    id: message.messageId,
+    sessionId: message.destinationSessionId,
+    kind: "prompt",
+    content: [{ kind: "text", text: message.content }],
+    origin: { encodingVersion: 1, value: message },
+    createdAt: 100,
+    parentActionId: null,
+  };
+  const executor = await outboundExecutor();
+  const payload = await runEffect(
+    deliverPayload(input).pipe(
+      Effect.provideService(outboundMessage, {
+        input: { message, ledger: { commit: () => Effect.die(new Error("unused source ledger")) } },
+        executor,
+      }),
+    ),
+  );
+  expect(payload.idempotencyKey).toBe(message.messageId);
+  expect(JSON.parse(payload.body)).toEqual({
+    content: input.content,
+  });
+});
+
+test("entity delivery serializes ordered text and media with its consumption boundary", async () => {
+  const input: Delivery.Commit = {
+    ...deliveryCommit("media"),
+    content: [
+      { kind: "text", text: "look" },
+      { kind: "image", ref: "self:/image.png", mime: "image/png" },
+    ],
+  };
+  const payload = await runEffect(deliverPayload(input));
+  expect(JSON.parse(payload.body)).toEqual({
+    content: input.content,
+  });
+  expect(pendingDeliveryRow(input, 3)).toMatchObject({
+    content: input.content,
+  });
 });

@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
-import { Ingress } from "@oni/protocol";
+import { Delivery, Ingress } from "@oni/protocol";
 import { z } from "zod";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "./helpers/effect.js";
@@ -83,7 +83,7 @@ test("an ambient trigger writes an action and a matched ledger row", async () =>
   expect(commits[0]).toMatchObject({ sessionId: "worker", kind: "action" });
   const ambientCommit = commits[0];
   if (ambientCommit === undefined) throw new Error("expected one commit");
-  expect(JSON.parse(ambientCommit.content).event.messages).toHaveLength(1);
+  expect(JSON.parse(Delivery.text(ambientCommit.content)).event.messages).toHaveLength(1);
   expect(commits[0]?.origin.value).toMatchObject({ source: "ingress", handlerRef: "automation/ambient" });
   expect(ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:ambient-one"))
     .toContainEqual(expect.objectContaining({ decision: "matched", by: "automation/ambient" }));
@@ -164,7 +164,7 @@ test("an unrouted call records a filtered decision without preparing or running 
   expect(commits[0]?.kind).toBe("action");
   const recorded = z.object({
     event: z.object({ messages: z.array(z.object({ body: z.string() })) }),
-  }).parse(JSON.parse(commits[0]?.content ?? ""));
+  }).parse(JSON.parse(Delivery.text(commits[0]?.content ?? [])));
   expect(recorded.event.messages[0]?.body).toBeDefined();
   expect((await runEffect(matchedRouter.ingest(ownerSender, { ...ownerFacts, eventId: "ordinary" }))).status)
     .toBe("executed");
@@ -185,7 +185,7 @@ test("a rate-limited automation records refused while ordinary delivery still ex
   expect(ledger().stores.automations.decisions(eventId)).toEqual([
     expect.objectContaining({ decision: "refused", reason: "limit" }),
   ]);
-  expect(commits).toEqual([expect.objectContaining({ kind: "prompt", content: ownerPrompt(limited) })]);
+  expect(commits).toEqual([expect.objectContaining({ kind: "prompt", content: [{ kind: "text", text: ownerPrompt(limited) }] })]);
   expect(commits[0]?.sessionId).not.toBe("worker");
 });
 
@@ -207,7 +207,7 @@ test("a grouped window closes once on injected clock advance without member jour
   expect(commits[0]?.kind).toBe("action");
   const groupedCommit = commits[0];
   if (groupedCommit === undefined) throw new Error("expected one commit");
-  expect(JSON.parse(groupedCommit.content).event.messages).toHaveLength(3);
+  expect(JSON.parse(Delivery.text(groupedCommit.content)).event.messages).toHaveLength(3);
   for (const eventId of ["one", "two", "three"]) {
     expect(ledger().stores.automations.decisions(`discord:owner-workspace:owner-dm:${eventId}`))
       .toEqual([

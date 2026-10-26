@@ -70,7 +70,7 @@ function input(
               turnId: "turn-1",
               deliveryId: message.id ?? `fixture-message-${index}`,
               kind: "prompt",
-              content: message.text,
+              content: [{ kind: "text", text: message.text }],
               origin: { encodingVersion: 1, value: {} },
               boundary: "before_llm",
             },

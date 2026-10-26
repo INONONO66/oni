@@ -25,7 +25,7 @@ function deliverPrompt(recording: Recording, ledger: Ledger, key: string, conten
           id: `${id}:${key}`,
           sessionId: id,
           kind: "prompt",
-          content,
+          content: [{ kind: "text", text: content }],
           origin: { encodingVersion: 1, value: {} },
           status: "pending",
           consumedBy: null,
@@ -300,8 +300,8 @@ describe("fold writer tail", () => {
       expect(restored.failure.data.code).toBe("budget");
       expect(restored.failure.data.maxTailBytes).toBe(4 * 1024 * 1024);
       expect(restored.failure.data.revision).toBe(kernel.row(id).revision);
-      expect(kernel.payloadBytes(id, 0, kernel.row(id).revision)).toBe(5_026_719);
-      expect(restored.failure.data.telemetry).toMatchObject({ rows: 22, bytes: 5_026_719, pages: 1 });
+      expect(kernel.payloadBytes(id, 0, kernel.row(id).revision)).toBe(5_026_744);
+      expect(restored.failure.data.telemetry).toMatchObject({ rows: 22, bytes: 5_026_744, pages: 1 });
       const again = runTestSync(Effect.result(restoreSessionHistory(kernel, id)));
       expect(again._tag === "Failure" ? { ...again.failure.data, telemetry: { ...again.failure.data.telemetry, ms: 0 } } : again).toEqual({
         ...restored.failure.data,

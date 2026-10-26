@@ -494,7 +494,7 @@ export async function startOni(options: StartOptions = {}) {
       entityClient(child)
         .Deliver({
           kind: "signal",
-          body: JSON.stringify({ content: "delegation deadline expired", control: "cancel" }),
+          body: JSON.stringify({ content: [{ kind: "text", text: "delegation deadline expired" }], control: "cancel" }),
           source: JSON.stringify({ kind: "alarm", purpose: DELEGATION_DEADLINE }),
           idempotencyKey: `${occurrenceId}:cancel`,
         })
@@ -982,7 +982,7 @@ export async function startOni(options: StartOptions = {}) {
               entityClient(sessionId)
                 .Deliver({
                   kind: "prompt",
-                  body: JSON.stringify({ content }),
+                  body: JSON.stringify({ content: [{ kind: "text", text: content }] }),
                   source: JSON.stringify({ kind: "contact", contact, ...(replyTo === undefined ? {} : { replyTo }) }),
                   idempotencyKey: `${replyTo ?? services.entropy.id()}:reply`,
                 })
@@ -1008,7 +1008,7 @@ export async function startOni(options: StartOptions = {}) {
         entityClient(sessionId).Deliver({
           kind: "action",
           body: JSON.stringify({
-            content: canonicalJson(payload),
+            content: [{ kind: "text", text: canonicalJson(payload) }],
             ...(after === undefined ? {} : { after }),
           }),
           source: JSON.stringify({ kind: "hook.late" }),
@@ -1047,7 +1047,13 @@ export async function startOni(options: StartOptions = {}) {
         throw new AppInvariantError("ws delivery used before composition finished");
       // The ws wire has no reaction vocabulary: refused, never posted as text.
       if (payload.kind === "react") return { value: "rejected" } as const;
-      return wsHandler.push(externalId, Outbound.text(payload), idempotencyKey);
+      const parts = Outbound.parts(payload);
+      return wsHandler.push(
+        externalId,
+        Outbound.text({ kind: "message", parts: parts.filter((part) => part.kind === "text" || part.kind === "code") }),
+        idempotencyKey,
+        parts.filter((part) => part.kind !== "text" && part.kind !== "code"),
+      );
     };
     // Live table: channel components register and revoke their own outbound
     // routes while the gateway keeps reading it per delivery.
@@ -1148,7 +1154,7 @@ export async function startOni(options: StartOptions = {}) {
       if (sessionRunner(id) !== "process") return Promise.resolve();
       return processSessions.wake(id).catch((error: Error) => incident("process session wake failed", error));
     };
-    const deliveryDeps = { plane, client: entityClient, clock: services.now, media: services.media };
+    const deliveryDeps = { plane, client: entityClient, clock: services.now };
     const commitDelivery = createAutomationDelivery(
       deliveryDeps, channelStores.automations,
     );
@@ -1464,7 +1470,7 @@ export async function startOni(options: StartOptions = {}) {
               yield* entityClient(id)
               .Deliver({
                 kind: "signal",
-                body: JSON.stringify({ content: "", control: "interrupt" }),
+                body: JSON.stringify({ content: [], control: "interrupt" }),
                 source: JSON.stringify({ kind: "session", id }),
                 idempotencyKey: services.entropy.id(),
               })

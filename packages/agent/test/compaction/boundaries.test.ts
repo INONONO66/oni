@@ -79,7 +79,19 @@ describe("compaction boundary integrity", () => {
       reason: "stop",
       tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
     });
-    expect(planAnchoredCut(messages, 1)?.prefixFingerprint).not.toBe(started);
+    const finished = planAnchoredCut(messages, 1)?.prefixFingerprint;
+    expect(finished).not.toBe(started);
+    first.parts.push({
+      id: "photo",
+      messageID: first.info.id,
+      sessionID: first.info.sessionID,
+      type: "file",
+      kind: "image",
+      ref: "blob:photo",
+      name: "photo.png",
+      mime: "image/png",
+    });
+    expect(planAnchoredCut(messages, 1)?.prefixFingerprint).not.toBe(finished);
   });
 
   it("consumes candidates and disables further speculative work", () =>

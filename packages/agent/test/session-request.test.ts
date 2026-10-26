@@ -352,7 +352,7 @@ it("checks answer bindings before terminal duplication and never receives a reje
   expect(resolved.receive).toMatchObject({
     id: reply.inputId,
     sessionId: row.id,
-    content: reply.content,
+    content: [{ kind: "text", text: reply.content }],
     parentActionId: pending.requestId,
   });
   const rejected = decide(
@@ -409,7 +409,7 @@ it.each([false, true])("gateway admission intake commits atomically with the req
     WHEN NEW.id = 'commission:prompt'
     BEGIN SELECT RAISE(ABORT, 'test admission fault'); END`);
   const admission: Delivery.Commit = {
-    id: "commission:prompt", sessionId: "parent", kind: "prompt", content: "commission",
+    id: "commission:prompt", sessionId: "parent", kind: "prompt", content: [{ kind: "text", text: "commission" }],
     origin: { encodingVersion: 1, value: {
       kind: "message", messageId: "commission", senderSessionId: "parent", sourceActionId: "invocation",
     } },

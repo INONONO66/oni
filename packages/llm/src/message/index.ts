@@ -1,4 +1,4 @@
-import type { Message, PlainObject } from "@oni/protocol";
+import { Delivery, type Message, type PlainObject } from "@oni/protocol";
 import type { ModelMessage } from "ai";
 import type { Provider } from "../provider";
 import { ProviderTransform } from "../provider/transform";
@@ -144,15 +144,35 @@ function assembleAssistantMessages(
   return textContent.length > 0 ? [{ role: "assistant", content: textContent.join("\n") }] : [];
 }
 
-function messageToSDK(msg: Message.WithParts, model: Provider.Model, blocks: readonly UserBlock[]): SDKMessage[] {
+function messageToSDK(
+  msg: Message.WithParts,
+  model: Provider.Model,
+  blocksById?: ReadonlyMap<string, readonly UserBlock[]>,
+): SDKMessage[] {
   if (msg.info.role === "assistant") {
     return buildAssistantMessage({ info: msg.info, parts: msg.parts }, model);
   }
-  const content = msg.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n");
-  if (blocks.length > 0) return [{
-    role: "user",
-    content: [...(content.length > 0 ? [{ type: "text" as const, text: content }] : []), ...blocks],
-  }];
+  if (blocksById === undefined) {
+    const content = msg.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+    return content.length > 0 ? [{ role: "user", content }] : [];
+  }
+  const blocks: UserBlock[] = [];
+  let text: string[] = [];
+  let hasFile = false;
+  for (const part of msg.parts) {
+    if (part.type === "text") {
+      text.push(part.text);
+      continue;
+    }
+    if (part.type !== "file") continue;
+    hasFile = true;
+    if (text.length > 0) blocks.push({ type: "text", text: text.join("\n") });
+    text = [];
+    blocks.push(...(blocksById.get(part.id) ?? [{ type: "text", text: Delivery.text([part]) }]));
+  }
+  if (text.length > 0) blocks.push({ type: "text", text: text.join("\n") });
+  if (hasFile) return blocks.length > 0 ? [{ role: "user", content: blocks }] : [];
+  const content = text.join("\n");
   return content.length > 0 ? [{ role: "user", content }] : [];
 }
 
@@ -162,6 +182,6 @@ export function toModelMessages(
   blocksById?: ReadonlyMap<string, readonly UserBlock[]>,
 ): SDKMessage[] {
   const coreMessages: SDKMessage[] = [];
-  for (const msg of messagesWithParts) coreMessages.push(...messageToSDK(msg, model, blocksById?.get(msg.info.id) ?? []));
+  for (const msg of messagesWithParts) coreMessages.push(...messageToSDK(msg, model, blocksById));
   return ProviderTransform.normalizeMessages(coreMessages, model);
 }

@@ -99,7 +99,7 @@ export function residentRunner(
         id: crypto.randomUUID(),
         sessionId,
         kind: "prompt",
-        content,
+        content: [{ kind: "text", text: content }],
         // Owner prompts enter with the perimeter's recorded full-access treatment (#1245:
         // unknown provenance is evidence-only, so a fixture prompt must declare its authority).
         origin: { encodingVersion: 1, value: { kind: "external", inboundTreatment: "full_access" } },

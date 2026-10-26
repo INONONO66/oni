@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { Delivery, Journal } from "@oni/protocol";
-import { kernelOwnedRow } from "./helpers/request-fixtures";
+import { Journal } from "@oni/protocol";
+import type { Delivery } from "@oni/protocol";
+import { kernelOwnedRow, pendingDeliveryRow } from "./helpers/request-fixtures";
 import { deliveryActions, inputRowKind, receivedMessageAction } from "../src/core/journal/delivery";
 import { decideSessionAdmission } from "../src/core/session/admission";
 
@@ -12,18 +13,7 @@ import { decideSessionAdmission } from "../src/core/session/admission";
  */
 
 function row(kind: Delivery.Kind, id: string): Delivery.Row {
-  return Delivery.Row.parse({
-    id,
-    sessionId: "s1",
-    kind,
-    content: "payload",
-    origin: { encodingVersion: 1, value: { channel: "test" } },
-    status: "pending",
-    consumedBy: null,
-    consumedAt: null,
-    createdAt: 10,
-    ordinal: 1,
-  });
+  return pendingDeliveryRow(kind, id);
 }
 
 test("a delivered prompt is a prompt row with delivery defaulting to followUp", () => {
@@ -50,7 +40,7 @@ test("admission rows split the same way: prompt stays prompt, control admits as 
       id: `adm-${kind}`,
       sessionId: "s1",
       kind,
-      content: "payload",
+      content: [{ kind: "text", text: "payload" }],
       origin: { encodingVersion: 1, value: { channel: "test" } },
       parentActionId: null,
       at: 10,

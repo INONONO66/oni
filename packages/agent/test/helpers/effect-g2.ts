@@ -84,7 +84,7 @@ export function runTestAgent(input: ChatAgentInput, config: ChatAgentConfig, sin
   return createTestAgent(config).run(input, sink);
 }
 export function runUserMessage(config: ChatAgentConfig, content: string) {
-  return runTestAgent(runInput([{ role: "user", content }]), config);
+  return runTestAgent(runInput([{ role: "user", content: [{ kind: "text", text: content }] }]), config);
 }
 export function runTestOperation(
   executor: DurableExecutor,

@@ -95,7 +95,7 @@ describe("tool calls reach the executor without target gating", () => {
       };
       await isolated(createTestAgent(config).run(
         {
-          messages: [{ role: "user", content: "inspect" }],
+          messages: [{ role: "user", content: [{ kind: "text", text: "inspect" }] }],
           traceContext: { traceId: "trace-tools", sessionId: "session-tools", runId: "run-tools" },
         },
         {

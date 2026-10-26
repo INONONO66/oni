@@ -149,7 +149,7 @@ test("AppLive hosts the session entity: prompts append through the fenced kernel
     await provisionSession(catalogPath, sessionsDir, sessionId);
     const message = {
       kind: "prompt",
-      body: JSON.stringify({ content: "hello" }),
+      body: JSON.stringify({ content: [{ kind: "text", text: "hello" }] }),
       source: origin(sessionId, "m-1"),
       idempotencyKey: "m-1",
     };

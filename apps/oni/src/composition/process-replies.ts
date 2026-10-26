@@ -8,7 +8,6 @@ import { ThrownError } from "../thrown";
 import { Delivery, Gateway, SessionTransition } from "@oni/protocol";
 import { z } from "zod";
 import type { ProcessDelivery } from "../process-entry";
-import type { DeliveryMedia } from "./delivery-media";
 import { MEDIA_BYTE_CAP } from "./media";
 import { addBounded } from "./bounded-set";
 
@@ -46,7 +45,6 @@ type Receipt = z.infer<typeof ProcessReplyReceipt>;
 export interface ProcessMedia {
   readonly bytes: PartBytes;
   readonly derive: PartDerive;
-  readonly load: (registry: DeliveryMedia, ids: readonly string[]) => Effect.Effect<void, Error>;
 }
 
 /** Transport response correlation only; durable delivery truth remains in the source action tree. */
@@ -119,23 +117,16 @@ export function createProcessReplyChannel(
       pending.delete(input.inputId);
     }
   }
-  const recall = async (messageId: string) => {
-    const inputId = crypto.randomUUID();
-    const receipt = await request({ inputId, operation: "media", frame: { kind: "request_media", inputId, messageId } });
-    if (!("parts" in receipt)) throw new ProcessReplyError("invalid_receipt", "process media receipt carries no parts");
-    return receipt.parts;
-  };
   const media: ProcessMedia = {
-    load: (registry, ids) => Effect.forEach(ids, (id) => Effect.tryPromise({
-      try: () => recall(id),
-      catch: ThrownError.parse,
-    }).pipe(Effect.map((parts) => registry.remember(id, parts))), { discard: true }),
     derive: (part, model) => Effect.tryPromise({
       try: async () => {
         const inputId = crypto.randomUUID();
         const receipt = await request({
           inputId, operation: "derive",
-          frame: { kind: "request_derive", inputId, ref: part.ref, part, model: {
+          frame: { kind: "request_derive", inputId, ref: part.ref, part: {
+            kind: part.kind, ref: part.ref, name: part.name, mime: part.mime,
+            bytes: part.bytes, durationMs: part.durationMs, voice: part.voice,
+          } satisfies Gateway.MediaPart, model: {
             input: model.input,
             api: model.api === undefined ? undefined : { npm: model.api.npm, style: model.api.style },
           } },

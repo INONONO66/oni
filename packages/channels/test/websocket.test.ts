@@ -236,14 +236,30 @@ describe("WebSocketHandler ingress and receipts", () => {
 
     const receipt = handler.push("alice", "review", "message-1");
     expect(receipt).toEqual({ value: "accepted", externalMessageId: "message-1" });
-    expect(
-      z
-        .object({ type: z.string(), messageId: z.string(), text: z.string() })
-        .parse(JSON.parse(sent[0] ?? "{}")),
-    ).toMatchObject({
+    expect(JSON.parse(sent[0] ?? "null")).toEqual({
       type: "message",
       messageId: "message-1",
       text: "review",
+    });
+    handler.push("alice", "again", "message-2", []);
+    expect(JSON.parse(sent[1] ?? "null")).toEqual({
+      type: "message", messageId: "message-2", text: "again",
+    });
+  });
+
+  it("push includes nonempty media parts in the outbound frame", () => {
+    const handler = createHandler();
+    const { sent, ws } = connection({
+      surfaceKey: "ws::dm:c1", authenticated: true, externalId: "alice",
+    });
+    handler.ws.open(ws);
+    const parts = [{ kind: "file", ref: "self:/report.pdf", name: "report.pdf", mime: "application/pdf" }] as const;
+
+    expect(handler.push("alice", "report", "message-3", parts)).toEqual({
+      value: "accepted", externalMessageId: "message-3",
+    });
+    expect(JSON.parse(sent[0] ?? "null")).toEqual({
+      type: "message", messageId: "message-3", text: "report", parts,
     });
   });
 

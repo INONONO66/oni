@@ -115,7 +115,7 @@ export const SESSION_FILE_SCHEMA: readonly string[] = [
 
 
 /** Session-file schemaVersion in `PRAGMA user_version`; only this stamp can open. */
-export const SESSION_FILE_SCHEMA_VERSION = 3;
+export const SESSION_FILE_SCHEMA_VERSION = 4;
 
 const SessionUserVersion = z.object({ user_version: z.number().int() });
 

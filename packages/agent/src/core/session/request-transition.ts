@@ -163,7 +163,7 @@ function replyIntake(
     id: answer.inputId,
     sessionId: request.sessionId,
     kind: "prompt",
-    content: answer.content,
+    content: [{ kind: "text", text: answer.content }],
     createdAt: at,
     parentActionId: request.requestId,
     origin: {

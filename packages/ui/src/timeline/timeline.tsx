@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { UI_NAMES } from "../names";
 import { EpochRule } from "../primitives/epoch-rule";
 import { anchorId } from "./anchor";
+import { AttachmentRow } from "./attachment-row";
 import { MarkdownBlockView } from "./markdown-block";
 import type { TranscriptNode, TranscriptTool, TurnCost } from "./model";
 import { spacingClass } from "./spacing";
@@ -81,6 +82,7 @@ const AGENT_PART: ReadonlySet<TurnPart["kind"]> = new Set<TurnPart["kind"]>([
   "prose",
   "tools",
   "epoch",
+  "attachment",
 ]);
 
 function TurnView({
@@ -179,10 +181,26 @@ function PartView({
           <Voice className="pb-1 text-voice-ambient" voice="meta">
             you
           </Voice>
-          <Voice as="p" className="whitespace-pre-wrap text-left" voice="prose">
-            {part.text}
-          </Voice>
+          <div className="flex min-w-0 max-w-full flex-col items-end gap-2">
+            {part.content.map((node) =>
+              node.kind === "attachment" ? (
+                <AttachmentRow attachment={node} key={node.id} />
+              ) : (
+                <Voice as="p" className="whitespace-pre-wrap text-left" key={node.id} voice="prose">
+                  {node.text}
+                </Voice>
+              ),
+            )}
+          </div>
         </div>
+      </div>
+    );
+  }
+
+  if (part.kind === "attachment") {
+    return (
+      <div className={className} data-anchor={anchor()}>
+        <AttachmentRow attachment={part} />
       </div>
     );
   }

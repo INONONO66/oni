@@ -238,8 +238,6 @@ test("process entry logs committed sessions and disposes its runtime", async () 
   const parent = parentReplies(fixture);
   const log = mock((line: string) => {
     const parsed = z.json().parse(JSON.parse(line));
-    const media = z.object({ kind: z.literal("request_media"), inputId: z.string() }).safeParse(parsed);
-    if (media.success) stdin.write(`${JSON.stringify({ ok: true, inputId: media.data.inputId, parts: [] })}\n`);
     const frame = answerFrame.safeParse(parsed);
     if (frame.success) answerRequested.resolve(frame.data.answer);
     const delivery = deliverFrame.safeParse(parsed);
@@ -347,7 +345,7 @@ test("process session drain consumes resume backlog through the entity fold", as
       intent: { encodingVersion: 1, value: { kind: "sdk" } },
       effect: {
         encodingVersion: 1,
-        value: { deliveryKind: "resume", content: "continue" },
+        value: { deliveryKind: "resume", content: [{ kind: "text", text: "continue" }] },
       },
       irreversible: true,
       ts: 100,

@@ -70,6 +70,11 @@ function canonicalPartContent(part: Message.Part) {
   if (part.type === "step-finish") {
     return { type: part.type, reason: part.reason, tokens: part.tokens };
   }
+  if (part.type === "file") return {
+    type: part.type, kind: part.kind, ref: part.ref,
+    name: part.name, mime: part.mime, bytes: part.bytes,
+    durationMs: part.durationMs, voice: part.voice,
+  };
   const state =
     part.state.status === "completed" ? { ...part.state, output: "[tool output]" } : part.state;
   return { type: part.type, callID: part.callID, tool: part.tool, state };

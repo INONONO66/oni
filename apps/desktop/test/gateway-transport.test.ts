@@ -1,5 +1,5 @@
 import { Chat } from "@ai-sdk/react";
-import { SessionRead } from "@oni/protocol";
+import { type Gateway, SessionRead } from "@oni/protocol";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ServerWebSocket, Server } from "bun";
 import type { UIMessage, UIMessageChunk } from "ai";
@@ -12,6 +12,7 @@ import { TransportCapabilityError } from "../src/renderer/errors";
 import { signal } from "./helpers";
 import { upgradeWebSocket } from "./helpers/chat-server";
 import { testId } from "./helpers/platform";
+import { uiMessagesToTranscript } from "../src/renderer/chat/adapter";
 
 /**
  * The wire is asserted against a REAL socket, not a stubbed WebSocket. What
@@ -37,7 +38,10 @@ type Received = z.infer<typeof receivedSchema>;
  * an empty `message`, so a test that sends one more turn than it scripted fails
  * on the assertion rather than hanging.
  */
-function serveWire(script: readonly (readonly Readonly<Record<string, string>>[])[]) {
+function serveWire(script: readonly (readonly (
+  Readonly<Record<string, string>> |
+  { readonly type: "message"; readonly messageId: string; readonly text: string; readonly parts: readonly Gateway.MediaPart[] }
+)[])[]) {
   const received: Received[] = [];
   const protocols: (string | null)[] = [];
   let connectionCount = 0;
@@ -716,9 +720,36 @@ describe("createGatewayChatTransport", () => {
     const last = chat.lastMessage;
     if (last === undefined) throw new Error("no message was reduced");
     expect(last.role).toBe("assistant");
-    expect(last.parts.map((part) => (part.type === "text" ? part.text : "")).join("")).toBe(
-      "two files touched",
-    );
+    expect(last.parts).toEqual([{ type: "text", text: "two files touched", state: "done" }]);
+  });
+
+  test("media frames settle as ordered SDK file parts with retained labels", async () => {
+    const { url } = serveWire([[{
+      type: "message", messageId: "media", text: "Attached.",
+      parts: [
+        { kind: "image", ref: "machine:/image.png", mime: "image/png", name: "image.png" },
+        { kind: "file", ref: "machine:/report" },
+        { kind: "audio", ref: "machine:/voice.ogg", mime: "audio/ogg", name: "voice.ogg" },
+        { kind: "video", ref: "machine:/clip.mp4", mime: "video/mp4", name: "clip.mp4" },
+      ],
+    }]]);
+    const chat = new Chat<UIMessage>({ transport: createGatewayChatTransport({ id: testId, url }) });
+
+    await chat.sendMessage({ text: "show attachments" });
+
+    expect(chat.status).toBe("ready");
+    const last = chat.lastMessage;
+    if (last === undefined) throw new Error("no message was reduced");
+    expect(last.parts).toEqual([
+      { type: "text", text: "Attached.", state: "done" },
+      { type: "file", url: "machine:/image.png", mediaType: "image/png", providerMetadata: { oni: { filename: "image.png" } } },
+      { type: "file", url: "machine:/report", mediaType: "application/octet-stream" },
+      { type: "file", url: "machine:/voice.ogg", mediaType: "audio/ogg", providerMetadata: { oni: { filename: "voice.ogg" } } },
+      { type: "file", url: "machine:/clip.mp4", mediaType: "video/mp4", providerMetadata: { oni: { filename: "clip.mp4" } } },
+    ]);
+    expect(uiMessagesToTranscript([{ id: last.id, role: last.role, parts: last.parts.filter((part) => part.type === "text" || part.type === "file") }]).nodes.map((node) =>
+      node.kind === "attachment" ? node.name : node.kind,
+    )).toEqual(["assistant", "image.png", "report", "voice.ogg", "clip.mp4"]);
   });
 });
 

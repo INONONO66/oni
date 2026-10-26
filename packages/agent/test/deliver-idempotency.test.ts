@@ -91,7 +91,7 @@ async function seedPromptRow(sessionId: string, key: string, content: string): P
               id: key,
               sessionId,
               kind: "prompt",
-              content,
+              content: [{ kind: "text", text: content }],
               origin: {
                 encodingVersion: 1,
                 value: { kind: "message", messageId: key, senderSessionId: sessionId, sourceActionId: key },

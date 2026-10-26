@@ -41,7 +41,7 @@ test("a pre-fork key re-admits AND completes a real child turn; msg-1:delivery b
           id: KEY,
           sessionId: PARENT_ID,
           kind: "prompt",
-          content: "first",
+          content: [{ kind: "text", text: "first" }],
           origin: { encodingVersion: 1, value: { source: "test" } },
           parentActionId: `${PARENT_ID}:materialize`,
           at: 2,

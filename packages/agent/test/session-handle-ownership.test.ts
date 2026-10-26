@@ -576,7 +576,7 @@ describe("durable session handle: ownership and generations", () => {
           deliveries(handle.id)
             .filter((item) => item.kind === "resume")
             .map((item) => item.content),
-        ).toEqual([""]);
+        ).toEqual([[]]);
       }),
     ));
 
@@ -675,7 +675,7 @@ describe("durable session handle: ownership and generations", () => {
             }),
           );
           expect(commits).toBe(1);
-          expect(deliveryRows(parent.id).map((row) => row.content)).toEqual(["terminal-text"]);
+          expect(deliveryRows(parent.id).map((row) => row.content)).toEqual([[{ kind: "text", text: "terminal-text" }]]);
           expect(terminals(child.id).map((terminal) => terminal.kind)).toEqual([kind]);
         }),
       ),

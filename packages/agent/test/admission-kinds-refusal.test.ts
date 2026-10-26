@@ -7,8 +7,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect } from "effect";
-import { Delivery } from "@oni/protocol";
-import { kernelOwnedRow } from "./helpers/request-fixtures";
+import { kernelOwnedRow, pendingDeliveryRow } from "./helpers/request-fixtures";
 import { decideSessionAdmission } from "../src/core/session/admission";
 import type { DeliverRefused } from "../src/core/journal/messages";
 import { clusterTempDir, readChain, runCluster, sendDeliver, sessionFileFor } from "./helpers/cluster-runtime";
@@ -20,18 +19,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 const sessionRow = kernelOwnedRow("s1", "idle");
 
-const pendingPrompt = Delivery.Row.parse({
-  id: "in-1",
-  sessionId: "s1",
-  kind: "prompt",
-  content: "payload",
-  origin: { encodingVersion: 1, value: { channel: "test" } },
-  status: "pending",
-  consumedBy: null,
-  consumedAt: null,
-  createdAt: 10,
-  ordinal: 1,
-});
+const pendingPrompt = pendingDeliveryRow("prompt", "in-1");
 
 test("a snapshot without declared capability kinds refuses with missing_capability_kinds", () => {
   expect(decideSessionAdmission({ row: sessionRow, pending: [pendingPrompt] })).toEqual({

@@ -3,6 +3,7 @@ import type { ExecutionError } from "./failure";
 import type {
   Actor,
   BusEvent,
+  Delivery,
   LedgerAction,
   Model,
   Message,
@@ -113,7 +114,7 @@ export interface ChatAgentInput {
   messages: Array<
     | {
         role: "user";
-        content: string;
+        content: Delivery.Content;
         id?: string;
         partMetadata?: Message.TextPart["metadata"];
         time?: number;

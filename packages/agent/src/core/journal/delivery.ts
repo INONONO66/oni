@@ -45,7 +45,7 @@ export function deliveryActions(
           turnId: target.kind === "turn" ? target.turnId : item.id,
           deliveryId: item.id,
           kind: item.kind,
-          content: item.content,
+          content: [...item.content],
           origin: item.origin,
           boundary,
         },
@@ -63,7 +63,7 @@ export function receivedMessageAction(input: {
   readonly id: string;
   readonly sessionId: string;
   readonly kind: Delivery.Kind;
-  readonly content: string;
+  readonly content: Delivery.Content;
   readonly origin: Delivery.Origin;
   readonly parentActionId: string | null;
   readonly at: number;
@@ -81,7 +81,7 @@ export function receivedMessageAction(input: {
       encodingVersion: 1,
       value: {
         deliveryKind: input.kind,
-        content: input.content,
+        content: [...input.content],
         ...(input.delivery === undefined ? {} : { delivery: input.delivery }),
       },
     },

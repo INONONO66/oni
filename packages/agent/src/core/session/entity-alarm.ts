@@ -125,7 +125,7 @@ function wakeContext(handle: ActivationHandle, occurrence: AlarmOccurrence, prom
     prompt: (input) =>
       appendReceived(handle, "prompt", {
         messageId: `${occurrence.occurrenceId}:prompt`,
-        content: input.content,
+        content: [{ kind: "text", text: input.content }],
         origin: canonicalJson(PlainValueSchema.parse({
           kind: "alarm",
           alarmId: occurrence.alarmId,

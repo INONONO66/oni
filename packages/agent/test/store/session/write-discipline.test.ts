@@ -5,6 +5,7 @@ import type { LedgerError } from "../../../src/core/store/errors";
 import { runLedgerSync } from "../helpers/effect";
 import { materializeRow, residentRow } from "../helpers/ledger";
 import { useMemoryStores } from "../helpers/storage";
+import { promptAction as buildPromptAction } from "../helpers/session";
 
 const stores = useMemoryStores();
 
@@ -33,16 +34,7 @@ function promptAction(
   content: string,
   ts: number,
 ): LedgerAction.Append {
-  return {
-    id,
-    parentId: null,
-    sessionId,
-    kind: "prompt",
-    intent: { encodingVersion: 1, value: { source: "test" } },
-    effect: { encodingVersion: 1, value: { deliveryKind: "prompt", content } },
-    irreversible: true,
-    ts,
-  };
+  return buildPromptAction({ id, parentId: null, sessionId, content, ts });
 }
 
 describe("fenced session write discipline", () => {

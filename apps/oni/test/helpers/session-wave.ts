@@ -154,7 +154,10 @@ function commitReceived(
       sessionId,
       kind: "prompt",
       intent: { encodingVersion: 1, value: { kind: "sdk" } },
-      effect: { encodingVersion: 1, value: { deliveryKind: kind, content } },
+      effect: {
+        encodingVersion: 1,
+        value: { deliveryKind: kind, content: content === "" ? [] : [{ kind: "text", text: content }] },
+      },
       irreversible: true,
       ts: Date.now(),
     };

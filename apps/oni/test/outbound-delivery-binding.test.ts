@@ -51,7 +51,7 @@ test("the receiving consumer may only commit the exact outbound letter", async (
           id: "different-letter",
           sessionId: message.destinationSessionId,
           kind: "prompt",
-          content: message.content,
+          content: [{ kind: "text", text: message.content }],
           origin: { encodingVersion: 1, value: message },
           createdAt: 100,
           parentActionId: null,

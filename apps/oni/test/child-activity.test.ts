@@ -10,7 +10,7 @@ import { runEffect, runRuntimeEffect } from "./helpers/effect";
 import { residentSuite, fakeProviderModel } from "./helpers/resident-suite";
 import { planeOf } from "./helpers/ledger";
 import { materializeResident } from "./helpers/resident-materialize";
-import { parseJson } from "@oni/protocol";
+import { Delivery, parseJson } from "@oni/protocol";
 
 const suite = residentSuite();
 class Refused extends Schema.TaggedError<Refused>()("DeliverRefused", {
@@ -47,8 +47,10 @@ test("daemon reads reach real entity Deliver and the app exposes the persisted c
   await app.childActivity.close(spec.id);
   const rows = plane.openKernel(spec.sessionId).historyPage(spec.sessionId, { afterRevision: 0 }).actions.flatMap((row) => {
     const value = row.effect.value;
-    if (value === null || typeof value !== "object" || Array.isArray(value) || typeof value.content !== "string") return [];
-    const parsed = parseJson(ChildRow, value.content);
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return [];
+    const content = Delivery.Content.safeParse(value.content);
+    if (!content.success) return [];
+    const parsed = parseJson(ChildRow, Delivery.text(content.data));
     return parsed !== undefined && parsed.key === row.id ? [parsed] : [];
   });
   expect(rows.filter((row) => row.kind === "child_fact")).toHaveLength(1);

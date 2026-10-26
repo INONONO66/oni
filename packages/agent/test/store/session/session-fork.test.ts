@@ -50,7 +50,7 @@ describe("Session.fork", () => {
           id: anchor,
           sessionId: PARENT,
           kind: "prompt",
-          content: "fork here",
+          content: [{ kind: "text", text: "fork here" }],
           origin: { encodingVersion: 1, value: { source: "test" } },
           parentActionId: `${PARENT}:configure`,
           at: 2,
@@ -167,7 +167,7 @@ describe("Session.fork", () => {
         id: "msg-3",
         sessionId: PARENT,
         kind: "prompt",
-        content: "post-fork",
+        content: [{ kind: "text", text: "post-fork" }],
         origin: { encodingVersion: 1, value: { source: "test" } },
         parentActionId: "msg-2",
         at: 6,
@@ -297,7 +297,7 @@ describe("Session.fork", () => {
           id,
           sessionId: PARENT,
           kind: "prompt",
-          content: `bulk ${i}`,
+          content: [{ kind: "text", text: `bulk ${i}` }],
           origin: { encodingVersion: 1, value: { source: "test" } },
           parentActionId: previous,
           at: 10 + i,
@@ -404,6 +404,31 @@ describe("Session.fork", () => {
       expect(sha256()).toBe(before);
       fixture.buildParent();
       expect(fixture.refusalOf(fixture.fork("turn-1:terminal", { parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION + 1 })).reason).toBe("schema_version");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("a v3 session file refuses before DDL and a fresh file is stamped v4", () => {
+    const directory = mkdtempSync(join(tmpdir(), "session-v4-fence-"));
+    try {
+      const oldPath = join(directory, "old.sqlite");
+      const old = new Database(oldPath);
+      old.run("CREATE TABLE previous_actions (id TEXT PRIMARY KEY)");
+      old.run("PRAGMA user_version = 3");
+      old.close();
+      const before = readFileSync(oldPath);
+      expect(() => openSessionStore(oldPath, { now: testNow })).toThrow(CatalogVersionRefused);
+      expect(readFileSync(oldPath)).toEqual(before);
+      const probe = new Database(oldPath, { readonly: true });
+      expect(probe.query("SELECT name FROM sqlite_master WHERE type = 'table'").all())
+        .toEqual([{ name: "previous_actions" }]);
+      probe.close();
+
+      const freshPath = join(directory, "fresh.sqlite");
+      const fresh = openSessionStore(freshPath, { now: testNow });
+      fresh.close();
+      expect(readSessionFileSchemaVersion(freshPath)).toBe(4);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

@@ -136,7 +136,7 @@ describe("Session.fork exclusions", () => {
                 id: "msg-1",
                 sessionId: CHILD,
                 kind: "prompt",
-                content: "replayed",
+                content: [{ kind: "text", text: "replayed" }],
                 origin: { encodingVersion: 1, value: { source: "test" } },
                 parentActionId: head?.id ?? null,
                 at: 101,

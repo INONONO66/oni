@@ -41,11 +41,8 @@ const answer = (inputId: string, principalId: string) => ({
   },
 });
 switch (scenario) {
-  case "media":
   case "bytes": {
-    console.log(JSON.stringify(scenario === "media"
-      ? { kind: "request_media", inputId: "lookup", messageId: "delivery" }
-      : { kind: "request_bytes", inputId: "lookup", ref: "mac:/inbox/a.png" }));
+    console.log(JSON.stringify({ kind: "request_bytes", inputId: "lookup", ref: "mac:/inbox/a.png" }));
     console.log(JSON.stringify({ sessionIds: [await next()] }));
     break;
   }

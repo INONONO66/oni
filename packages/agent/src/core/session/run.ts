@@ -6,7 +6,7 @@ import { type ExecutionLedger, type ExecutionResult, createExecutor, type Execut
 import type { SessionPolicyRefusal } from "../journal/messages";
 
 import type { SessionKernel } from "./entity";
-import { type Delivery, type LedgerSession, type Model, type SessionGeneration, type SessionTurn, canonicalDigest, type TraceContext } from "@oni/protocol";
+import { Delivery, type LedgerSession, type Model, type SessionGeneration, type SessionTurn, canonicalDigest, type TraceContext } from "@oni/protocol";
 import type { ChatAgentConfig, AgentResult } from "../ports/types";
 import { ObservationSink as ObservationService, type RunnerServices, GenerationOwnership, interruptOn } from "../ports/ports";
 import { commitFoldBatch } from "../journal/compaction";
@@ -44,7 +44,7 @@ export function createSessionTurn(
   scope: Scope.Scope,
   ports: {
     readonly createExecutionLedger: (turnId?: string) => ExecutionLedger;
-    readonly evaluatePromptPolicies: (items: readonly Delivery.Row[]) => Effect.Effect<{ readonly refusal: SessionPolicyRefusal | undefined; readonly contents: ReadonlyMap<string, string> }, ExecutionError, RunnerServices>;
+    readonly evaluatePromptPolicies: (items: readonly Delivery.Row[]) => Effect.Effect<{ readonly refusal: SessionPolicyRefusal | undefined; readonly contents: ReadonlyMap<string, Delivery.Content> }, ExecutionError, RunnerServices>;
     readonly consumePolicyBlockedDeliveries: (items: readonly Delivery.Row[]) => Effect.Effect<void, ExecutionError>;
     readonly hibernate: (current: LedgerSession.Row) => Effect.Effect<void, SessionError>;
   },
@@ -202,7 +202,7 @@ export function createSessionTurn(
       }, runtime.compaction).pipe(Effect.mapError((error) => new CommitFailed({ error })));
       observeDrained(delivered, input.turnId, boundary, clock(), observations, entropy);
       return {
-        messages: delivered.filter((item) => item.kind === "prompt").map((item) => ({ id: item.id, role: "user" as const, text: item.content })),
+        messages: delivered.filter((item) => item.kind === "prompt").map((item) => ({ id: item.id, role: "user" as const, text: Delivery.text(item.content), content: item.content })),
         interrupted: delivered.some((item) => item.kind === "interrupt" || item.kind === "cancel"),
         parentActionId: deliveries.at(-1)?.id ?? checkpointId, boundaryActionId: checkpointId,
         pending: snapshot,
@@ -277,7 +277,9 @@ interface SessionChatRunnerOptions {
 
 export function createSessionChatRunner(options: SessionChatRunnerOptions): SessionRunner {
   return (input) => Effect.gen(function* () {
-    const messages = input.messages.map((message) => ({ role: message.role, content: message.text, id: message.id }));
+    const messages = input.messages.map((message) => message.role === "user"
+      ? { role: "user" as const, content: message.content ?? [{ kind: "text" as const, text: message.text }], id: message.id }
+      : { role: "assistant" as const, content: message.text, id: message.id });
     const prepared = yield* options.prepare(input);
     const executor = prepared.config.executor;
     if (executor.recover === undefined || executor.runAttempts === undefined || executor.judgeStop === undefined)

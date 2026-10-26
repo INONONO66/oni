@@ -4,7 +4,8 @@ import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { Bus } from "./helpers/bus";
 import { createChannelStores } from "@oni/channels";
-import { Gateway, L0Observation } from "@oni/protocol";
+import { Delivery, Gateway, L0Observation } from "@oni/protocol";
+import { z } from "zod";
 import { join } from "node:path";
 import { channelStoreSource } from "../src/gateway";
 import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
@@ -32,7 +33,7 @@ const sessionDb = (fixture: { directory: string }, sessionId: string) =>
 function promptContents(plane: AppLedgerPlane, sessionId: string): string[] {
   return sessionTree(sessionId, plane.sessionStore(sessionId).actions)
     .filter((action) => action.kind === "prompt")
-    .map((action) => (action.effect.value as { content?: string }).content ?? "");
+    .map((action) => Delivery.text(z.object({ content: Delivery.Content }).parse(action.effect.value).content));
 }
 const sender = { kind: "external", surface: "ws", externalId: "peer" } as const;
 const facts = {

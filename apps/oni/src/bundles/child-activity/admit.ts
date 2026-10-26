@@ -19,7 +19,7 @@ export function admit(
   const deliver = (row: ChildRow): ReturnType<DeliveryPort> =>
     client(sessionId).Deliver({
       kind: "action",
-      body: canonicalJson({ content: canonicalJson(row) }),
+      body: canonicalJson({ content: [{ kind: "text", text: canonicalJson(row) }] }),
       source: canonicalJson({ kind: "child_activity" }),
       idempotencyKey: row.key,
     });

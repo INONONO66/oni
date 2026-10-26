@@ -88,7 +88,7 @@ async function deliverExternal(
     id: `${origin.surface}::${origin.externalId}:1`,
     sessionId,
     kind: "prompt",
-    content,
+    content: [{ kind: "text", text: content }],
     origin: { encodingVersion: 1, value: { kind: "external", inboundTreatment: "full_access", ...origin } },
     createdAt: 10,
     parentActionId: null,

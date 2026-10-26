@@ -347,7 +347,7 @@ test("a destination receipt for different bytes is refused and the obligation st
           kernel
             .pendingMessages("parent")
             .map((row: import("@oni/protocol").Delivery.Row) => row.content),
-        ).toEqual(["tampered answer"]);
+        ).toEqual([[{ kind: "text", text: "tampered answer" }]]);
       }),
     ),
   ));

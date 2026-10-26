@@ -83,7 +83,7 @@ export async function firstDelta(now: () => number) {
   const first = Promise.withResolvers<number>();
   const record = recordingLedger();
   const services = firstDeltaServices.pipe(Context.add(Entropy, { id: record.entropy, random: () => 0 }));
-  const input = runInput([{ role: "user", content: "hello" }]);
+  const input = runInput([{ role: "user", content: [{ kind: "text", text: "hello" }] }]);
   const sink = {
     onMessage: () => first.resolve(now() - start),
     onToolCall: () => undefined,

@@ -381,7 +381,7 @@ function settlementKernel(origin: Readonly<Record<string, string>>): Core.Sessio
     id: "commission",
     sessionId: "child-1",
     kind: "prompt",
-    content: "work",
+    content: [{ kind: "text", text: "work" }],
     origin: { encodingVersion: 1, value: origin },
     status: "pending",
     consumedBy: null,

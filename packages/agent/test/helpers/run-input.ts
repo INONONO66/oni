@@ -8,10 +8,18 @@ import type { ChatAgentInput } from "../../src/core/ports/types";
  * forgot — so tests state the identity the way production does rather than leaning on a default.
  */
 export function runInput(
-  messages: ChatAgentInput["messages"],
+  messages: Array<ChatAgentInput["messages"][number] | { role: "user"; content: string; id?: string }>,
 ): ChatAgentInput & { traceContext: RunTrace } {
   return {
-    messages,
+    messages: messages.map((message): ChatAgentInput["messages"][number] => {
+      if (message.role === "assistant") return message;
+      return {
+        ...message,
+        content: typeof message.content === "string"
+          ? [{ kind: "text" as const, text: message.content }]
+          : message.content,
+      };
+    }),
     traceContext: {
       traceId: newTraceId(),
       sessionId: `session-${newTraceId()}`,

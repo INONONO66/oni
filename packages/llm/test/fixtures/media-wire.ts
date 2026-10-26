@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { generateText, UnsupportedFunctionalityError } from "ai";
-import type { Message, PlainObject } from "@oni/protocol";
-import { PlainObjectSchema } from "@oni/protocol";
+import { Delivery, PlainObjectSchema, type Message, type PlainObject } from "@oni/protocol";
 import { Effect } from "effect";
 import { Capability, resolveInputParts, type Auth, type UserBlock } from "../../src";
 import { Provider } from "../../src/provider";
@@ -144,7 +143,10 @@ test.each([
     });
     const user: Message.WithParts = {
       info: { id: "u1", sessionID: "s", role: "user", time: { created: 1 }, agent: "test", model: { providerID: "openai", modelID: "primary" } },
-      parts: [{ id: "text", messageID: "u1", sessionID: "s", type: "text", text: "look" }],
+      parts: [
+        { id: "text", messageID: "u1", sessionID: "s", type: "text", text: "look" },
+        { id: "media", messageID: "u1", sessionID: "s", type: "file", kind, ref: `mac:/${kind}`, mime: kind === "image" ? "image/png" : "video/mp4" },
+      ],
     };
     let reads = 0;
     const outcome = await runEffect(route({
@@ -152,7 +154,6 @@ test.each([
       now: () => 1, id: sequentialIds(), trace: { traceId: "t", sessionId: "s", runId: "r" },
       events: { publish: () => undefined },
       media: {
-        parts: [{ messageId: "u1", parts: [{ kind, ref: `mac:/${kind}`, mime: kind === "image" ? "image/png" : "video/mp4" }] }],
         bytes: () => Effect.sync(() => { reads += 1; return { bytes: new Uint8Array([137, 80, 78, 71]), mime: "image/png" }; }),
         ...(kind === "image" ? {} : {
           derive: (_part, candidate: Capability.InputModel) => Effect.succeed({
@@ -168,8 +169,9 @@ test.each([
       { type: "text", text: "look" }, { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw==" } },
       ...(kind === "video" ? [{ type: "text", text: "[video 1s, 1 frames]" }] : []),
     ] }];
-    const textOnly = [{ role: "user", content: kind === "image" ? "look" : [
-      { type: "text", text: "look" }, { type: "text", text: "[video 1s, 0 frames]" },
+    const textOnly = [{ role: "user", content: [
+      { type: "text", text: "look" },
+      { type: "text", text: kind === "image" ? Delivery.text([{ kind, ref: `mac:/${kind}`, mime: "image/png" }]) : "[video 1s, 0 frames]" },
     ] }];
     expect(requests.map((request) => request.messages)).toEqual(primaryVision ? [withImage, textOnly] : [textOnly, withImage]);
     expect(reads).toBe(1);

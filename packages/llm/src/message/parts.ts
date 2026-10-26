@@ -1,4 +1,4 @@
-import { type Gateway, Operational } from "@oni/protocol";
+import { Delivery, type Gateway, Operational } from "@oni/protocol";
 import type { FilePart, ImagePart, TextPart } from "ai";
 import { Effect, Result } from "effect";
 import { Capability } from "../model/capability";
@@ -54,27 +54,56 @@ export function resolveInputParts<E>(input: {
 }): Effect.Effect<{ readonly blocks: UserBlock[]; readonly unaccepted: UnacceptedPart<E>[] }> {
   return Effect.gen(function* () {
     const blocks: UserBlock[] = [];
-    const text: TextPart[] = [];
     const unaccepted: UnacceptedPart<E>[] = [];
     for (const part of input.parts) {
-      const resolved = yield* resolvePart(part, input.model, input.bytes);
-      if (!("reason" in resolved)) {
-        blocks.push(resolved);
-        continue;
+      const resolved = yield* resolveFilePart(part, input);
+      for (const block of resolved) {
+        if ("reason" in block) unaccepted.push(block);
+        else blocks.push(block);
       }
-      if (resolved.reason === "unresolved" || input.derive === undefined) {
-        unaccepted.push(resolved);
-        continue;
-      }
-      const derived = yield* input.derive(part, input.model);
-      for (const replacement of derived.parts) {
-        const block = yield* resolvePart(replacement, input.model, input.bytes);
-        if (!("reason" in block)) blocks.push(block);
-      }
-      if (derived.text !== undefined) text.push({ type: "text", text: derived.text });
     }
-    return { blocks: [...blocks, ...text], unaccepted };
+    return { blocks, unaccepted };
   });
+}
+
+function resolveFilePart<E>(
+  part: Gateway.MediaPart,
+  input: { readonly model: Capability.InputModel; readonly bytes: PartBytes<E>; readonly derive?: PartDerive },
+): Effect.Effect<readonly (UserBlock | UnacceptedPart<E>)[]> {
+  return Effect.gen(function* () {
+    const resolved = yield* resolvePart(part, input.model, input.bytes);
+    if (!("reason" in resolved)) return [resolved];
+    if (resolved.reason === "unresolved" || input.derive === undefined) return [resolved];
+    const derived = yield* input.derive(part, input.model);
+    if (derived.parts.length === 0 && !derived.text?.trim()) return [resolved];
+    const replacements: (UserBlock | UnacceptedPart<E>)[] = [];
+    for (const replacement of derived.parts) {
+      replacements.push(yield* resolvePart(replacement, input.model, input.bytes));
+    }
+    if (derived.text !== undefined) replacements.push({ type: "text", text: derived.text });
+    return replacements;
+  });
+}
+
+function renderFileBlocks<E>(
+  resolved: readonly (UserBlock | UnacceptedPart<E>)[],
+  input: Pick<RunInput, "events" | "trace" | "now">,
+): UserBlock[] {
+  const blocks: UserBlock[] = [];
+  for (const block of resolved) {
+    if (!("reason" in block)) {
+      blocks.push(block);
+      continue;
+    }
+    blocks.push({ type: "text", text: Delivery.text([block.part]) });
+    if (block.reason !== "unresolved") continue;
+    input.events.publish(Operational.Events.Warn, {
+      traceId: input.trace.traceId, time: input.now(), sessionId: input.trace.sessionId,
+      component: "llm.media", msg: "input part unresolved",
+      context: { ref: block.part.ref, kind: block.part.kind, err: String(block.cause) },
+    });
+  }
+  return blocks;
 }
 
 export function resolveMessageParts(
@@ -82,21 +111,18 @@ export function resolveMessageParts(
 ): Effect.Effect<ReadonlyMap<string, readonly UserBlock[]>> {
   return Effect.gen(function* () {
     const blocksById = new Map<string, UserBlock[]>();
-    if (input.media === undefined) return blocksById;
-    const users = new Set(input.messages.filter((message) => message.info.role === "user").map((message) => message.info.id));
-    for (const entry of input.media.parts) {
-      if (!users.has(entry.messageId)) continue;
-      const resolved = yield* resolveInputParts({
-        parts: entry.parts, model: input.model, bytes: input.media.bytes, derive: input.media.derive,
-      });
-      blocksById.set(entry.messageId, [...(blocksById.get(entry.messageId) ?? []), ...resolved.blocks]);
-      for (const missed of resolved.unaccepted) {
-        if (missed.reason !== "unresolved") continue;
-        input.events.publish(Operational.Events.Warn, {
-          traceId: input.trace.traceId, time: input.now(), sessionId: input.trace.sessionId,
-          component: "llm.media", msg: "input part unresolved",
-          context: { ref: missed.part.ref, kind: missed.part.kind, err: String(missed.cause) },
+    for (const message of input.messages) {
+      if (message.info.role !== "user") continue;
+      for (const part of message.parts) {
+        if (part.type !== "file") continue;
+        if (input.media === undefined) {
+          blocksById.set(part.id, [{ type: "text", text: Delivery.text([part]) }]);
+          continue;
+        }
+        const resolved = yield* resolveFilePart(part, {
+          model: input.model, bytes: input.media.bytes, derive: input.media.derive,
         });
+        blocksById.set(part.id, renderFileBlocks(resolved, input));
       }
     }
     return blocksById;

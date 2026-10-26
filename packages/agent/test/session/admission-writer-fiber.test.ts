@@ -77,7 +77,7 @@ function origin(messageId: string): string {
 const promptEnvelope = (sessionId: string, id: string): SessionRequest =>
   envelope(sessionId, "Deliver", {
     kind: "prompt",
-    body: JSON.stringify({ content: `content ${id}` }),
+    body: JSON.stringify({ content: [{ kind: "text", text: `content ${id}` }] }),
     source: origin(id),
     idempotencyKey: id,
   });
@@ -330,7 +330,7 @@ test.each(["prompt", "action"] as const)("D3: alarm-routed %s uses the same prom
         wake: (fired, ctx) => Effect.gen(function* () {
           if (ctx.deliver === undefined) throw new Error("missing writer intake");
           yield* ctx.deliver({
-            kind, body: JSON.stringify({ content: "ROUTED_INPUT" }),
+            kind, body: JSON.stringify({ content: [{ kind: "text", text: "ROUTED_INPUT" }] }),
             source: origin(fired.occurrenceId), idempotencyKey: fired.occurrenceId,
           }).pipe(Effect.mapError((error) => new AlarmWakeError({ purpose: fired.purpose, reason: error._tag })));
           return "delivered" as const;

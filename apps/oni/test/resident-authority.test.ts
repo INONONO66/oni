@@ -5,7 +5,8 @@ type SessionRunner = Core.SessionRunner;
 import { createSurfaceKeyStore, decodeChannelFailure } from "@oni/channels";
 type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;
-import type { Tool } from "@oni/protocol";
+import { Delivery, type Tool } from "@oni/protocol";
+import { z } from "zod";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { createResidentGateway } from "../src/gateway";
 import { refuseEvidenceOnly } from "../src/bundles/resident/index";
@@ -89,7 +90,7 @@ for (const scenario of [
     expect(inputs[0]?.authority).toBe(scenario.authority);
     const prompts = sessionTree(row.id, resident.plane.sessionStore(row.id).actions)
       .filter((action) => action.kind === "prompt")
-      .map((action) => (action.effect.value as { content?: string }).content);
+      .map((action) => Delivery.text(z.object({ content: Delivery.Content }).parse(action.effect.value).content));
     expect(prompts[0]).toBe(scenario.content);
     expect(calls.length).toBeGreaterThan(0);
     const offered = bundleTools(testToolPorts)

@@ -227,7 +227,7 @@ function recoverAdmission(witness: Witness) {
       return "resumed_without_reexecution";
     }
     expect(originalTurns).toEqual([]);
-    expect(originalDeliveries).toMatchObject([{ id: "admitted", content: "original prompt" }]);
+    expect(originalDeliveries).toMatchObject([{ id: "admitted", content: [{ kind: "text", text: "original prompt" }] }]);
     expect(pendingDeliveries()).toEqual([]);
     expect(isolatedLedger().kernel.inputMessages(sessionId)).toHaveLength(1);
     return "rearmed";
@@ -550,7 +550,7 @@ function recoverOutbound(witness: Witness, dbPath: string) {
     const received = proof.deliveriesAfter.filter((row) => row.id === item.message.messageId);
     expect(received).toHaveLength(1);
     expect(received[0]?.status).toBe("consumed");
-    if (destination.length === 1) expect(received[0]?.content).toBe(destination[0]?.content);
+    if (destination.length === 1) expect(received[0]?.content).toEqual(destination[0]?.content);
     expect(proof.after.filter((action) => turnTerminal(action) !== undefined)).toHaveLength(1);
     if (sent || ambiguous) {
       expect(proof.externalBefore).toEqual([item.message.messageId]);

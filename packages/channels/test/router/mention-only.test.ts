@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
-import { Channel, type Gateway } from "@oni/protocol";
+import { Channel, Delivery, type Gateway } from "@oni/protocol";
 import { ledger } from "../helpers/ledger";
 import { runEffect } from "../helpers/effect";
 import { commits, makeRouter, resetRouterState, routingDecisions } from "./_router-fixture";
@@ -82,7 +82,7 @@ test("an addressed postback follows the ordinary prompt grant without a new rout
   expect((await ingest(facts)).status).toBe("executed");
   expect(commits).toHaveLength(1);
   expect(commits[0]).toMatchObject({ kind: "prompt" });
-  expect(commits[0]?.content).toContain("Approve");
+  expect(Delivery.text(commits[0]?.content ?? [])).toContain("Approve");
   expect(routingDecisions().some((decision) => decision.reason === "mention_only")).toBe(false);
 });
 

@@ -26,7 +26,6 @@ const DeliverPayload = z
   .strict();
 const ProcessOutput = z.union([
   Doorbell,
-  z.object({ kind: z.literal("request_media"), inputId: z.string().min(1), messageId: z.string().min(1) }).strict(),
   z.object({ kind: z.literal("request_bytes"), inputId: z.string().min(1), ref: z.string().min(1) }).strict(),
   z.object({
     kind: z.literal("request_derive"), inputId: z.string().min(1), ref: z.string().min(1), part: Gateway.MediaPart,
@@ -95,10 +94,6 @@ export function createProcessSessionTransport(options: {
     const output = ProcessOutput.parse(JSON.parse(line));
     if ("sessionIds" in output) {
       options.committed(output.sessionIds);
-      return;
-    }
-    if (output.kind === "request_media") {
-      write({ ok: true, inputId: output.inputId, parts: [...(options.media?.registry.recall(output.messageId) ?? [])] });
       return;
     }
     if (output.kind === "request_bytes" || output.kind === "request_derive") {

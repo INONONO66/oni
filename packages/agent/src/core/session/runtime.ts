@@ -61,6 +61,7 @@ export interface SessionRunnerInput {
   readonly parentActionId: string | null;
   readonly boundaryActionId: string | null;
   readonly messages: readonly (SessionTurn.Message & {
+    readonly content?: Delivery.Content;
     readonly id?: string;
     readonly time?: number;
   })[];
@@ -78,7 +79,7 @@ export interface SessionRunnerInput {
 }
 
 export interface SessionBoundaryResult {
-  readonly messages: readonly (SessionTurn.Message & { readonly id?: string })[];
+  readonly messages: readonly (SessionTurn.Message & { readonly id?: string; readonly content?: Delivery.Content })[];
   readonly interrupted: boolean;
 }
 

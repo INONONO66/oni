@@ -1,5 +1,65 @@
 # Implementation Status
 
+## #1671 durable delivery content and attachment transcript (PR #1672)
+
+On `core/modality-content-contract` (2026-10-26, base `10225726e`).
+`Delivery.Content` is a readonly ordered array of text and media parts in
+`packages/protocol/src/ledger/l0.ts`; `Delivery.Row` and `Delivery.Commit`
+carry that content rather than a string plus transient `Commit.parts`.
+A prompt needs at least one part; actions and control signals may have none.
+`Delivery.text` is the explicit plain-text reading, with `[kind: name]`
+placeholders for media. Session files now stamp schema version 4, and the
+pre-write `PRAGMA user_version` fence accepts only 0 or 4; foreign stamps
+(including v3) refuse typed before DDL, with no migration
+(`packages/agent/src/core/store/session-file/index.ts`). The #1637 and
+#1634 version-3 accounts below describe their original landings, not the
+current open contract.
+
+The journal constructs ordered user text and file message parts from the
+delivery; history replay reconstructs the same parts with deterministic
+part IDs (`packages/agent/src/core/journal/message-factory.ts`,
+`packages/agent/src/inspect/history.ts`). `packages/llm/src/message/parts.ts`
+resolves file parts through the injected media byte port for a selected model,
+using `Delivery.text` placeholders when the port is absent or a part is
+unreadable or unaccepted. `apps/oni/src/composition/delivery-media.ts` now
+binds the byte and derivation ports without retaining a parallel delivery
+registry; process children request bytes and derivations by ref. Compaction
+passes replayed file parts through the same model service and byte binding
+(`apps/oni/src/bundles/compaction/summarizer.ts`,
+`apps/oni/test/compaction-summarizer.test.ts`); the candidate fingerprint
+includes file identity and metadata
+(`packages/agent/src/plugins/compaction/candidate.ts`).
+
+Review fixes on the same branch: `packages/llm/src/message/index.ts` renders
+a user message's parts in sequence (text stays on its side of each file),
+and a derivation that returns no parts and no text keeps the original
+`Delivery.text` placeholder (`packages/llm/test/run-media.test.ts`). A
+`prompt.pre` rewrite is accepted only when the rewritten row parses as a
+`Delivery.Row`; a string or empty body is refused typed as `invalid_output`
+and the original prompt is never delivered in its place
+(`packages/agent/src/core/session/admission.ts`,
+`packages/agent/test/session/admission-rewrite.test.ts`). The outbound
+binding in `apps/oni/src/composition/message-session.ts` accepts only a
+letter that is exactly one text part equal to the outbound text;
+`Delivery.Commit.after`/`delivery` forwarding is tracked in #1673.
+
+The outbound WebSocket `message` frame includes `parts` when media is present
+(`apps/oni/src/index.ts`, `packages/channels/src/websocket.ts`); the desktop
+transport emits file chunks and transcript nodes preserve attachment order
+and show labelled attachment rows, including attachment-only prompts
+(`apps/desktop/src/renderer/chat/gateway-transport.ts`,
+`apps/desktop/src/renderer/chat/adapter.ts`,
+`packages/ui/src/timeline/turns.ts`,
+`packages/ui/src/timeline/attachment-row.tsx`). The row labels machine
+references; it does not fetch media in the browser. Regression coverage
+includes `packages/agent/test/store/session/media-replay.test.ts`,
+`packages/agent/test/session/entity-typed-refusals.test.ts`,
+`packages/llm/test/run-media.test.ts`,
+`apps/oni/test/compaction-summarizer.test.ts`,
+`apps/oni/test/ws-outbound-parts.test.ts` and
+`packages/ui/test/timeline-attachments.test.tsx`. A live model or desktop
+run is not established by these tests.
+
 ## #1662 machine client P5: computer use on the client peer (epic #1622, PR pending)
 
 On `feat/1662-machine-client-p5-computer-use` (2026-10-25, base
@@ -1319,7 +1379,8 @@ A complete mutation campaign is not established.
 ## Model consumption of inbound media (PR #1651)
 
 On `feat/g2-model-consumption` (2026-10-25, base `87f8f33c8` after #1645, no
-issue). `packages/llm` catalog rows carry `input` modalities (`text`, `image`,
+issue; its transient media registry and parts-in-call shape are superseded by
+#1671 above). `packages/llm` catalog rows carry `input` modalities (`text`, `image`,
 `audio`, `video`), overlaid from the bundled snapshot when a cached
 catalog predates the field, and `Capability.accepts(model, {kind, mime})`
 admits an image or audio format against the effective call surface the SDK

@@ -3,6 +3,7 @@ import { type JsonShapedValue, JsonShapedValueSchema } from "../json.js";
 import { Token } from "../token/index.js";
 import { Tool } from "../tool/index.js";
 import { EpochMs } from "../time.js";
+import { MediaPart } from "../gateway/media.js";
 
 export namespace Message {
   /**
@@ -79,8 +80,16 @@ export namespace Message {
   });
   export type ToolPart = z.infer<typeof ToolPart>;
 
+  /** A delivered media part (image, audio, video or file) as the model reads it. */
+  export const FilePart = PartBase.extend({
+    type: z.literal("file"),
+    ...MediaPart.shape,
+  });
+  export type FilePart = z.infer<typeof FilePart>;
+
   export const Part = z.discriminatedUnion("type", [
     TextPart,
+    FilePart,
     ReasoningPart,
     StepStartPart,
     StepFinishPart,

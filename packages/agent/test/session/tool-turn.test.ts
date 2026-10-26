@@ -307,7 +307,7 @@ test.each([
     yield* world.kernel.commit({
       ...world.handle.authority, now: 1, state: row.state, expectedRevision: row.revision,
       actions: [first, last].map((inboundTreatment, index) => receivedMessageAction({
-        id: `batch-${index}`, sessionId: world.sessionId, kind: "action", content: "call event",
+        id: `batch-${index}`, sessionId: world.sessionId, kind: "action", content: [{ kind: "text", text: "call event" }],
         origin: { encodingVersion: 1, value: { kind: "external", inboundTreatment } },
         parentActionId: null, at: 1,
       })),
@@ -322,7 +322,7 @@ test("an action-only turn never borrows an earlier trusted prompt", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
     const { world } = yield* sealedWorld();
     yield* deliver(world.handle, {
-      kind: "action", body: '{"content":"untrusted call"}',
+      kind: "action", body: '{"content":[{"kind":"text","text":"untrusted call"}]}',
       source: canonicalJson({ kind: "external", inboundTreatment: "evidence_only" }),
       idempotencyKey: "untrusted-action",
     });
@@ -356,7 +356,7 @@ test.each([
       },
     });
     yield* deliver(world.handle, {
-      kind: "action", body: '{"content":"start call"}',
+      kind: "action", body: '{"content":[{"kind":"text","text":"start call"}]}',
       source: canonicalJson({
         kind: "external", inboundTreatment: treatment,
         automation: { id: "call-rule", newSession: false },
@@ -476,7 +476,7 @@ test("recovery seals an external turn without entering the model runner", () =>
       return Effect.succeed({ kind: "result", text: "" });
     } });
     const input = {
-      id: "external-input", sessionId: world.sessionId, kind: "action" as const, content: "",
+      id: "external-input", sessionId: world.sessionId, kind: "action" as const, content: [{ kind: "text" as const, text: "" }],
       origin: { encodingVersion: 1 as const, value: {
         kind: "external", inboundTreatment: "full_access", toolCall: call, sourceTurnId: "origin",
       } },

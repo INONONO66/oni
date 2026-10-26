@@ -1145,7 +1145,7 @@ test("H-1 e2e: a steering prompt denied mid-turn is refused at the RUN boundary 
           const makeClient = yield* Core.SessionEntity.client;
           return yield* makeClient(sessionId).Deliver({
             kind: "prompt",
-            body: JSON.stringify({ content: "the forbidden steer", delivery: "steer" }),
+            body: JSON.stringify({ content: [{ kind: "text", text: "the forbidden steer" }], delivery: "steer" }),
             source: JSON.stringify({ kind: "test.steer" }),
             idempotencyKey: "boundary-steer-1",
           });

@@ -6,7 +6,6 @@ import { Delivery, Gateway, SessionGeneration, type ConsumptionSettings, type Le
 import { type ConversationBinding, SendAdmissionConflict, type createGatewayRouter } from "@oni/channels";
 import { z } from "zod";
 import type { AppLedgerPlane } from "./cluster-runtime";
-import type { DeliveryMedia } from "./delivery-media";
 import { outboundMessage } from "./terminal-message";
 
 type Ports = Parameters<typeof createGatewayRouter>[0];
@@ -66,8 +65,6 @@ export interface MessageDeliveryDeps {
   readonly plane: AppLedgerPlane;
   readonly client: SessionEntityClient;
   readonly clock: () => number;
-  /** Absent in hosts that never call a model on this process's turns. */
-  readonly media?: Pick<DeliveryMedia, "remember">;
 }
 
 /** Pending delivery projection shared by entity and process delivery receipts. */
@@ -167,12 +164,14 @@ export function deliverPayload(input: Delivery.Commit): Effect.Effect<DeliverPay
   return Effect.gen(function* () {
     const outbound = yield* outboundMessage;
     const message = outbound?.input.message;
-    if (
-      message !== undefined &&
-      (input.id !== message.messageId ||
-        input.sessionId !== message.destinationSessionId ||
-        input.content !== message.content)
-    ) {
+    const bindingMatches =
+      message === undefined ||
+      (input.id === message.messageId &&
+        input.sessionId === message.destinationSessionId &&
+        input.content.length === 1 &&
+        input.content[0]?.kind === "text" &&
+        input.content[0].text === message.content);
+    if (!bindingMatches) {
       return yield* new AgentFailure({
         operation: "message.commit",
         cause: "outbound delivery binding mismatch",
@@ -209,8 +208,6 @@ export function commitDeliverPayload(deps: MessageDeliveryDeps) {
   return (input: Delivery.Commit, payload: DeliverPayload): Effect.Effect<Delivery.Row, AgentFailure> =>
     Effect.gen(function* () {
       yield* materializeDeliveryTarget(deps.plane, input, deps.clock);
-      // The entity drains inside the Deliver RPC, so the parts must be held before it runs the turn.
-      deps.media?.remember(input.id, input.parts);
       const receipt = yield* deps
         .client(input.sessionId)
         .Deliver(payload)

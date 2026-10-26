@@ -137,6 +137,7 @@ export class WebSocketHandler {
     externalId: string,
     body: string,
     idempotencyKey: string,
+    parts?: readonly Gateway.MediaPart[],
   ): {
     value: "accepted";
     externalMessageId: string;
@@ -149,7 +150,10 @@ export class WebSocketHandler {
       });
     }
     const messageId = idempotencyKey;
-    connection.send(JSON.stringify({ type: "message", messageId, text: body }));
+    connection.send(JSON.stringify({
+      type: "message", messageId, text: body,
+      ...(parts !== undefined && parts.length > 0 ? { parts } : {}),
+    }));
     return { value: "accepted", externalMessageId: messageId };
   }
 

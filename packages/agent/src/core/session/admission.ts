@@ -46,6 +46,12 @@ type AdmissionDecision =
   | { readonly kind: "resume"; readonly item: Delivery.Row }
   | { readonly kind: "consume"; readonly items: readonly Delivery.Row[] };
 
+function rewrittenPrompt(item: Delivery.Row, value: PlainValue): Delivery.Row | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const parsed = Delivery.Row.safeParse({ ...item, content: value.body });
+  return parsed.success ? parsed.data : undefined;
+}
+
 /** Pure routing; dispatch remains behind the ledger CAS. */
 export function decideSessionAdmission(snapshot: AdmissionSnapshot): AdmissionDecision {
   const { row, pending, open, terminal } = snapshot;
@@ -183,7 +189,7 @@ export function createSessionAdmission(
       intake: [], backlog,
     };
     const item = Delivery.Row.parse({
-      id: entropy(), sessionId, kind: "action", content: "", status: "pending",
+      id: entropy(), sessionId, kind: "action", content: [], status: "pending",
       consumedBy: null, consumedAt: null, createdAt: clock(), ordinal: kernel.row(sessionId).revision + 1,
       origin: { encodingVersion: 1, value: {
         ...PlainObjectSchema.parse(external.origin.value),
@@ -275,7 +281,7 @@ export function createSessionAdmission(
   function evaluatePromptPolicies(
     items: readonly Delivery.Row[],
   ): Effect.Effect<
-    { readonly refusal: SessionPolicyRefusal | undefined; readonly contents: ReadonlyMap<string, string> },
+    { readonly refusal: SessionPolicyRefusal | undefined; readonly contents: ReadonlyMap<string, Delivery.Content> },
     ExecutionError,
     RunnerServices
   > {
@@ -283,7 +289,7 @@ export function createSessionAdmission(
       const ledger = createExecutionLedger();
       let refusal: SessionPolicyRefusal | undefined;
       // The boundary delivers the prompt.pre rewritten body, not the original.
-      const contents = new Map<string, string>();
+      const contents = new Map<string, Delivery.Content>();
       for (const item of items) {
         if (item.kind !== "prompt") continue;
         const recorded: PlainValue = { deliveryId: item.id, status: "recorded" };
@@ -295,13 +301,14 @@ export function createSessionAdmission(
         const outcome = yield* executor.runExisting({
           kind: "prompt",
           op: "delivery",
-          intent: { deliveryId: item.id, body: item.content, origin: item.origin.value, createdAt: item.createdAt, ordinal: item.ordinal },
+          intent: { deliveryId: item.id, body: [...item.content], origin: item.origin.value, createdAt: item.createdAt, ordinal: item.ordinal },
           effect: { status: "recorded" },
         }, (pre) =>
           Effect.sync(() => {
-            const value = pre.value;
-            if (value !== null && typeof value === "object" && !Array.isArray(value) && typeof value.body === "string" && value.body !== item.content)
-              contents.set(item.id, value.body);
+            const rewritten = rewrittenPrompt(item, pre.value);
+            if (rewritten === undefined) refusal = new SessionPolicyRefusal("invalid_output");
+            else if (canonicalDigest(rewritten.content) !== canonicalDigest(item.content))
+              contents.set(item.id, rewritten.content);
             return recorded;
           }));
         if (refusal !== undefined) continue;

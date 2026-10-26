@@ -27,7 +27,7 @@ function deliveryRow(input: {
     id: `I${input.ordinal}`,
     sessionId: "S",
     kind: input.kind,
-    content: input.kind,
+    content: [{ kind: "text", text: input.kind }],
     ordinal: input.ordinal,
     createdAt: input.ordinal,
     status: "pending",

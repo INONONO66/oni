@@ -109,7 +109,7 @@ test("off-capability rows stay opaque with stored bytes intact and deliver refus
     id: "in-action",
     sessionId,
     kind: "action",
-    content: "{}",
+    content: [{ kind: "text", text: "{}" }],
     origin: { encodingVersion: 1, value: { channel: "test" } },
     status: "pending",
     consumedBy: null,

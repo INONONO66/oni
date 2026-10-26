@@ -180,7 +180,7 @@ test("ctx.arm fills the budget to maxArmed, then ArmRefused{alarm_budget}; re-ar
   expect(JSON.parse(outcome.fired.payload)).toEqual(BOOT_PAYLOAD);
   expect(after.prompt?.kind).toBe("prompt");
   expect(after.prompt?.ordinal).toBe(outcome.prompt.seq);
-  expect(after.prompt?.effect.value).toMatchObject({ content: "WAKE tick" });
+  expect(after.prompt?.effect.value).toMatchObject({ content: [{ kind: "text", text: "WAKE tick" }] });
   expect(after.prompt?.intent.value).toMatchObject({
     kind: "alarm",
     alarmId: "boot",
@@ -516,7 +516,7 @@ test("r2 M2 (H5): a settled watch wakes exactly once — the exhausted hit retir
   // chain is loop-reserved bookkeeping, not a monitor arm).
   expect(after.armed.filter((row) => row.sourceKey === "monitor")).toEqual([]);
   expect(after.hitPrompt?.kind).toBe("prompt");
-  expect(after.hitPrompt?.effect.value).toMatchObject({ content: "DONE" });
+  expect(after.hitPrompt?.effect.value).toMatchObject({ content: [{ kind: "text", text: "DONE" }] });
   expect(after.timeoutPrompt).toBeUndefined();
   expect(after.timeoutStale?.kind).toBe("alarm");
 });

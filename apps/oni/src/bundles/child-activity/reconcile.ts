@@ -1,4 +1,4 @@
-import { ChildLifecycleEvidence, TranscriptRef, canonicalDigest, canonicalJson, parseJson, type LedgerAction } from "@oni/protocol";
+import { ChildLifecycleEvidence, Delivery, TranscriptRef, canonicalDigest, canonicalJson, parseJson, type LedgerAction } from "@oni/protocol";
 import { z } from "zod";
 import type { SpoolReplay } from "./spool";
 import type { SourceDiagnostic, SourceObservation } from "./transcript";
@@ -31,14 +31,14 @@ export type ChildRow = z.infer<typeof ChildRow>;
 const ReceivedChildAction = z.object({
   kind: z.literal("action"),
   intent: z.object({ value: z.object({ kind: z.literal("child_activity") }) }),
-  effect: z.object({ value: z.object({ content: z.string() }) }),
+  effect: z.object({ value: z.object({ content: Delivery.Content }) }),
 });
 
 export function receivedChildRows(actions: readonly Pick<LedgerAction.Node, "kind" | "intent" | "effect">[]): ChildRow[] {
   return actions.flatMap((action) => {
     const received = ReceivedChildAction.safeParse(action);
     if (!received.success) return [];
-    const row = parseJson(ChildRow, received.data.effect.value.content);
+    const row = parseJson(ChildRow, Delivery.text(received.data.effect.value.content));
     return row === undefined ? [] : [row];
   });
 }

@@ -745,7 +745,7 @@ export const sendDeliver = (
   input: {
     readonly kind: string;
     readonly idempotencyKey: string;
-    readonly content: string;
+    readonly content: string | import("@oni/protocol").Delivery.Content;
     readonly control?: "interrupt" | "resume";
     readonly delivery?: "steer" | "followUp";
     /** The journal cursor a deferred action's payload was computed against. */
@@ -760,7 +760,11 @@ export const sendDeliver = (
     return yield* makeClient(sessionId).Deliver({
       kind: input.kind,
       body: JSON.stringify({
-        content: input.content,
+        content: typeof input.content === "string"
+          ? input.kind === "signal" && input.content.length === 0
+            ? []
+            : [{ kind: "text", text: input.content }]
+          : input.content,
         ...(input.control === undefined ? {} : { control: input.control }),
         ...(input.delivery === undefined ? {} : { delivery: input.delivery }),
         ...(input.after === undefined ? {} : { after: input.after }),

@@ -20,7 +20,7 @@ function row(id: string, kind: Delivery.Kind, after?: number): Delivery.Row {
     id,
     sessionId: "s",
     kind,
-    content: "{}",
+    content: [{ kind: "text", text: "{}" }],
     origin: { encodingVersion: 1, value: { kind: "hook.late" } },
     ...(after === undefined ? {} : { after }),
     status: "pending",
@@ -99,8 +99,8 @@ function append(id: string, kind: LedgerAction.Kind, intent: PlainValue, effect:
 }
 
 test("the chain fold: after rides the pending row, compactionHead is the executed compaction, turn.consumedStale closes", () => {
-  append("p1", "prompt", { kind: "message" }, { deliveryKind: "prompt", content: "hi" });
-  append("a1", "action", { kind: "hook.late", after: 1 }, { deliveryKind: "action", content: "{}" });
+  append("p1", "prompt", { kind: "message" }, { deliveryKind: "prompt", content: [{ kind: "text", text: "hi" }] });
+  append("a1", "action", { kind: "hook.late", after: 1 }, { deliveryKind: "action", content: [{ kind: "text", text: "{}" }] });
   // No executed compaction yet: head is 0, nothing can be stale.
   expect(kernel.compactionHead("stale")).toBe(0);
   const compaction = append(
@@ -110,7 +110,7 @@ test("the chain fold: after rides the pending row, compactionHead is the execute
     { phase: "result", terminal: "executed", result: { projection: [] } },
   );
   expect(kernel.compactionHead("stale")).toBe(compaction.ordinal);
-  append("a2", "action", { kind: "hook.late", after: compaction.ordinal }, { deliveryKind: "action", content: "{}" });
+  append("a2", "action", { kind: "hook.late", after: compaction.ordinal }, { deliveryKind: "action", content: [{ kind: "text", text: "{}" }] });
 
   const pending = kernel.pendingMessages("stale");
   expect(pending.map((item) => [item.id, item.after ?? null])).toEqual([
@@ -449,7 +449,7 @@ test("H-3(a): a stale late-hook action through the REAL entity deliver door clos
       const receipt = yield* sendDeliver(sessionId, {
         kind: "action",
         idempotencyKey: "stale-action",
-        content: "{}",
+        content: [{ kind: "text", text: "{}" }],
         delivery: "steer",
         after: 1,
         // The cursor rides the BODY only (#1256 r5 H-3): the committed row's
