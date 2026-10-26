@@ -1,6 +1,6 @@
 # Implementation Status
 
-## #1671 durable delivery content and attachment transcript (PR pending)
+## #1671 durable delivery content and attachment transcript (PR #1672)
 
 On `core/modality-content-contract` (2026-10-26, base `10225726e`).
 `Delivery.Content` is a readonly ordered array of text and media parts in
@@ -29,6 +29,19 @@ passes replayed file parts through the same model service and byte binding
 `apps/oni/test/compaction-summarizer.test.ts`); the candidate fingerprint
 includes file identity and metadata
 (`packages/agent/src/plugins/compaction/candidate.ts`).
+
+Review fixes on the same branch: `packages/llm/src/message/index.ts` renders
+a user message's parts in sequence (text stays on its side of each file),
+and a derivation that returns no parts and no text keeps the original
+`Delivery.text` placeholder (`packages/llm/test/run-media.test.ts`). A
+`prompt.pre` rewrite is accepted only when the rewritten row parses as a
+`Delivery.Row`; a string or empty body is refused typed as `invalid_output`
+and the original prompt is never delivered in its place
+(`packages/agent/src/core/session/admission.ts`,
+`packages/agent/test/session/admission-rewrite.test.ts`). The outbound
+binding in `apps/oni/src/composition/message-session.ts` accepts only a
+letter that is exactly one text part equal to the outbound text;
+`Delivery.Commit.after`/`delivery` forwarding is tracked in #1673.
 
 The outbound WebSocket `message` frame includes `parts` when media is present
 (`apps/oni/src/index.ts`, `packages/channels/src/websocket.ts`); the desktop
