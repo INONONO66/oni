@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { Fiber } from "effect";
 import { exit, fork } from "./helpers/effect";
 import { Machine } from "@oni/protocol";
@@ -7,6 +7,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wireDaemon, wireHost } from "./helpers";
+import { mclientBinary } from "./helpers/mclient";
 import { offer } from "./helpers";
 import { createFsDriver } from "./helpers/native";
 import { connectIpcClient } from "./ipc/helpers/native";
@@ -19,7 +20,7 @@ async function fixture(run: (
 ) => Promise<void>) {
   const root = mkdtempSync(join(tmpdir(), "oni-stream-write-"));
   const host = await wireHost(socketPath());
-  const daemon = await wireDaemon(host.endpoints.unix ?? "", root);
+  const daemon = await wireDaemon(host, root);
   try {
     await run(root, host.get("m-1").fs.writeStream, host, daemon);
   } finally {
@@ -28,6 +29,7 @@ async function fixture(run: (
     rmSync(root, { recursive: true, force: true });
   }
 }
+beforeAll(mclientBinary, 300_000);
 
 async function* bytes(parts: readonly Uint8Array[]): AsyncGenerator<Uint8Array, void, void> {
   for (const part of parts) yield part;

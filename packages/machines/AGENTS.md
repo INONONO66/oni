@@ -66,7 +66,7 @@ src/
 
 ## TESTS
 
-`test/` (host/daemon/fs/exec lifecycle, `reattach.test.ts` fake-scheduler reconnect proofs, `host-listen.test.ts` listener-set/pinning, `host-admission.test.ts` / `daemon-admission.test.ts` / `generation-store.test.ts` for the #1624 admission order, generation CAS and fencing; `pty.test.ts` runs real tmux on a private `-L` socket plus a scripted control client for malformed-record faults), `test/ipc/` (framing split-multibyte and oversized frames, frame-schema, failure classes, backpressure, resilience, bidirectional, peer-request-table, callbacks, client/server edges, disconnect, socket-path, native client, typed facade + `typed-facade-fixtures/compile-red.ts`). `packages/codemode/test/` shares this harness (`test/helpers/native.ts`, `test/ipc/helpers/effects.ts`) by relative import. Effect execution goes only through the package runner owners (`test/helpers/effect.ts`, `test/ipc/helpers/effects.ts` — `script/check-effect-boundaries.ts` `RUNNER_OWNERS`).
+`test/` attaches the real Rust `mclient` through `test/helpers/mclient.ts` for host, fs, exec, PTY, report and lifecycle behavior. Tests prepare the binary with `beforeAll(mclientBinary, 300_000)`, wire `eventCollector().sink` into the host, and observe attachment through host events; malformed peers use a raw IPC client. Client-owned scheduling and driver behavior is tested under `clients/machine-client/tests/`. `test/ipc/` covers transport framing and bidirectional edges. `packages/codemode/test/` shares the Effect runner harness. Effect execution goes only through the package runner owners (`test/helpers/effect.ts`, `test/ipc/helpers/effects.ts` — `script/check-effect-boundaries.ts` `RUNNER_OWNERS`).
 
 ## ANTI-PATTERNS
 

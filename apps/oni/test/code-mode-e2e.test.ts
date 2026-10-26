@@ -1,10 +1,9 @@
 import { acquireEffect, runEffect, acquireSyncEffect } from "./helpers/scoped-effect";
 import { Effect } from "effect";
-import { beforeEach, expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { interpreterWitness } from "./helpers/interpreter-witness";
 import { Core } from "@oni/agent";
 const currentInvocation = Core.currentInvocation;
 type InvocationFrame = Core.InvocationFrame;
@@ -17,14 +16,12 @@ import {
   attachMachineDaemon as attachDaemon,
   createMachineHost as createHost,
   createMemoryGenerationStore,
-  type MachineDaemon,
 } from "@oni/machines";
 import type { Machine, PlainObject } from "@oni/protocol";
 import type { CatalogOrigin } from "../src/composition/catalog";
 import type { ToolPorts } from "../src/composition/catalog";
 import { cellPorts } from "./helpers/cell-ports";
 import { composeCodemode } from "../src/composition/codemode";
-import { createCodemode } from "@oni/codemode";
 import { dispatchModelTool, modelToolOutput } from "./helpers/tool-dispatch";
 import { requestToolStep, assistantMessage } from "./helpers/assistant-message";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
@@ -32,24 +29,14 @@ import { socketPath as testSocketPath } from "./helpers/socket-path";
 import { testKernelSelfMachine, testSelfMachine } from "./helpers/self-machine";
 import { nextResidentTurn } from "./helpers/resident-turn";
 
-import { cellDaemonOptions } from "./helpers/cell-daemon";
 import { testIds } from "./helpers/test-entropy";
+import { attachAppMclient, mclientBinary } from "./helpers/mclient";
 
 const WS_TOKEN = "code-mode-e2e-token";
 const MACHINE_ID = "alpha";
 
-let witness: ReturnType<typeof interpreterWitness>;
-beforeEach(() => {
-  witness = interpreterWitness();
-});
-
-const suite = residentSuite(async () => {
-  try {
-    await witness.wait();
-  } finally {
-    witness.restore();
-  }
-});
+const suite = residentSuite();
+beforeAll(mclientBinary, 300_000);
 
 // Registration occurs before returning to any fallible test or harness work.
 async function createMachineHost(options: Omit<Parameters<typeof createHost>[0], "id">) {
@@ -69,12 +56,20 @@ async function createMachineHost(options: Omit<Parameters<typeof createHost>[0],
   return host;
 }
 
-async function attachMachineDaemon(
-  options: Omit<Extract<Parameters<typeof attachDaemon>[0], { socketPath: string }>, "id">,
-): Promise<MachineDaemon> {
-  const daemon = await acquireEffect(attachDaemon({ id: testIds("e2e-daemon"), ...options, runner: acquireSyncEffect(createCodemode({ id: testIds("e2e-cell") })).runner }));
-  suite.defer(() => runEffect(daemon.close()));
-  return daemon;
+async function attachClient(options: {
+  readonly socketPath: string;
+  readonly machineId?: string;
+  readonly root?: string;
+  readonly exports?: readonly { readonly name: string; readonly path: string }[];
+}) {
+  const client = await attachAppMclient({
+    socketPath: options.socketPath,
+    machineId: options.machineId ?? MACHINE_ID,
+    root: options.root ?? suite.tempDir("e2e-client-"),
+    exports: options.exports ?? [],
+  });
+  suite.defer(() => client.stop());
+  return { ...client, attachment: { status: "attached" as const }, close: () => Effect.promise(client.stop) };
 }
 
 const enrollment: Machine.Enrollment = {
@@ -145,19 +140,7 @@ test("app root runs machine read write shell and code through one eval cell", as
     },
   });
   const plane = await planeOf(app.runtime);
-  const daemon = await attachMachineDaemon({
-    dispatcherBound: 8,
-    socketPath,
-    fsExports: new Map([["data", root]]),
-    offer: {
-      machineId: MACHINE_ID,
-      offeredCapabilities: appEnrollment.allowedCapabilities,
-      exports: [{ name: "data", path: root }],
-      daemonVersion: "test",
-      platform: `${process.platform}-${process.arch}`,
-      offeredAt: 1,
-    },
-  });
+  const daemon = await attachClient({ socketPath, root, exports: [{ name: "data", path: root }] });
   suite.defer(() => runEffect(daemon.close()));
   const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", WS_TOKEN]);
   const reply = nextResidentTurn(plane, 15_000);
@@ -230,7 +213,8 @@ test("a cell drives a named persistent terminal through m.pty (#1273)", async ()
     },
   });
   const plane = await planeOf(app.runtime);
-  const daemon = await attachMachineDaemon({
+  const daemon = await acquireEffect(attachDaemon({
+    id: testIds("pty-e2e-daemon"),
     dispatcherBound: 8,
     socketPath,
     fsExports: new Map([["shell", "/"]]),
@@ -243,7 +227,7 @@ test("a cell drives a named persistent terminal through m.pty (#1273)", async ()
       platform: `${process.platform}-${process.arch}`,
       offeredAt: 1,
     },
-  });
+  }));
   suite.defer(() => runEffect(daemon.close()));
   suite.defer(() => {
     Bun.spawnSync(["tmux", "-L", tmuxSocket, "kill-server"]);
@@ -314,7 +298,7 @@ test("a cell creates three child sessions through send_message", async () => {
   });
 
   planeRef.current = await planeOf(app.runtime);
-  const daemon = await attachMachineDaemon(cellDaemonOptions(socketPath, MACHINE_ID));
+  const daemon = await attachClient({ socketPath });
   expect(daemon.attachment.status).toBe("attached");
 
   const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, [
@@ -337,17 +321,17 @@ test("a cell creates three child sessions through send_message", async () => {
   // One Resident turn, not three: that is what code mode bought.
   expect(residentTurns.length).toBeGreaterThanOrEqual(2);
   expect(new Set(residentTurns).size).toBe(1);
-  expect(witness.pids).toHaveLength(1);
+  expect(daemon.pid).toBeGreaterThan(0);
   const catalogPath = config.catalogPath;
   if (catalogPath === undefined) throw new Error("suite config is missing catalogPath");
   await suite.cleanup();
-  expect(witness.completed).toBe(true);
+  expect(await daemon.exited).toBeGreaterThanOrEqual(0);
   expect(existsSync(socketPath)).toBe(false);
   expect(existsSync(dirname(catalogPath))).toBe(false);
   console.log(
     "967-U1 code-mode cleanup",
     JSON.stringify({
-      pids: witness.pids,
+      pid: daemon.pid,
       socketPath,
       socketExists: existsSync(socketPath),
       catalogPath,
@@ -401,7 +385,7 @@ test("a cell's refused send_message surfaces as ToolError inside the cell, not a
     },
   });
   planeRef.current = await planeOf(app.runtime);
-  const daemon = await attachMachineDaemon(cellDaemonOptions(socketPath, MACHINE_ID));
+  const daemon = await attachClient({ socketPath });
   expect(daemon.attachment.status).toBe("attached");
 
   const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, [
@@ -518,17 +502,7 @@ test("a cell cannot present another cell's id when calling back", async () => {
     announceServed();
     return { status: "completed" as const, value: call.cellId };
   }));
-  await attachMachineDaemon({
-    dispatcherBound: 8,
-    socketPath,
-    offer: {
-      machineId: MACHINE_ID,
-      offeredCapabilities: ["kernel.py"],
-      daemonVersion: "test",
-      platform: "test",
-      offeredAt: 0,
-    },
-  });
+  await attachClient({ socketPath });
 
   const slow = runEffect(host.get(MACHINE_ID).runCode({
     cellId: "AAA",
@@ -551,38 +525,6 @@ test("a cell cannot present another cell's id when calling back", async () => {
   expect(forging.status).toBe("completed");
 }, 40_000);
 
-test("967-U1 error cleanup owns the host and awaits every interpreter", async () => {
-  const { socketPath, runWith } = await startCellHarness({ llm: async () => "ok" });
-  const directory = suite.tempDir("oni-code-mode-failure-");
-  const failure = new Error("U1_INJECTED_CELL_FAILURE");
-  try {
-    await runWith({ role: "resident", sessionId: "failure-a" }, "1 + 1");
-    await runWith({ role: "resident", sessionId: "failure-b" }, "2 + 2");
-    expect(witness.pids).toHaveLength(2);
-    try {
-      expect(() => {
-        throw failure;
-      }).toThrow(failure);
-    } finally {
-      await suite.cleanup();
-    }
-    expect(existsSync(socketPath)).toBe(false);
-    expect(witness.completed).toBe(true);
-    expect(existsSync(directory)).toBe(false);
-    console.log(
-      "967-U1 code-mode failure cleanup",
-      JSON.stringify({
-        pids: witness.pids,
-        socketPath,
-        socketExists: existsSync(socketPath),
-        directory,
-        directoryExists: existsSync(directory),
-      }),
-    );
-  } finally {
-    await suite.cleanup();
-  }
-}, 30_000);
 
 const CELL_ORIGIN: CatalogOrigin = { role: "resident", sessionId: "cell-e2e" };
 
@@ -594,7 +536,7 @@ const CELL_ORIGIN: CatalogOrigin = { role: "resident", sessionId: "cell-e2e" };
 async function startCellHarness(ports: Partial<ToolPorts>) {
   let cells: Effect.Success<ReturnType<typeof composeCodemode>>;
   const { socketPath, host } = await e2eHost((call) => cells.callTool(call));
-  const daemon = await attachMachineDaemon(cellDaemonOptions(socketPath, MACHINE_ID));
+  const daemon = await attachClient({ socketPath });
   expect(daemon.attachment.status).toBe("attached");
   cells = acquireSyncEffect(composeCodemode(host, { id: testIds("e2e-compose"), selfMachineId: MACHINE_ID }));
   suite.defer(() => runEffect(cells.close()));
@@ -922,22 +864,13 @@ test("a machine offering more than it is enrolled for keeps only the intersectio
     generations: createMemoryGenerationStore(),
     dispatcherBound: 8,
     listen: { unix: socketPath },
-    enrollment: () => ({ ...enrollment, allowedCapabilities: ["fs.read"] }),
+    enrollment: () => ({ ...enrollment, allowedCapabilities: ["fs.read"], allowedExports: ["workspace"] }),
     events: Bus,
     now: () => Date.now(),
     callTool: () => Effect.succeed({ status: "failed" as const, error: "no tools" }),
   });
-  await attachMachineDaemon({
-    dispatcherBound: 8,
-    socketPath,
-    offer: {
-      machineId: MACHINE_ID,
-      offeredCapabilities: ["fs.read", "kernel.py"],
-      daemonVersion: "test",
-      platform: "test",
-      offeredAt: 0,
-    },
-  });
+  const root = suite.tempDir("intersection-client-");
+  await attachClient({ socketPath, root, exports: [{ name: "workspace", path: root }] });
 
   // Without kernel.py in the effective set, eval stays unofferable.
   expect(host.list().find((entry) => entry.machineId === MACHINE_ID)?.capabilities).toEqual([

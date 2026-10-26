@@ -112,6 +112,12 @@ test("selects every lane when the shared protocol changes", () => {
   expect(keys(["packages/protocol/src/index.ts"])).toEqual(allKeys);
 });
 
+test("client implementation changes select each TypeScript machine consumer", () => {
+  expect(keys(["clients/machine-client/src/main.rs"])).toEqual([
+    "machines", "codemode", "oniApp",
+  ]);
+});
+
 test.each([
   "package.json",
   "bun.lock",

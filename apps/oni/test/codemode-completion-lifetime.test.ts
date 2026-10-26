@@ -4,17 +4,17 @@ import { executorLayer, catalogLayer } from "../../../packages/agent/test/helper
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
 import { Effect, Layer } from "effect";
 import { acquireEffect, runEffect, acquireSyncEffect } from "./helpers/scoped-effect";
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { Bundle, Core } from "@oni/agent";
 const createTurnDispatcher = Bundle.createTurnDispatcher;
 const currentInvocation = Core.currentInvocation;
-import { createCodemode } from "@oni/codemode";
-import { attachMachineDaemon, createMachineHost, createMemoryGenerationStore, type MachinesFailure } from "@oni/machines";
+import { createMachineHost, createMemoryGenerationStore, type MachinesFailure } from "@oni/machines";
 import { LedgerAction, type Machine, type PlainObject } from "@oni/protocol";
 import { z } from "zod";
 import { cellPorts } from "./helpers/cell-ports";
 import { composeCodemode } from "../src/composition/codemode";
-import { cellDaemonOptions } from "./helpers/cell-daemon";
+import { attachAppMclient, mclientBinary } from "./helpers/mclient";
+import { Bus } from "./helpers/bus";
 import { seededPolicy } from "./helpers/executor";
 import { bounded } from "./helpers/protected-dispatch";
 import { residentSuite } from "./helpers/resident-suite";
@@ -22,6 +22,7 @@ import { socketPath } from "./helpers/socket-path";
 import { testIds } from "./helpers/test-entropy";
 
 const suite = residentSuite();
+beforeAll(mclientBinary, 300_000);
 const ActionPhase = z.object({ op: z.string(), phase: z.string() });
 
 for (const stop of [false, true]) {
@@ -58,7 +59,7 @@ for (const stop of [false, true]) {
         publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         enrolledAt: 0,
       }),
-      events: { publish: () => undefined },
+      events: Bus,
       now: () => 1,
       // callTool already surfaces a MachinesFailure({ operation: "code.tool" }).
       callTool: (call: Machine.ToolCall) => cells.callTool(call).pipe(
@@ -67,12 +68,8 @@ for (const stop of [false, true]) {
       ),
     }));
     suite.defer(async () => { await runEffect(host.close()); });
-    const daemon = await acquireEffect(attachMachineDaemon({
-      ...cellDaemonOptions(path, "completion-test"),
-      runner: acquireSyncEffect(createCodemode({ id: testIds("lifetime-cell") })).runner,
-    }));
-    suite.defer(async () => { await runEffect(daemon.close()); });
-    expect(daemon.attachment.status).toBe("attached");
+    const client = await attachAppMclient({ socketPath: path, machineId: "completion-test", root: suite.tempDir("completion-client-"), exports: [] });
+    suite.defer(() => client.stop());
     cells = acquireSyncEffect(composeCodemode(host, { id: testIds("lifetime-compose"), selfMachineId: "completion-test" }));
     suite.defer(async () => { await runEffect(cells.close()); });
     let calls = 0;

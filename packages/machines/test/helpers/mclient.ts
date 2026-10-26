@@ -1,5 +1,5 @@
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Machine } from "@oni/protocol";
 import type { MachineInfo } from "../../src";
@@ -13,7 +13,7 @@ const ATTACH_DEADLINE_MS = 10_000;
 type Reports = Pick<ReturnType<typeof eventCollector>, "next">;
 
 /** Every capability `handlers::SUPPORTED` can offer; the host enrollment bounds it. */
-export const MCLIENT_CAPABILITIES: readonly Machine.CapabilityId[] = [
+const MCLIENT_CAPABILITIES: readonly Machine.CapabilityId[] = [
   "fs.read", "fs.write", "shell.exec", "pty.session", "agent.session",
   "screen.read", "computer.use", "input.write", "kernel.py",
 ];
@@ -50,7 +50,7 @@ export interface MclientSettings {
   readonly memoryBudgetMb: number;
 }
 
-export function writeMclientSettings(path: string, settings: MclientSettings): void {
+function writeMclientSettings(path: string, settings: MclientSettings): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(path, JSON.stringify(settings), { mode: 0o600 });
   chmodSync(path, 0o600);
@@ -118,7 +118,8 @@ export async function attachMclient(options: {
   const binary = await mclientBinary();
   const unix = options.host.endpoints.unix;
   if (unix === undefined) throw new Error("attachMclient needs a unix-listening host");
-  const configPath = join(options.root, options.machineId, "client.json");
+  const configRoot = mkdtempSync(join(tmpdir(), "oni-mclient-test-"));
+  const configPath = join(configRoot, "client.json");
   writeMclientSettings(configPath, {
     machineId: options.machineId, name: options.machineId, host: "localhost", unix,
     exports: options.exports ?? [{ name: "workspace", path: options.root }],
@@ -132,14 +133,22 @@ export async function attachMclient(options: {
   const info = await Promise.race([
     pending.promise,
     exited.then((code) => { throw new Error(`mclient exited before attachment: ${code}`); }),
-  ]);
+  ]).catch((error: unknown) => {
+    signalGroup(child.pid, "SIGKILL");
+    rmSync(configRoot, { recursive: true, force: true });
+    throw error;
+  });
   return {
     pid: child.pid, info, exited,
     async stop() {
-      if (child.exitCode !== null || child.signalCode !== null) { await exited; return; }
-      signalGroup(child.pid, "SIGTERM");
-      const deadline = setTimeout(() => signalGroup(child.pid, "SIGKILL"), 1000);
-      try { await exited; } finally { clearTimeout(deadline); }
+      try {
+        if (child.exitCode !== null || child.signalCode !== null) { await exited; return; }
+        signalGroup(child.pid, "SIGTERM");
+        const deadline = setTimeout(() => signalGroup(child.pid, "SIGKILL"), 1000);
+        try { await exited; } finally { clearTimeout(deadline); }
+      } finally {
+        rmSync(configRoot, { recursive: true, force: true });
+      }
     },
   };
 }

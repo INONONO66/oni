@@ -6,12 +6,12 @@ import { SpawnFailure } from "../../src/errors";
 export const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 /** A syntactically valid-enough PNG: real magic bytes plus filler payload. */
-export function png(size: number): Buffer {
+function png(size: number): Buffer {
   return Buffer.concat([PNG_MAGIC, Buffer.alloc(Math.max(0, size - PNG_MAGIC.length), 1)]);
 }
 
 /** `sips -g` stdout for a display measured at the given pixel size and dpi. */
-export function sipsBounds(pixelWidth: number, pixelHeight: number, dpiWidth: number): string {
+function sipsBounds(pixelWidth: number, pixelHeight: number, dpiWidth: number): string {
   return `/tmp/x.png\n  pixelWidth: ${pixelWidth}\n  pixelHeight: ${pixelHeight}\n  dpiWidth: ${dpiWidth.toFixed(3)}\n`;
 }
 

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,9 @@ import { machineWire } from "../src/composition/machine-wire";
 import { provisionPort } from "./helpers/provision-port";
 import { testPlane } from "./helpers/ledger";
 import { bounded, protectedDispatch } from "./helpers/protected-dispatch";
-import { attachMachineDaemon, createMachineHost, type CodeRunner } from "../../../packages/machines/test/helpers/native";
+import { createMachineHost } from "../../../packages/machines/test/helpers/native";
+import { attachMclient, mclientBinary } from "../../../packages/machines/test/helpers/mclient";
+import { connectIpcTcpClient } from "../../../packages/machines/test/ipc/helpers/native";
 import { eventCollector } from "../../../packages/machines/test/helpers/events";
 import { captureError } from "../../../packages/machines/test/ipc/helpers/signal";
 import { daemonIdentity, daemonFingerprint, hostIdentity, wrongIdentity, wrongFingerprint } from "../../../packages/machines/test/ipc/helpers/tls-fixtures";
@@ -23,6 +25,7 @@ const add = { op: "machine_add", args } as const;
 const context: ToolExecutionContext = {
   sessionId: "resident", turnId: "turn", callId: "call", signal: new AbortController().signal,
 };
+beforeAll(mclientBinary, 300_000);
 
 test("provision enrolls and attaches a daemon without restarting, then removes its live authority", async () => {
   const directory = mkdtempSync(join(tmpdir(), "machine-provision-"));
@@ -48,21 +51,17 @@ test("provision enrolls and attaches a daemon without restarting, then removes i
     const enrolled = events.next("machine.enrolled");
     expect((await dispatch.answer()).structuredContent).toMatchObject({ op: "machine_add", result: { enrollment: { machineId: args.machineId } } });
     expect((await bounded(enrolled)).payload).toMatchObject({ machineId: "worker-1", enrollment: { publicKey: args.publicKey } });
-    const attached = events.next("machine.attached");
-    const daemon = await attachMachineDaemon({
-      socketPath,
-      offer: { machineId: args.machineId, offeredCapabilities: ["kernel.py"], daemonVersion: "test", platform: "darwin-arm64", offeredAt: 2, resources: { cpus: 4, memoryBytes: 8192 } },
-    });
+    const daemon = await attachMclient({ host, events, machineId: args.machineId, root: directory, exports: [] });
     try {
-      await bounded(attached);
       const result = await tool.execute({ operation: { op: "machine_list", args: {} } }, context);
       expect(result).toEqual({ op: "machine_list", result: { rows: host.list() } });
       expect(result).toMatchObject({ op: "machine_list", result: { rows: [{
         machineId: "worker-1",
         generation: 1,
-        peer: { kind: "daemon", contractVersion: Machine.contractVersion },
+        peer: { kind: "client", contractVersion: Machine.contractVersion },
       }] } });
-      expect(host.list()).toMatchObject([{ name: "Worker", tags: ["pool"], resources: { cpus: 4 } }]);
+      expect(host.list()).toMatchObject([{ name: "Worker", tags: ["pool"] }]);
+      expect(host.list()[0]?.resources?.cpus).toBeGreaterThan(0);
       expect(machineWire(JSON.stringify({ type: "machine_list", requestId: "rows" }), host.native))
         .toEqual({ type: "machine_listed", requestId: "rows", rows: host.list() });
       const detached = events.next("machine.detached");
@@ -72,7 +71,7 @@ test("provision enrolls and attaches a daemon without restarting, then removes i
       expect((await bounded(unenrolled)).payload).toEqual({ machineId: args.machineId, time: 5 });
       expect(host.list()).toEqual([]);
       await expect(host.get(args.machineId).peekCode("missing")).rejects.toMatchObject({ reason: "disconnected" });
-    } finally { await daemon.close(); }
+    } finally { await daemon.stop(); }
   } finally {
     await dispatch.close();
     await host.close();
@@ -119,30 +118,30 @@ test("replacing an active TLS enrollment revokes its old peer and admits only th
   const original = { ...args, publicKey: daemonFingerprint, allowedCapabilities: ["kernel.py", "fs.read"] };
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  const daemons: Awaited<ReturnType<typeof attachMachineDaemon>>[] = [];
-  const attach = async (machineId: string, identity: typeof daemonIdentity, runner?: CodeRunner) => {
-    const daemon = await attachMachineDaemon({
+  const peers: Awaited<ReturnType<typeof connectIpcTcpClient>>[] = [];
+  const attach = async (machineId: string, identity: typeof daemonIdentity, hold = false) => {
+    const peer = await connectIpcTcpClient({
       tcp: { host: "127.0.0.1", port: host.endpoints.tcp?.port ?? 0 },
-      hostCertificate: hostIdentity.certificate,
-      tlsCertificate: identity.certificate, tlsPrivateKey: identity.privateKey,
-      offer: { machineId, offeredCapabilities: original.allowedCapabilities, daemonVersion: "test", platform: "darwin-arm64", offeredAt: 2 },
-      ...(runner === undefined ? {} : { runner }),
+      hostCertificate: hostIdentity.certificate, tls: identity,
+    }, { onRequest: async (method, params, respond) => {
+      if (method !== Machine.WireMethod.RunCode || !hold) throw new Error(`unexpected peer request: ${method}`);
+      const request = Machine.CellRequest.parse(params);
+      entered.resolve();
+      await release.promise;
+      respond({ status: "completed", cellId: request.cellId, output: { stdout: "", stderr: "" } });
+    } });
+    peers.push(peer);
+    const attachment = await peer.call(Machine.WireMethod.Attach, {
+      machineId, offeredCapabilities: original.allowedCapabilities, daemonVersion: "test",
+      platform: "darwin-arm64", offeredAt: 2,
+      peer: { kind: "client", contractVersion: Machine.contractVersion },
     });
-    daemons.push(daemon);
-    return daemon;
+    return attachment;
   };
   try {
     executeMachine(machines, { op: "machine_add", args: original }, "owner");
     executeMachine(machines, { op: "machine_add", args: { ...original, machineId: "other" } }, "owner");
-    await attach(args.machineId, daemonIdentity, {
-      runCode: async (request) => {
-        entered.resolve();
-        await release.promise;
-        return { status: "completed", cellId: request.cellId, output: { stdout: "", stderr: "" } };
-      },
-      peekCode: () => ({ stdout: "", stderr: "" }),
-      close: async () => undefined,
-    });
+    await attach(args.machineId, daemonIdentity, true);
     await attach("other", daemonIdentity);
     let settlements = 0;
     const pending = captureError(host.get(args.machineId).runCode({ cellId: "held", code: "x", timeoutMs: 60_000 }))
@@ -155,8 +154,8 @@ test("replacing an active TLS enrollment revokes its old peer and admits only th
     expect((await bounded(detached)).payload).toEqual({ machineId: args.machineId, time: 5, reason: "enrollment_replaced" });
     expect(await bounded(pending)).toMatchObject({ _tag: "MachineRefusalError", reason: "disconnected" });
     expect(host.list().map((row) => row.machineId)).toEqual(["other"]);
-    expect((await attach(args.machineId, daemonIdentity)).attachment).toEqual({ status: "refused", reason: "peer_key_mismatch" });
-    expect((await attach(args.machineId, wrongIdentity)).attachment).toMatchObject({ status: "attached", effectiveCapabilities: ["fs.read"] });
+    expect(await attach(args.machineId, daemonIdentity)).toEqual({ status: "refused", reason: "peer_key_mismatch" });
+    expect(await attach(args.machineId, wrongIdentity)).toMatchObject({ status: "attached", effectiveCapabilities: ["fs.read"] });
     expect(host.list().find((row) => row.machineId === args.machineId)).toMatchObject({
       publicKey: wrongFingerprint, allowedCapabilities: ["fs.read"], capabilities: ["fs.read"],
     });
@@ -164,7 +163,7 @@ test("replacing an active TLS enrollment revokes its old peer and admits only th
     expect(settlements).toBe(1);
   } finally {
     release.resolve();
-    for (const daemon of daemons) await daemon.close();
+    for (const peer of peers) await peer.close();
     await host.close();
     plane.close();
   }

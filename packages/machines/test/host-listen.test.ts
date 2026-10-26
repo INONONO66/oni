@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import fs, { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import type { Machine } from "@oni/protocol";
+import { Machine } from "@oni/protocol";
 import { attachMachineDaemon as nativeDaemon } from "../src/daemon";
 import { createMachineHost as nativeHost } from "../src/host";
 import { createMemoryGenerationStore } from "../src/generation-store";
@@ -11,6 +11,8 @@ import { PTY_OPEN_SIZE } from "../src/pty";
 import { createMachineHost, refusingToolPort } from "./helpers/native";
 import { acquire } from "./ipc/helpers/effects";
 import { connectIpcTcpClient } from "./ipc/helpers/native";
+import { attachMclient, mclientBinary } from "./helpers/mclient";
+import { eventCollector } from "./helpers/events";
 import { exit as runExit } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
 import { daemonIdentity, daemonFingerprint, hostIdentity, wrongIdentity } from "./ipc/helpers/tls-fixtures";
@@ -45,6 +47,7 @@ function offer(machineId: string, root: string): Omit<Machine.Offer, "peer" | "g
 }
 const unixPin: Machine.KeyFingerprint =
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+beforeAll(mclientBinary, 300_000);
 
 describe("host listener set (#1270)", () => {
   test("unix and tcp serve ONE attachment registry; unix keeps 0600", async () => {
@@ -55,11 +58,12 @@ describe("host listener set (#1270)", () => {
       ["via-unix", enrollment("via-unix", unixPin)],
       ["via-tcp", enrollment("via-tcp", daemonFingerprint)],
     ]);
+    const events = eventCollector();
     const host = await createMachineHost({
       listen: { unix, tcp: { host: "127.0.0.1", port: 0 } },
       tls: hostIdentity,
       enrollment: (id) => enrollments.get(id),
-      events: silent,
+      events: events.sink,
       now: () => 3,
     });
     try {
@@ -67,30 +71,19 @@ describe("host listener set (#1270)", () => {
       const port = host.endpoints.tcp?.port ?? 0;
       expect(port).toBeGreaterThan(0);
       expect(statSync(unix).mode & 0o777).toBe(0o600);
-      const overUnix = await acquire(
-        nativeDaemon({
-          socketPath: unix,
-          id: sequentialIds("unix-daemon"),
-          dispatcherBound: 8,
-          offer: offer("via-unix", root),
-          fsExports: new Map([["docs", root]]),
-        }),
-      );
-      const overTcp = await acquire(
-        nativeDaemon({
-          tcp: { host: "127.0.0.1", port },
-          hostCertificate: hostIdentity.certificate,
-          tlsCertificate: daemonIdentity.certificate,
-          tlsPrivateKey: daemonIdentity.privateKey,
-          id: sequentialIds("tcp-daemon"),
-          dispatcherBound: 8,
-          offer: offer("via-tcp", root),
-          fsExports: new Map([["docs", root]]),
-        }),
-      );
+      const overUnix = await attachMclient({ host, events, machineId: "via-unix", root, exports: [{ name: "docs", path: root }] });
+      const overTcp = await connectIpcTcpClient({
+        tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate,
+      }, { onRequest: (method, params, respond) => {
+        if (method !== Machine.WireMethod.FsOp) throw new Error(`unexpected peer request: ${method}`);
+        const request = Machine.FsRequest.parse(params);
+        expect(request.op).toBe("read");
+        respond({ status: "completed", value: { op: "read", data: Buffer.from("dual").toString("base64"), bytesRead: 4, size: 4, truncated: false } });
+      } });
       try {
-        expect(overUnix.value.attachment.status).toBe("attached");
-        expect(overTcp.value.attachment.status).toBe("attached");
+        expect(await overTcp.call(Machine.WireMethod.Attach, {
+          ...offer("via-tcp", root), peer: { kind: "client", contractVersion: Machine.contractVersion },
+        })).toMatchObject({ status: "attached" });
         expect(host.list().map((machine) => machine.machineId)).toEqual(["via-tcp", "via-unix"]);
         // The SAME dispatcher serves both transports: handle operations route
         // by machine identity to whichever listener the daemon came in on.
@@ -99,7 +92,7 @@ describe("host listener set (#1270)", () => {
         expect(Buffer.from(viaUnix.data).toString()).toBe("dual");
         expect(Buffer.from(viaTcp.data).toString()).toBe("dual");
       } finally {
-        await overUnix.close();
+        await overUnix.stop();
         await overTcp.close();
       }
     } finally {
@@ -211,19 +204,14 @@ describe("host listener set (#1270)", () => {
     }
     try {
       const port = host.endpoints.tcp?.port ?? 0;
-      const intruder = await acquire(
-        nativeDaemon({
-          tcp: { host: "127.0.0.1", port },
-          hostCertificate: hostIdentity.certificate,
-          tlsCertificate: wrongIdentity.certificate,
-          tlsPrivateKey: wrongIdentity.privateKey,
-          id: sequentialIds("intruder"),
-          dispatcherBound: 8,
-          offer: { ...offer("pinned", "/tmp"), exports: undefined },
-        }),
-      );
+      const intruder = await connectIpcTcpClient({
+        tcp: { host: "127.0.0.1", port }, tls: wrongIdentity, hostCertificate: hostIdentity.certificate,
+      });
       try {
-        expect(intruder.value.attachment).toEqual({ status: "refused", reason: "peer_key_mismatch" });
+        expect(await intruder.call(Machine.WireMethod.Attach, {
+          ...offer("pinned", "/tmp"), exports: undefined,
+          peer: { kind: "client", contractVersion: Machine.contractVersion },
+        })).toEqual({ status: "refused", reason: "peer_key_mismatch" });
         expect(host.list()).toEqual([]);
       } finally {
         await intruder.close();
@@ -245,26 +233,23 @@ describe("host listener set (#1270)", () => {
     });
     try {
       const port = host.endpoints.tcp?.port ?? 0;
-      const legitimate = await acquire(
-        nativeDaemon({
-          tcp: { host: "127.0.0.1", port },
-          hostCertificate: hostIdentity.certificate,
-          tlsCertificate: daemonIdentity.certificate,
-          tlsPrivateKey: daemonIdentity.privateKey,
-          id: sequentialIds("legit"),
-          dispatcherBound: 8,
-          offer: offer("pinned", root),
-          fsExports: new Map([["docs", root]]),
-        }),
-      );
+      const legitimate = await connectIpcTcpClient({
+        tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate,
+      }, { onRequest: (method, params, respond) => {
+        if (method !== Machine.WireMethod.FsOp) throw new Error(`unexpected peer request: ${method}`);
+        expect(Machine.FsRequest.parse(params).op).toBe("read");
+        respond({ status: "completed", value: { op: "read", data: Buffer.from("still-mine").toString("base64"), bytesRead: 10, size: 10, truncated: false } });
+      } });
       const intruder = await connectIpcTcpClient({
         tcp: { host: "127.0.0.1", port },
         tls: wrongIdentity,
         hostCertificate: hostIdentity.certificate,
       });
       try {
-        expect(legitimate.value.attachment.status).toBe("attached");
-        expect(await intruder.call("machine.attach", { ...offer("pinned", root), peer: { kind: "daemon", contractVersion: 2 } })).toEqual({
+        expect(await legitimate.call(Machine.WireMethod.Attach, {
+          ...offer("pinned", root), peer: { kind: "client", contractVersion: Machine.contractVersion },
+        })).toMatchObject({ status: "attached" });
+        expect(await intruder.call("machine.attach", { ...offer("pinned", root), peer: { kind: "client", contractVersion: Machine.contractVersion } })).toEqual({
           status: "refused",
           reason: "peer_key_mismatch",
         });

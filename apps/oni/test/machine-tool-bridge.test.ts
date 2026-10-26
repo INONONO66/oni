@@ -1,7 +1,6 @@
-import { runEffect, acquireEffect, acquireSyncEffect } from "./helpers/scoped-effect";
+import { runEffect, acquireEffect } from "./helpers/scoped-effect";
 import { Effect } from "effect";
-import { createCodemode } from "@oni/codemode";
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { connectIpcClient, createMachineHost, createMemoryGenerationStore, typedCall } from "@oni/machines";
 import { Machine } from "@oni/protocol";
 import { attachMachineDaemon } from "@oni/machines";
@@ -15,6 +14,7 @@ import { dispatchModelTool } from "./helpers/tool-dispatch";
 import { testMachinePorts } from "./helpers/native-tool-ports";
 import { testIds } from "./helpers/test-entropy";
 import { refusingToolPort } from "./helpers/tool-port";
+import { attachAppMclient, mclientBinary } from "./helpers/mclient";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -25,6 +25,7 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+beforeAll(mclientBinary, 300_000);
 
 /**
  * A host whose tool port only knows `add`, standing in for the composition
@@ -53,7 +54,7 @@ async function withBridge(
   try {
     await run({ host, calls });
   } finally {
-    await runEffect(daemon.close());
+    await daemon.stop();
     await runEffect(host.close());
   }
 }
@@ -440,15 +441,8 @@ describe("code-mode tool bridge", () => {
         return { status: "completed", value: calls };
       },
     });
-    const offer = bridgeOffer();
-    const first = await acquireEffect(attachMachineDaemon({
-      dispatcherBound: 8,
-      id: testIds("bridge-first"),
-      runner: acquireSyncEffect(createCodemode({ id: testIds("bridge-first-cell") })).runner,
-      socketPath: path,
-      offer,
-    }));
-    let second: Effect.Success<ReturnType<typeof attachMachineDaemon>> | undefined;
+    const first = await attachAppMclient({ socketPath: path, machineId: "m-1", root: "/tmp", exports: [] });
+    let second: Awaited<ReturnType<typeof attachAppMclient>> | undefined;
     try {
       const cell = runEffect(host.get("m-1").runCode({
         cellId: "live",
@@ -469,13 +463,7 @@ describe("code-mode tool bridge", () => {
 
       // Take the machine over while the cell sits inside its first tool call.
       await firstCallEntered;
-      second = await acquireEffect(attachMachineDaemon({
-        dispatcherBound: 8,
-        id: testIds("bridge-second"),
-        runner: acquireSyncEffect(createCodemode({ id: testIds("bridge-second-cell") })).runner,
-        socketPath: path,
-        offer,
-      }));
+      second = await attachAppMclient({ socketPath: path, machineId: "m-1", root: "/tmp", exports: [] });
       release();
 
       // Supersession closes the old transport, so its in-flight cell fails
@@ -486,8 +474,8 @@ describe("code-mode tool bridge", () => {
       expect(calls).toBe(1);
     } finally {
       release();
-      await runEffect(first.close());
-      if (second !== undefined) await runEffect(second.close());
+      await first.stop();
+      if (second !== undefined) await second.stop();
       await runEffect(host.close());
     }
   });
@@ -531,10 +519,8 @@ describe("code-mode tool bridge", () => {
 
   test("a forged frame claiming another cell is refused without a host call", async () => {
     await withBridge(async ({ host, calls }) => {
-      // Cell code can write raw frames to the driver's real stdout. A frame
-      // stamped with a different cellId must never become a host call; the
-      // legit call after it proves the kernel kept serving this cell.
-      const result = await runEffect(host.get("m-1").runCode({
+      // A forged cell id is rejected at the driver boundary before any host call.
+      await expect(runEffect(host.get("m-1").runCode({
         cellId: "honest",
         code: [
           "import json, sys",
@@ -543,14 +529,16 @@ describe("code-mode tool bridge", () => {
           "    'name': 'add', 'arguments': {'a': 1, 'b': 2},",
           "}) + '\\n')",
           "sys.__stdout__.flush()",
-          "tool.add(a=2, b=3)",
         ].join("\n"),
         timeoutMs: 15_000,
+      }))).rejects.toThrow("invalid python driver frame: tool call for another cell");
+      expect(calls).toEqual([]);
+      const result = await runEffect(host.get("m-1").runCode({
+        cellId: "after-forgery", code: "tool.add(a=2, b=3)", timeoutMs: 15_000,
       }));
-
       expect(result).toMatchObject({ status: "completed", value: "5" });
       expect(calls.map((call) => call.name)).toEqual(["add"]);
-      expect(calls[0]).toMatchObject({ cellId: "honest", arguments: { a: 2, b: 3 } });
+      expect(calls[0]).toMatchObject({ cellId: "after-forgery", arguments: { a: 2, b: 3 } });
     });
   });
 
@@ -605,7 +593,7 @@ describe("code-mode tool bridge", () => {
       expect(result).toMatchObject({ status: "raised" });
       expect(result.status === "raised" && result.error).toContain("host_tool_missing");
     } finally {
-      await runEffect(daemon.close());
+      await daemon.stop();
       await runEffect(host.close());
     }
   });

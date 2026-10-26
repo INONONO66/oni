@@ -1,10 +1,12 @@
 import { Effect } from "effect";
-import { acquireEffect, acquireSyncEffect } from "./effect";
-import { createCodemode } from "@oni/codemode";
-import { attachMachineDaemon, createMachineHost, createMemoryGenerationStore } from "@oni/machines";
+import { acquireEffect } from "./effect";
+import { createMachineHost, createMemoryGenerationStore } from "@oni/machines";
 import { testIds } from "./test-entropy";
 import type { Machine } from "@oni/protocol";
 import { refusingToolPort } from "./tool-port";
+import { attachAppMclient } from "./mclient";
+import { Bus } from "./bus";
+import { tmpdir } from "node:os";
 
 export function bridgeHost(
   socketPath: string,
@@ -24,7 +26,7 @@ export function bridgeHost(
       publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       enrolledAt: 1000,
     }),
-    events: { publish: () => undefined },
+    events: Bus,
     now: () => 5000,
     ...(callTool === undefined ? {} : {
       callTool: (call: Machine.ToolCall) => Effect.promise(() => callTool(call)),
@@ -54,5 +56,5 @@ export function bridgeOffer(): Omit<Machine.Offer, "peer" | "generation"> {
 }
 
 export function bridgeDaemon(socketPath: string) {
-  return acquireEffect(attachMachineDaemon({ id: testIds("bridge-daemon"), dispatcherBound: 8, runner: acquireSyncEffect(createCodemode({ id: testIds("bridge-cell") })).runner, socketPath, offer: bridgeOffer() }));
+  return attachAppMclient({ socketPath, machineId: "m-1", root: tmpdir(), exports: [] });
 }

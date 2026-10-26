@@ -1,8 +1,10 @@
 import { expect } from "bun:test";
 import type { Machine } from "@oni/protocol";
-import { attachMachineDaemon, createMachineHost } from "./helpers/native";
+import { createMachineHost } from "./helpers/native";
+import { attachMclient } from "./helpers/mclient";
+import { eventCollector } from "./helpers/events";
 
-export const capabilities = ["fs.read", "fs.write", "shell.exec", "kernel.py"];
+const capabilities = ["fs.read", "fs.write", "shell.exec", "kernel.py"];
 export function enrollment(): Machine.Enrollment {
   return {
     machineId: "m-1",
@@ -26,16 +28,15 @@ export function offer(root: string, changes: Partial<Omit<Machine.Offer, "peer" 
 }
 export const silent = { publish: () => undefined };
 
-export function wireHost(socketPath: string) {
-  return createMachineHost({ listen: { unix: socketPath }, enrollment, events: silent, now: () => 3 });
+export async function wireHost(socketPath: string) {
+  const events = eventCollector();
+  const host = await createMachineHost({ listen: { unix: socketPath }, enrollment, events: events.sink, now: () => 3 });
+  return { ...host, events };
 }
 
-export function wireDaemon(socketPath: string, root: string) {
-  return attachMachineDaemon({
-    socketPath,
-    offer: offer(root),
-    fsExports: new Map([["docs", root]]),
-  });
+export async function wireDaemon(host: Awaited<ReturnType<typeof wireHost>>, root: string) {
+  const client = await attachMclient({ host, events: host.events, machineId: "m-1", root, exports: [{ name: "docs", path: root }] });
+  return { ...client, close: client.stop };
 }
 
 type FsCall = (request: Machine.FsRequest) => Promise<Machine.FsResult>;

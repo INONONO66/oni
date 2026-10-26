@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import type { AttachmentFetchWithStream } from "@oni/channels";
 import { Operational, type Channel, type Gateway } from "@oni/protocol";
 import { Machine } from "@oni/protocol";
 import { wireDaemon, wireHost } from "../../../packages/machines/test/helpers";
+import { mclientBinary } from "../../../packages/machines/test/helpers/mclient";
 import { inboxStreamWriter } from "../src/composition/attachment-stream";
 import { inboxHandler, OWNER_INBOX_BYTE_CAP, withAttachmentInbox } from "../src/composition/attachments";
 import type { AttachmentInbox } from "../src/composition/attachments";
@@ -16,6 +17,7 @@ import { socketPath } from "./helpers/socket-path";
 const attachment: NonNullable<Gateway.IngressFacts["attachments"]>[number] = {
   kind: "file", ref: "tdlib-file:71", name: "large.bin",
 };
+beforeAll(mclientBinary, 300_000);
 
 function inbound(): Channel.InboundMessage {
   return {
@@ -31,7 +33,7 @@ function inbound(): Channel.InboundMessage {
 test("streamed Owner attachment crosses the real host and daemon before one inbound handoff", async () => {
   const root = mkdtempSync(join(tmpdir(), "oni-inbox-stream-"));
   const host = await wireHost(socketPath());
-  const daemon = await wireDaemon(host.endpoints.unix ?? "", root);
+  const daemon = await wireDaemon(host, root);
   try {
     const chunk = Buffer.alloc(Machine.FS_WRITE_MAX_BYTES * 3 + 17, 0x5a);
     const count = 67;
@@ -116,7 +118,7 @@ test.each(["oversize", "short", "abort"] as const)(
   async (kind) => {
     const root = mkdtempSync(join(tmpdir(), `oni-inbox-${kind}-`));
     const host = await wireHost(socketPath());
-    const daemon = await wireDaemon(host.endpoints.unix ?? "", root);
+    const daemon = await wireDaemon(host, root);
     try {
       const controller = new AbortController();
       const entered = Promise.withResolvers<void>();

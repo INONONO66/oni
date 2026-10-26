@@ -180,6 +180,31 @@ test("test entry dispatches workspace and script lanes through their canonical c
   } finally { spawn.mockRestore(); }
 });
 
+test.each(["machines", "codemode", "oniApp"])("a local %s lane builds and exports the client", (key) => {
+  using workspace = fixture();
+  const previous = process.env.ONI_MCLIENT_BIN;
+  const calls: { args: string[]; cwd?: string }[] = [];
+  const native = Bun.spawnSync;
+  const spawn = spyOn(runner, "spawnSync").mockImplementation((args: string[], options?: SpawnOptions) => {
+    calls.push({ args, cwd: options?.cwd });
+    return native(["/usr/bin/true"]);
+  });
+  try {
+    delete process.env.ONI_MCLIENT_BIN;
+    ciMain(["test", "--lane", key, "--root", workspace.dir]);
+    expect(calls[0]).toEqual({
+      args: ["cargo", "build", "--release", "--locked", "-p", "oni-machine-client"],
+      cwd: join(workspace.dir, "clients"),
+    });
+    expect(String(process.env.ONI_MCLIENT_BIN)).toBe(join(workspace.dir, "clients/target/release/mclient"));
+    expect(calls[1]?.cwd).toBe(join(workspace.dir, TOPOLOGY.find((entry) => entry.key === key)?.dir ?? ""));
+  } finally {
+    spawn.mockRestore();
+    if (previous === undefined) delete process.env.ONI_MCLIENT_BIN;
+    else process.env.ONI_MCLIENT_BIN = previous;
+  }
+});
+
 test("tooling shard one runs the Python self-tests directly", () => {
   using fixture = { dir: mkdtempSync(join(tmpdir(), "oni-ci-")), [Symbol.dispose]() { rmSync(this.dir, { recursive: true, force: true }); } };
   const script = join(fixture.dir, "script");

@@ -1,62 +1,72 @@
-import { expect, test } from "bun:test";
-import type { Machine } from "@oni/protocol";
-import { attachMachineDaemon, createMachineHost } from "./helpers/native";
+import { beforeAll, expect, test } from "bun:test";
+import { Machine } from "@oni/protocol";
+import { createMachineHost } from "./helpers/native";
+import { attachMclient, mclientBinary, mclientEnrollment } from "./helpers/mclient";
+import { connectIpcClient } from "./ipc/helpers/native";
 import { socketPath } from "./helpers/socket-path";
 import { eventCollector } from "./helpers/events";
 import { captureError, within } from "./ipc/helpers/signal";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-test("enrollment removal drops reports and fails in-flight calls once while other peers remain attached", async () => {
-  const path = socketPath();
+beforeAll(mclientBinary, 300_000);
+
+test("enrollment removal fails in-flight calls once while another real client remains attached", async () => {
+  const root = mkdtempSync(join(tmpdir(), "oni-enrollment-"));
   const events = eventCollector();
-  const enrollment: Machine.Enrollment = { machineId: "worker", name: "Worker", allowedCapabilities: ["kernel.py"], publicKey: "a".repeat(64), enrolledAt: 1 };
-  const records = new Map([["worker", enrollment], ["other", { ...enrollment, machineId: "other" }]]);
-  const host = await createMachineHost({ listen: { unix: path }, enrollment: (id) => records.get(id), events: events.sink, now: () => 10 });
+  const worker = mclientEnrollment("worker", { allowedCapabilities: ["kernel.py"] });
+  const records = new Map([["worker", worker], ["other", mclientEnrollment("other")]]);
+  const host = await createMachineHost({
+    listen: { unix: socketPath() }, enrollment: (id) => records.get(id), events: events.sink, now: () => 10,
+  });
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  const beat = Promise.withResolvers<() => void>();
-  const reported = events.next("machine.reported");
-  const offer: Omit<Machine.Offer, "peer" | "generation"> = { machineId: "worker", daemonVersion: "test", offeredCapabilities: ["kernel.py"], offeredAt: 2, platform: "darwin-arm64" };
-  const daemon = await attachMachineDaemon({
-    socketPath: path, offer,
-    report: {
-      now: () => 10,
-      scheduler: { schedule: (_delay, callback) => { beat.resolve(callback); return () => undefined; } },
-      probe: { resources: () => ({ cpus: 4, memoryBytes: 8192 }), load: () => ({ loadAvg1: 0.5, memoryAvailableBytes: 4096 }) },
-    },
-    runner: {
-      runCode: async (request) => {
-        entered.resolve();
-        await release.promise;
-        return { status: "completed", cellId: request.cellId, output: { stdout: "", stderr: "" } };
-      },
-      peekCode: () => ({ stdout: "", stderr: "" }),
-      close: async () => undefined,
+  const peer = await connectIpcClient(host.endpoints.unix ?? "", {
+    onRequest: async (method, params, respond) => {
+      if (method !== Machine.WireMethod.RunCode) throw new Error(`unexpected peer request: ${method}`);
+      const request = Machine.CellRequest.parse(params);
+      entered.resolve();
+      await release.promise;
+      respond({ status: "completed", cellId: request.cellId, output: { stdout: "", stderr: "" } });
     },
   });
-  const other = await attachMachineDaemon({ socketPath: path, offer: { ...offer, machineId: "other" } });
+  const attached = await peer.call(Machine.WireMethod.Attach, {
+    machineId: "worker", daemonVersion: "simulated", platform: "darwin-arm64", offeredCapabilities: ["kernel.py"],
+    offeredAt: 1, peer: { kind: "client", contractVersion: Machine.contractVersion },
+  });
+  expect(attached).toMatchObject({ status: "attached" });
+  const other = await attachMclient({ host, events, machineId: "other", root });
   try {
-    (await beat.promise)();
-    await within(reported, "first report");
+    const reported = events.next(Machine.Events.Reported.name);
+    expect(await peer.call(Machine.WireMethod.Report, {
+      machineId: "worker", reportedAt: 1,
+      load: { loadAvg1: 0.5, memoryAvailableBytes: 4096, inFlight: 0 },
+    })).toEqual({ status: "accepted" });
+    await within(reported, "worker report");
     expect(host.list().find((row) => row.machineId === "worker")?.live?.stale).toBe(false);
     const pending = captureError(host.get("worker").runCode({ cellId: "held", code: "x", timeoutMs: 60_000 }));
-    await within(entered.promise, "runner entered");
-    const detached = events.next("machine.detached");
+    await within(entered.promise, "peer entered");
+    const detached = events.next(Machine.Events.Detached.name);
     records.delete("worker");
     host.native.unenroll("worker");
     expect((await within(detached, "revocation")).payload).toMatchObject({ reason: "enrollment_removed" });
     expect(await within(pending, "pending disconnect")).toMatchObject({ reason: "disconnected" });
     expect(host.list().map((row) => row.machineId)).toEqual(["other"]);
     host.native.unenroll("worker");
-    expect(events.events.filter((event) => event.name === "machine.detached")).toHaveLength(1);
-    records.set("worker", enrollment);
-    const replacement = await attachMachineDaemon({ socketPath: path, offer });
+    expect(events.events.filter((event) => event.name === Machine.Events.Detached.name)).toHaveLength(1);
+    records.set("worker", worker);
+    const replacement = await attachMclient({ host, events, machineId: "worker", root, exports: [] });
     try {
-      expect(host.list().find((row) => row.machineId === "worker")?.live).toBeUndefined();
-    } finally { await replacement.close(); }
+      expect(host.list().find((row) => row.machineId === "worker")).toMatchObject({
+        generation: 2, peer: { kind: "client" },
+      });
+    } finally { await replacement.stop(); }
   } finally {
     release.resolve();
-    await daemon.close();
-    await other.close();
+    await peer.close();
+    await other.stop();
     await host.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });

@@ -1,7 +1,7 @@
 import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { runEffect } from "./helpers/effect";
-import { describe, expect, spyOn, test } from "bun:test";
+import { beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, mkdir, rm, symlink, writeFile, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { Effect } from "effect";
 import { acquireEffect } from "./helpers/effect";
 import { Core } from "@oni/agent";
 const ToolRefused = Core.ToolRefused;
-import { attachMachineDaemon, createMachineHost, createMemoryGenerationStore, type MachineHandle } from "@oni/machines";
+import { createMachineHost, createMemoryGenerationStore, type MachineHandle } from "@oni/machines";
 import { Machine, type PlainValue } from "@oni/protocol";
 import { parseLocus } from "../src/bundles/tools/locus/index";
 import { socketPath } from "./helpers/socket-path";
@@ -17,8 +17,11 @@ import { testMachinePorts } from "./helpers/native-tool-ports";
 import { executor } from "./helpers/executor";
 import { testIds } from "./helpers/test-entropy";
 import { refusingToolPort } from "./helpers/tool-port";
+import { attachAppMclient, mclientBinary } from "./helpers/mclient";
+import { Bus } from "./helpers/bus";
 
 const context = { sessionId: "locus", turnId: "turn" };
+beforeAll(mclientBinary, 300_000);
 
 describe("parseLocus", () => {
   const options = { defaultMachine: "self" };
@@ -99,29 +102,13 @@ async function fixture(
       publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       enrolledAt: 1,
     }),
-    events: { publish: () => undefined },
+    events: Bus,
     now: () => 1,
   }));
-  const daemon = await acquireEffect(attachMachineDaemon({
-    dispatcherBound: 8,
-    socketPath: socket,
-    id: testIds("locus-daemon"),
-    offer: {
-      machineId,
-      daemonVersion: "test",
-      platform: "darwin-arm64",
-      offeredAt: 1,
-      offeredCapabilities: ["fs.read", "fs.write", "shell.exec"],
-      exports: [
-        { name: "data", path: root },
-        { name: "shell", path: "/" },
-      ],
-    },
-    fsExports: new Map([
-      ["data", root],
-      ["shell", "/"],
-    ]),
-  }));
+  const daemon = await attachAppMclient({
+    socketPath: socket, machineId, root,
+    exports: [{ name: "data", path: root }, { name: "shell", path: "/" }],
+  });
   const handle = host.get(machineId);
   const spies = {
     get: spyOn(host, "get"),
@@ -184,7 +171,7 @@ async function fixture(
     });
   } finally {
     for (const spy of Object.values(spies)) spy.mockRestore();
-    await runEffect(daemon.close());
+    await daemon.stop();
     await runEffect(host.close());
     await rm(root, { recursive: true, force: true });
   }

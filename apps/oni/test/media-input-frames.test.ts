@@ -1,27 +1,29 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { wireDaemon, wireHost } from "../../../packages/machines/test/helpers";
-import { enrollment, offer, silent } from "../../../packages/machines/test/helpers";
-import { attachMachineDaemon, createMachineHost } from "../../../packages/machines/test/helpers/native";
+import { enrollment } from "../../../packages/machines/test/helpers";
+import { createMachineHost } from "../../../packages/machines/test/helpers/native";
+import { attachMclient, mclientBinary } from "../../../packages/machines/test/helpers/mclient";
+import { eventCollector } from "../../../packages/machines/test/helpers/events";
 import { inboxPartBytes, type MediaWarning, mediaDerive } from "../src/composition/media-input";
 import { runEffect } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
 
 async function attachExports(root: string, exports: { name: string; path: string }[]) {
   const socket = socketPath();
+  const events = eventCollector();
   const host = await createMachineHost({
     listen: { unix: socket }, enrollment: () => ({ ...enrollment(), allowedExports: exports.map((entry) => entry.name) }),
-    events: silent, now: () => 3,
+    events: events.sink, now: () => 3,
   });
-  const daemon = await attachMachineDaemon({
-    socketPath: socket, offer: offer(root, { exports }),
-    fsExports: new Map(exports.map((entry) => [entry.name, entry.path])),
-  });
+  const client = await attachMclient({ host, events, machineId: "m-1", root, exports });
+  const daemon = { close: client.stop };
   return { host, daemon };
 }
+beforeAll(mclientBinary, 300_000);
 
 test.each([
   [0.25, 1],
@@ -31,7 +33,7 @@ test.each([
   const root = mkdtempSync(join(tmpdir(), "oni-media-frames-"));
   const socket = socketPath();
   const host = await wireHost(socket);
-  const daemon = await wireDaemon(socket, root);
+  const daemon = await wireDaemon(host, root);
   try {
     const path = join(root, "clip.mp4");
     const child = Bun.spawn(
@@ -74,7 +76,7 @@ test.each([
       ),
     );
 
-    expect(result.parts).toHaveLength(count);
+    expect(result.parts, JSON.stringify(warnings)).toHaveLength(count);
     expect(warnings).toEqual([]);
     const bytes = inboxPartBytes(files, root, () => [{ path: root }]);
     for (const frame of result.parts) {
@@ -106,7 +108,7 @@ test.each([true, false])("real daemon %s inbox export confines sibling symlinks 
     if (confined) {
       const refusal = await runEffect(Effect.flip(bytes(`m-1:${join(inbox, "claimed.png")}`)));
       expect(refusal.data.code).toBe("read_failed");
-      expect(refusal.data.detail).toContain("path escapes export");
+      expect(refusal.data.detail).toContain("path_escapes_export");
       expect(new TextDecoder().decode((await runEffect(bytes(`m-1:${join(inbox, "ordinary.png")}`))).bytes)).toBe("ORDINARY");
     } else {
       const symlinkRefusal = await runEffect(Effect.flip(bytes(`m-1:${join(inbox, "claimed.png")}`)));
@@ -145,7 +147,7 @@ test("a private video symlink yields no frames or staged copy through the real d
     expect(result).toEqual({ text: "[video 1s, 0 frames]", parts: [] });
     expect(warnings).toHaveLength(1);
     expect(warnings[0]?.code).toBe("frames_failed");
-    expect(warnings[0]?.detail).toContain("path escapes export");
+    expect(warnings[0]?.detail).toContain("path_escapes_export");
     expect(readdirSync(inbox)).toEqual(["clip.mp4"]);
   } finally {
     await daemon.close();
