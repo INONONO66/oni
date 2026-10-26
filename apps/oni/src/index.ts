@@ -1047,7 +1047,13 @@ export async function startOni(options: StartOptions = {}) {
         throw new AppInvariantError("ws delivery used before composition finished");
       // The ws wire has no reaction vocabulary: refused, never posted as text.
       if (payload.kind === "react") return { value: "rejected" } as const;
-      return wsHandler.push(externalId, Outbound.text(payload), idempotencyKey);
+      const parts = Outbound.parts(payload);
+      return wsHandler.push(
+        externalId,
+        Outbound.text({ kind: "message", parts: parts.filter((part) => part.kind === "text" || part.kind === "code") }),
+        idempotencyKey,
+        parts.filter((part) => part.kind !== "text" && part.kind !== "code"),
+      );
     };
     // Live table: channel components register and revoke their own outbound
     // routes while the gateway keeps reading it per delivery.

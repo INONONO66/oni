@@ -1,6 +1,7 @@
 import type { PartKind } from "./spacing";
 import type {
   TranscriptAssistant,
+  TranscriptAttachment,
   TranscriptEpoch,
   TranscriptMarkdown,
   TranscriptNode,
@@ -42,7 +43,7 @@ interface ToolsPart {
 interface UserPart {
   readonly kind: "user";
   readonly id: string;
-  readonly text: string;
+  readonly content: readonly (TranscriptPrompt | TranscriptAttachment)[];
 }
 
 interface EpochPart {
@@ -52,7 +53,7 @@ interface EpochPart {
   readonly at: string;
 }
 
-export type TurnPart = UserPart | ProsePart | ToolsPart | EpochPart;
+export type TurnPart = UserPart | ProsePart | ToolsPart | EpochPart | TranscriptAttachment;
 
 /**
  * A turn: one user message and everything the agent did in reply.
@@ -71,7 +72,7 @@ export interface Turn {
 
 /** `PartKind` for spacing, derived rather than stored so the two cannot drift. */
 export function partKind(part: TurnPart): PartKind {
-  return part.kind;
+  return part.kind === "attachment" ? "tools" : part.kind;
 }
 
 /**
@@ -102,9 +103,20 @@ export function segmentTurns(nodes: readonly TranscriptNode[]): readonly Turn[] 
       continue;
     }
 
-    if (node.kind === "prompt") {
-      flush();
-      parts.push(userPart(node));
+    if (node.kind === "prompt" || (node.kind === "attachment" && node.promptId !== undefined)) {
+      const id = node.promptId ?? node.id;
+      const open = parts[parts.length - 1];
+      if (open?.kind === "user" && open.id === id) {
+        parts[parts.length - 1] = { ...open, content: [...open.content, node] };
+      } else {
+        flush();
+        parts.push({ kind: "user", id, content: [node] });
+      }
+      continue;
+    }
+
+    if (node.kind === "attachment") {
+      parts.push(node);
       continue;
     }
 
@@ -136,10 +148,6 @@ export function segmentTurns(nodes: readonly TranscriptNode[]): readonly Turn[] 
 
 function epochPart(node: TranscriptEpoch): EpochPart {
   return { kind: "epoch", id: node.id, label: node.label, at: node.at };
-}
-
-function userPart(node: TranscriptPrompt): UserPart {
-  return { kind: "user", id: node.id, text: node.text };
 }
 
 /** Each markdown block is its own part, so paragraphs take the 6px step. */

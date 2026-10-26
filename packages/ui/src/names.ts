@@ -82,6 +82,8 @@ export const UI_NAMES = {
   TurnPrompt: "Turn.Prompt",
   /** One block of the agent's answer: a paragraph, a heading, a fence. */
   TurnResponse: "Turn.Response",
+  /** One media reference, labelled without fetching its bytes. */
+  AttachmentRow: "AttachmentRow",
   /** The line that closes a response: wall time and elapsed. */
   TurnMeta: "Turn.Meta",
   /** A boundary in the ledger — a compaction, a resume. */

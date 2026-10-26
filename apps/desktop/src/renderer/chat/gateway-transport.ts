@@ -1,5 +1,5 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
-import { Ingress, Machine, listenForAbort, parseJson, SessionFork, SessionRead } from "@oni/protocol";
+import { Gateway, Ingress, Machine, listenForAbort, parseJson, SessionFork, SessionRead } from "@oni/protocol";
 import { AutomationRefusedError, GatewayUnavailableError, TransportCapabilityError } from "../errors";
 import { z } from "zod";
 
@@ -46,7 +46,12 @@ const serverFrameSchema = z.union([
   SessionRead.Bound,
   SessionFork.Forked,
   SessionFork.Refused,
-  z.object({ type: z.literal("message"), messageId: z.string(), text: z.string() }),
+  z.object({
+    type: z.literal("message"),
+    messageId: z.string(),
+    text: z.string(),
+    parts: Gateway.MediaPart.array().optional(),
+  }),
   z.object({
     type: z.literal("error"),
     message: z.string().optional(),
@@ -309,6 +314,15 @@ export function createGatewayChatTransport(
     turn.emit({ type: "text-start", id });
     turn.emit({ type: "text-delta", id, delta: frame.text });
     turn.emit({ type: "text-end", id });
+    for (const part of frame.parts ?? []) {
+      turn.emit({
+        type: "file",
+        mediaType: part.mime ?? "application/octet-stream",
+        url: part.ref,
+        // The SDK's file chunks omit filename; providerMetadata survives reduction.
+        ...(part.name === undefined ? {} : { providerMetadata: { oni: { filename: part.name } } }),
+      });
+    }
     turn.emit({ type: "finish" });
     turn.close();
   }

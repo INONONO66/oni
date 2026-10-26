@@ -2,6 +2,7 @@ import { Deferred, Duration, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "bun:test";
 import { Core } from "@oni/agent";
+import { classifyFailure, type LlmService } from "@oni/llm";
 const Llm = Core.Llm;
 const ObservationSink = Core.ObservationSink;
 import { Bus } from "./helpers/bus";
@@ -9,6 +10,7 @@ import type { FixtureLlm } from "./helpers/app-fixture";
 import { fakeLlm } from "../../../packages/agent/test/helpers/fake-llm";
 const LlmRunFailure = Core.LlmRunFailure;
 import type { Message } from "@oni/protocol";
+import { deliveryMedia, mediaLlm } from "../src/composition/delivery-media";
 import {
   createCompactionSummarizer as summarizer,
   SummarizerError,
@@ -90,6 +92,42 @@ async function expectSummarizerFailure(
 }
 
 describe("production compaction summarizer", () => {
+  it("preserves replayed file parts and binds the shared model byte source", async () => {
+    const media = deliveryMedia();
+    const bytes = (_ref: string) => Effect.succeed({ bytes: new Uint8Array([1, 2, 3]), mime: "image/png" });
+    media.bind(bytes);
+    const replay: Message.WithParts = {
+      info: {
+        id: "user-media", sessionID: "session", role: "user", time: { created: 1 },
+        agent: "resident", model: { providerID: "fake", modelID: "summary-model" },
+      },
+      parts: [
+        { id: "text", sessionID: "session", messageID: "user-media", type: "text", text: "look at this" },
+        { id: "image", sessionID: "session", messageID: "user-media", type: "file", kind: "image", ref: "self:/inbox/scan.png", mime: "image/png" },
+      ],
+    };
+    let captured: Parameters<LlmService["run"]>[0] | undefined;
+    const service: LlmService = {
+      resolveModel: (model) => Effect.succeed({
+        id: model.id, providerID: model.provider, name: model.id, input: ["text", "image"],
+      }),
+      run: (input, sink) => Effect.sync(() => {
+        captured = input;
+        sink.onMessage(answer("summary"));
+        return { type: "stop" as const };
+      }),
+      classifyFailure,
+    };
+    const llm = mediaLlm(service, media);
+    const summarize = runSyncEffect(summarizer({
+      model: MODEL, now: () => 1000, id: testIds("media"), sessionId: "session", system: "turn instructions",
+    }).pipe(Effect.provideService(Llm, llm), Effect.provideService(ObservationSink, Bus)));
+
+    expect(await runEffect(Effect.provideService(summarize([replay], undefined, BUDGET), ExecutorContext, executor))).toBe("summary");
+    expect(captured?.messages[0]).toEqual(replay);
+    expect(captured?.media?.bytes).toBe(bytes);
+  });
+
   it("merges the previous anchor without tools and bounds output tokens", async () => {
     let captured: Parameters<NonNullable<FixtureLlm["run"]>>[0] | undefined;
     const run: NonNullable<FixtureLlm["run"]> = (input, sink) => Effect.sync(() => {

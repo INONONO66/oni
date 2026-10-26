@@ -1,5 +1,5 @@
 import type { PendingApproval, TranscriptNode, TurnCost } from "@oni/ui";
-import { getToolName, isToolUIPart } from "ai";
+import { type FileUIPart, getToolName, isFileUIPart, isToolUIPart } from "ai";
 import { z } from "zod";
 import { costOf, costsByTurn } from "./turn-cost";
 import type { OniUIMessage } from "./message";
@@ -27,8 +27,7 @@ export function uiMessagesToTranscript(messages: readonly OniUIMessage[]): Trans
     const before = nodes.length;
 
     if (message.role === "user") {
-      const text = textOf(message);
-      if (text !== "") nodes.push({ kind: "prompt", id: message.id, text });
+      appendUser(message, nodes);
       continue;
     }
     if (message.role !== "assistant") continue;
@@ -79,7 +78,12 @@ function appendAssistant(
       if (approval !== undefined) pending.push(approval);
     }
 
-    // step-start, reasoning, sources, files: real parts of the message with no
+    if (isFileUIPart(part)) {
+      flush();
+      nodes.push(fileNode(part, `${message.id}.${at}`));
+    }
+
+    // step-start, reasoning, sources: real parts of the message with no
     // row in this transcript. Dropped silently, on purpose.
   }
 
@@ -149,12 +153,39 @@ function targetOf(input: z.infer<typeof targetSchema>): string {
   return input.command ?? input.path ?? input.pattern ?? input.query ?? input.target ?? "";
 }
 
-/** A user message's text: its text parts, joined. Files and the rest are not prose. */
-function textOf(message: OniUIMessage): string {
-  return message.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("\n")
-    .trim();
+function appendUser(message: OniUIMessage, nodes: TranscriptNode[]): void {
+  let texts: string[] = [];
+  let start = 0;
+  const flush = () => {
+    const text = texts.join("\n").trim();
+    if (text !== "") {
+      nodes.push({
+        kind: "prompt", id: start === 0 ? message.id : `${message.id}.${start}`,
+        promptId: message.id, text,
+      });
+    }
+    texts = [];
+  };
+  for (const [at, part] of message.parts.entries()) {
+    if (part.type === "text") {
+      if (texts.length === 0) start = at;
+      texts.push(part.text);
+    } else if (isFileUIPart(part)) {
+      flush();
+      nodes.push({ ...fileNode(part, `${message.id}.${at}`), promptId: message.id });
+    }
+  }
+  flush();
 }
 
+const fileMetadata = z.object({ oni: z.object({ filename: z.string() }) }).optional().catch(undefined);
+
+function fileNode(part: FileUIPart, id: string): Extract<TranscriptNode, { kind: "attachment" }> {
+  return {
+    kind: "attachment",
+    id,
+    name: part.filename ?? fileMetadata.parse(part.providerMetadata)?.oni.filename ?? part.url,
+    mediaType: part.mediaType,
+    ref: part.url,
+  };
+}

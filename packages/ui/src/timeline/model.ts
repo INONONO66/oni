@@ -48,6 +48,19 @@ export interface TranscriptPrompt {
   readonly kind: "prompt";
   readonly id: string;
   readonly text: string;
+  /** Shared by text and attachments from the same user message. */
+  readonly promptId?: string;
+}
+
+/** A labelled machine reference, never browser-fetchable media. */
+export interface TranscriptAttachment {
+  readonly kind: "attachment";
+  readonly id: string;
+  readonly name: string;
+  readonly mediaType: string;
+  readonly ref: string;
+  /** Present for user attachments, including attachment-only prompts. */
+  readonly promptId?: string;
 }
 
 /**
@@ -98,6 +111,7 @@ export type TranscriptNode =
   | TranscriptPrompt
   | TranscriptEpoch
   | TranscriptTool
+  | TranscriptAttachment
   | TranscriptAssistant;
 
 /**

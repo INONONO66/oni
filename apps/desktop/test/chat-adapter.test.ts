@@ -56,7 +56,7 @@ describe("uiMessagesToTranscript", () => {
   test("a user text part becomes the prompt node, keyed by the message", () => {
     const { nodes } = uiMessagesToTranscript([user("m1", "refactor the lease")]);
 
-    expect(nodes).toEqual([{ kind: "prompt", id: "m1", text: "refactor the lease" }]);
+    expect(nodes).toEqual([{ kind: "prompt", id: "m1", promptId: "m1", text: "refactor the lease" }]);
   });
 
   test("assistant parts keep arrival order: text, tool, text, tool", () => {
@@ -278,14 +278,13 @@ describe("uiMessagesToTranscript", () => {
           { type: "step-start" },
           { type: "reasoning", text: "internal" },
           { type: "source-url", sourceId: "s", url: "https://example.com" },
-          { type: "file", mediaType: "text/plain", url: "data:,x" },
           { type: "text", text: "Done." },
         ],
       },
     ]);
 
     expect(nodes).toEqual([
-      { kind: "assistant", id: "m9.4", streaming: false, blocks: [{ kind: "p", text: "Done." }] },
+      { kind: "assistant", id: "m9.3", streaming: false, blocks: [{ kind: "p", text: "Done." }] },
     ]);
     expect(pending).toEqual([]);
   });
@@ -296,6 +295,41 @@ describe("uiMessagesToTranscript", () => {
     ]);
 
     expect(nodes).toEqual([]);
+  });
+
+  test.each(["user", "assistant"] as const)("interleaved %s files preserve text order and labels", (role) => {
+    const { nodes } = uiMessagesToTranscript([{
+      id: "mixed", role, parts: [
+        { type: "text", text: "Before." },
+        { type: "file", mediaType: "image/png", url: "machine:/photo", filename: "photo.png" },
+        { type: "text", text: "After." },
+        { type: "file", mediaType: "application/pdf", url: "machine:/report" },
+      ],
+    }]);
+    expect(nodes.map((node) => node.kind)).toEqual([
+      role === "user" ? "prompt" : "assistant", "attachment",
+      role === "user" ? "prompt" : "assistant", "attachment",
+    ]);
+    expect(nodes.filter((node) => node.kind === "attachment")).toEqual([
+      { kind: "attachment", id: "mixed.1", name: "photo.png", mediaType: "image/png", ref: "machine:/photo", ...(role === "user" ? { promptId: "mixed" } : {}) },
+      { kind: "attachment", id: "mixed.3", name: "machine:/report", mediaType: "application/pdf", ref: "machine:/report", ...(role === "user" ? { promptId: "mixed" } : {}) },
+    ]);
+    expect(nodes.filter((node) => node.kind === "prompt" || node.kind === "assistant").map((node) =>
+      node.kind === "prompt" ? node.text : node.blocks[0]?.text,
+    )).toEqual(["Before.", "After."]);
+  });
+
+  test("file-only user prompts remain separate turns and anchor attachment-only answers", () => {
+    const result = uiMessagesToTranscript([
+      user("empty", "  "),
+      { id: "one", role: "user", parts: [{ type: "file", mediaType: "audio/ogg", url: "machine:/one" }, { type: "reasoning", text: "ignored" }] },
+      { id: "answer", role: "assistant", metadata: { startedAt: 0, elapsedMs: 1000 }, parts: [{ type: "file", mediaType: "video/mp4", url: "machine:/answer", providerMetadata: { oni: { filename: "clip.mp4" } } }] },
+      { id: "two", role: "user", parts: [{ type: "file", mediaType: "text/plain", url: "machine:/two", providerMetadata: { oni: { filename: 42 } } }] },
+    ]);
+    expect(result.nodes.map((node) => node.id)).toEqual(["one.0", "answer.0", "two.0"]);
+    expect(result.costs).toEqual({ 1: { at: formatClock(0), elapsed: "1.0s" } });
+    expect(result.nodes[1]).toMatchObject({ kind: "attachment", name: "clip.mp4" });
+    expect(result.nodes[2]).toMatchObject({ kind: "attachment", name: "machine:/two", promptId: "two" });
   });
 
   test("metadata becomes the turn's cost, keyed by the turn the answer landed in", () => {
