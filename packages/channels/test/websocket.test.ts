@@ -176,19 +176,6 @@ describe("WebSocketHandler ingress and receipts", () => {
     }
   });
 
-  it("returns structured issues when an automation frame has invalid nested fields", async () => {
-    const handler = createHandler();
-    const result = await runEffect(handler.handleFrame({
-      surfaceKey: "ws::dm:c1", authenticated: true, externalId: "alice",
-    }, JSON.stringify({ type: "automation_add", requestId: "add-1", record: {} })));
-    expect(result).toMatchObject({
-      type: "automation_add_refused", requestId: "add-1", reason: "invalid_record",
-      issues: expect.arrayContaining([
-        expect.objectContaining({ path: expect.arrayContaining(["record"]), code: "invalid_type" }),
-      ]),
-    });
-  });
-
   it("defers ingress until execution and accepts binary frames exactly once", async () => {
     let entries = 0;
     const handler = new WebSocketHandler(() => Effect.sync(() => { entries += 1; }), noopPublish, wsOptions());

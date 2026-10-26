@@ -128,12 +128,10 @@ export namespace Message {
     modelID: z.string(),
     providerID: z.string(),
     agent: z.string(),
-    path: z
-      .object({
-        cwd: z.string(),
-        root: z.string(),
-      })
-      .optional(),
+    path: z.object({
+      cwd: z.string(),
+      root: z.string(),
+    }).optional(),
     tokens: z.object({
       input: Token.Count,
       output: Token.Count,
