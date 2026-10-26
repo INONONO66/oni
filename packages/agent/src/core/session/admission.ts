@@ -46,6 +46,12 @@ type AdmissionDecision =
   | { readonly kind: "resume"; readonly item: Delivery.Row }
   | { readonly kind: "consume"; readonly items: readonly Delivery.Row[] };
 
+function rewrittenPrompt(item: Delivery.Row, value: PlainValue): Delivery.Row | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const parsed = Delivery.Row.safeParse({ ...item, content: value.body });
+  return parsed.success ? parsed.data : undefined;
+}
+
 /** Pure routing; dispatch remains behind the ledger CAS. */
 export function decideSessionAdmission(snapshot: AdmissionSnapshot): AdmissionDecision {
   const { row, pending, open, terminal } = snapshot;
@@ -299,12 +305,10 @@ export function createSessionAdmission(
           effect: { status: "recorded" },
         }, (pre) =>
           Effect.sync(() => {
-            const value = pre.value;
-            if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-              const parsed = Delivery.Content.safeParse(value.body);
-              if (parsed.success && canonicalDigest(parsed.data) !== canonicalDigest(item.content))
-                contents.set(item.id, parsed.data);
-            }
+            const rewritten = rewrittenPrompt(item, pre.value);
+            if (rewritten === undefined) refusal = new SessionPolicyRefusal("invalid_output");
+            else if (canonicalDigest(rewritten.content) !== canonicalDigest(item.content))
+              contents.set(item.id, rewritten.content);
             return recorded;
           }));
         if (refusal !== undefined) continue;
