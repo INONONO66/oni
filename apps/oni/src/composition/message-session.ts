@@ -75,8 +75,6 @@ export function pendingDeliveryRow(input: Delivery.Commit, ordinal: number): Del
     kind: input.kind,
     content: input.content,
     origin: input.origin,
-    ...(input.delivery === undefined ? {} : { delivery: input.delivery }),
-    ...(input.after === undefined ? {} : { after: input.after }),
     status: "pending",
     consumedBy: null,
     consumedAt: null,
@@ -166,13 +164,14 @@ export function deliverPayload(input: Delivery.Commit): Effect.Effect<DeliverPay
   return Effect.gen(function* () {
     const outbound = yield* outboundMessage;
     const message = outbound?.input.message;
-    if (
-      message !== undefined &&
-      (input.id !== message.messageId ||
-        input.sessionId !== message.destinationSessionId ||
-        input.content[0]?.kind !== "text" ||
-        input.content[0].text !== message.content)
-    ) {
+    const bindingMatches =
+      message === undefined ||
+      (input.id === message.messageId &&
+        input.sessionId === message.destinationSessionId &&
+        input.content.length === 1 &&
+        input.content[0]?.kind === "text" &&
+        input.content[0].text === message.content);
+    if (!bindingMatches) {
       return yield* new AgentFailure({
         operation: "message.commit",
         cause: "outbound delivery binding mismatch",
@@ -186,12 +185,11 @@ export function deliverPayload(input: Delivery.Commit): Effect.Effect<DeliverPay
     const control = input.kind === "interrupt" || input.kind === "resume" ? input.kind : undefined;
     // #1311: the outbound message declares its consumption boundary (a child
     // settlement rides `followUp`); the deliver body carries it explicitly.
-    const delivery = message?.delivery ?? input.delivery;
+    const delivery = message?.delivery;
     return {
       kind: control === undefined ? input.kind : "signal",
       body: JSON.stringify({
         content: input.content,
-        ...(input.after === undefined ? {} : { after: input.after }),
         ...(control === undefined ? {} : { control }),
         ...(delivery === undefined ? {} : { delivery }),
       }),
