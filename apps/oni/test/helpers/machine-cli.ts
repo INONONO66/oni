@@ -1,11 +1,10 @@
 import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { createInterface } from "node:readline";
 import { join } from "node:path";
-import { Machine } from "@oni/protocol";
-import { createMemoryGenerationStore, type createMachineHost } from "@oni/machines";
+import type { Machine, ObservationSink } from "@oni/protocol";
+import { createMemoryGenerationStore, type createMachineHost, type MachineHost } from "@oni/machines";
 import { daemonFingerprint, hostIdentity } from "../../../../packages/machines/test/ipc/helpers/tls-fixtures";
 import { refusingToolPort } from "./tool-port";
+import { mclientAttached } from "./mclient";
 
 /** The committed PEM fixture files the CLI config points at (paths, not contents). */
 export const tlsFixturesDir = join(import.meta.dir, "../../../../packages/machines/test/ipc/fixtures");
@@ -49,35 +48,44 @@ export function pinnedTcpHostOptions(
   };
 }
 
-/** Spawn `machine attach` on a config; `attachment()` is its first stdout line, typed. */
-export function spawnAttachCli(configPath: string) {
+/** Observe admission at the host before spawning the CLI's Rust child. */
+export function spawnAttachCli(configPath: string, options: {
+  readonly host: MachineHost;
+  readonly events: Required<Pick<ObservationSink, "subscribe">>;
+  readonly machineId: string;
+}) {
+  const admitted = mclientAttached(options.host, options.events, options.machineId);
   const child = spawn(
     process.execPath,
     [join(import.meta.dir, "../../src/cli/main.ts"), "machine", "attach", configPath],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
-  const exited = new Promise<void>((resolve, reject) => {
+  child.stderr.pipe(process.stderr);
+  const exited = new Promise<number>((resolve, reject) => {
     child.once("error", reject);
     child.once("exit", (code, signal) =>
-      code === 0 ? resolve() : reject(new Error(`machine CLI exited ${code}/${signal}`)),
+      code === null ? reject(new Error(`machine CLI exited by ${signal}`)) : resolve(code),
     );
   });
   async function attachment(): Promise<Machine.AttachResult> {
-    const lines = createInterface({ input: child.stdout });
     let errors = "";
     child.stderr.on("data", (chunk: Buffer) => {
       errors += chunk.toString();
     });
     try {
-      const line = await Promise.race([
-        once(lines, "line", { signal: AbortSignal.timeout(10_000) }),
+      const info = await Promise.race([
+        admitted.promise,
         exited.then(() => {
           throw new Error(`machine CLI ended before attachment: ${errors}`);
         }),
       ]);
-      return Machine.AttachResult.parse(JSON.parse(String(line[0])));
+      return {
+        status: "attached", generation: info.generation,
+        effectiveCapabilities: [...info.capabilities],
+        effectiveExports: options.host.exports(options.machineId).map((entry) => entry.name),
+      };
     } finally {
-      lines.close();
+      admitted.dispose();
     }
   }
   return { child, exited, attachment };

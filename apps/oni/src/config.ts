@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { normalizeExportRoot } from "@oni/machines";
 import { Gateway, Machine, NamedError, type Model, type PlainValue } from "@oni/protocol";
 import { loadPromptCatalog, type PromptCatalog } from "./bundles/prompt/data";
@@ -104,13 +105,13 @@ export interface OniConfig {
   /**
    * Absent means this brain has no body: no socket is bound and machine-backed
    * tools refuse fail-closed. Present requires `self`, because the boot chain
-   * attaches the host's own in-process daemon before any tool port exists.
+   * attaches the host's own mclient child before any tool port exists.
    */
   readonly machines?: {
     /**
      * The application host's own machine (#1271): the Owner-bounded
-     * capabilities and the mandatory absolute export roots the in-process
-     * daemon may expose. Boot attaches this machine over loopback before any
+     * capabilities and the mandatory absolute export roots the mclient
+     * child may expose. Boot attaches this machine over loopback before any
      * tool port exists; there is no local filesystem or shell path beside it.
      */
     readonly self: {
@@ -143,6 +144,8 @@ export interface OniConfig {
   };
   /** Path handed to the machine host's durable attach-generation store. */
   readonly machineGenerationsPath?: string;
+  /** Rust machine client executable; ONI_MCLIENT_BIN overrides the packaged default. */
+  readonly mclientBin?: string;
   /**
    * Owner-declared allowances for cold proactive sends (#1569 lane 8: a
    * target without one takes the Owner's consent on the invocation). The
@@ -271,6 +274,16 @@ export function resolveMachineGenerationsPath(
   home: string = homedir(),
 ): string {
   return config.machineGenerationsPath ?? join(home, ".oni", "machines", "generations.json");
+}
+
+/** Source runs use the workspace release build; installed oni uses its sibling binary. */
+export function resolveMclientBin(env: Record<string, string | undefined> = process.env): string {
+  const configured = env.ONI_MCLIENT_BIN?.trim();
+  if (configured) return configured;
+  const sourceRoot = fileURLToPath(new URL("../../../", import.meta.url));
+  if (existsSync(join(sourceRoot, "clients", "Cargo.toml")))
+    return join(sourceRoot, "clients", "target", "release", "mclient");
+  return join(dirname(process.argv[1] ?? process.execPath), "mclient");
 }
 
 /**
@@ -889,6 +902,7 @@ export function loadConfig(
       { machineGenerationsPath: env.ONI_MACHINES_GENERATIONS?.trim() || undefined },
       home,
     ),
+    mclientBin: resolveMclientBin(env),
     ...(socialBudgets === undefined ? {} : { socialBudgets }),
     ...(channelAllowedSenders === undefined ? {} : { channelAllowedSenders }),
     ...(channelMentionOnly === undefined ? {} : { channelMentionOnly }),
