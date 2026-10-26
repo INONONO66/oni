@@ -72,8 +72,37 @@ pub struct JoinOptions {
     pub memory_budget_mb: u64,
 }
 
+pub fn home() -> PathBuf {
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+}
+
 pub fn root() -> PathBuf {
-    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".oni")
+    home().join(".oni")
+}
+
+pub fn agent_registry_directory() -> PathBuf {
+    root().join("machine-client")
+}
+
+pub fn agent_hook_directory() -> PathBuf {
+    agent_registry_directory().join("hooks")
+}
+
+/// The socket file, beside the client config, a CLI's permission hook asks
+/// the running client on.
+pub const AGENT_HOOK_SOCKET: &str = "hook.sock";
+
+/// Set in every launched CLI session to the socket of the client that
+/// launched it, so its hooks reach that client whatever config it runs.
+pub const AGENT_HOOK_SOCKET_VARIABLE: &str = "ONI_MCLIENT_HOOK_SOCKET";
+
+/// The launching client's socket when a CLI session names one, else the
+/// default client's.
+pub fn agent_hook_socket() -> PathBuf {
+    std::env::var_os(AGENT_HOOK_SOCKET_VARIABLE).map_or_else(
+        || agent_registry_directory().join(AGENT_HOOK_SOCKET),
+        PathBuf::from,
+    )
 }
 
 pub fn parse_pin(pin: &str) -> Result<[u8; 32], ConfigError> {

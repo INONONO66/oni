@@ -17,19 +17,22 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
+    agent::{hook, launcher::HookTarget},
     budget::{self, Budget, BudgetAction, Metrics, Pressure},
     config::{self, ClientConfig, JoinOptions},
-    handlers::Service,
+    handlers::{AgentOptions, Service},
     pty::ops::Pty,
     report::{self, Probe},
     transport::{
-        client::{handler, Client, Handler, TransportError},
+        client::{handler, Caller, Client, Handler, TransportError},
         connection::HostTrust,
         request_table::CallError,
     },
 };
 
 pub const HEARTBEAT: Duration = Duration::from_secs(5);
+const AGENT_READY: Duration = Duration::from_secs(30);
+const AGENT_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, thiserror::Error)]
 pub enum AttachError {
@@ -77,6 +80,8 @@ pub struct Negotiated {
 
 /// Told the host's grant when an attach succeeds, and when its connection ends.
 pub trait Session: Send + Sync {
+    /// Handed a caller onto the admitted connection just before `attached`.
+    fn connected(&self, _caller: Caller) {}
     fn attached(&self, negotiated: &Negotiated);
     fn detached(&self);
 }
@@ -399,6 +404,7 @@ impl<'a, P: Probe> Attachment<'a, P> {
             Ok(negotiated) => {
                 self.generation = Some(negotiated.generation);
                 save_generation(self.directory, negotiated.generation)?;
+                self.hooks.session.connected(client.caller());
                 self.hooks.session.attached(&negotiated);
                 Ok(true)
             }
@@ -496,7 +502,22 @@ pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
         .build_hasher()
         .finish();
     let pty = Pty::new("tmux", None, format!("{generation:016x}")).await;
-    let service = Service::open(&config, pty).map_err(io::Error::other)?;
+    let socket = directory.join(config::AGENT_HOOK_SOCKET);
+    let options = AgentOptions {
+        registry: directory.to_path_buf(),
+        home: config::home(),
+        hook: HookTarget {
+            program: std::env::current_exe()?,
+            modules: directory.join("hooks"),
+            socket: socket.clone(),
+        },
+        ready: AGENT_READY,
+        decide: hook::DECIDE,
+        grace: AGENT_GRACE,
+    };
+    let service = Service::open_with_agents(&config, pty, options).map_err(io::Error::other)?;
+    let mut permissions = tokio::task::JoinSet::new();
+    permissions.spawn(hook::serve(hook::bind(&socket)?, service.clone()));
     let hooks = service.hooks(HEARTBEAT);
     match run(&config, directory, service.capabilities(), &hooks).await? {}
 }

@@ -1091,7 +1091,14 @@ async fn run_default_offers_the_available_capabilities_of_its_config() {
         "{outcome:?}"
     );
     let tmux = Pty::new("tmux", None, "g".into()).await.offered();
-    assert_eq!(offered, json!(available(true, tmux)));
+    let mut expected = available(true, tmux);
+    expected.extend(tmux.then(|| "agent.session".to_owned()));
+    assert_eq!(offered, json!(expected));
+    let socket = directory.path().join("hook.sock");
+    use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+    let metadata = std::fs::metadata(&socket).expect("permission socket");
+    assert!(metadata.file_type().is_socket());
+    assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
 
     std::fs::remove_dir(root.path()).expect("remove export");
     let missing = attach::run_default(Some(&path)).await;

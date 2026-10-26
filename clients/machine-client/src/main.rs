@@ -2,6 +2,7 @@ use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 use oni_machine_client::{
+    agent::hook,
     attach::{self, AttachError},
     config::{self, JoinOptions},
     handlers,
@@ -25,6 +26,16 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    #[command(subcommand)]
+    Hook(Hook),
+}
+
+#[derive(Subcommand)]
+enum Hook {
+    Permission {
+        #[arg(long)]
+        cli: String,
+    },
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -40,6 +51,14 @@ async fn main() -> ExitCode {
     let result = match cli.command {
         Some(Command::Join(options)) => join(&options).await,
         Some(Command::Run { config }) => attach::run_default(config.as_deref()).await,
+        Some(Command::Hook(Hook::Permission { cli })) => {
+            let socket = config::agent_hook_socket();
+            let outcome =
+                hook::run(&cli, std::io::stdin().lock(), &socket, hook::ASK_DEADLINE).await;
+            print!("{}", outcome.stdout);
+            eprint!("{}", outcome.stderr);
+            return ExitCode::from(outcome.code);
+        }
         None => {
             eprintln!("usage: mclient --version | join <host> | run");
             return ExitCode::from(2);

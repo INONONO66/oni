@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod attach;
 pub mod budget;
 pub mod config;

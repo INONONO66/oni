@@ -53,6 +53,47 @@ pub enum TransportError {
     QueueFull,
 }
 
+/// A clonable handle that issues calls over a live connection; once the
+/// connection ends every call fails with `CallError::Disconnected`.
+#[derive(Clone)]
+pub struct Caller {
+    outbound: mpsc::Sender<Outbound>,
+    requests: Arc<Mutex<RequestTable>>,
+}
+
+impl Caller {
+    pub async fn call_with_timeout(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        duration: Duration,
+    ) -> Result<Option<Value>, CallError> {
+        let (id, receiver) = self
+            .requests
+            .lock()
+            .map_err(|_| CallError::Disconnected)?
+            .register();
+        let pending = Pending::new(id, &self.requests);
+        let frame = timeout(duration, async {
+            self.outbound
+                .send(Outbound::Frame(envelope::request(
+                    &pending.id,
+                    method,
+                    params,
+                )))
+                .await
+                .map_err(|_| CallError::Disconnected)?;
+            receiver.await.map_err(|_| CallError::Disconnected)
+        })
+        .await
+        .map_err(|_| CallError::Timeout(method.to_owned()))??;
+        if let Some(error) = frame.get("error") {
+            return Err(CallError::Remote(error.to_string()));
+        }
+        Ok(frame.get("result").cloned())
+    }
+}
+
 pub struct Client {
     outbound: mpsc::Sender<Outbound>,
     requests: Arc<Mutex<RequestTable>>,
@@ -116,29 +157,16 @@ impl Client {
         params: Option<Value>,
         duration: Duration,
     ) -> Result<Option<Value>, CallError> {
-        let (id, receiver) = self
-            .requests
-            .lock()
-            .map_err(|_| CallError::Disconnected)?
-            .register();
-        let pending = Pending::new(id, &self.requests);
-        let frame = timeout(duration, async {
-            self.outbound
-                .send(Outbound::Frame(envelope::request(
-                    &pending.id,
-                    method,
-                    params,
-                )))
-                .await
-                .map_err(|_| CallError::Disconnected)?;
-            receiver.await.map_err(|_| CallError::Disconnected)
-        })
-        .await
-        .map_err(|_| CallError::Timeout(method.to_owned()))??;
-        if let Some(error) = frame.get("error") {
-            return Err(CallError::Remote(error.to_string()));
+        self.caller()
+            .call_with_timeout(method, params, duration)
+            .await
+    }
+
+    pub fn caller(&self) -> Caller {
+        Caller {
+            outbound: self.outbound.clone(),
+            requests: self.requests.clone(),
         }
-        Ok(frame.get("result").cloned())
     }
 
     pub fn pending_calls(&self) -> usize {
