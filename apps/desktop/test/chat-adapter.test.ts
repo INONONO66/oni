@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { FileUIPart } from "ai";
 import { uiMessagesToTranscript } from "../src/renderer/chat/adapter";
 import type { OniUIMessage } from "../src/renderer/chat/message";
 
@@ -20,6 +21,10 @@ const user = (id: string, text: string): OniUIMessage => ({
   role: "user",
   parts: [{ type: "text", text }],
 });
+
+const unnamedMetadata: FileUIPart["providerMetadata"][] = [
+  undefined, {}, { oni: {} }, { oni: { filename: "" } },
+];
 
 describe("uiMessagesToTranscript", () => {
   test.each([
@@ -312,12 +317,56 @@ describe("uiMessagesToTranscript", () => {
     ]);
     expect(nodes.filter((node) => node.kind === "attachment")).toEqual([
       { kind: "attachment", id: "mixed.1", name: "photo.png", mediaType: "image/png", ref: "machine:/photo", ...(role === "user" ? { promptId: "mixed" } : {}) },
-      { kind: "attachment", id: "mixed.3", name: "machine:/report", mediaType: "application/pdf", ref: "machine:/report", ...(role === "user" ? { promptId: "mixed" } : {}) },
+      { kind: "attachment", id: "mixed.3", name: "report", mediaType: "application/pdf", ref: "machine:/report", ...(role === "user" ? { promptId: "mixed" } : {}) },
     ]);
     expect(nodes.filter((node) => node.kind === "prompt" || node.kind === "assistant").map((node) =>
       node.kind === "prompt" ? node.text : node.blocks[0]?.text,
     )).toEqual(["Before.", "After."]);
   });
+
+  test("assistant attachment names survive through gateway provider metadata", () => {
+    const { nodes } = uiMessagesToTranscript([{
+      id: "metadata", role: "assistant", parts: [{
+        type: "file", mediaType: "image/png", url: "machine:/files/stored-image",
+        providerMetadata: { oni: { filename: "photo.png" } },
+      }],
+    }]);
+
+    expect(nodes).toEqual([{
+      kind: "attachment", id: "metadata.0", name: "photo.png",
+      mediaType: "image/png", ref: "machine:/files/stored-image",
+    }]);
+  });
+
+  test("a user attachment's native filename wins over gateway metadata", () => {
+    const { nodes } = uiMessagesToTranscript([{
+      id: "native", role: "user", parts: [{
+        type: "file", mediaType: "application/pdf", url: "machine:/files/stored-report",
+        filename: "user-report.pdf", providerMetadata: { oni: { filename: "gateway-report.pdf" } },
+      }],
+    }]);
+
+    expect(nodes).toEqual([{
+      kind: "attachment", id: "native.0", promptId: "native", name: "user-report.pdf",
+      mediaType: "application/pdf", ref: "machine:/files/stored-report",
+    }]);
+  });
+
+  test.each(unnamedMetadata)(
+    "an attachment without a usable filename displays its URL tail (%j)", (providerMetadata) => {
+      const { nodes } = uiMessagesToTranscript([{
+        id: "unnamed", role: "assistant", parts: [{
+          type: "file", mediaType: "application/pdf", url: "machine:/files/report.pdf",
+          providerMetadata,
+        }],
+      }]);
+
+      expect(nodes).toEqual([{
+        kind: "attachment", id: "unnamed.0", name: "report.pdf",
+        mediaType: "application/pdf", ref: "machine:/files/report.pdf",
+      }]);
+    },
+  );
 
   test("file-only user prompts remain separate turns and anchor attachment-only answers", () => {
     const result = uiMessagesToTranscript([
@@ -329,7 +378,7 @@ describe("uiMessagesToTranscript", () => {
     expect(result.nodes.map((node) => node.id)).toEqual(["one.0", "answer.0", "two.0"]);
     expect(result.costs).toEqual({ 1: { at: formatClock(0), elapsed: "1.0s" } });
     expect(result.nodes[1]).toMatchObject({ kind: "attachment", name: "clip.mp4" });
-    expect(result.nodes[2]).toMatchObject({ kind: "attachment", name: "machine:/two", promptId: "two" });
+    expect(result.nodes[2]).toMatchObject({ kind: "attachment", name: "two", promptId: "two" });
   });
 
   test("metadata becomes the turn's cost, keyed by the turn the answer landed in", () => {

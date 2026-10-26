@@ -178,13 +178,16 @@ function appendUser(message: OniUIMessage, nodes: TranscriptNode[]): void {
   flush();
 }
 
-const fileMetadata = z.object({ oni: z.object({ filename: z.string() }) }).optional().catch(undefined);
+const fileMetadata = z.object({
+  oni: z.object({ filename: z.string().min(1) }).partial(),
+}).partial().optional().catch(undefined);
 
 function fileNode(part: FileUIPart, id: string): Extract<TranscriptNode, { kind: "attachment" }> {
   return {
     kind: "attachment",
     id,
-    name: part.filename ?? fileMetadata.parse(part.providerMetadata)?.oni.filename ?? part.url,
+    name: part.filename ?? fileMetadata.parse(part.providerMetadata)?.oni?.filename ??
+      part.url.slice(part.url.lastIndexOf("/") + 1),
     mediaType: part.mediaType,
     ref: part.url,
   };

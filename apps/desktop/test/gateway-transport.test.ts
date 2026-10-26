@@ -749,7 +749,7 @@ describe("createGatewayChatTransport", () => {
     ]);
     expect(uiMessagesToTranscript([{ id: last.id, role: last.role, parts: last.parts.filter((part) => part.type === "text" || part.type === "file") }]).nodes.map((node) =>
       node.kind === "attachment" ? node.name : node.kind,
-    )).toEqual(["assistant", "image.png", "machine:/report", "voice.ogg", "clip.mp4"]);
+    )).toEqual(["assistant", "image.png", "report", "voice.ogg", "clip.mp4"]);
   });
 });
 
