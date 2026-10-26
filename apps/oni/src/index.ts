@@ -65,6 +65,7 @@ import {
   MachinesFailure,
   type MachineError,
   type MachineHost,
+  type MachineInputCapture,
 } from "@oni/machines";
 import {
   Alarm,
@@ -252,6 +253,7 @@ async function composeMachinePlane(
         callTool: deps.callTool,
         // r1 M3: the live self attachment is never superseded by a reattach.
         neverSupersede: [plane.self.id],
+        captureInput,
       });
     }).pipe(
       Effect.mapError((error) => selfAttachFailure(`host listener failed: ${String(error)}`)),
@@ -1627,6 +1629,45 @@ function inboundMedia(
 function withWsParts(parts: WsParts, { sender, facts }: Channel.InboundMessage): Channel.InboundMessage {
   const taken = sender.kind === "external" ? parts.take(sender.externalId, facts.eventId) : undefined;
   return taken === undefined ? { sender, facts } : { sender, facts: { ...facts, attachments: taken } };
+}
+
+/**
+ * #1662: every typed machine input is one captured kernel `tool.pre` effect
+ * of the invocation that issued it. The host forwards only from inside the
+ * executed body; a pre refusal, a missing invocation or any other terminal
+ * sends nothing and answers `permission_denied`.
+ */
+function captureInput(
+  request: MachineInputCapture,
+  forward: Effect.Effect<Machine.InputWriteResult, MachineError>,
+): Effect.Effect<Machine.InputWriteResult, MachineError> {
+  return Effect.gen(function* () {
+    const executor = yield* Core.executorContext.pipe(
+      Effect.map((value): Core.Executor | undefined => value),
+      Effect.catchDefect((defect) => (defect instanceof Core.ExecutorContextError ? Effect.succeed(undefined) : Effect.die(defect))),
+    );
+    if (executor === undefined) return { status: "refused", reason: "permission_denied", message: "machine input requires an active tool invocation" } as const;
+    let sent: Result.Result<Machine.InputWriteResult, MachineError> | undefined;
+    const outcome = yield* executor.run(
+      {
+        kind: "tool",
+        op: request.method,
+        intent: JSON.parse(canonicalJson({ machineId: request.machineId, generation: request.generation, params: request.params })) as PlainValue,
+        effect: { category: "execution" },
+      },
+      () => forward.pipe(
+        Effect.result,
+        Effect.map((result): PlainValue => {
+          sent = result;
+          return Result.isSuccess(result) ? result.success.status : "failed";
+        }),
+      ),
+    ).pipe(Effect.mapError((error) => new MachinesFailure({ operation: `${request.method}.capture`, cause: String(error) })));
+    if (outcome.terminal !== "executed" || sent === undefined) {
+      return { status: "refused", reason: "permission_denied", message: `machine input not executed: ${outcome.terminal}` } as const;
+    }
+    return Result.isSuccess(sent) ? sent.success : yield* Effect.fail(sent.failure);
+  });
 }
 
 function processSessionPromptOptions(

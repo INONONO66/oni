@@ -1,0 +1,9 @@
+{
+  "streamId": "stream-1",
+  "seq": 255,
+  "signal": {
+    "type": "data",
+    "label": "control",
+    "data": "cG5nLWJ5dGVz"
+  }
+}

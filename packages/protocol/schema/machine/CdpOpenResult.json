@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "channelId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expiresAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "status": {
+          "const": "opened",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "channelId",
+        "expiresAt"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "machine_not_attached",
+            "cdp_not_available",
+            "endpoint_not_found",
+            "manifest_not_found",
+            "launch_failed",
+            "channel_limit",
+            "already_open"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

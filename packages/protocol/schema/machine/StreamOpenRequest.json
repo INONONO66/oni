@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "dataChannel": {
+      "type": "boolean"
+    },
+    "lifetimeMs": {
+      "exclusiveMinimum": 0,
+      "maximum": 3600000,
+      "type": "integer"
+    },
+    "source": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "display": {
+              "exclusiveMinimum": 0,
+              "maximum": 16,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "display",
+              "type": "string"
+            },
+            "region": {
+              "additionalProperties": false,
+              "properties": {
+                "height": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 16384,
+                  "type": "integer"
+                },
+                "width": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 16384,
+                  "type": "integer"
+                },
+                "x": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "y": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "x",
+                "y",
+                "width",
+                "height"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "display"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "window",
+              "type": "string"
+            },
+            "windowId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "windowId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "streamId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "video": {
+      "additionalProperties": false,
+      "properties": {
+        "keyframeIntervalMs": {
+          "maximum": 60000,
+          "minimum": 100,
+          "type": "integer"
+        },
+        "maxBitrateBps": {
+          "exclusiveMinimum": 0,
+          "maximum": 50000000,
+          "type": "integer"
+        },
+        "maxDimension": {
+          "maximum": 16384,
+          "minimum": 2,
+          "type": "integer"
+        },
+        "maxFps": {
+          "maximum": 60,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxFrameBytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 2097152,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "maxFps",
+        "keyframeIntervalMs",
+        "maxBitrateBps",
+        "maxDimension",
+        "maxFrameBytes"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "streamId",
+    "source",
+    "video",
+    "dataChannel",
+    "lifetimeMs"
+  ],
+  "type": "object"
+}

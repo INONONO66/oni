@@ -1,0 +1,9 @@
+{
+  "captureId": "cap-1",
+  "key": "c",
+  "action": "down",
+  "modifiers": {
+    "meta": true,
+    "shift": false
+  }
+}

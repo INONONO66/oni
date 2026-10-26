@@ -15,6 +15,7 @@ use std::{
 use oni_protocol::{AttachResult, ReportResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     agent::{hook, launcher::HookTarget},
@@ -52,6 +53,8 @@ pub enum AttachError {
     Terminal(String),
     #[error("memory budget exceeded")]
     MemoryBudget,
+    #[error(transparent)]
+    Computer(#[from] crate::computer::ComputerError),
 }
 
 impl AttachError {
@@ -84,6 +87,8 @@ pub trait Session: Send + Sync {
     fn connected(&self, _caller: Caller) {}
     fn attached(&self, negotiated: &Negotiated);
     fn detached(&self);
+    /// Handed the client-to-host uplink of each connection before its attach.
+    fn uplink(&self, _uplink: Uplink) {}
 }
 
 pub struct Hooks {
@@ -356,10 +361,12 @@ impl<'a, P: Probe> Attachment<'a, P> {
         let Some(mut client) = self.connect().await? else {
             return Ok(Outcome::Unreachable);
         };
+        let (uplink, mut calls) = Uplink::channel();
+        self.hooks.session.uplink(uplink);
         if !self.negotiate(&client).await? {
             return Ok(Outcome::Refused);
         }
-        let ended = self.heartbeat(&mut client).await;
+        let ended = self.heartbeat(&mut client, &mut calls).await;
         self.hooks.session.detached();
         ended.map(|()| Outcome::Ended)
     }
@@ -418,6 +425,7 @@ impl<'a, P: Probe> Attachment<'a, P> {
         let in_flight = self.in_flight.load(Ordering::Relaxed);
         let rss_bytes = self.probe.rss()?;
         let retained = self.hooks.pressure.retained();
+        let streams = self.hooks.pressure.streams();
         report::append_metrics(
             &self.directory.join("metrics.jsonl"),
             &Metrics {
@@ -426,6 +434,9 @@ impl<'a, P: Probe> Attachment<'a, P> {
                 in_flight,
                 retained_pty_bytes: retained.pty_bytes,
                 transfers: retained.transfers,
+                retained_frame_bytes: retained.frame_bytes,
+                retained_stream_bytes: retained.stream_bytes,
+                streams: budget::StreamTotals::of(&streams),
             },
         )?;
         match self.budget.sample(rss_bytes) {
@@ -435,10 +446,11 @@ impl<'a, P: Probe> Attachment<'a, P> {
         }
         self.restricted
             .store(self.budget.restricted(), Ordering::Relaxed);
-        let report = json!({
+        let mut report = json!({
             "machineId": self.config.machine_id, "reportedAt": at,
             "load": self.probe.load(in_flight)?
         });
+        report::with_streams(&mut report, streams);
         match client.call("machine.report", Some(report)).await {
             Ok(Some(response)) => Ok(matches!(
                 oni_protocol::decode::<ReportResult>(response)?,
@@ -448,11 +460,19 @@ impl<'a, P: Probe> Attachment<'a, P> {
         }
     }
 
-    async fn heartbeat(&mut self, client: &mut Client) -> Result<(), AttachError> {
+    async fn heartbeat(
+        &mut self,
+        client: &mut Client,
+        calls: &mut mpsc::Receiver<UplinkCall>,
+    ) -> Result<(), AttachError> {
         let mut tick = tokio::time::interval(self.hooks.heartbeat);
         loop {
             tokio::select! {
                 _ = client.closed() => return Ok(()),
+                Some(call) = calls.recv() => {
+                    let answer = client.call(&call.method, Some(call.params.clone())).await;
+                    call.answer(answer);
+                },
                 _ = tick.tick() => if !self.beat(client).await? {
                     return Ok(());
                 },
@@ -515,11 +535,71 @@ pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
         decide: hook::DECIDE,
         grace: AGENT_GRACE,
     };
-    let service = Service::open_with_agents(&config, pty, options).map_err(io::Error::other)?;
+    let manifest =
+        crate::cdp::manifest::Manifest::load(&directory.join(crate::cdp::manifest::FILE))
+            .map_err(io::Error::other)?;
+    let (screen, input) = crate::computer::open(&path)?.unwrap_or_else(|| {
+        (
+            crate::screen::Screen::platform(),
+            crate::input::Input::platform(),
+        )
+    });
+    let service = Service::open_full(
+        &config,
+        pty,
+        (screen, input),
+        crate::cdp::Cdp::new(manifest, crate::cdp::OPEN_DEADLINE),
+        crate::stream::local_address(),
+        options,
+    )
+    .map_err(io::Error::other)?;
     let mut permissions = tokio::task::JoinSet::new();
     permissions.spawn(hook::serve(hook::bind(&socket)?, service.clone()));
     let hooks = service.hooks(HEARTBEAT);
     match run(&config, directory, service.capabilities(), &hooks).await? {}
+}
+
+const UPLINK_BOUND: usize = 16;
+
+/// One client-to-host call queued by long-lived local work (a CDP
+/// channel's bytes); the attachment loop makes it on its connection.
+pub struct UplinkCall {
+    pub method: String,
+    pub params: Value,
+    reply: oneshot::Sender<Result<Option<Value>, CallError>>,
+}
+
+impl UplinkCall {
+    /// A caller that stopped waiting has nothing left to receive.
+    pub fn answer(self, answer: Result<Option<Value>, CallError>) {
+        let _ = self.reply.send(answer);
+    }
+}
+
+/// The queue into one connection's attachment loop: a call made after the
+/// connection ended fails as disconnected.
+#[derive(Clone)]
+pub struct Uplink(mpsc::Sender<UplinkCall>);
+
+impl Uplink {
+    pub fn channel() -> (Self, mpsc::Receiver<UplinkCall>) {
+        let (sender, calls) = mpsc::channel(UPLINK_BOUND);
+        (Self(sender), calls)
+    }
+
+    pub async fn call(&self, method: &str, params: Value) -> Result<Option<Value>, CallError> {
+        let (reply, answer) = oneshot::channel();
+        let call = UplinkCall {
+            method: method.to_owned(),
+            params,
+            reply,
+        };
+        self.0
+            .send(call)
+            .await
+            .map_err(|_| CallError::Disconnected)?;
+        answer.await.map_err(|_| CallError::Disconnected)?
+    }
 }
 
 #[cfg(test)]

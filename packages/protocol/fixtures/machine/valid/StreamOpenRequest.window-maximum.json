@@ -1,0 +1,16 @@
+{
+  "streamId": "stream-2",
+  "source": {
+    "kind": "window",
+    "windowId": "w-42"
+  },
+  "video": {
+    "maxFps": 60,
+    "keyframeIntervalMs": 60000,
+    "maxBitrateBps": 50000000,
+    "maxDimension": 16384,
+    "maxFrameBytes": 2097152
+  },
+  "dataChannel": false,
+  "lifetimeMs": 3600000
+}

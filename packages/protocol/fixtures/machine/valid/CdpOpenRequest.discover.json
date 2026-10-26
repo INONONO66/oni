@@ -1,0 +1,7 @@
+{
+  "channelId": "cdp-1",
+  "endpoint": {
+    "kind": "discover"
+  },
+  "lifetimeMs": 600000
+}

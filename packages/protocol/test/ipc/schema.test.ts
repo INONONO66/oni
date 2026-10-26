@@ -115,6 +115,17 @@ describe("Ipc.Methods param schemas", () => {
         Machine.WireMethod.AgentSessionSend,
         Machine.WireMethod.AgentSessionStop,
         Machine.WireMethod.AgentPermission,
+        Machine.WireMethod.ScreenList,
+        Machine.WireMethod.ScreenCapture,
+        Machine.WireMethod.InputPointer,
+        Machine.WireMethod.InputKey,
+        Machine.WireMethod.InputText,
+        Machine.WireMethod.StreamOpen,
+        Machine.WireMethod.StreamSignal,
+        Machine.WireMethod.StreamClose,
+        Machine.WireMethod.CdpOpen,
+        Machine.WireMethod.CdpChunk,
+        Machine.WireMethod.CdpClose,
       ].sort(),
     );
   });

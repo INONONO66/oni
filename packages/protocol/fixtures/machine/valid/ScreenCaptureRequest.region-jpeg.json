@@ -1,0 +1,19 @@
+{
+  "target": {
+    "kind": "display",
+    "display": 2,
+    "region": {
+      "x": 0,
+      "y": 0,
+      "width": 640,
+      "height": 480
+    }
+  },
+  "encoding": {
+    "format": "jpeg",
+    "quality": 80
+  },
+  "maxDimension": 1280,
+  "maxBytes": 1048576,
+  "accessibility": true
+}

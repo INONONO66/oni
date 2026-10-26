@@ -12,8 +12,10 @@
  * `pty_not_available` refusal when tmux is absent), a killed client
  * reconnecting with generation 1 and being re-admitted, a client presenting
  * a generation the host never minted being refused `stale_generation`, and a
- * fresh attach whose PATH holds no tmux being refused `pty_not_available`. Waits are exact bus events or process exits under a
- * bounded timeout. Nothing is built here: the binary must already exist.
+ * fresh attach whose PATH holds no tmux being refused `pty_not_available`,
+ * then the computer-use phase of `conformance/computer` (#1662) over the
+ * same host. Waits are exact bus events or process exits under a bounded
+ * timeout. Nothing is built here: the binary must already exist.
  */
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -25,7 +27,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Effect, Result } from "effect";
 import { type BusEvent, Machine } from "../packages/protocol/src/index.js";
 import {
@@ -38,6 +40,13 @@ import {
 } from "../packages/machines/src/index.js";
 import { acquire, run } from "../packages/machines/test/ipc/helpers/effects.js";
 import { agentConformance } from "./conformance/agent/sessions.js";
+import {
+  captureInput,
+  type ComputerHarness,
+  exerciseComputer,
+  type InputRecorder,
+  inputRecorder,
+} from "./conformance/computer/index.js";
 
 export const MCLIENT = resolve(import.meta.dir, "../clients/target/debug/mclient");
 const MACHINE = "conformance";
@@ -412,9 +421,9 @@ async function withoutTmux(
   host: MachineHost,
   setup: Fixture,
   events: ReturnType<typeof eventLog>,
-): Promise<void> {
+): Promise<ClientProcess> {
   rmSync(join(setup.home, ".oni", "machine-client", "state.json"), { force: true });
-  await attach(
+  const client = await attach(
     { ...setup, env: { ...setup.env, PATH: pathWithoutTmux(setup.env.PATH ?? "") } },
     events.next(Machine.Events.Attached),
   );
@@ -424,6 +433,50 @@ async function withoutTmux(
     `tmux-less attach: generation ${info?.generation}, capabilities ${info?.capabilities.join(",")}`,
   );
   refusedWithoutTmux(await run(host.get(MACHINE).pty.open(PTY_NAME, setup.root)));
+  return client;
+}
+
+async function computerUse(
+  host: MachineHost,
+  setup: Fixture,
+  events: ReturnType<typeof eventLog>,
+  grant: (allowed: boolean) => void,
+  recorder: InputRecorder,
+  previous: ClientProcess,
+): Promise<void> {
+  await stop(previous, events.next(Machine.Events.Detached));
+  let current: ClientProcess | undefined;
+  const harness: ComputerHarness = {
+    record,
+    within,
+    attach: async () => {
+      // The client applies its grant before its first beat, so the first
+      // machine.reported after attached marks it ready for computer calls.
+      const reported = events.next(Machine.Events.Reported);
+      current = await attach(setup, events.next(Machine.Events.Attached));
+      await within(reported, "first machine.report after attach");
+    },
+    stop: async () => {
+      check(current !== undefined, "no computer-use client is running");
+      await stop(current, events.next(Machine.Events.Detached));
+      current = undefined;
+    },
+    grant,
+  };
+  const directory = dirname(setup.config);
+  await exerciseComputer(
+    harness,
+    host,
+    MACHINE,
+    {
+      directory,
+      config: setup.config,
+      hostSocket: setup.socket,
+      tapSocket: join(dirname(setup.socket), "tap.sock"),
+      recorder: join(directory, "input.jsonl"),
+    },
+    recorder,
+  );
 }
 
 const NO_TOOL_PORT = new MachineRefusalError({
@@ -433,17 +486,26 @@ const NO_TOOL_PORT = new MachineRefusalError({
 
 async function conformance(setup: Fixture): Promise<void> {
   const enrollment = await enroll(setup);
+  let granted = enrollment;
+  const grant = (allowed: boolean): void => {
+    const others = enrollment.allowedCapabilities.filter(
+      (capability) => capability !== Machine.WellKnownCapability.computerUse,
+    );
+    granted = { ...enrollment, allowedCapabilities: allowed ? enrollment.allowedCapabilities : others };
+  };
+  const recorder = inputRecorder();
   const events = eventLog();
   const acquired = await acquire(
     createMachineHost({
       listen: { unix: setup.socket },
       id: () => `conformance-${crypto.randomUUID()}`,
       dispatcherBound: 64,
-      enrollment: (id) => (id === enrollment.machineId ? enrollment : undefined),
+      enrollment: (id) => (id === granted.machineId ? granted : undefined),
       generations: createMemoryGenerationStore(),
       events: events.sink,
       now: Date.now,
       callTool: () => Effect.fail(NO_TOOL_PORT),
+      captureInput: captureInput(recorder),
     }),
   );
   const host = acquired.value;
@@ -452,7 +514,8 @@ async function conformance(setup: Fixture): Promise<void> {
     await exercise(host, attachedInfo(host, "first attach"), setup);
     const second = await reconnect(host, setup, events, first);
     await staleGeneration(host, setup, events, second);
-    await withoutTmux(host, setup, events);
+    const tmuxless = await withoutTmux(host, setup, events);
+    await computerUse(host, setup, events, grant, recorder, tmuxless);
   } finally {
     await acquired.close();
   }

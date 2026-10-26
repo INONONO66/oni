@@ -90,6 +90,30 @@
       "name": "CapacityRows"
     },
     {
+      "file": "CdpChunk.json",
+      "name": "CdpChunk"
+    },
+    {
+      "file": "CdpChunkResult.json",
+      "name": "CdpChunkResult"
+    },
+    {
+      "file": "CdpCloseRequest.json",
+      "name": "CdpCloseRequest"
+    },
+    {
+      "file": "CdpCloseResult.json",
+      "name": "CdpCloseResult"
+    },
+    {
+      "file": "CdpOpenRequest.json",
+      "name": "CdpOpenRequest"
+    },
+    {
+      "file": "CdpOpenResult.json",
+      "name": "CdpOpenResult"
+    },
+    {
       "file": "CellOutput.json",
       "name": "CellOutput"
     },
@@ -176,6 +200,18 @@
     {
       "file": "InputAction.json",
       "name": "InputAction"
+    },
+    {
+      "file": "InputKeyRequest.json",
+      "name": "InputKeyRequest"
+    },
+    {
+      "file": "InputPointerRequest.json",
+      "name": "InputPointerRequest"
+    },
+    {
+      "file": "InputTextRequest.json",
+      "name": "InputTextRequest"
     },
     {
       "file": "InputWriteRequest.json",
@@ -326,6 +362,26 @@
       "name": "Response"
     },
     {
+      "file": "ScreenCaptureRequest.json",
+      "name": "ScreenCaptureRequest"
+    },
+    {
+      "file": "ScreenCaptureResult.json",
+      "name": "ScreenCaptureResult"
+    },
+    {
+      "file": "ScreenDisplay.json",
+      "name": "ScreenDisplay"
+    },
+    {
+      "file": "ScreenListRequest.json",
+      "name": "ScreenListRequest"
+    },
+    {
+      "file": "ScreenListResult.json",
+      "name": "ScreenListResult"
+    },
+    {
       "file": "ScreenReadRequest.json",
       "name": "ScreenReadRequest"
     },
@@ -336,6 +392,42 @@
     {
       "file": "ScreenRegion.json",
       "name": "ScreenRegion"
+    },
+    {
+      "file": "ScreenWindow.json",
+      "name": "ScreenWindow"
+    },
+    {
+      "file": "StreamCloseRequest.json",
+      "name": "StreamCloseRequest"
+    },
+    {
+      "file": "StreamCloseResult.json",
+      "name": "StreamCloseResult"
+    },
+    {
+      "file": "StreamId.json",
+      "name": "StreamId"
+    },
+    {
+      "file": "StreamObservation.json",
+      "name": "StreamObservation"
+    },
+    {
+      "file": "StreamOpenRequest.json",
+      "name": "StreamOpenRequest"
+    },
+    {
+      "file": "StreamOpenResult.json",
+      "name": "StreamOpenResult"
+    },
+    {
+      "file": "StreamSignalRequest.json",
+      "name": "StreamSignalRequest"
+    },
+    {
+      "file": "StreamSignalResult.json",
+      "name": "StreamSignalResult"
     },
     {
       "file": "ToolCall.json",

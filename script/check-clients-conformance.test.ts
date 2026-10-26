@@ -8,4 +8,4 @@ test("an absent client binary fails the run instead of building one", async () =
 
 test("the prebuilt mclient conforms to the TypeScript machine host", async () => {
   expect(await runConformance(MCLIENT)).toBe(0);
-}, 180_000);
+}, 300_000);

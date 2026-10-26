@@ -1,0 +1,9 @@
+{
+  "streamId": "s",
+  "seq": 0,
+  "signal": {
+    "type": "data",
+    "label": "control",
+    "data": "not base64!"
+  }
+}

@@ -1,11 +1,12 @@
 #[path = "support/client_config.rs"]
 mod client_config;
+#[path = "support/script.rs"]
+mod script;
 #[path = "support/tmux.rs"]
 mod tmux_server;
 
 use std::{
     num::NonZeroU64,
-    os::unix::fs::PermissionsExt,
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -101,7 +102,10 @@ fn offered_capabilities_follow_exports_and_the_tmux_probe() {
             "fs.write",
             "shell.exec",
             "pty.session",
-            "agent.session"
+            "agent.session",
+            "screen.read",
+            "computer.use",
+            "input.write"
         ]
     );
     assert_eq!(
@@ -298,7 +302,9 @@ async fn filesystem_methods_gate_capability_then_granted_configured_export() {
         fixture.hooks.pressure.retained(),
         Retained {
             pty_bytes: 0,
-            transfers: 3
+            transfers: 3,
+            frame_bytes: 0,
+            stream_bytes: 0
         }
     );
     fixture.hooks.pressure.shed();
@@ -442,9 +448,11 @@ async fn terminal_methods_map_to_the_tmux_driver() {
 #[tokio::test]
 async fn terminal_driver_failures_become_error_frames() {
     let bin = tempfile::tempdir().expect("bin");
-    let tmux = bin.path().join("tmux");
-    std::fs::write(&tmux, "#!/bin/sh\n[ \"$1\" = -V ] && exit 0\nexit 1\n").expect("script");
-    std::fs::set_permissions(&tmux, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    let tmux = script::script(
+        bin.path(),
+        "tmux",
+        "#!/bin/sh\n[ \"$1\" = -V ] && exit 0\nexit 1\n",
+    );
     let pty = Pty::new(tmux.to_str().expect("utf8"), None, "g".into()).await;
     let fixture = Fixture::new(true, pty).await;
     fixture.grant(&["pty.session"], &["notes"]);
@@ -457,4 +465,330 @@ async fn terminal_driver_failures_become_error_frames() {
     assert!(answer.is_err(), "{answer:?}");
     let screen = json!({"name":"sample","source":1});
     assert!(fixture.call("machine.pty_read", screen).await.is_err());
+}
+
+#[tokio::test]
+async fn screen_methods_gate_attachment_then_capability_and_free_frames_on_teardown() {
+    use oni_machine_client::screen::{fixture::Fixture as Frames, Screen};
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let screen = Screen::new(Box::new(Frames::display(32, 16, 1.0)), 2);
+    let service = Service::open_with(&settings(false, root.path()), pty, screen).expect("service");
+    assert_eq!(
+        service.capabilities(),
+        ["shell.exec", "screen.read", "computer.use"]
+    );
+    let hooks = service.hooks(Duration::from_secs(60));
+    let call = |method: &str, params: Value| (hooks.service)(method.to_owned(), Some(params));
+    let capture = json!({"target":{"kind":"display","display":1},"encoding":{"format":"png"}});
+    let methods = [
+        ("machine.screen.list", json!({"windows":true})),
+        ("machine.screen.capture", capture),
+        ("machine.screen_read", json!({})),
+    ];
+    let not_attached = refusal("machine_not_attached");
+    for (method, params) in &methods {
+        assert_eq!(
+            call(method, params.clone()).await.expect(method),
+            not_attached
+        );
+        assert!(call(method, json!({"bogus":1})).await.is_err(), "{method}");
+    }
+    let grant = |capabilities: &[&str]| {
+        service.attached(&Negotiated {
+            generation: NonZeroU64::MIN,
+            capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
+            exports: vec![],
+        });
+    };
+    grant(&["shell.exec"]);
+    for (method, params) in &methods {
+        let answer = call(method, params.clone()).await.expect(method);
+        assert_eq!(answer, refusal("screen_not_available"), "{method}");
+    }
+    grant(&["screen.read", "computer.use"]);
+    for (method, params) in &methods {
+        let answer = call(method, params.clone()).await.expect(method);
+        assert_eq!(answer["status"], "ok", "{method}: {answer}");
+    }
+    assert!(hooks.pressure.retained().frame_bytes >= 32 * 16 * 4);
+    hooks.pressure.shed();
+    assert_eq!(hooks.pressure.retained().frame_bytes, 0);
+    call(methods[2].0, json!({})).await.expect("read");
+    assert!(hooks.pressure.retained().frame_bytes > 0);
+    service.detached();
+    assert_eq!(hooks.pressure.retained().frame_bytes, 0);
+}
+
+struct Panicking;
+
+impl oni_machine_client::screen::Source for Panicking {
+    fn ready(&self) -> Result<(), oni_machine_client::screen::Fault> {
+        Ok(())
+    }
+
+    fn displays(
+        &self,
+    ) -> Result<Vec<oni_machine_client::screen::Display>, oni_machine_client::screen::Fault> {
+        Ok(oni_machine_client::screen::fixture::Fixture::display(4, 4, 1.0).displays)
+    }
+
+    fn windows(
+        &self,
+    ) -> Result<Vec<oni_machine_client::screen::Window>, oni_machine_client::screen::Fault> {
+        Ok(vec![])
+    }
+
+    fn capture_display(
+        &self,
+        _: u32,
+        _: &mut Vec<u8>,
+    ) -> Result<(u32, u32), oni_machine_client::screen::Fault> {
+        panic!("backend panicked")
+    }
+
+    fn capture_window(
+        &self,
+        _: u32,
+        _: &mut Vec<u8>,
+    ) -> Result<(u32, u32), oni_machine_client::screen::Fault> {
+        panic!("backend panicked")
+    }
+}
+
+#[tokio::test]
+async fn a_panicking_capture_backend_becomes_an_error_frame_and_frees_its_slot() {
+    use oni_machine_client::screen::Screen;
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let screen = Screen::new(Box::new(Panicking), 1);
+    let service = Service::open_with(&settings(false, root.path()), pty, screen).expect("service");
+    service.attached(&Negotiated {
+        generation: NonZeroU64::MIN,
+        capabilities: vec!["screen.read".into()],
+        exports: vec![],
+    });
+    let hooks = service.hooks(Duration::from_secs(60));
+    for _ in 0..2 {
+        let answer = (hooks.service)("machine.screen_read".to_owned(), Some(json!({}))).await;
+        assert!(answer.is_err(), "{answer:?}");
+    }
+    assert_eq!(hooks.pressure.retained().frame_bytes, 0);
+}
+
+#[tokio::test]
+async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
+    use oni_machine_client::{
+        input::{recorder::Recorder, Input},
+        screen::{fixture::Fixture as Frames, Screen},
+    };
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let recorder = Recorder::default();
+    let screen = Screen::new(Box::new(Frames::display(32, 16, 1.0)), 2);
+    let input = Input::new(recorder.clone());
+    let service =
+        Service::open_computer(&settings(false, root.path()), pty, screen, input).expect("service");
+    assert_eq!(
+        service.capabilities(),
+        ["shell.exec", "screen.read", "computer.use", "input.write"]
+    );
+    let hooks = service.hooks(Duration::from_secs(60));
+    let call = |method: &str, params: Value| (hooks.service)(method.to_owned(), Some(params));
+    let grant = |capabilities: &[&str]| {
+        service.attached(&Negotiated {
+            generation: NonZeroU64::MIN,
+            capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
+            exports: vec![],
+        });
+    };
+    let requests = |capture: &str| {
+        [
+            (
+                "machine.input.pointer",
+                json!({"kind":"click","captureId":capture,"x":31,"y":15,"button":"left","count":1}),
+            ),
+            (
+                "machine.input.key",
+                json!({"captureId":capture,"key":"Enter","action":"press"}),
+            ),
+            (
+                "machine.input.text",
+                json!({"captureId":capture,"text":"hi"}),
+            ),
+            (
+                "machine.input_write",
+                json!({"captureId":capture,"actions":[{"move":{"x":0,"y":0}}]}),
+            ),
+        ]
+    };
+    for (method, params) in requests("cap-1") {
+        let answer = call(method, params).await.expect(method);
+        assert_eq!(answer, refusal("machine_not_attached"), "{method}");
+        assert!(call(method, json!({"bogus":1})).await.is_err(), "{method}");
+    }
+    grant(&["shell.exec", "screen.read"]);
+    for (method, params) in requests("cap-1") {
+        let answer = call(method, params).await.expect(method);
+        assert_eq!(answer, refusal("input_not_available"), "{method}");
+    }
+    grant(&["screen.read", "computer.use", "input.write"]);
+    let capture = json!({"target":{"kind":"display","display":1},"encoding":{"format":"png"}});
+    let shot = call("machine.screen.capture", capture.clone())
+        .await
+        .expect("capture");
+    let anchor = shot["captureId"].as_str().expect("capture id").to_owned();
+    for (method, params) in requests(&anchor) {
+        let answer = call(method, params).await.expect(method);
+        assert_eq!(answer, json!({"status":"ok"}), "{method}");
+    }
+    let injected = recorder.events().len();
+    assert_eq!(injected, 7);
+    let out = json!({"kind":"move","captureId":anchor,"x":32,"y":0});
+    let answer = call("machine.input.pointer", out).await.expect("pointer");
+    assert_eq!(answer, refusal("invalid_region"));
+
+    grant(&["screen.read"]);
+    for (method, params) in requests(&anchor) {
+        let answer = call(method, params).await.expect(method);
+        assert_eq!(answer, refusal("input_not_available"), "{method}");
+    }
+    service.detached();
+    grant(&["screen.read", "computer.use", "input.write"]);
+    for (method, params) in requests(&anchor) {
+        let answer = call(method, params).await.expect(method);
+        assert_eq!(answer, refusal("stale_capture"), "{method}");
+    }
+    assert_eq!(recorder.events().len(), injected);
+}
+
+#[tokio::test]
+async fn input_write_is_not_offered_without_an_input_driver() {
+    use oni_machine_client::screen::{fixture::Fixture as Frames, Screen};
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let screen = Screen::new(Box::new(Frames::display(8, 8, 1.0)), 1);
+    let service = Service::open_with(&settings(false, root.path()), pty, screen).expect("service");
+    assert_eq!(
+        service.capabilities(),
+        ["shell.exec", "screen.read", "computer.use"]
+    );
+    service.attached(&Negotiated {
+        generation: NonZeroU64::MIN,
+        capabilities: vec!["computer.use".into(), "input.write".into()],
+        exports: vec![],
+    });
+    let hooks = service.hooks(Duration::from_secs(60));
+    let text = json!({"captureId":"cap-1","text":"x"});
+    let answer = (hooks.service)("machine.input.text".to_owned(), Some(text)).await;
+    assert_eq!(answer, Ok(refusal("input_not_available")));
+    let write = json!({"captureId":"cap-1","actions":[{"type":{"text":"x"}}]});
+    let answer = (hooks.service)("machine.input_write".to_owned(), Some(write)).await;
+    assert_eq!(answer, Ok(refusal("input_not_available")));
+}
+
+#[tokio::test]
+async fn a_panicking_input_driver_fails_the_call_without_taking_the_client_down() {
+    use oni_machine_client::{
+        input::{Driver, Event, Input},
+        screen::{fixture::Fixture as Frames, Screen},
+    };
+    struct Panics;
+    impl Driver for Panics {
+        fn permitted(&self) -> bool {
+            true
+        }
+        fn inject(&mut self, _event: &Event) -> Result<(), String> {
+            panic!("driver fault")
+        }
+    }
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "p".into()).await;
+    let screen = Screen::new(Box::new(Frames::display(32, 16, 1.0)), 2);
+    let service = Service::open_computer(
+        &settings(false, root.path()),
+        pty,
+        screen,
+        Input::new(Panics),
+    )
+    .expect("service");
+    let hooks = service.hooks(Duration::from_secs(60));
+    service.attached(&Negotiated {
+        generation: NonZeroU64::MIN,
+        capabilities: vec!["screen.read".into(), "computer.use".into()],
+        exports: vec![],
+    });
+    let capture = json!({"target":{"kind":"display","display":1},"encoding":{"format":"png"}});
+    let shot = (hooks.service)("machine.screen.capture".to_owned(), Some(capture))
+        .await
+        .expect("capture");
+    let anchor = shot["captureId"].as_str().expect("capture id").to_owned();
+    let text = json!({"captureId":anchor,"text":"x"});
+    let failed = (hooks.service)("machine.input.text".to_owned(), Some(text.clone())).await;
+    assert!(failed.expect_err("worker panic").contains("panic"));
+    let again = (hooks.service)("machine.input.text".to_owned(), Some(text)).await;
+    assert!(again.expect_err("still faulting").contains("panic"));
+}
+
+#[tokio::test]
+async fn held_input_is_released_on_detach_and_on_a_withdrawn_grant() {
+    use oni_machine_client::{
+        input::{recorder::Recorder, Event, Input, Key, Named},
+        screen::{fixture::Fixture as Frames, Screen},
+    };
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let recorder = Recorder::default();
+    let screen = Screen::new(Box::new(Frames::display(32, 16, 1.0)), 2);
+    let service = Service::open_computer(
+        &settings(false, root.path()),
+        pty,
+        screen,
+        Input::new(recorder.clone()),
+    )
+    .expect("service");
+    let hooks = service.hooks(Duration::from_secs(60));
+    let call = |method: &str, params: Value| (hooks.service)(method.to_owned(), Some(params));
+    let grant = |capabilities: &[&str]| {
+        service.attached(&Negotiated {
+            generation: NonZeroU64::MIN,
+            capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
+            exports: vec![],
+        });
+    };
+    let shift = |down| Event::Key {
+        key: Key::Named(Named::Shift),
+        down,
+    };
+    let hold = || async {
+        let capture = json!({"target":{"kind":"display","display":1},"encoding":{"format":"png"}});
+        let shot = call("machine.screen.capture", capture)
+            .await
+            .expect("capture");
+        let anchor = shot["captureId"].as_str().expect("capture id").to_owned();
+        let down = json!({"captureId":anchor,"key":"Shift","action":"down"});
+        let answer = call("machine.input.key", down).await.expect("key");
+        assert_eq!(answer, json!({"status":"ok"}));
+    };
+    grant(&["screen.read", "computer.use"]);
+    hold().await;
+    service.detached();
+    assert_eq!(
+        recorder.events(),
+        [shift(true), shift(false)],
+        "detach releases"
+    );
+    grant(&["screen.read", "computer.use"]);
+    assert_eq!(
+        recorder.events().len(),
+        2,
+        "a reconnect inherits nothing held"
+    );
+    hold().await;
+    grant(&["screen.read"]);
+    assert_eq!(
+        recorder.events(),
+        [shift(true), shift(false), shift(true), shift(false)],
+        "a withdrawn computer.use releases"
+    );
 }

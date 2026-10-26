@@ -1,0 +1,10 @@
+{
+  "target": {
+    "kind": "display",
+    "display": 1
+  },
+  "encoding": {
+    "format": "png"
+  },
+  "maxBytes": 4194305
+}

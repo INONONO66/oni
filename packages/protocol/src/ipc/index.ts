@@ -140,6 +140,30 @@ const methods = {
   [Machine.WireMethod.AgentPermission]: {
     params: Machine.AgentPermissionRequest, result: Machine.AgentPermissionDecision,
   },
+  /**
+   * Computer use (#1662), all gated by `computer.use` in the effective set.
+   * Host → peer: screen list/capture, typed input (answered with the legacy
+   * `InputWriteResult` vocabulary), stream open and cdp open. Either
+   * direction: stream signal/close and cdp chunk/close, so both sides share
+   * one entry per method.
+   */
+  [Machine.WireMethod.ScreenList]: { params: Machine.ScreenListRequest, result: Machine.ScreenListResult },
+  [Machine.WireMethod.ScreenCapture]: {
+    params: Machine.ScreenCaptureRequest,
+    result: Machine.ScreenCaptureResult,
+  },
+  [Machine.WireMethod.InputPointer]: { params: Machine.InputPointerRequest, result: Machine.InputWriteResult },
+  [Machine.WireMethod.InputKey]: { params: Machine.InputKeyRequest, result: Machine.InputWriteResult },
+  [Machine.WireMethod.InputText]: { params: Machine.InputTextRequest, result: Machine.InputWriteResult },
+  [Machine.WireMethod.StreamOpen]: { params: Machine.StreamOpenRequest, result: Machine.StreamOpenResult },
+  [Machine.WireMethod.StreamSignal]: {
+    params: Machine.StreamSignalRequest,
+    result: Machine.StreamSignalResult,
+  },
+  [Machine.WireMethod.StreamClose]: { params: Machine.StreamCloseRequest, result: Machine.StreamCloseResult },
+  [Machine.WireMethod.CdpOpen]: { params: Machine.CdpOpenRequest, result: Machine.CdpOpenResult },
+  [Machine.WireMethod.CdpChunk]: { params: Machine.CdpChunk, result: Machine.CdpChunkResult },
+  [Machine.WireMethod.CdpClose]: { params: Machine.CdpCloseRequest, result: Machine.CdpCloseResult },
 };
 
 export namespace Ipc {

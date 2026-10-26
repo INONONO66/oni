@@ -1,0 +1,8 @@
+{
+  "channelId": "c",
+  "endpoint": {
+    "kind": "launch",
+    "manifest": "../bin"
+  },
+  "lifetimeMs": 1000
+}

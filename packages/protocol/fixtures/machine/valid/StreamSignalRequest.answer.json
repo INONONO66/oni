@@ -1,0 +1,8 @@
+{
+  "streamId": "stream-1",
+  "seq": 0,
+  "signal": {
+    "type": "answer",
+    "sdp": "v=0\r\n"
+  }
+}

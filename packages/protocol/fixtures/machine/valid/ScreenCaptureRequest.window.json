@@ -1,0 +1,11 @@
+{
+  "target": {
+    "kind": "window",
+    "windowId": "w-42"
+  },
+  "encoding": {
+    "format": "jpeg",
+    "quality": 1
+  },
+  "maxBytes": 4194304
+}

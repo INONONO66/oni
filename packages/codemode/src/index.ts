@@ -1,4 +1,5 @@
 import { MachinesFailure, MachineRefusalError, type LeaseHandle, type LeaseClass, type CodeRunner, type MachineError, type MachineHandle, type MachineHost, type MachineInfo } from "@oni/machines";
+import type { ChannelListeners, ComputerChannel, ComputerHandle, ComputerStream, StreamListeners } from "@oni/machines";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { listenForAbort, Machine } from "@oni/protocol";
 import { Deferred, Effect, Exit, Fiber, Scope } from "effect";
@@ -154,6 +155,51 @@ export function createCodemode(options: CodemodeOptions) {
           resize: (name: string, cols: number, rows: number) => pty(name, Effect.suspend(() => target().pty.resize(name, cols, rows))),
           close: (name: string) => pty(name, Effect.suspend(() => target().pty.close(name))),
           list: () => useMachine(binding, Effect.suspend(() => target().pty.list()), "pty"),
+        },
+        computer: computerHandle(id, target, binding),
+      };
+    }
+    /**
+     * Computer use (#1662): the host's `MachineHandle.computer` under the
+     * wire op names, every call (including each later stream signal and
+     * channel send) behind the same lease fence as the other handle methods.
+     * The host keeps the grant, enrollment and input-capture checks.
+     */
+    function computerHandle(id: string, target: () => MachineHandle, binding: { machineId: string; leaseId?: string | null }) {
+      const fenced = <T>(operation: Effect.Effect<T, Failure>) => useMachine(binding, operation, "exec");
+      const use = <T>(operation: (computer: ComputerHandle) => Effect.Effect<T, Failure>) => fenced(Effect.suspend(() => {
+        const computer = target().computer;
+        return computer === undefined
+          ? Effect.fail(new CodemodeError({ reason: "computer_not_bound", message: `machine ${id} exposes no computer surface` }))
+          : operation(computer);
+      }));
+      const stream = (open: ComputerStream) => ({
+        streamId: open.streamId, expiresAt: open.expiresAt,
+        signal: (signal: Machine.StreamSignalRequest["signal"]) => fenced(open.signal(signal)),
+        close: () => fenced(open.close()),
+      });
+      const channel = (open: ComputerChannel) => ({
+        channelId: open.channelId, expiresAt: open.expiresAt,
+        send: (data: Uint8Array) => fenced(open.send(data)),
+        close: () => fenced(open.close()),
+      });
+      return {
+        screen: {
+          list: (request?: Machine.ScreenListRequest) => use((computer) => computer.list(request)),
+          capture: (request: Machine.ScreenCaptureRequest) => use((computer) => computer.capture(request)),
+        },
+        input: {
+          pointer: (request: Machine.InputPointerRequest) => use((computer) => computer.pointer(request)),
+          key: (request: Machine.InputKeyRequest) => use((computer) => computer.key(request)),
+          text: (request: Machine.InputTextRequest) => use((computer) => computer.text(request)),
+        },
+        stream: {
+          open: (request: Omit<Machine.StreamOpenRequest, "streamId">, listeners: StreamListeners) =>
+            use((computer) => computer.stream.open(request, listeners)).pipe(Effect.map((opened) => "status" in opened ? opened : stream(opened))),
+        },
+        cdp: {
+          open: (request: Omit<Machine.CdpOpenRequest, "channelId">, listeners: ChannelListeners) =>
+            use((computer) => computer.cdp.open(request, listeners)).pipe(Effect.map((opened) => "status" in opened ? opened : channel(opened))),
         },
       };
     }

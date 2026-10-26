@@ -1,0 +1,7 @@
+{
+  "streamId": "stream-1",
+  "seq": 254,
+  "signal": {
+    "type": "end_of_candidates"
+  }
+}
