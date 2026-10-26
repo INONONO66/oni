@@ -7,14 +7,18 @@ use std::{
     fs,
     future::Future,
     io::{self, Read as _},
-    os::unix::fs::PermissionsExt,
-    path::Path,
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{DirBuilderExt, PermissionsExt},
+    },
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
 
 use oni_protocol::{decode, AgentPermissionDecision, AgentPermissionRequest, DecodeError};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio::{
     io::AsyncReadExt as _,
     net::{UnixListener, UnixStream},
@@ -33,6 +37,9 @@ pub const ASK_DEADLINE: Duration = Duration::from_secs(150);
 pub const MAX_REQUEST_BYTES: u64 = 64 * 1024;
 
 pub const MAX_INPUT_BYTES: u64 = 16 * 1024 * 1024;
+
+/// `sun_path` is 104 bytes on macOS and 108 on Linux; reserve one for NUL.
+pub const SUN_PATH_LIMIT: usize = if cfg!(target_os = "linux") { 107 } else { 103 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Verdict {
@@ -93,6 +100,40 @@ pub fn bind(path: &Path) -> io::Result<UnixListener> {
     let listener = UnixListener::bind(path)?;
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     Ok(listener)
+}
+
+/// Resolve the path advertised to CLI hooks, using a private short directory
+/// when the config-relative socket would exceed the Unix address limit.
+pub fn socket_path(config_dir: &Path) -> io::Result<PathBuf> {
+    let canonical_socket = config_dir.join(crate::config::AGENT_HOOK_SOCKET);
+    if canonical_socket.as_os_str().as_bytes().len() < SUN_PATH_LIMIT {
+        return Ok(canonical_socket);
+    }
+    let canonical_dir = fs::canonicalize(config_dir)?;
+    let digest = Sha256::digest(canonical_dir.as_os_str().as_bytes());
+    let short_dir = std::env::temp_dir().join(format!("oni-mclient-{}", hex::encode(&digest[..8])));
+    let short_socket = short_dir.join(crate::config::AGENT_HOOK_SOCKET);
+    if short_socket.as_os_str().as_bytes().len() >= SUN_PATH_LIMIT {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "hook socket paths exceed sun_path: {} and {}",
+                canonical_socket.display(),
+                short_socket.display()
+            ),
+        ));
+    }
+    match fs::DirBuilder::new().mode(0o700).create(&short_dir) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            if !fs::symlink_metadata(&short_dir)?.file_type().is_dir() {
+                return Err(error);
+            }
+            fs::set_permissions(&short_dir, fs::Permissions::from_mode(0o700))?;
+        }
+        Err(error) => return Err(error),
+    }
+    Ok(short_socket)
 }
 
 /// Answer one request per connection until the task is dropped.

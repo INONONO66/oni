@@ -15,6 +15,7 @@ use std::{
 };
 
 use oni_machine_client::{
+    agent::hook,
     attach::{self, offer, result, run_with_probe, AttachError, Attachment, Hooks, Outcome},
     budget::{self, Budget, BudgetAction, Metrics, NoRetention, Pressure, Retained, StreamTotals},
     config::{self, ClientConfig, Export, JoinOptions},
@@ -1259,6 +1260,80 @@ async fn attach_grant_reaches_handlers_and_detach_revokes_it() {
     assert_eq!(outcome.expect("ended"), Outcome::Ended);
     let answer = (hooks.service)("machine.fs_op".into(), Some(read)).await;
     assert_eq!(answer.expect("refusal")["reason"], "fs_not_available");
+}
+
+#[tokio::test]
+async fn run_default_attaches_with_a_long_config_directory() {
+    let mut host = FakeHost::unix().await;
+    let home = tempfile::tempdir().expect("client home");
+    let directory = home.path().join("nested".repeat(20)).join("self");
+    assert!(directory.join("hook.sock").to_string_lossy().len() > 120);
+    let mut settings = unix_settings(&host, &directory).await;
+    settings.exports.clear();
+    config::save(&settings, &directory).expect("save without unrelated exports");
+    let path = directory.join("client.json");
+    let run = attach::run_default(Some(&path));
+    tokio::pin!(run);
+    let exchange = async {
+        let request = expect(&mut host, "machine.attach").await;
+        let socket = hook::socket_path(&directory).expect("advertised hook socket");
+        assert!(socket.starts_with(std::env::temp_dir()));
+        assert!(socket.to_string_lossy().len() < hook::SUN_PATH_LIMIT);
+        assert_eq!(
+            std::fs::metadata(socket.parent().expect("socket directory"))
+                .expect("private directory")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(&socket)
+                .expect("bound socket")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        tokio::net::UnixStream::connect(&socket)
+            .await
+            .expect("hook connects through advertised path");
+        host.send(attached(&request, 1)).await;
+        let report = expect(&mut host, "machine.report").await;
+        host.send(reply(
+            &report,
+            json!({"status":"refused","reason":"machine_not_attached"}),
+        ))
+        .await;
+        let mut host = host.reopen().await;
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(reply(
+            &request,
+            json!({"status":"refused","reason":"unsupported_contract"}),
+        ))
+        .await;
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::select! {
+            biased;
+            () = exchange => {}
+            outcome = &mut run => panic!("client stopped before attachment: {outcome:?}"),
+        }
+    })
+    .await
+    .expect("attachment exchange");
+    let outcome = run.await;
+    assert!(
+        matches!(outcome, Err(AttachError::Terminal(_))),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn short_config_directory_keeps_its_hook_socket_in_place() {
+    let directory = tempfile::tempdir().expect("client directory");
+    let socket = hook::socket_path(directory.path()).expect("hook socket");
+    assert_eq!(socket, directory.path().join("hook.sock"));
 }
 
 #[tokio::test]

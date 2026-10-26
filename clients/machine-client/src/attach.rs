@@ -528,7 +528,7 @@ pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
         format!("{generation:016x}"),
     )
     .await;
-    let socket = directory.join(config::AGENT_HOOK_SOCKET);
+    let socket = hook::socket_path(directory)?;
     let options = AgentOptions {
         registry: directory.to_path_buf(),
         home: config::home(),
