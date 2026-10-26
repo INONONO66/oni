@@ -141,6 +141,98 @@ the same raw endpoint; the plain-tool locus door belongs to #949.
   handles. `codemode.screen` is query-class at the app composition boundary;
   `codemode.input` is execution-class.
 
+### 2.2.1 Computer use as one capability (`computer.use`, #1662)
+
+`screen.read` and `input.write` above stay as the frozen legacy pair with
+their main-display, single-batch contract. The client peer offers a second,
+wider surface under one capability id, `computer.use`, which the Owner
+grants in `Enrollment.allowedCapabilities` and the peer offers only while it
+has a permitted display session. Admission uses the effective set,
+enrollment ∩ offer, and an offer alone never grants anything. The id neither
+implies `screen.read`/`input.write` nor is implied by them.
+`Machine.contractVersion` stays 2: every addition is a new method, a new
+root or one optional `Report.streams` field, so a v2 peer that does not
+offer `computer.use` is never sent the new methods.
+
+- **Methods.** `machine.screen.list` and `machine.screen.capture`,
+  `machine.input.pointer` (`move|click|button|scroll`), `machine.input.key`,
+  `machine.input.text`, `machine.stream.open|signal|close` and
+  `machine.cdp.open|chunk|close`. Every result is a typed `refused` union
+  with a closed reason enum; nothing on this surface is `unknown`.
+- **Screen.** Listing caps at 16 displays and 512 windows with a
+  `truncated` flag, titles at 256 characters. A capture targets a display, a
+  window or a display-relative region, as PNG or JPEG (quality 1..100), and
+  is at most 4 MiB as base64: the peer downscales and re-encodes until the
+  bytes fit and never truncates. Dimensions and coordinates are capped at
+  16384. Refusals: `screen_not_available`, `permission_denied`,
+  `display_not_found`, `window_not_found`, `invalid_region`,
+  `capture_failed` (a saturated frame pool answers this reason too; it
+  never queues).
+- **Input.** Every request names a `captureId`. The anchor is only the
+  latest capture of a display whose geometry has not changed; anything else
+  refuses `stale_capture`. Permission, anchor and the whole plan (every
+  point, key name, text length, scroll delta of at most 10000) are validated
+  before the first event is injected, and a driver that fails mid-plan
+  releases every button or key it pressed. A key or button a request leaves
+  down stays down across requests until released, and is released in
+  reverse on detach and when a grant withdraws `computer.use`. Input requires a captured
+  `tool.pre` effect on the host: the host calls the injected `captureInput`
+  port and forwards only from inside its executed body; without a port it
+  refuses `permission_denied`. Every input call is captured, including
+  one the host then refuses. At forward time it rechecks attachment,
+  generation and grant (`permission_denied`, `stale_generation`,
+  `disconnected`). Client-side refusals: `input_not_available`,
+  `permission_denied`, `stale_capture`, `invalid_region`,
+  `unsupported_action`, `input_failed`.
+- **Stream lifecycle.** `stream.open` carries fps (at most 60), a keyframe
+  interval between 100 ms and 60 s, a bitrate cap (at most 50 Mb/s), a
+  per-frame cap (2 MiB, larger frames are dropped whole), a longest edge of
+  at least 2 pixels and a lifetime (at
+  most 1 h). The host mints the `streamId` and holds at most 4 open streams
+  per attachment (`stream_limit`). Signalling is typed `offer`, `answer`,
+  `candidate`, `end_of_candidates` and `data` records (SDP at most 64 KiB,
+  a candidate at most 1024 characters, data at most 16383 bytes) with a per-
+  direction `seq` below 256: repeating the last accepted record is
+  idempotent, a refused record may be resent corrected under the same
+  `seq`, any other mismatch refuses `invalid_sequence`, an overflow
+  `signal_limit`. A viewer candidate with an mDNS `.local` address is
+  skipped; the peer learns the viewer peer-reflexively from its checks. The peer encodes H.264
+  and sends it over SRTP, adapts bitrate inside the host's bounds from the
+  receiver estimate and from a full send buffer, and answers viewer
+  keyframe requests. The stream closes with `expired` at its lifetime,
+  `failed` on revoke, memory pressure, a lost source or a silent peer, and
+  `detached` on detach. `Report.streams` observes fps, bytesPerSecond,
+  encodeMs, droppedFrames and retainedBytes per open stream; retained bytes
+  return to 0 after every close.
+- **CDP lifecycle.** `cdp.open` names a configured port or a launch entry
+  from a data manifest (`cdp.json` beside the client config, entry names
+  `^[a-z][a-z0-9_-]*$`); an absent manifest refuses `cdp_not_available`, an
+  unknown entry `manifest_not_found`, and a launch runs only the manifest's
+  `binary` + `argv` with nothing interpolated from the request. The peer
+  discovers the endpoint over loopback (`GET /json/version`, 64 KiB body
+  bound), accepts only a `ws://` URL on `127.0.0.1` or `localhost` at that same port,
+  upgrades the WebSocket itself and then forwards opaque bytes both ways as
+  sequenced chunks of at most 262143 bytes (`machine.cdp.chunk` in each
+  direction, each chunk answered before the next read). The host attaches
+  no meaning to chunk boundaries and contains no browser logic; the peer holds
+  at most 4 channels (`channel_limit`), closes on lifetime (at most 1 h), on
+  either side's `close`, on a refused or lost uplink, and kills launched
+  processes on detach. A reconnect starts with an empty registry.
+- **Vendor rule.** The tracked surface names no browser or input vendor:
+  the browser-aware code lives in one dialect module on the client and the
+  native capture and input backends sit behind platform-gated adapters
+  with a fixture layout and a JSONL recorder for headless runs.
+- **Consumer.** As with 2.2 there is no model-visible tool. The host
+  exposes the surface as `host.native.get(id).computer` (`ComputerHandle`);
+  code mode hands it on as `getMachine(id).computer` with the wire op names
+  (`screen.list|capture`, `input.pointer|key|text`, `stream.open` returning
+  `signal`/`close`, `cdp.open` returning `send`/`close`), every call behind
+  the handle's lease fence. Migrating the legacy `screen`/`input` callers
+  onto this surface is later work (see `docs/implementation-status.md`).
+  A live macOS run (Screen Recording and Accessibility granted, a real
+  browser viewer) has not been observed; that acceptance belongs to epic
+  #1622.
+
 ### 2.3 Network transport (#1270)
 
 The host owns a listener SET feeding one attachment registry: the unix socket

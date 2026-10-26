@@ -1,5 +1,150 @@
 # Implementation Status
 
+## #1662 machine client P5: computer use on the client peer (epic #1622, PR pending)
+
+On `feat/1662-machine-client-p5-computer-use` (2026-10-25, base
+`325a8b7db`). The "not shipped: screen reading and input injection on the
+client" line of the #1626 section below is superseded. Target contract:
+`docs/machines-and-delegation.md` 2.2.1.
+
+**Wire.** `packages/protocol/src/machine/schema.ts` adds
+`WellKnownCapability.computerUse = "computer.use"`, eleven `WireMethod`
+entries (`machine.screen.list|capture`, `machine.input.pointer|key|text`,
+`machine.stream.open|signal|close`, `machine.cdp.open|chunk|close`), 23
+roots with their bounds as exported constants (`SCREEN_LIST_MAX_DISPLAYS`
+16, `SCREEN_LIST_MAX_WINDOWS` 512, captures share `SCREEN_PNG_MAX_BYTES` 4 MiB,
+`INPUT_SCROLL_MAX_DELTA` 10000, `STREAM_MAX_CONCURRENT` 4, `STREAM_MAX_FPS`
+60, `STREAM_MAX_BITRATE_BPS` 50 Mb/s, `STREAM_FRAME_MAX_BYTES` 2 MiB,
+`STREAM_KEYFRAME_MIN_MS`/`MAX_MS` 100 ms..60 s, `STREAM_MAX_LIFETIME_MS`
+1 h, `STREAM_MAX_SIGNALS` 256, `STREAM_SDP_MAX_CHARS` 64 KiB,
+`STREAM_CANDIDATE_MAX_CHARS` 1024, `STREAM_DATA_MAX_BYTES` 16383 and
+`CDP_CHUNK_MAX_BYTES` 262143 decoded bytes, multiples of 3 so the base64
+length bound admits exactly that many, `CDP_MAX_LIFETIME_MS` 1 h; a stream's
+`maxDimension` is at least 2 because video frames need even sides) and an optional
+`Report.streams`. `Machine.contractVersion` stays 2 and `contract.ts` is
+untouched. `packages/protocol/src/ipc/index.ts` gains the eleven
+`Ipc.Methods` entries. The export under `packages/protocol/schema/machine/`
+is regenerated (96 files, `--check` current) with 54 new valid and 46 new
+invalid fixtures, consumed by both `packages/protocol/test/machine-contract.test.ts`
+and the Rust `decode_fixture!` list in `clients/protocol/tests/fixtures.rs`.
+The legacy `machine.screen_read`/`machine.input_write` pair is unchanged and
+still the only surface `packages/machines/src/computer-use.ts` and the
+Python prelude call; `packages/codemode` hands the new surface on as
+`getMachine(id).computer` (`screen.list|capture`, `input.pointer|key|text`,
+`stream.open` then `signal`/`close`, `cdp.open` then `send`/`close`), each
+call behind the handle's lease fence.
+
+**Host.** `packages/machines/src/host.ts` exposes
+`host.native.get(id).computer: ComputerHandle`: `list`/`capture` relay the
+screen methods and parse the answers against the result schemas;
+`pointer`/`key`/`text` go through the injected `captureInput(request,
+forward)` port and the host forwards only inside `forward`, refusing
+`permission_denied` without a port and rechecking attachment, generation
+and grant at forward time (`permission_denied`, `stale_generation`,
+`disconnected`); `stream.open` mints the relay id and bounds concurrency
+(`stream_limit`), signals per stream (`signal_limit`) and lifetime
+(`stream_expired`), with `invalid_sequence`/`stream_not_found` on peer
+records and `invalid_response` on a forged id; `cdp.open` is an opaque
+`{channelId, send, close}`. The grant needs enrollment ∩ offer plus an
+available display; no grant answers `permission_denied` (`cdp_not_available`
+for cdp), no display or capability answers `*_not_available`. Detach or
+disconnect ends open relays `detached`; a grant that withdraws
+`computer.use` retires every open stream and channel `revoked` in both
+directions (the peer is sent `requested` closes, later records refuse
+`stream_not_found`). Every input call is captured as `tool.pre` before
+it is answered, including ones the host then refuses while detached,
+stale or ungranted. `apps/oni/src/index.ts` passes a
+`captureInput` that runs `executor.run({kind: "tool", op, ...})` so
+`tool.pre` captures the effect; outside an invocation it refuses
+`permission_denied` and forwards nothing, and a compiled `pre` deny row on
+`machine.input.text` is tested to forward 0 and refuse `blocked_pre`.
+Binding this port to the agent's permission surface in the app is tracked
+as #1665.
+
+**Client.** `clients/machine-client/src/screen/` (`Source` port, 2-slot
+frame pool that refuses `capture_failed` when saturated and frees on
+detach or shed, crop plus
+box-filter downscale and PNG/JPEG re-encode until the byte cap holds,
+`fixture.rs` headless adapter, `native.rs` macOS-only over xcap with a
+`CGPreflightScreenCaptureAccess` preflight), `input/` (vendor-neutral
+`Driver`/`Event`/`Key` vocabulary, `native.rs` over enigo with
+`AXIsProcessTrusted` and never a prompt, `recorder.rs` JSONL driver,
+whole-plan validation under the driver lock, pressed keys released on a
+mid-plan fault, keys and buttons a request leaves down held across
+requests and released in reverse on detach and on a withdrawn
+`computer.use`, `spawn_blocking` panic isolation), `stream/` (str0m sans-I/O
+SRTP driven on the caller's clock over one UDP socket, a viewer's mDNS
+`.local` candidate skipped and the viewer learned peer-reflexively, only
+the last accepted signal seq replayed and a refused one resendable
+corrected, a stream awaiting its offer ack metered at its frame and session
+bytes, openh264 H.264
+Annex-B from the frame pool, bitrate halved and the frame dropped on a full
+send buffer, `expired`/`failed`/detach teardown, `StreamTotals` in
+`metrics.jsonl` and at most 4 `machine.report.streams`), `cdp/`
+(`chromium.rs` is the one browser-aware module: `/json/version` discovery,
+loopback-only endpoint selection, manifest-only launch waiting for the
+`DevTools listening on` line; `tunnel.rs` does the GET, the WebSocket
+upgrade with a computed accept key and the 262143-byte chunking;
+`manifest.rs` reads `cdp.json`, and an absent manifest refuses
+`cdp_not_available`) and `computer.rs` (an
+optional `computer: {layout, recorder}` block in `client.json` selects the
+fixture backends; absent keeps the platform ones; `computer_layout_missing`,
+`computer_layout_invalid`, `computer_config_invalid` exit 2). `handlers.rs`
+adds `screen.read` and `computer.use` to `SUPPORTED`, offers them only with
+an available screen (`input.write` and `computer.use` input also need a
+permitted driver), and routes the new methods as appended match arms behind
+the attachment-then-capability gate. Linux has a native input backend
+(`Input::platform()`, absent without a display server) but no native screen
+backend; the fixture adapters drive the same bounds, encode and pool paths.
+
+**Conformance.** `script/check-clients-conformance.ts` keeps receipts 1-10
+and appends a `computerUse()` stage (`script/conformance/computer/`) that
+restarts the built `mclient` with a fixture `computer` block, a report tap
+and a recorder path: receipts 11-21 cover the offered caps, display and
+window listing, PNG/JPEG/downscaled captures with IHDR and digest checks
+and `display_not_found`, eight recorded input events captured as `tool.pre`
+`machine.input.*` ops, the `permission_denied`/revoked/`stale_capture`
+refusals, a `Bun.WebView` viewer that negotiates H.264 (1 client and 1
+viewer ICE candidate) and receives 30 encoded frames with 7 keyframes,
+`machine.report` stream observations matching `metrics.jsonl`, a fake
+DevTools endpoint echoing 263,143 opaque bytes in two bounded chunks with
+an oversize chunk refused and `manifest_not_found`, `stream_limit` and
+`channel_limit` on the fifth open, and detach releasing 8 relays with a
+clean reconnect. Every step subscribes to its exact event first; there are
+no sleeps. Receipts 16-17 depend on WebView WebRTC and were verified on
+macOS WebKit only; Linux CI support for them is unverified.
+
+**Verification (final tree after the review fixes; node reports under the
+campaign's `waves/mc-p5/`).** On macOS `cargo llvm-cov --workspace --tests
+--locked --fail-under-lines 100 --ignore-filename-regex
+'screen/native\.rs|input/native\.rs'` exits 0 at 100.00% lines (6914/6914);
+the two excluded files are the native backends a headless run cannot drive.
+An earlier n5 run of the unexcluded command in a `rust:1.98` Linux container
+exited 0 (6798/6798); it was not repeated on the final tree. `clients:lint`
+(fmt plus clippy `-D warnings -D clippy::unwrap_used`) exits 0; `cargo test
+--workspace --locked` 257 passed; `bun run clients:conformance` prints
+`clients conformance: 21 checks passed`; `packages/protocol` 1050 pass,
+`packages/machines` 358 pass with 1 skip (`host.ts` 100% lines, 99.53%
+functions), `packages/codemode` 61 pass with 1 failure, the host-only
+`browser.test.ts` that needs playwright; `check-types`, `lint`,
+`lint:docs`, `check-effect-boundaries`, `check-deps`, import cycles,
+topology, dead exports and the schema generator `--check` exit 0.
+
+**Not observed, outstanding.** No live macOS run: `screen/native.rs` and
+`input/native.rs` have not been exercised against a real display with
+Screen Recording and Accessibility granted to the `mclient` binary, no
+real browser viewer has received a live stream, and no real browser has
+been launched or tunnelled over CDP; every frame, event and byte in the
+receipts above came from the fixture layout, the recorder and the fake
+DevTools endpoint. Also not shipped: the migration of the legacy
+`screen_read`/`input_write` callers onto `ComputerHandle`; a typed wire reason for frame-pool saturation (it surfaces as
+`capture_failed` "frame pool saturated"); a Linux native screen backend; `apps/oni/test/machine-input-capture.test.ts` runs only when
+paired with `test/app-surface.test.ts` because of the pre-existing #1644
+macro load-order failure (`roleText is not defined`, reproducible on main);
+the terminal receipts still run over the default tmux server, whose socket
+ownership is #1666; `packages/protocol/AGENTS.md` still quotes the pre-P5
+fixture counts.
+
 ## #1629 machine client P4: agent sessions, cursor sync, the permission bridge and `@oni/sync` (epic #1622, PR pending)
 
 On `feat/1629-machine-client-p4-session-sync` (2026-10-25, base `325a8b7db`
@@ -215,6 +360,7 @@ modules, 0 cycles), `check-dead-exports` ("none new"), `check-topology` and
 checks passed`, `check-clients-conformance.ts` 379/379 and
 `conformance/agent/sessions.ts` 322/322 lines.
 
+||||||| parent of 4b1ec560a (docs: machine client P5 computer use - stamp, implementation status, machines-and-delegation (#1662))
 ## #1626 machine client P3: transport, attach and the daemon-parity drivers (epic #1622, PR pending)
 
 On `feat/1626-machine-client-p3-transport` (2026-10-25, base `690f14487`).
