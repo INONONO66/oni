@@ -99,6 +99,13 @@ export const WireMethod = {
   PtyList: "machine.pty_list",
   /** Daemon → host wake-up; carries no authoritative output state (#1273). */
   PtyOutput: "machine.pty_output",
+  AgentSessionList: "agent.session.list",
+  AgentSessionOpen: "agent.session.open",
+  AgentSessionTail: "agent.session.tail",
+  AgentSessionSend: "agent.session.send",
+  AgentSessionStop: "agent.session.stop",
+  /** Machine → host; the correlated response is the host's tool.pre decision. */
+  AgentPermission: "agent.session.permission",
 } as const;
 
 /** Shared by Enrollment/Offer arrays and the machine.attached event payload. */
@@ -1010,3 +1017,160 @@ export type PtyListResult = z.infer<typeof PtyListResult>;
 /** Wake-up payload only: the consumer still reads by cursor over the wire. */
 export const PtyOutput = z.object({ name: PtySessionName }).strict();
 export type PtyOutput = z.infer<typeof PtyOutput>;
+
+/** Limits apply to individual wire messages, not to a session's retained history. */
+export const AGENT_SESSION_MAX_RECORDS = 32;
+export const AGENT_SESSION_MAX_SESSIONS = 256;
+export const AGENT_SESSION_MAX_TEXT = 4096;
+const AgentSessionId = z.string().min(1).max(256);
+const agentProjectPattern = String.raw`^\/(?!\.\.(?:\/|$)|.*\/\.\.(?:\/|$))[^\x00]*$`;
+const AgentProject = z.string().min(1).max(4096)
+  .regex(new RegExp(agentProjectPattern), {
+    message: "project must be an absolute path without NUL or .. segments",
+  });
+const AgentCli = z.enum(["claude-code", "codex", "pi", "omp"]);
+const AgentText = z.string().max(AGENT_SESSION_MAX_TEXT);
+const AgentRequestId = z.string().min(1).max(256);
+
+/** The server mints this position after parsing a complete source record. */
+export const AgentSessionCursor = z.object({
+  sessionId: AgentSessionId,
+  generation: AttachGeneration,
+  byteOffset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  recordHash: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict();
+export type AgentSessionCursor = z.infer<typeof AgentSessionCursor>;
+
+/** A parser emits exactly one variant per record, never a guessed tool/turn hybrid. */
+export const AgentTranscriptRecord = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("turn"),
+    role: z.enum(["user", "assistant"]),
+    text: AgentText,
+  }).strict(),
+  z.object({
+    kind: z.literal("tool_call"),
+    callId: AgentRequestId,
+    name: z.string().min(1).max(128),
+    input: AgentText,
+  }).strict(),
+  z.object({
+    kind: z.literal("tool_result"),
+    callId: AgentRequestId,
+    output: AgentText,
+    failed: z.boolean(),
+  }).strict(),
+  z.object({
+    kind: z.literal("corrupt"),
+    reason: z.enum(["invalid_encoding", "invalid_shape", "unsupported_record"]),
+    excerpt: AgentText,
+  }).strict(),
+  z.object({
+    kind: z.literal("truncated"),
+    originalBytes: z.number().int().positive(),
+    prefix: AgentText,
+  }).strict(),
+]);
+export type AgentTranscriptRecord = z.infer<typeof AgentTranscriptRecord>;
+
+export const AgentSessionInfo = z.object({
+  sessionId: AgentSessionId,
+  project: AgentProject,
+  cli: AgentCli,
+  state: z.enum(["running", "stopped"]),
+}).strict();
+export type AgentSessionInfo = z.infer<typeof AgentSessionInfo>;
+
+const AgentSessionRefusal = z.object({
+  status: z.literal("refused"),
+  reason: z.enum([
+    "machine_not_attached", "session_not_available", "session_not_found",
+    "invalid_cursor", "permission_denied", "permission_timeout",
+  ]),
+}).strict();
+
+export const AgentSessionListRequest = z.object({ project: AgentProject }).strict();
+export type AgentSessionListRequest = z.infer<typeof AgentSessionListRequest>;
+export const AgentSessionListResult = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    sessions: z.array(AgentSessionInfo).max(AGENT_SESSION_MAX_SESSIONS),
+    truncated: z.boolean(),
+  }).strict(),
+  AgentSessionRefusal,
+]);
+export type AgentSessionListResult = z.infer<typeof AgentSessionListResult>;
+
+export const AgentSessionOpenRequest = z.object({
+  project: AgentProject,
+  cli: AgentCli,
+  sessionId: AgentSessionId.optional(),
+}).strict();
+export type AgentSessionOpenRequest = z.infer<typeof AgentSessionOpenRequest>;
+export const AgentSessionOpenResult = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    cursor: AgentSessionCursor,
+  }).strict(),
+  AgentSessionRefusal,
+]);
+export type AgentSessionOpenResult = z.infer<typeof AgentSessionOpenResult>;
+
+/** First pull names a session; subsequent pulls carry only the server cursor. */
+export const AgentSessionTailRequest = z.union([
+  z.object({ sessionId: AgentSessionId }).strict(),
+  z.object({ cursor: AgentSessionCursor }).strict(),
+]);
+export type AgentSessionTailRequest = z.infer<typeof AgentSessionTailRequest>;
+export const AgentSessionTailResult = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    records: z.array(AgentTranscriptRecord).max(AGENT_SESSION_MAX_RECORDS),
+    cursor: AgentSessionCursor,
+    hasMore: z.boolean(),
+  }).strict(),
+  AgentSessionRefusal,
+]);
+export type AgentSessionTailResult = z.infer<typeof AgentSessionTailResult>;
+
+export const AgentSessionSendRequest = z.object({
+  sessionId: AgentSessionId,
+  text: AgentText.min(1),
+}).strict();
+export type AgentSessionSendRequest = z.infer<typeof AgentSessionSendRequest>;
+export const AgentSessionSendResult = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok") }).strict(),
+  AgentSessionRefusal,
+]);
+export type AgentSessionSendResult = z.infer<typeof AgentSessionSendResult>;
+
+export const AgentSessionStopRequest = z.object({ sessionId: AgentSessionId }).strict();
+export type AgentSessionStopRequest = z.infer<typeof AgentSessionStopRequest>;
+export const AgentSessionStopResult = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok") }).strict(),
+  AgentSessionRefusal,
+]);
+export type AgentSessionStopResult = z.infer<typeof AgentSessionStopResult>;
+
+/** Machine-side request to the host's tool.pre gate on the same attachment. */
+export const AgentPermissionRequest = z.object({
+  sessionId: AgentSessionId,
+  requestId: AgentRequestId,
+  tool: z.string().min(1).max(128),
+  description: AgentText,
+}).strict();
+export type AgentPermissionRequest = z.infer<typeof AgentPermissionRequest>;
+export const AgentPermissionDecision = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("allowed"),
+    sessionId: AgentSessionId,
+    requestId: AgentRequestId,
+  }).strict(),
+  z.object({
+    status: z.literal("refused"),
+    sessionId: AgentSessionId,
+    requestId: AgentRequestId,
+    reason: z.enum(["denied", "timeout"]),
+  }).strict(),
+]);
+export type AgentPermissionDecision = z.infer<typeof AgentPermissionDecision>;

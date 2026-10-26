@@ -1,0 +1,9 @@
+{
+  "sessionId": "s2",
+  "cursor": {
+    "sessionId": "s1",
+    "generation": 1,
+    "byteOffset": 42,
+    "recordHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

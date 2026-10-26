@@ -1,0 +1,12 @@
+{
+  "status": "ok",
+  "sessions": [
+    {
+      "sessionId": "s1",
+      "project": "/work",
+      "cli": "codex",
+      "state": "stopped"
+    }
+  ],
+  "truncated": false
+}

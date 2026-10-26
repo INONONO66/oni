@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "pattern": "^\\/(?!\\.\\.(?:\\/|$)|.*\\/\\.\\.(?:\\/|$))[^\\x00]*$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "turn",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "user",
+            "assistant"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "role",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "callId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "input": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "kind": {
+          "const": "tool_call",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "callId",
+        "name",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "callId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "failed": {
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "tool_result",
+          "type": "string"
+        },
+        "output": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "callId",
+        "output",
+        "failed"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "excerpt": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "kind": {
+          "const": "corrupt",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "invalid_encoding",
+            "invalid_shape",
+            "unsupported_record"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason",
+        "excerpt"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "truncated",
+          "type": "string"
+        },
+        "originalBytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "prefix": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "originalBytes",
+        "prefix"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -108,7 +108,13 @@ describe("Ipc.Methods param schemas", () => {
         Machine.WireMethod.PtyClose,
         Machine.WireMethod.PtyList,
         Machine.WireMethod.FsOp,
-         Machine.WireMethod.FsStream,
+        Machine.WireMethod.FsStream,
+        Machine.WireMethod.AgentSessionList,
+        Machine.WireMethod.AgentSessionOpen,
+        Machine.WireMethod.AgentSessionTail,
+        Machine.WireMethod.AgentSessionSend,
+        Machine.WireMethod.AgentSessionStop,
+        Machine.WireMethod.AgentPermission,
       ].sort(),
     );
   });

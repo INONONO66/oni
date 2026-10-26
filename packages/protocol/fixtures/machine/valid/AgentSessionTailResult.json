@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "records": [
+    {
+      "kind": "turn",
+      "role": "user",
+      "text": "hello"
+    },
+    {
+      "kind": "tool_call",
+      "callId": "c1",
+      "name": "read",
+      "input": "file"
+    },
+    {
+      "kind": "tool_result",
+      "callId": "c1",
+      "output": "data",
+      "failed": false
+    },
+    {
+      "kind": "corrupt",
+      "reason": "invalid_shape",
+      "excerpt": "bad"
+    },
+    {
+      "kind": "truncated",
+      "originalBytes": 5000,
+      "prefix": "partial"
+    }
+  ],
+  "cursor": {
+    "sessionId": "s1",
+    "generation": 1,
+    "byteOffset": 42,
+    "recordHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "hasMore": false
+}

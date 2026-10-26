@@ -18,7 +18,13 @@
     "machine.pty_resize",
     "machine.pty_close",
     "machine.pty_list",
-    "machine.pty_output"
+    "machine.pty_output",
+    "agent.session.list",
+    "agent.session.open",
+    "agent.session.tail",
+    "agent.session.send",
+    "agent.session.stop",
+    "agent.session.permission"
   ],
   "type": "string"
 }
