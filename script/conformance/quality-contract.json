@@ -36,6 +36,7 @@
     "packages/protocol/tsconfig.build.json",
     "packages/protocol/tsconfig.json",
     "packages/protocol/tsconfig.test.json",
+    "packages/sync/tsconfig.json",
     "packages/ui/tsconfig.json",
     "packages/ui/tsconfig.test.json",
     "script/tsconfig.json"

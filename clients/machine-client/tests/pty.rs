@@ -1,3 +1,6 @@
+#[path = "support/tmux.rs"]
+mod tmux_server;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -146,17 +149,7 @@ async fn terminal_replays_output_resizes_lists_and_closes_with_real_tmux() {
         serde_json::json!([])
     );
     pty.shutdown().await.expect("stop control");
-    let output = tokio::process::Command::new("tmux")
-        .args(["-L", &socket, "kill-server"])
-        .env("TERM", "xterm")
-        .output()
-        .await
-        .expect("tmux cleanup");
-    assert!(
-        output.status.success()
-            || String::from_utf8_lossy(&output.stderr).contains("no server running"),
-        "tmux cleanup: {output:?}"
-    );
+    tmux_server::kill_server(&socket).await;
 }
 
 #[tokio::test]
@@ -185,17 +178,7 @@ async fn terminal_discovers_session_after_control_reconnect() {
     let close: PtyCloseRequest = wire(serde_json::json!({"name":"reconnect"}));
     second.close(&close).await.expect("close");
     second.shutdown().await.expect("shutdown");
-    let output = tokio::process::Command::new("tmux")
-        .args(["-L", &socket, "kill-server"])
-        .env("TERM", "xterm")
-        .output()
-        .await
-        .expect("tmux cleanup");
-    assert!(
-        output.status.success()
-            || String::from_utf8_lossy(&output.stderr).contains("no server running"),
-        "tmux cleanup: {output:?}"
-    );
+    tmux_server::kill_server(&socket).await;
 }
 
 #[tokio::test]

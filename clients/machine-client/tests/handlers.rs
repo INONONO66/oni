@@ -1,3 +1,8 @@
+#[path = "support/client_config.rs"]
+mod client_config;
+#[path = "support/tmux.rs"]
+mod tmux_server;
+
 use std::{
     num::NonZeroU64,
     os::unix::fs::PermissionsExt,
@@ -12,7 +17,7 @@ use std::{
 use oni_machine_client::{
     attach::{Hooks, Negotiated, Session},
     budget::{Pressure, Retained},
-    config::{ClientConfig, Export},
+    config::ClientConfig,
     handlers::{available, Service, SUPPORTED},
     pty::ops::Pty,
 };
@@ -67,22 +72,7 @@ impl Fixture {
 }
 
 fn settings(exports: bool, root: &Path) -> ClientConfig {
-    ClientConfig {
-        machine_id: "laptop".into(),
-        name: "Laptop".into(),
-        host: "127.0.0.1:7643".into(),
-        tags: vec![],
-        exports: if exports {
-            vec![Export {
-                name: "notes".into(),
-                path: root.to_str().expect("utf8 root").into(),
-            }]
-        } else {
-            vec![]
-        },
-        memory_budget_mb: 96,
-        unix: None,
-    }
+    client_config::client_config(root, exports.then_some("notes"))
 }
 
 fn refusal(reason: &str) -> Value {
@@ -106,9 +96,18 @@ const PTY_METHODS: [&str; 6] = [
 fn offered_capabilities_follow_exports_and_the_tmux_probe() {
     assert_eq!(
         SUPPORTED,
+        [
+            "fs.read",
+            "fs.write",
+            "shell.exec",
+            "pty.session",
+            "agent.session"
+        ]
+    );
+    assert_eq!(
+        available(true, true),
         ["fs.read", "fs.write", "shell.exec", "pty.session"]
     );
-    assert_eq!(available(true, true), SUPPORTED.map(str::to_owned));
     assert_eq!(
         available(true, false),
         ["fs.read", "fs.write", "shell.exec"]
@@ -437,17 +436,7 @@ async fn terminal_methods_map_to_the_tmux_driver() {
             "{method}"
         );
     }
-    let output = tokio::process::Command::new("tmux")
-        .args(["-L", &socket, "kill-server"])
-        .env("TERM", "xterm")
-        .output()
-        .await
-        .expect("tmux cleanup");
-    assert!(
-        output.status.success()
-            || String::from_utf8_lossy(&output.stderr).contains("no server running"),
-        "tmux cleanup: {output:?}"
-    );
+    tmux_server::kill_server(&socket).await;
 }
 
 #[tokio::test]

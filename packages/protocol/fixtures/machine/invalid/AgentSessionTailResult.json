@@ -1,0 +1,18 @@
+{
+  "status": "ok",
+  "records": [
+    {
+      "kind": "turn",
+      "role": "user",
+      "text": "hello",
+      "output": "ambiguous"
+    }
+  ],
+  "cursor": {
+    "sessionId": "s1",
+    "generation": 1,
+    "byteOffset": 42,
+    "recordHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "hasMore": false
+}

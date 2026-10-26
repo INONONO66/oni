@@ -87,7 +87,7 @@ oni/
 Read `X <- Y` as Y may depend on X.
 
 ```text
-protocol <- agent, llm, machines, codemode, channels, apps/oni, apps/desktop
+protocol <- agent, llm, machines, codemode, sync, channels, apps/oni, apps/desktop
 agent <- channels, apps/oni
 llm <- apps/oni
 machines <- codemode, apps/oni
@@ -103,6 +103,7 @@ ui <- apps/desktop
 | `llm` | protocol |
 | `machines` | protocol |
 | `codemode` | protocol, machines |
+| `sync` | protocol |
 | `channels` | protocol, agent |
 | `apps/oni` | protocol, channels, agent, llm, machines, codemode |
 | `ui` | none |

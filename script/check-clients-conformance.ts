@@ -25,7 +25,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Effect, Result } from "effect";
 import { type BusEvent, Machine } from "../packages/protocol/src/index.js";
@@ -38,6 +37,7 @@ import {
   type MachineInfo,
 } from "../packages/machines/src/index.js";
 import { acquire, run } from "../packages/machines/test/ipc/helpers/effects.js";
+import { agentConformance } from "./conformance/agent/sessions.js";
 
 export const MCLIENT = resolve(import.meta.dir, "../clients/target/debug/mclient");
 const MACHINE = "conformance";
@@ -48,9 +48,9 @@ const STEP_TIMEOUT_MS = 60_000;
 const PTY_READ_ATTEMPTS = 10;
 const STALE_EXIT_CODE = 3;
 
-type ClientProcess = Bun.Subprocess<"ignore", "pipe", "pipe">;
+export type ClientProcess = Bun.Subprocess<"ignore", "pipe", "pipe">;
 
-interface Fixture {
+export interface Fixture {
   readonly binary: string;
   readonly home: string;
   readonly root: string;
@@ -62,16 +62,16 @@ interface Fixture {
 const receipts: string[] = [];
 const spawned = new Set<ClientProcess>();
 
-function check(condition: boolean, message: string): asserts condition {
+export function check(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(`conformance failed: ${message}`);
 }
 
-function record(line: string): void {
+export function record(line: string): void {
   receipts.push(line);
   console.log(`ok ${receipts.length} - ${line}`);
 }
 
-function within<A>(promise: Promise<A>, label: string): Promise<A> {
+export function within<A>(promise: Promise<A>, label: string): Promise<A> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
@@ -82,7 +82,7 @@ function within<A>(promise: Promise<A>, label: string): Promise<A> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-function eventLog() {
+export function eventLog() {
   const counts = new Map<string, number>();
   const waiters: Array<{
     readonly name: string;
@@ -108,8 +108,15 @@ function eventLog() {
   return { sink, next };
 }
 
+/**
+ * `/tmp`, not `os.tmpdir()`: the client binds `~/.oni/machine-client/hook.sock`
+ * and tmux its socket under the fixture, and the macOS per-user temporary
+ * directory pushes those paths past the 104-byte `sun_path` limit.
+ */
+const FIXTURE_ROOT = "/tmp";
+
 function fixture(binary: string): Fixture {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "oni-conf-")));
+  const base = realpathSync(mkdtempSync(join(FIXTURE_ROOT, "oni-conf-")));
   const home = join(base, "home");
   const root = join(base, "export");
   mkdirSync(home);
@@ -124,7 +131,7 @@ function fixture(binary: string): Fixture {
   };
 }
 
-async function finished(
+export async function finished(
   child: ClientProcess,
 ): Promise<{ readonly code: number; readonly stdout: string; readonly stderr: string }> {
   const [code, stdout, stderr] = await Promise.all([
@@ -135,7 +142,7 @@ async function finished(
   return { code, stdout, stderr };
 }
 
-async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
+export async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
   const joined = await within(
     finished(
       Bun.spawn(
@@ -163,7 +170,7 @@ async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
   return { ...receipt, enrolledAt: Date.now() };
 }
 
-function start(setup: Fixture): ClientProcess {
+export function start(setup: Fixture): ClientProcess {
   const client: ClientProcess = Bun.spawn([setup.binary, "run", "--config", setup.config], {
     env: setup.env,
     stdin: "ignore",
@@ -174,7 +181,7 @@ function start(setup: Fixture): ClientProcess {
   return client;
 }
 
-async function attach(setup: Fixture, attached: Promise<void>): Promise<ClientProcess> {
+export async function attach(setup: Fixture, attached: Promise<void>): Promise<ClientProcess> {
   const client = start(setup);
   const early = client.exited.then(async (code) => {
     throw new Error(
@@ -185,7 +192,7 @@ async function attach(setup: Fixture, attached: Promise<void>): Promise<ClientPr
   return client;
 }
 
-async function stop(client: ClientProcess, detached: Promise<void>): Promise<void> {
+export async function stop(client: ClientProcess, detached: Promise<void>): Promise<void> {
   client.kill("SIGKILL");
   await within(Promise.all([client.exited, detached]), "client detach");
 }
@@ -211,7 +218,7 @@ function sha256(data: Uint8Array): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
-async function refusal(
+export async function refusal(
   effect: Effect.Effect<object, MachineRefusalError | Error>,
 ): Promise<string> {
   const result = await run(Effect.result(effect));
@@ -451,7 +458,16 @@ async function conformance(setup: Fixture): Promise<void> {
   }
 }
 
-export async function runConformance(binary = MCLIENT): Promise<number> {
+/**
+ * One conformance stage over a fresh fixture: refuses a missing binary,
+ * reports every receipt, and kills every spawned client and removes the
+ * fixture whatever the outcome. `label` names the stage in the summary.
+ */
+export async function runStage(
+  binary: string,
+  label: string,
+  body: (setup: Fixture) => Promise<void>,
+): Promise<number> {
   const setup = fixture(binary);
   receipts.length = 0;
   try {
@@ -459,8 +475,8 @@ export async function runConformance(binary = MCLIENT): Promise<number> {
       existsSync(binary),
       `missing ${binary}: build it first (cd clients && cargo build -p oni-machine-client --locked)`,
     );
-    await conformance(setup);
-    console.log(`clients conformance: ${receipts.length} checks passed`);
+    await body(setup);
+    console.log(`${label}: ${receipts.length} checks passed`);
     return 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -470,6 +486,14 @@ export async function runConformance(binary = MCLIENT): Promise<number> {
     spawned.clear();
     rmSync(resolve(setup.home, ".."), { recursive: true, force: true });
   }
+}
+
+/** The P3 transport stage, then the P4 agent-session stage on its own fixture and host. */
+export async function runConformance(binary = MCLIENT): Promise<number> {
+  const transport = await runStage(binary, "clients conformance", conformance);
+  if (transport !== 0) return transport;
+  const sessions = agentConformance({ check, record, within, enroll, eventLog, attach, stop, refusal });
+  return runStage(binary, "agent session conformance", sessions);
 }
 
 if (import.meta.main) process.exit(await runConformance());

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { machineSchemas } from "../../../script/generate-machine-schema.ts";
 import { Machine } from "../src/machine/index.js";
+import { Ipc } from "../src/ipc/index.js";
 
 const repoRoot = join(import.meta.dir, "../../..");
 const schemaDir = join(import.meta.dir, "../schema/machine");
@@ -47,6 +48,9 @@ describe("machine wire contract fixtures", () => {
     // Zod reports root-level schemas and object-level refinements at [].
     const rootFailures = [
       "AbsolutePath.wrong-type.json",
+      "AgentSessionTailRequest.json",
+      "AgentSessionStopResult.json",
+      "AgentTranscriptRecord.json",
       "CancelResult.positional-array.json",
       "CapabilityId.wrong-type.json",
       "ExecRequest.positional-array.json",
@@ -101,5 +105,56 @@ describe("machine JSON Schema export", () => {
     const [exitCode, stderr] = await Promise.all([check.exited, new Response(check.stderr).text()]);
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
+  });
+
+  test("session IPC methods bind each request to its response schema", () => {
+    const sessionMethods = [
+      Machine.WireMethod.AgentSessionList,
+      Machine.WireMethod.AgentSessionOpen,
+      Machine.WireMethod.AgentSessionTail,
+      Machine.WireMethod.AgentSessionSend,
+      Machine.WireMethod.AgentSessionStop,
+      Machine.WireMethod.AgentPermission,
+    ];
+    for (const method of sessionMethods) {
+      expect(Ipc.Methods[method].params).toBeDefined();
+      expect(Ipc.Methods[method].result).toBeDefined();
+    }
+  });
+
+  test("tail continuation cannot name a different session outside the cursor", () => {
+    const cursor = {
+      sessionId: "s1", generation: 1, byteOffset: 42, recordHash: "a".repeat(64),
+    };
+    expect(Machine.AgentSessionTailRequest.safeParse({ cursor }).success).toBe(true);
+    expect(Machine.AgentSessionTailRequest.safeParse({ sessionId: "s2", cursor }).success).toBe(false);
+    expect(Machine.AgentSessionTailRequest.safeParse({
+      cursor: { ...cursor, generation: 0 },
+    }).success).toBe(false);
+    expect(Machine.AgentSessionTailResult.safeParse({
+      status: "refused", reason: "invalid_cursor",
+    }).success).toBe(true);
+  });
+
+  test("project paths refuse relative and parent traversal", () => {
+    expect(Machine.AgentSessionListRequest.safeParse({ project: "relative" }).success).toBe(false);
+    expect(Machine.AgentSessionListRequest.safeParse({ project: "/work/../escape" }).success).toBe(false);
+  });
+
+  test("transcript records have one unambiguous kind and bounded content", () => {
+    expect(Machine.AgentTranscriptRecord.safeParse({
+      kind: "turn", role: "assistant", text: "answer", callId: "c1",
+    }).success).toBe(false);
+    expect(Machine.AgentTranscriptRecord.safeParse({
+      kind: "corrupt", reason: "invalid_shape", excerpt: "x".repeat(Machine.AGENT_SESSION_MAX_TEXT + 1),
+    }).success).toBe(false);
+    expect(Machine.AgentSessionTailResult.safeParse({
+      status: "ok",
+      records: Array.from({ length: Machine.AGENT_SESSION_MAX_RECORDS + 1 }, () => ({
+        kind: "turn", role: "user", text: "x",
+      })),
+      cursor: { sessionId: "s1", generation: 1, byteOffset: 0, recordHash: "a".repeat(64) },
+      hasMore: true,
+    }).success).toBe(false);
   });
 });

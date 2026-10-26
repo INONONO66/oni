@@ -1,0 +1,6 @@
+{
+  "sessionId": "s1",
+  "requestId": "p1",
+  "tool": "shell.exec",
+  "description": "run check"
+}

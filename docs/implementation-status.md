@@ -1,5 +1,220 @@
 # Implementation Status
 
+## #1629 machine client P4: agent sessions, cursor sync, the permission bridge and `@oni/sync` (epic #1622, PR pending)
+
+On `feat/1629-machine-client-p4-session-sync` (2026-10-25, base `325a8b7db`
+after #1626). The "session sync, project sync" line in the #1626 "Not
+shipped" paragraph below is superseded by this section. Everything here is
+evidenced by node reports under the campaign's `waves/mc-p4/` and the gate
+runs they record; a live run against an installed CLI on the fleet was not
+part of it.
+
+**Wire contract.** `packages/protocol/src/machine/schema.ts` adds strict
+`agent.session.list|open|tail|send|stop` request/result pairs and the
+machine-to-host `agent.session.permission` request with its typed
+allow/deny/timeout decision, all registered in `Ipc.Methods`. Transcript
+records are disjoint variants for turns, tool calls, tool results, `corrupt`
+source lines (`invalid_encoding`, `invalid_shape`, `unsupported_record`) and
+`truncated` source lines carrying `originalBytes`; text, record counts,
+session counts, ids and offsets are bounded. A tail continuation carries only
+the server-minted cursor `{sessionId, generation, byteOffset, recordHash}`,
+so a request cannot name a second, conflicting session; a stale or
+mismatched cursor is the typed `invalid_cursor` refusal. The IPC envelope
+stays `v: 2` and `Machine.contractVersion` stays 2: the methods are
+additive. The export is 88 schemas, 15 new roots each with valid and invalid
+fixtures (the invalid set includes an over-page `AgentSessionTailResult`,
+zero-byte and unknown-reason records, negative-offset and generation-zero
+cursors, an open result whose cursor lacks its hash and a late-reason
+decision), refused by both Zod and `oni_protocol::decode`. One limit: the
+JSON Schema generator drops custom path refinements, so the Rust boundary
+does not by itself reject a relative or traversing project path; the
+machine side confines the path.
+
+**Host.** `packages/machines/src/host.ts` routes the five methods through one
+`agentCall` helper on the current attachment. Every session operation is
+gated by the `agent.session` effective capability and `peer.kind ===
+"client"`; `open` and `tail` compare the cursor's generation with the
+host-minted one before and after the call. Machine-originated permission
+requests go to the injected `decideAgentPermission(machineId, request)`
+port; the host denies when the grant is missing, the peer is a daemon, the
+port is absent, the request id is already in flight, the verdict is invalid
+or names another request, the port fails, or the 30,000 ms default deadline
+expires (`timeout`). Disconnect or supersession resolves every pending
+decision as denied, and a late answer has no waiter to satisfy. No policy is
+evaluated inside `packages/machines`; the app must bind its captured
+`tool.pre` decision to the port, and without it the host denies (the app
+binding is not wired yet: #1665). The
+capability has no `WellKnownCapability` member yet; the spelling is the
+string `agent.session`.
+
+**Client: dialects and launchers.** `clients/machine-client/src/agent/`
+holds the only files that name a CLI: `claude.rs`, `codex.rs`, `pi.rs`,
+`omp.rs`, the data table `manifest.rs` and the `pub mod` lines of `mod.rs`.
+Each parser is pure over `&[u8]` and yields generated `AgentTranscriptRecord`
+variants with source byte ranges; a complete malformed line is `corrupt`, an
+incomplete final line is `truncated` with its byte count, and known
+non-transcript metadata is skipped. Supported layouts, as pinned by the
+retained fixtures: `claude-code` under
+`~/.claude/projects/<project path with non-alphanumerics as '-'>/<id>.jsonl`;
+`codex` under `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl`, owned only
+when line 1 is `session_meta` with `payload.cwd` equal to the project; `pi`
+under `~/.pi/agent/sessions/--<encoded cwd>--/<timestamp>_<id>.jsonl` (v3
+header, nested tool calls, tool-result messages); `omp` under
+`~/.omp/agent/sessions/<encoded cwd>/<timestamp>_<id>.jsonl` with a 256-byte
+title slot before the v3 header (its parser is pinned to the published
+format, since no local `omp` transcript existed to copy). `launcher.rs` is
+vendor-free: `start` reclaims a registry terminal that is observed live,
+adopts the transcript of a requested id, or launches one named tmux terminal
+per session (`agent-<hex nanos>-<n>`, cwd = project, shell-quoted `exec env
+K=V cli args`) and then scans the layout directory up to four levels deep
+for a new, unowned `.jsonl`, driven by terminal output until the 30 s ready
+deadline; a missed deadline stops the process and answers
+`session_not_available`. `attach` never launches; `send` (text plus `\r`)
+and `stop` (SIGTERM, SIGKILL after the 5 s grace, then close) refuse
+`NotOwned` unless the session is owned. `registry.rs` persists
+`~/.oni/machine-client/agent-sessions.json` under a lock file with temp-file
+rename; the saved terminal is a reclaim hint, never proof of life; projects
+are canonicalized and confined to the exports. `claude-code` gets an assigned
+UUID; `codex`, `pi` and `omp` ids are discovered from the transcript name.
+
+**Client: routes and the cursor.** `handlers.rs` gains
+`Service::open_with_agents`, which offers `agent.session` only when tmux
+answered its probe and an export exists; `Service::open` never offers it.
+Gate order on every route: no grant answers `machine_not_attached`; a
+capability outside offered ∩ granted, or a project outside the exports,
+answers `session_not_available`; an unknown id answers `session_not_found`.
+`list` caps at 256 sessions and sets `truncated`. `tail.rs` pages 32 records
+or 256 KiB per read: `recordHash` is the SHA-256 of the session id, generation,
+offset and complete prefix bytes, and the origin is offset 0 over empty input;
+the generation is the grant's negotiated one. Receipts from `tests/agent_wire.rs`:
+a tail from an acknowledged cursor after an append returns only the new
+records; replaying the same cursor over an unchanged source returns the same page, also under
+two concurrent tails; a reconnect at the same generation resumes from the
+old cursor with zero records, never from zero; a fresh generation refuses
+the old cursor `invalid_cursor` and an explicit resync by `sessionId` starts
+from the origin; a cursor from another session, a rewritten prefix or a file
+shrunk below the offset are each `invalid_cursor`; an offset inside a line is
+also refused. A complete line exceeding 4096 normalized characters emits a
+typed `truncated` record rather than silently losing text. A malformed line advances
+to the end of file, a partial trailing line leaves the cursor unchanged, a
+line over 300 KiB becomes one `truncated` record and one line holding 40
+tool calls becomes 31 records plus a `truncated` marker.
+
+**Client: the permission bridge.** `HostRelay` sends
+`agent.session.permission` over the attached connection and decodes the
+decision; a call timeout is `timeout`, and no caller, a disconnect, a remote
+error or an undecodable answer is `denied`. `Launcher::permission` relays
+only for an owned session whose dialect is in hook mode, correlates the
+session and request ids, and applies the outer deadline. The binary's one
+new surface is `mclient hook permission --cli <claude-code|pi|omp>`: it reads
+hook stdin (16 MiB cap), makes one round trip over the private socket
+`~/.oni/machine-client/hook.sock` (mode 0600, one request per connection,
+64 KiB request cap, 150 s deadline, served by `run_default` for the life of
+the attach loop; a client run under a non-default config directory binds
+`hook.sock` there, and every launch carries that path in
+`ONI_MCLIENT_HOOK_SOCKET`, which the hook prefers over the default) and fails closed on every other path with exit 2, empty
+stdout and an `oni: ...` line on stderr: no socket, timeout, a malformed,
+empty or partial answer, an allow naming another request id, an unknown
+CLI, `codex` (no hook; its native terminal prompt is the support limit),
+unparseable hook input, or a host refusal. The `claude-code` launch passes a
+settings file whose pre-tool hook runs the absolute `mclient` path in exec
+form with `onFailure: "block"` and a 170 s hook timeout; `pi` and `omp` load
+one shared embedded module (`agent/permission.ts`, written by private temp
+file plus atomic rename, 0600, and replaced whenever the file on disk differs
+from the shipped bytes; a differing file that cannot be replaced refuses the
+launch with `LaunchError::HookUnavailable`) with `ONI_MCLIENT` and
+`ONI_MCLIENT_CLI` in their environment, and it blocks unless the child exits
+0 within 190 s (`ONI_MCLIENT_HOOK_LIMIT_MS` can only shorten that). The
+standalone `script/conformance/agent/permission.spec.ts` (run by the Clients
+Rust CI job) and the conformance stage load those exact bytes and pass only
+an explicit allow; deny, a nonzero exit, a signal death, a timeout, unread
+stdin, a missing program or selector, a spawn failure and malformed context
+or input all block.
+
+**Client: ownership.** A launch keeps its process handle in a pending set
+from spawn until the session is registered and owned, so a request dropped
+mid-readiness (transport loss cancels it) leaves a process the next `open`
+stops. An in-memory owned terminal is re-observed before it is returned; a
+process that exited or was closed elsewhere is released and persisted
+without its terminal, and `list` reports `running` only for a session the
+client owns now. One session id belongs to one project and CLI: the registry
+refuses a second observation under another owner.
+
+**`packages/sync` (`@oni/sync`).** A new protocol-only workspace (topology,
+knip, tsconfig) plus the two lead edits that admit it: `workspaces: 10` in
+`script/core-end-state-targets.ts` and the generated `Test (sync)` step
+inside the `topology:test-steps` block of `.github/workflows/ci.yml`. `checkpoints.ts`: `syncPath` (canonical
+relative manifest key, refusing empty, absolute, `.`/`..`, backslash, NUL and
+over 4096), `commitCheckpoint` and `replayCheckpoints`, whose id is
+`canonicalDigest({projectId, sequence, parent, changes})` so equal content in
+two projects never shares an id and any foreign project, broken parent,
+wrong sequence, forged id or tampered change is `checkpoint_broken`.
+`bundles.ts`: `blobDigest`, the `BlobSource`/`BundleSource` ports,
+`MemoryBundleStore` with `maxEntries`/`maxBytes` (`limit_exceeded`) and
+`fetchBundle`, which trusts nothing from the source and re-checks identity,
+bounds, declared totals, per-entry path, digest and size, duplicates and
+every blob hash. `vfs.ts`: `createSyncVfs(manifest, blobs)` returns a frozen
+`{list, read, stat}` over manifest keys only (no filesystem, copies out,
+digest verified on read; `corrupt` or `path_rejected`). Export-root
+confinement for real paths stays in `machines/src/contained.ts`; sync adds
+no second fs policy. The app binds `BundleSource`; nothing in `apps/oni`
+consumes the package yet.
+
+**Conformance.** `script/check-clients-conformance.ts` now runs the
+unchanged P3 stage (10 checks) and then `script/conformance/agent/sessions.ts`
+(8 checks, the first driving the shipped permission module) on its own fixture, host and private tmux server (`TMUX_TMPDIR`,
+killed at teardown), with the fixture root at `/tmp` because a hook socket
+under `os.tmpdir()` exceeds `sun_path` on macOS. The P4 stage joins with
+`agent.session` in the enrollment; streams a recorded `claude-code`
+transcript in source order with a stable cursor (byte 423, identical page on
+re-read, unmoved when nothing is appended); turns three damaged lines into
+the three `corrupt` reasons and a 307,201-byte line into one `truncated`
+record; exports the transcript into a `MemoryBundleStore` bundle plus a
+`commitCheckpoint`; SIGKILLs the client, deletes `~/.claude` and the
+registry, imports through `fetchBundle` and `replayCheckpoints`, re-attaches
+at the same generation and resumes the same session id from byte 307,655,
+refusing a forged hash `invalid_cursor` and a generation+1 cursor
+`stale_generation`; serves a read-only sync view whose tampered blob, forked
+parent, foreign project and `../escape` are `corrupt`, `checkpoint_broken`,
+`checkpoint_broken` and `path_rejected`; and drives the permission bridge
+through a fake CLI executable standing in for `claude-code`: an explicit host
+grant is hook exit 0, a 250 ms host deadline is exit 2 with empty stdout,
+and a late `allowed` found no waiter.
+
+**Enrollment.** `handlers::SUPPORTED` lists `agent.session` with the four
+P3 capabilities, so `mclient join` writes it into the enrollment receipt and
+a later attach can offer it only when tmux and an export are present;
+without them `available()` drops it from the offer.
+
+**Not yet.** The client's terminals still share the user's default tmux
+server (follow-up: the client should own its socket). Transcript discovery
+re-scans on terminal output or at the 30 s ready deadline, so a CLI that
+stays silent until its first prompt takes up to 30 s to discover, and a
+`claude-code` session that writes its transcript only after the first prompt
+answers `session_not_available` at that deadline when started without
+input. An existing hook module file is accepted by path without comparing
+its bytes to the embedded copy. The `pi` and `omp` hook modules are
+installed and probed but not yet exercised inside a live `pi` or `omp`
+process (no `omp` install exists on the verifying machine), and `codex` is
+served without a permission hook. `MemoryBundleStore.publish` hashes each
+file twice.
+
+**Receipts (lead-verified node reports, 2026-10-25).** Rust: `bun run
+clients:lint` (fmt and clippy `-D warnings -D clippy::unwrap_used`) exit 0;
+`cargo llvm-cov --workspace --tests --locked --fail-under-lines 100` exit 0
+at 5707/5707 lines; `cargo test -p oni-machine-client --locked` 14 test
+binaries, 0 failures (11 parser, 17 session, 5 wire and the hook suite);
+`oni-protocol` decode 2/2 and fixtures 5/5. TypeScript: `check-types`,
+`lint`, `check-effect-boundaries`, `check-deps`, `check-import-cycles` (645
+modules, 0 cycles), `check-dead-exports` ("none new"), `check-topology` and
+`lint:docs` all exit 0 after the lead's two topology edits;
+`machine-contract.test.ts` 310 pass; `packages/machines` 349 pass with
+`host.ts` at 100% lines; `packages/sync` 23 pass with every `src/*` file at
+100% lines and functions; `bun run clients:conformance` exit 0 with
+`clients conformance: 10 checks passed` and `agent session conformance: 7
+checks passed`, `check-clients-conformance.ts` 379/379 and
+`conformance/agent/sessions.ts` 322/322 lines.
+
 ## #1626 machine client P3: transport, attach and the daemon-parity drivers (epic #1622, PR pending)
 
 On `feat/1626-machine-client-p3-transport` (2026-10-25, base `690f14487`).
@@ -54,7 +269,8 @@ symlink, no-replace rename at `finish`; the host uses a hard link, and a
 filesystem without no-replace rename answers `io_error`). `exec.rs` confines
 cwd to a granted export, shares a 256 KiB output budget, and kills the
 process group on timeout, cancel or drop. `pty/` runs one tmux control
-client on the default server (control session `oni-pty-control`) with
+client on the default server (control session `oni-pty-control`; the
+shared server's socket ownership is #1666) with
 attach-time replay, a 1 MiB live window per terminal, 256 KiB reads, a
 1000-terminal cap and restart rediscovery.
 

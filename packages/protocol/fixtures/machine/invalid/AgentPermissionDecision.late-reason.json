@@ -1,0 +1,6 @@
+{
+  "status": "refused",
+  "sessionId": "s1",
+  "requestId": "call-late",
+  "reason": "late"
+}

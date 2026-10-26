@@ -6,6 +6,66 @@
       "name": "AbsolutePath"
     },
     {
+      "file": "AgentPermissionDecision.json",
+      "name": "AgentPermissionDecision"
+    },
+    {
+      "file": "AgentPermissionRequest.json",
+      "name": "AgentPermissionRequest"
+    },
+    {
+      "file": "AgentSessionCursor.json",
+      "name": "AgentSessionCursor"
+    },
+    {
+      "file": "AgentSessionInfo.json",
+      "name": "AgentSessionInfo"
+    },
+    {
+      "file": "AgentSessionListRequest.json",
+      "name": "AgentSessionListRequest"
+    },
+    {
+      "file": "AgentSessionListResult.json",
+      "name": "AgentSessionListResult"
+    },
+    {
+      "file": "AgentSessionOpenRequest.json",
+      "name": "AgentSessionOpenRequest"
+    },
+    {
+      "file": "AgentSessionOpenResult.json",
+      "name": "AgentSessionOpenResult"
+    },
+    {
+      "file": "AgentSessionSendRequest.json",
+      "name": "AgentSessionSendRequest"
+    },
+    {
+      "file": "AgentSessionSendResult.json",
+      "name": "AgentSessionSendResult"
+    },
+    {
+      "file": "AgentSessionStopRequest.json",
+      "name": "AgentSessionStopRequest"
+    },
+    {
+      "file": "AgentSessionStopResult.json",
+      "name": "AgentSessionStopResult"
+    },
+    {
+      "file": "AgentSessionTailRequest.json",
+      "name": "AgentSessionTailRequest"
+    },
+    {
+      "file": "AgentSessionTailResult.json",
+      "name": "AgentSessionTailResult"
+    },
+    {
+      "file": "AgentTranscriptRecord.json",
+      "name": "AgentTranscriptRecord"
+    },
+    {
       "file": "AttachResult.json",
       "name": "AttachResult"
     },

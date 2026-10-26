@@ -1,0 +1,9 @@
+{
+  "status": "ok",
+  "cursor": {
+    "sessionId": "s1",
+    "generation": 0,
+    "byteOffset": 0,
+    "recordHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

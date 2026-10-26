@@ -1,4 +1,7 @@
-use std::process::{Command, Output};
+use std::{
+    io::Write,
+    process::{Command, Output, Stdio},
+};
 
 fn mclient(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mclient"))
@@ -146,4 +149,37 @@ fn run_without_recorded_host_pin_exits_two() {
     assert_eq!(output.status.code(), Some(2));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
     assert!(error["reason"].as_str().expect("reason").starts_with("I/O"));
+}
+
+const CLAUDE_INPUT: &str =
+    r#"{"session_id":"s","tool_name":"Bash","tool_input":{},"tool_use_id":"t"}"#;
+
+fn hook_permission(home: &std::path::Path) -> std::process::Child {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home)
+        .args(["hook", "permission", "--cli", "claude-code"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("mclient runs");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(CLAUDE_INPUT.as_bytes())
+        .expect("hook input");
+    child
+}
+
+#[test]
+fn hook_permission_without_a_running_client_blocks() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let output = hook_permission(home.path())
+        .wait_with_output()
+        .expect("hook exits");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let reason = String::from_utf8(output.stderr).expect("utf-8 stderr");
+    assert!(reason.starts_with("oni: client not reachable"), "{reason}");
 }

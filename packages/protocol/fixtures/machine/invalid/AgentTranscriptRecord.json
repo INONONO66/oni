@@ -1,0 +1,6 @@
+{
+  "kind": "turn",
+  "role": "assistant",
+  "text": "hello",
+  "callId": "c1"
+}

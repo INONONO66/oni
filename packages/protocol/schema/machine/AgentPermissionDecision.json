@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sessionId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "const": "allowed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "sessionId",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "denied",
+            "timeout"
+          ],
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sessionId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "sessionId",
+        "requestId",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

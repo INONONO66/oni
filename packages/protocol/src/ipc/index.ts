@@ -122,6 +122,24 @@ const methods = {
   },
   [Machine.WireMethod.PtyClose]: { params: Machine.PtyCloseRequest, result: Machine.PtyCloseResult },
   [Machine.WireMethod.PtyList]: { params: Machine.PtyListRequest, result: Machine.PtyListResult },
+  [Machine.WireMethod.AgentSessionList]: {
+    params: Machine.AgentSessionListRequest, result: Machine.AgentSessionListResult,
+  },
+  [Machine.WireMethod.AgentSessionOpen]: {
+    params: Machine.AgentSessionOpenRequest, result: Machine.AgentSessionOpenResult,
+  },
+  [Machine.WireMethod.AgentSessionTail]: {
+    params: Machine.AgentSessionTailRequest, result: Machine.AgentSessionTailResult,
+  },
+  [Machine.WireMethod.AgentSessionSend]: {
+    params: Machine.AgentSessionSendRequest, result: Machine.AgentSessionSendResult,
+  },
+  [Machine.WireMethod.AgentSessionStop]: {
+    params: Machine.AgentSessionStopRequest, result: Machine.AgentSessionStopResult,
+  },
+  [Machine.WireMethod.AgentPermission]: {
+    params: Machine.AgentPermissionRequest, result: Machine.AgentPermissionDecision,
+  },
 };
 
 export namespace Ipc {

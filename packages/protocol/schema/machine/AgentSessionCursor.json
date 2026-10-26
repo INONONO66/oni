@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "byteOffset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "generation": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "recordHash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "sessionId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "sessionId",
+    "generation",
+    "byteOffset",
+    "recordHash"
+  ],
+  "type": "object"
+}

@@ -100,6 +100,8 @@ jobs:
       - run: bun run script/generate-machine-schema.ts --check
       - run: bun run clients:lint
       - run: bun run clients:test
+      - name: Permission hook module tests
+        run: bun test ./script/conformance/agent/permission.spec.ts
       - run: bun run clients:conformance
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
@@ -293,6 +295,10 @@ jobs:
         if: matrix.key == 'codemode'
         run: bun test --timeout 15000 --coverage --coverage-reporter=lcov --coverage-dir=coverage
         working-directory: packages/codemode
+      - name: Test (sync)
+        if: matrix.key == 'sync'
+        run: bun test --timeout 15000 --coverage --coverage-reporter=lcov --coverage-dir=coverage
+        working-directory: packages/sync
       - name: Test (channels)
         if: matrix.key == 'channels'
         run: bun test --timeout 15000 --coverage --coverage-reporter=lcov --coverage-dir=coverage
