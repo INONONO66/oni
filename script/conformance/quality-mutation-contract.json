@@ -257,9 +257,9 @@
       "cachePolicy": "Reuse only identical source/tree/contract/inventory/operator/tool/test hashes with complete immutable raw receipts; full manifest is still enumerated, no baseline/survivor suppression",
       "testMutationCaveat": "Surviving weakened test assertions are blockers. Feasibility is unverified, not an exclusion or a reason to reduce scope."
     },
-    "embeddedPython": {
+    "pythonSource": {
       "status": "FROZEN_PROPOSAL_NOT_IMPLEMENTED",
-      "scope": ["packages/machines/src/kernel.ts#PYTHON_DRIVER"],
+      "scope": ["clients/machine-client/src/code/driver.py"],
       "futureOwnedPythonScripts": "Any added script/*.py analyzer/preload/helper files also included in owned inventory with same bounds; not a tool exemption",
       "runtime": {
         "version": "3.12.12",
@@ -303,19 +303,19 @@
         "script/conformance/quality-contract.json"
       ],
       "metrics": {
-        "cyclomatic": "radon6.0.1 visitors over extracted ast, max21 per function/method/module executable body; nested functions separately",
+        "cyclomatic": "radon6.0.1 visitors over file AST, max21 per function/method/module executable body; nested functions separately",
         "cognitive": "cognitive_complexity.api.get_cognitive_complexity@1.3.0 per function; synthetic function wrapper for module top-level control, max21; no wrapper-induced increment",
         "halstead": "radon6.0.1 h_visit h1/h2/N1/N2 and difficulty, unrounded difficulty<80 per function/module; JSON records raw counts",
         "CRAP": "same formula and strict<25 using radon C and same function original-source statement coverage"
       },
-      "clones": "same jscpd4.0.5 weak mode50tokens5lines with python format, extracted virtual source included in production ledger",
+      "clones": "same jscpd4.0.5 weak mode50tokens5lines with python format, driver.py included as a production file",
       "coverage": {
         "engine": "coverage.py7.10.7 branch=True, timid=True to avoid platform-extension variation, concurrency=thread; all sources pre-registered; exclude_lines=[] and partial_branches=[] (no default pragma exclusions)",
         "statementDimension": "d945-python-coverage@1 AST statement-entry counters, including separate same-line statements; no comments/docstrings/type-only constructs counted as executable statements; function-body counters distinct from definition execution",
         "functionDimension": "AST function/lambda entry counter, preserving signatures and coroutine/generator semantics; unexecuted function0, cannot credit definition line alone",
-        "lineDimension": "coverage.py executable source lines (no excludes); unknown/unloaded extracted driver remains0 not omitted",
+        "lineDimension": "coverage.py executable source lines (no excludes); unknown/unloaded driver.py remains0 not omitted",
         "branchDimension": "coverage.py full static possible arcs for branch lines, all exits required; short-circuit operand decision counters added by d945-python-coverage@1 for each BoolOp transition, preserving single evaluation",
-        "thresholds": "all four dimensions100 per virtual file and aggregate; same no-rounding/missing-data policy as TS",
+        "thresholds": "all four dimensions100 per Python file and aggregate; same no-rounding/missing-data policy as TS",
         "processSurface": "historical TypeScript driver instrumentation; the Rust client now owns driver.py and its subprocess, so this obsolete probe is not an active coverage receipt",
         "liveness": "killed/crashed driver trace missing => incomplete, not0success; use bounded exact command/exit signals, no sleeps/polls"
       },
@@ -436,9 +436,9 @@
           }
         ],
         "orderAndOutcomes": "same first-order stable original-source identity and KILLED/SURVIVED/NO_COVERAGE/INVALID/INFRA_ERROR definitions as JS; invalid syntax not killed, no equivalents allowlist",
-        "runner": "TS mutation coordinator replaces exactly one virtual-source node in isolated driver copy then invokes actual existing machines test entry via Bun1.3.6; no static fake Python execution"
+        "runner": "TS mutation coordinator replaces exactly one candidate in an isolated driver.py copy, probes the Python site and runs the selected tests; no static fake Python execution"
       },
-      "binaryConformance": "extract actual embedded driver; inject uncovered Python branch, cloned Python body, metric bound equality, and surviving Python mutation; each owning class fails; real kernel test exercises driver and captures source-mapped counters; host literal execution alone does not pass"
+      "binaryConformance": "The Python worker parses driver.py source, enumerates AST mutation sites and instruments selected sites with markers; the coordinator mutates an isolated file copy, runs selected tests and verifies restoration. This does not establish Rust client driver coverage, clone detection or metric thresholds."
     }
   }
 }

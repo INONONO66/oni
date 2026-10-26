@@ -152,18 +152,18 @@ test("mutation normalization rejects pilots missing candidates and stale killed 
   }
 });
 
-test("embedded Python mutants retain original host coordinates and cannot disappear at normalization", () => {
-  const root = mkdtempSync(join(tmpdir(), "quality-embedded-mutant-"));
+test("Python file mutants retain source coordinates and cannot disappear at normalization", () => {
+  const root = mkdtempSync(join(tmpdir(), "quality-python-mutant-"));
   try {
-    const hostPath = "packages/codemode/src/kernel.ts",
-      path = `${hostPath}#PYTHON_DRIVER`;
+    const path = "clients/machine-client/src/code/driver.py";
     const source = "print(True)\n";
+    mkdirSync(join(root, "clients/machine-client/src/code"), { recursive: true });
+    writeFileSync(join(root, path), source);
     const identity = {
       inventoryHash: "a".repeat(64),
       contractHash: "b".repeat(64),
-      paths: [hostPath],
-      typescript: [hostPath],
-      embedded: [{ path, hostPath, text: source, sha256: digest(source), lineOffset: 10 }],
+      paths: [path],
+      typescript: [],
     };
     const result = {
       selected: true,
@@ -184,20 +184,19 @@ test("embedded Python mutants retain original host coordinates and cannot disapp
         infrastructure: 0,
         uncompleted: 0,
     }, [
-        { path: hostPath, operators: [{ candidates: 0 }] },
         { path, operators: [{ candidates: 1 }] },
     ]);
     expect(normalizeMutation(receipt, identity, root).findings).toEqual([
       {
         gate: "mutation",
-        path: hostPath,
-        line: 11,
-        symbol: `PYTHON_DRIVER:py-boolean:${digest("False")}:True`,
+        path,
+        line: 1,
+        symbol: `py-boolean:${digest("False")}:True`,
         value: 1,
       },
     ]);
     expect(() =>
-      normalizeMutation({ ...receipt, census: receipt.census.slice(0, 1) }, identity, root),
+      normalizeMutation({ ...receipt, census: [] }, identity, root),
     ).toThrow();
   } finally {
     rmSync(root, { recursive: true, force: true });

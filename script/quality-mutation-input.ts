@@ -7,7 +7,7 @@ import type { TestSelectionReceipt } from "./run-quality-mutations";
 
 export type Entry = { path: string; sha256: string; bytes: number; category: string; language: string };
 export type Contract = { projects: string[]; roots: string[]; topology: boolean };
-export type Inventory = { files: Entry[]; historical: Entry[]; embedded: Entry[]; configurations: { path: string; sha256: string }[] };
+export type Inventory = { files: Entry[]; historical: Entry[]; configurations: { path: string; sha256: string }[] };
 export const mutationFailure: { current: { code: string; message: string } | null } = { current: null };
 export class MutationError {
   readonly name = "MutationError";

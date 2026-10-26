@@ -10,7 +10,7 @@
     "halsteadDifficultyExclusiveMax": 80,
     "crapExclusiveMax": 25
   },
-  "roots": ["apps", "packages", "script"],
+  "roots": ["apps", "packages", "script", "clients/machine-client/src/code"],
   "topology": true,
   "projects": [
     "apps/desktop/tsconfig.json",

@@ -194,7 +194,6 @@ function inventoryAt(path: string): Inventory {
 	const result = {
 		files: array(data.files).map(entry),
 		historical: array(data.historical).map(entry),
-		embedded: array(data.embedded).map(entry),
 		configurations: array(data.configurations).map((value) => {
 			const row = object(value);
 			return { path: text(row.path), sha256: hash(text(row.sha256)) };
@@ -554,9 +553,8 @@ function addScalarMutations(
 
 function addTemplateMutations(
 	node: ts.StringLiteral | ts.NoSubstitutionTemplateLiteral | ts.TemplateExpression,
-	source: ts.SourceFile, embedded: boolean, add: AddMutation,
+	source: ts.SourceFile, add: AddMutation,
 ): void {
-	if (embedded) return;
 	// Quasis are template data, not ordinary expression literals.
 	// Keep tag/receiver/substitutions and the raw/cooked pair intact.
 	const parts = ts.isTemplateExpression(node)
@@ -572,7 +570,7 @@ function addTemplateMutations(
 }
 
 function addStringMutations(
-	node: ts.Node, source: ts.SourceFile, embeddedPath: string, inventory: Inventory, add: AddMutation,
+	node: ts.Node, source: ts.SourceFile, add: AddMutation,
 ): void {
 	if (
 		(ts.isStringLiteral(node) ||
@@ -581,13 +579,7 @@ function addStringMutations(
 		literalValue(node)
 	) {
 		if (ts.isTaggedTemplateExpression(node.parent)) {
-			const embedded = inventory.embedded.some(
-				(entry) =>
-					entry.path === embeddedPath &&
-					ts.isVariableDeclaration(node.parent.parent) &&
-					node.parent.parent.name.getText(source) === "PYTHON_DRIVER",
-			);
-			addTemplateMutations(node, source, embedded, add);
+			addTemplateMutations(node, source, add);
 		} else
 			add("string-literal", node,
 				ts.isTemplateExpression(node) || node.text.length ? '""' : '"__d945_mutant__"',
@@ -705,7 +697,7 @@ export function enumerate(
 	const census: Census[] = [];
 	const errors: string[] = [];
 	const seen = new Set<string>();
-	for (const file of [...inventory.files, ...inventory.historical, ...inventory.embedded]) {
+	for (const file of [...inventory.files, ...inventory.historical]) {
 		const firstCandidate = candidates.length;
 		const row: Census = {
 			path: file.path,
@@ -741,7 +733,7 @@ export function enumerate(
 					if (!runtimeNode(node)) return;
 					const raw = node.getText(source);
 					addScalarMutations(node, raw, source, operators, add);
-					addStringMutations(node, source, `${file.path}#PYTHON_DRIVER`, inventory, add);
+					addStringMutations(node, source, add);
 					addUnaryMutations(node, source, add);
 					addConditionMutations(node, source, add);
 					addStatementAndCollectionMutations(node, add);
@@ -781,7 +773,7 @@ export function analyze(directory: string, contract: Contract, inventory: Invent
 			["typescript", "javascript"].includes(file.language) &&
 			projectRoots.has(realpathSync(pathIn(root, file.path))),
 		);
-		const part = enumerate(root, { files, historical: [], embedded: inventory.embedded, configurations: [] }, operators, [program]);
+		const part = enumerate(root, { files, historical: [], configurations: [] }, operators, [program]);
 		result.candidates.push(...part.candidates);
 		result.census.push(...part.census.filter((row) => row.language !== "python"));
 		result.errors.push(...part.errors);
@@ -795,7 +787,7 @@ export function analyze(directory: string, contract: Contract, inventory: Invent
 	result.census.push(...rest.census);
 	result.errors.push(...rest.errors);
 	const rows = new Map(result.census.map((row) => [row.path, row]));
-	result.census = [...inventory.files, ...inventory.historical, ...inventory.embedded].flatMap((file) => {
+	result.census = [...inventory.files, ...inventory.historical].flatMap((file) => {
 		const row = rows.get(file.path);
 		return row ? [row] : [];
 	});
@@ -1461,7 +1453,7 @@ async function buildReachMap(options: Options, frozen: string, temporary: string
 		const unique = [...new Map(rows.map((row) => [`${row.site.start}:${row.site.end}:${row.site.mode}`, row])).values()];
 		const target = join(overlay.instrumented, relative(directory, source.path));
 		mkdirSync(dirname(target), { recursive: true });
-		writeFileSync(target, hostWith(source, instrument(source.source, unique.map((row) => ({ ...row, tests })), markers)));
+		writeFileSync(target, instrument(source.source, unique.map((row) => ({ ...row, tests })), markers));
 		overlay.paths.push(relative(directory, source.path));
 	}
 	const overlayFile = join(temporary, "reach-overlay.txt");
@@ -1521,45 +1513,13 @@ export function mutationSource(
 	path: string;
 	source: string;
 	host: string;
-	start: number;
-	end: number;
 } {
-	const [hostPath, binding] = candidatePath.split("#");
-	const path = pathIn(root, hostPath ?? "");
+	const path = pathIn(root, candidatePath);
 	const host = readFileSync(path, "utf8");
-	if (!binding) return { path, source: host, host, start: 0, end: host.length };
-	if (binding !== "PYTHON_DRIVER") return fail("schema", "Unsupported virtual binding");
-	const source = ts.createSourceFile(path, host, ts.ScriptTarget.Latest, true);
-	const bindings: ts.TaggedTemplateExpression[] = [];
-	function visit(node: ts.Node): void {
-		if (
-			ts.isVariableDeclaration(node) &&
-			node.name.getText(source) === binding &&
-			node.initializer &&
-			ts.isTaggedTemplateExpression(node.initializer)
-		)
-			bindings.push(node.initializer);
-		ts.forEachChild(node, visit);
-	}
-	visit(source);
-	const init = bindings[0];
-	if (
-		bindings.length !== 1 ||
-		!init ||
-		init.tag.getText(source) !== "String.raw" ||
-		!ts.isNoSubstitutionTemplateLiteral(init.template) ||
-		init.template.rawText === undefined
-	)
-		return fail("schema", "Virtual source is not a unique raw template");
-	return { path, source: init.template.rawText, host, start: init.getStart(source), end: init.end };
-}
-function hostWith(source: ReturnType<typeof mutationSource>, content: string): string {
-	return source.start === 0 && source.end === source.host.length
-		? content
-		: replace(source.host, source.start, source.end, JSON.stringify(content));
+	return { path, source: host, host };
 }
 function writeMutation(source: ReturnType<typeof mutationSource>, content: string): void {
-	writeFileSync(source.path, hostWith(source, content));
+	writeFileSync(source.path, content);
 }
 export async function pythonWorker(
 	options: Pick<Options, "python" | "decision" | "timeout">,
@@ -2027,13 +1987,13 @@ async function enumeratePython(
 	frozen: string,
 	enumerated: ReturnType<typeof enumerate>,
 ) {
-	const python = object(object(object(readJson(options.decision)).contract).embeddedPython);
+	const python = object(object(object(readJson(options.decision)).contract).pythonSource);
 	const pythonFamilies = array(object(python.mutation).operators).map((value) =>
 		text(object(value).id),
 	);
 	if (
 		sha256(JSON.stringify(python.mutation)) !==
-		"072579aa17fe6dd80df6fd0085a9c6bdffec66a3510edc035e30f067d4968331"
+		"ecf981eba68b4a907c13f909c850538609829042fd682f90c2c58d0aa01f7eaa"
 	)
 		return fail(
 			"operatorContract",

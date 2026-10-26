@@ -16,7 +16,7 @@ import { array, content, integer, inventoryFrom, loadInventory, readJson, sha, t
 import { fingerprint, readDocument, recordObject } from "./quality-ci-input";
 import { mergeMeasurements, normalizeCensus } from "./quality-ci-receipt";
 import { extendsChainOf, main as verifyConfigMain, verifyManifest, type Manifest } from "./verify-tsconfig-inheritance";
-import { buildInventory, cliOptions, contractSchema, inventoryMain, inventorySchema } from "./quality-inventory";
+import { buildInventory, cliOptions, contractSchema, inventoryMain, inventorySchema, verifyInventory } from "./quality-inventory";
 import { ciMain } from "./ci";
 import { main as planMain, planChanges } from "./ci-plan";
 import { census, censusMain, resultSchema } from "./check-types-census";
@@ -80,7 +80,6 @@ test("CI fingerprint binds source identities in an isolated inventory", () => {
   expect(identity.contractHash).toBe(identity.inventory.contractHash);
   expect(identity.paths).toEqual(["script/example.ts"]);
   expect(identity.typescript).toEqual(["script/example.ts"]);
-  expect(identity.embedded).toEqual([]);
 });
 
 function withInventoryConsole(
@@ -129,7 +128,7 @@ test("inventory CLI rejects invalid options before claiming a clean receipt", ()
   });
 });
 
-test("topology inventory binds embedded driver and tracks only Git-listed historical source", () => {
+test("topology inventory binds client driver and tracks only Git-listed historical source", () => {
   using temp = temporaryRoot();
   writeFileSync(join(temp.root, "package.json"), JSON.stringify({ workspaces: ["packages/*", "apps/*"] }));
   writeFileSync(join(temp.root, "tsconfig.base.json"), "{}");
@@ -139,12 +138,12 @@ test("topology inventory binds embedded driver and tracks only Git-listed histor
   }
   mkdirSync(join(temp.root, "script"));
   mkdirSync(join(temp.root, "docs"));
-  mkdirSync(join(temp.root, "packages/codemode/src"), { recursive: true });
-  const kernel = join(temp.root, "packages/codemode/src/kernel.ts");
-  writeFileSync(kernel, "export const PYTHON_DRIVER = String.raw`print(1)`;\n");
+  mkdirSync(join(temp.root, "clients/machine-client/src/code"), { recursive: true });
+  const driver = join(temp.root, "clients/machine-client/src/code/driver.py");
+  writeFileSync(driver, "print(1)\n");
   writeFileSync(join(temp.root, "docs/old.ts"), "export const legacy = 1;\n");
   const contract = contractSchema.parse({
-    version: 1, typescript: "5.9.2", roots: ["apps", "packages", "script"],
+    version: 1, typescript: "5.9.2", roots: ["apps", "packages", "script", "clients/machine-client/src/code"],
     projects: ["packages/machines/tsconfig.json"], topology: true,
   });
   writeFileSync(join(temp.root, "contract.json"), JSON.stringify(contract));
@@ -155,20 +154,15 @@ test("topology inventory binds embedded driver and tracks only Git-listed histor
   });
   try {
     const inventory = buildInventory(temp.root, contract);
-    expect(inventory.embedded).toEqual([
-      expect.objectContaining({ path: "packages/codemode/src/kernel.ts#PYTHON_DRIVER", sha256: sha("print(1)") }),
-    ]);
+    expect(inventory.files).toContainEqual(expect.objectContaining({
+      path: "clients/machine-client/src/code/driver.py", sha256: sha("print(1)\n"),
+      category: "production", language: "python",
+    }));
     // docs/deleted.ts is Git-tracked but absent from the working tree: skipped.
     expect(inventory.historical.map((entry) => entry.path)).toEqual(["docs/old.ts"]);
-    expect(fingerprint(temp.root, "contract.json").embedded).toEqual([
-      expect.objectContaining({
-        path: "packages/codemode/src/kernel.ts#PYTHON_DRIVER",
-        text: "print(1)",
-        lineOffset: 0,
-      }),
-    ]);
-    writeFileSync(kernel, "export const PYTHON_DRIVER = `print(1)`;\n");
-    expect(() => buildInventory(temp.root, contract)).toThrow(/unsupported embedded driver representation/);
+    expect(fingerprint(temp.root, "contract.json").paths).toContain("clients/machine-client/src/code/driver.py");
+    writeFileSync(driver, "print(2)\n");
+    expect(() => verifyInventory(buildInventory(temp.root, contract), inventory)).toThrow(/source membership/);
   } finally {
     spawn.mockRestore();
   }
@@ -657,11 +651,12 @@ function temporaryRoot() {
   return { root, [Symbol.dispose]: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-test("metric inventory resolves and authenticates real, historical, and embedded sources", () => {
+test("metric inventory resolves and authenticates real and historical sources", () => {
   using temp = temporaryRoot();
   mkdirSync(join(temp.root, "src"));
-  const host = 'const DRIVER = String.raw`print("ok")`;\n';
+  const host = 'export const value = "ok";\n';
   writeFileSync(join(temp.root, "src/host.ts"), host);
+  writeFileSync(join(temp.root, "src/driver.py"), 'print("ok")\n');
   writeFileSync(join(temp.root, "src/old.ts"), "export const old = 1;\n");
   writeFileSync(join(temp.root, "tsconfig.json"), "{}");
   const entry = (path: string, text: string, language = "typescript") => ({
@@ -670,20 +665,16 @@ test("metric inventory resolves and authenticates real, historical, and embedded
   const input = {
     version: 1,
     contractHash: sha("contract"),
-    files: [entry("src/host.ts", host)],
+    files: [entry("src/host.ts", host), entry("src/driver.py", 'print("ok")\n', "python")],
     historical: [entry("src/old.ts", "export const old = 1;\n")],
     configurations: [{ path: "tsconfig.json", sha256: sha("{}") }],
-    embedded: [entry("src/host.ts#DRIVER", 'print("ok")', "python")],
   };
   const bytes = Buffer.from(JSON.stringify(input));
   const result = inventoryFrom(temp.root, bytes, "inventory.json");
   expect(result.inventoryHash).toBe(sha(bytes));
   expect(result.files[0]?.text).toBe(host);
   expect(result.historical[0]?.path).toBe("src/old.ts");
-  expect(result.embedded[0]).toMatchObject({
-    path: "src/host.ts#DRIVER", text: 'print("ok")', hostPath: "src/host.ts",
-  });
-  expect(result.embedded[0]?.hostOffset).toBe(host.indexOf('`') + 1);
+  expect(result.files[1]).toMatchObject({ path: "src/driver.py", text: 'print("ok")\n', language: "python" });
   expect(result.configurations).toEqual(input.configurations);
 });
 
@@ -695,7 +686,7 @@ test("metric inventory rejects mutated source and configuration bytes", () => {
   const input = {
     version: 1, contractHash: sha("contract"),
     files: [{ path: "source.ts", sha256: sha(source), bytes: Buffer.byteLength(source), category: "production", language: "typescript" }],
-    historical: [], embedded: [],
+    historical: [],
     configurations: [{ path: "tsconfig.json", sha256: sha("{}") }],
   };
   const load = () => inventoryFrom(temp.root, Buffer.from(JSON.stringify(input)), "inventory.json");
@@ -709,20 +700,18 @@ test("metric inventory rejects mutated source and configuration bytes", () => {
   expect(load).toThrow(/configuration differs/);
 });
 
-test("metric inventory rejects invalid virtual source identity and overlapping paths", () => {
+test("metric inventory rejects invalid source identity and overlapping paths", () => {
   using temp = temporaryRoot();
-  const source = "const DRIVER = String.raw`print(1)`;\n";
-  writeFileSync(join(temp.root, "host.ts"), source);
-  const file = { path: "host.ts", sha256: sha(source), bytes: Buffer.byteLength(source), category: "production", language: "typescript" };
-  const virtual = { path: "host.ts#DRIVER", sha256: sha("print(1)"), bytes: 8, category: "production", language: "python" };
-  const input = { version: 1, contractHash: sha("contract"), files: [file], historical: [], configurations: [], embedded: [virtual] };
+  const source = "print(1)\n";
+  writeFileSync(join(temp.root, "driver.py"), source);
+  const file = { path: "driver.py", sha256: sha(source), bytes: Buffer.byteLength(source), category: "production", language: "python" };
+  const input = { version: 1, contractHash: sha("contract"), files: [file], historical: [], configurations: [] };
   const load = () => inventoryFrom(temp.root, Buffer.from(JSON.stringify(input)), "inventory.json");
-  expect(load().embedded[0]?.text).toBe("print(1)");
+  expect(load().files[0]?.text).toBe(source);
   expect(() => inventoryFrom(temp.root, Buffer.from(JSON.stringify({ ...input, version: 2 })), "inventory.json")).toThrow(/unsupported inventory version/);
-  expect(() => inventoryFrom(temp.root, Buffer.from(JSON.stringify({ ...input, files: [] })), "inventory.json")).toThrow(/virtual source host absent/);
-  expect(() => inventoryFrom(temp.root, Buffer.from(JSON.stringify({ ...input, embedded: [{ ...virtual, sha256: sha("wrong") }] })), "inventory.json")).toThrow(/virtual source identity differs/);
-  expect(() => inventoryFrom(temp.root, Buffer.from(JSON.stringify({ ...input, embedded: [virtual, virtual] })), "inventory.json")).toThrow(/overlapping inventory/);
-  expect(() => inventoryFrom(temp.root, Buffer.from(JSON.stringify({ ...input, embedded: [{ ...virtual, path: "host.ts#OTHER" }] })), "inventory.json")).toThrow(/resolve uniquely/);
+  expect(() => inventoryFrom(temp.root, Buffer.from(JSON.stringify({ ...input, files: [] })), "inventory.json")).toThrow(/empty or overlapping inventory/);
+  expect(() => inventoryFrom(temp.root, Buffer.from(JSON.stringify({ ...input, files: [{ ...file, sha256: sha("wrong") }] })), "inventory.json")).toThrow(/source identity differs/);
+  expect(() => inventoryFrom(temp.root, Buffer.from(JSON.stringify({ ...input, files: [file, file] })), "inventory.json")).toThrow(/overlapping inventory/);
 });
 
 test("metric input refuses malformed primitives and malformed source entries", () => {
@@ -731,7 +720,7 @@ test("metric input refuses malformed primitives and malformed source entries", (
   expect(array([1, "two"])).toEqual([1, "two"]);
   expect(() => array({ length: 0 })).toThrow(/expected array/);
   using temp = temporaryRoot();
-  const input = { version: 1, contractHash: sha("contract"), files: [{ path: "../escape" }], historical: [], configurations: [], embedded: [] };
+  const input = { version: 1, contractHash: sha("contract"), files: [{ path: "../escape" }], historical: [], configurations: [] };
   expect(() => inventoryFrom(temp.root, Buffer.from(JSON.stringify(input)), "inventory.json")).toThrow(/invalid source entry/);
   writeFileSync(join(temp.root, "input.json"), '{"measured":true}');
   expect(readJson(join(temp.root, "input.json"))).toEqual({ measured: true });
@@ -746,7 +735,7 @@ test("metric inventory rejects bytes that match a hash but cannot round-trip as 
   const input = {
     version: 1, contractHash: sha("contract"),
     files: [{ path: "source.ts", sha256: sha(bytes), bytes: bytes.length, category: "production", language: "typescript" }],
-    historical: [], configurations: [], embedded: [],
+    historical: [], configurations: [],
   };
   expect(() => inventoryFrom(temp.root, Buffer.from(JSON.stringify(input)), "inventory.json")).toThrow(/source must be UTF-8/);
 });

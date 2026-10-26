@@ -5,7 +5,8 @@ export function qualitySource(path: string): boolean {
   return (
     /\.(?:tsx?|py)$/.test(path) &&
     !parts.some((part) => ["dist", "node_modules", "coverage", "generated", "__generated__", ".git", ".omo", "__pycache__"].includes(part)) &&
-    (parts[0] === "script" ||
+    (path === "clients/machine-client/src/code/driver.py" ||
+      parts[0] === "script" ||
       (["packages", "apps"].includes(parts[0] ?? "") &&
         parts.length > 3 && ["src", "test"].includes(parts[2] ?? "")))
   );

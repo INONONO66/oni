@@ -101,9 +101,8 @@ test("reach probes write each marker once per process", async () => {
 	} finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-// packages/codemode/src/kernel.ts declares `const process = spawn(...)`; a probe
-// naming bare `process` there called ChildProcess.getBuiltinModule and threw,
-// which killed the interpreter start under reach instrumentation (run 35447636805).
+// A probe inside a scope shadowing `process` called
+// ChildProcess.getBuiltinModule and threw under reach instrumentation.
 test("reach probes resolve their globals through globalThis inside shadowing scopes", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "mutation-probe-shadow-"));
 	try {
@@ -309,7 +308,7 @@ test("fixture-file assertion credit rejects ambiguous names and non-assertion fa
   expect(assertionIdentities(`<testsuites><testsuite>${testcase.replace("AssertionError", "ZodError")}</testsuite></testsuites>`, stderr)).toEqual([]);
 });
 
-test("mutation helpers cover execution tree recursion and virtual source traversal", () => {
+test("mutation helpers cover execution tree recursion and source traversal", () => {
   const root = mkdtempSync(join(tmpdir(), "mutation-tree-"));
   try {
     mkdirSync(join(root, "nested"));
@@ -323,29 +322,15 @@ test("mutation helpers cover execution tree recursion and virtual source travers
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("virtual mutation sources retain raw bytes and reject ambiguous bindings", () => {
-	const root = mkdtempSync(join(tmpdir(), "mutation-virtual-source-"));
-	const path = join(root, "driver.ts");
+test("Python mutation sources use file bytes directly", () => {
+	const root = mkdtempSync(join(tmpdir(), "mutation-python-source-"));
+	const path = join(root, "driver.py");
 	try {
 		const raw = 'print("\\n")\n';
-		const host = `export const PYTHON_DRIVER = String.raw\`${raw}\`;`;
-		writeFileSync(path, host);
-		const source = mutationSource(root, "driver.ts#PYTHON_DRIVER");
+		writeFileSync(path, raw);
+		const source = mutationSource(root, "driver.py");
 		expect(source.source).toBe(raw);
-		expect(source.host).toBe(host);
-		expect(host.slice(source.start, source.end)).toBe(`String.raw\`${raw}\``);
-		expect(() => mutationSource(root, "driver.ts#OTHER")).toThrow("Unsupported virtual binding");
-		for (const invalid of [
-			"export const OTHER = 1;",
-			'export const PYTHON_DRIVER = "plain";',
-			"export const PYTHON_DRIVER = tag`value`;",
-			["export const PYTHON_DRIVER = String.raw`value", String.fromCharCode(36, 123), "1}`;"].join(""),
-			`${host}\n${host}`,
-		]) {
-			writeFileSync(path, invalid);
-			expect(() => mutationSource(root, "driver.ts#PYTHON_DRIVER"))
-				.toThrow("Virtual source is not a unique raw template");
-		}
+		expect(source.host).toBe(raw);
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 

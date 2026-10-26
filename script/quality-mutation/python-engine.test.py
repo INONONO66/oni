@@ -15,7 +15,7 @@ if SPEC is None or SPEC.loader is None:
 ENGINE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ENGINE)
 DECISION = json.loads(pathlib.Path(os.environ['QUALITY_MUTATION_DECISION']).read_text())
-OPERATORS = DECISION['contract']['embeddedPython']['mutation']['operators']
+OPERATORS = DECISION['contract']['pythonSource']['mutation']['operators']
 
 
 def rows(source, family):

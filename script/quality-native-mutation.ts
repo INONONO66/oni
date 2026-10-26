@@ -76,7 +76,7 @@ export function normalizeMutation(value: Json, identity: Identity, root: string)
   const results = jsonArray(row.results, jsonObject);
   requireMeasurement(results.length > 0, "empty mutation campaign");
   const census = jsonArray(row.census, jsonObject);
-  const owned = [...identity.paths, ...(identity.embedded ?? []).map((source) => source.path)];
+  const owned = identity.paths;
   sameMembers(
     census.map((source) => jsonString(source.path)).filter((path) => owned.includes(path)),
     owned,
@@ -105,11 +105,10 @@ export function normalizeMutation(value: Json, identity: Identity, root: string)
     );
     const outcome = jsonChoice(result.outcome, ["killed", "survived", "noCoverage", "invalid"]);
     const sourcePath = jsonString(result.path);
-    const virtual = identity.embedded?.find((entry) => entry.path === sourcePath);
-    const path = virtual?.hostPath ?? sourcePath;
+    const path = sourcePath;
     if (!qualitySource(path)) return [];
     requireMeasurement(identity.paths.includes(path), "mutant outside source inventory");
-    const source = virtual?.text ?? readFileSync(resolve(root, path), "utf8");
+    const source = readFileSync(resolve(root, path), "utf8");
     requireMeasurement(result.sourceSha256 === digest(source), "stale mutant source");
     if (["killed", "invalid"].includes(outcome)) return [];
     const offset = jsonNumber(result.startOffset);
@@ -121,8 +120,8 @@ export function normalizeMutation(value: Json, identity: Identity, root: string)
       {
         gate: "mutation" as const,
         path,
-        line: (virtual?.lineOffset ?? 0) + source.slice(0, offset).split("\n").length,
-        symbol: `${virtual ? "PYTHON_DRIVER:" : ""}${jsonString(result.operator)}:${jsonString(result.replacementSha256)}:${source.slice(offset, jsonNumber(result.endOffset))}`,
+        line: source.slice(0, offset).split("\n").length,
+        symbol: `${jsonString(result.operator)}:${jsonString(result.replacementSha256)}:${source.slice(offset, jsonNumber(result.endOffset))}`,
         value: 1,
       },
     ];
