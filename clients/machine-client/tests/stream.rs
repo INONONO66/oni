@@ -22,7 +22,7 @@ use oni_machine_client::{
     stream::{
         encoder::{Bounds, Budget, Encoder, Quality, Stats, Video, MIN_BITRATE},
         local_address,
-        session::{Session, CHANNEL},
+        session::{Session, CHANNEL, EARLY_RELAY},
         MAX_ENCODE_MS, MAX_FPS, MAX_STREAMS, SIGNAL_QUEUE,
     },
 };
@@ -512,6 +512,28 @@ fn an_oversized_unit_is_a_dropped_frame_in_the_session() {
     assert!(!sent, "a unit above max_frame_bytes is not sent");
     assert_eq!(pair.session.stats().dropped, 1);
     assert_eq!(pair.session.stats().frames, 0);
+}
+
+#[test]
+fn relay_before_the_channel_opens_is_queued_and_written_on_open() {
+    let mut pair = Pair::new(bounds(10, Duration::from_secs(1)), true);
+    // The open acknowledgement has not been exchanged: nothing has been polled.
+    pair.session.data(CHANNEL, b"early").expect("queued");
+    pair.until(|pair| {
+        pair.events
+            .iter()
+            .any(|event| matches!(event, Event::ChannelData(data) if data.data == b"early"))
+    });
+}
+
+#[test]
+fn the_early_relay_queue_is_bounded() {
+    let mut pair = Pair::new(bounds(10, Duration::from_secs(1)), true);
+    for _ in 0..EARLY_RELAY {
+        pair.session.data(CHANNEL, b"x").expect("queued");
+    }
+    let full = pair.session.data(CHANNEL, b"x").expect_err("bounded");
+    assert_eq!(full, "data channel is full");
 }
 
 #[test]

@@ -6,12 +6,12 @@
 //! units as RTP; the remote's bandwidth estimate and keyframe requests feed
 //! the [`Video`] budget.
 
-use std::{net::SocketAddr, time::Instant};
+use std::{collections::VecDeque, net::SocketAddr, time::Instant};
 
 use str0m::{
     bwe::{Bitrate, BweKind},
     change::{SdpAnswer, SdpPendingOffer},
-    channel::ChannelId,
+    channel::{Channel, ChannelId},
     format::Codec,
     media::{Direction, Frequency, MediaKind, MediaTime, Mid},
     net::{Protocol, Receive},
@@ -21,6 +21,9 @@ use str0m::{
 use super::encoder::{Bounds, Video};
 
 pub const CHANNEL: &str = "oni";
+/// Relayed messages held while the data channel's open acknowledgement is
+/// still in flight; the next one is refused as full.
+pub const EARLY_RELAY: usize = 16;
 
 /// One datagram for the transport to send.
 #[derive(Debug, PartialEq, Eq)]
@@ -49,6 +52,9 @@ pub struct Session {
     video: Video,
     mid: Mid,
     channel: Option<ChannelId>,
+    /// Relayed bytes that arrived while the negotiated channel's open
+    /// acknowledgement was still in flight; written on `ChannelOpen`.
+    early: VecDeque<Vec<u8>>,
     pending: Option<SdpPendingOffer>,
     connected: bool,
     failed: bool,
@@ -91,6 +97,7 @@ impl Session {
             video,
             mid,
             channel,
+            early: VecDeque::new(),
             pending: Some(pending),
             connected: false,
             failed: false,
@@ -138,13 +145,26 @@ impl Session {
         Ok(())
     }
 
-    /// Writes relayed bytes into this stream's open data channel.
+    /// Writes relayed bytes into this stream's negotiated data channel. The
+    /// viewer learns the channel is open before this peer sees its
+    /// acknowledgement, so bytes relayed in that window are queued (bounded
+    /// by [`EARLY_RELAY`]) and written on `ChannelOpen` rather than refused.
     pub fn data(&mut self, label: &str, bytes: &[u8]) -> Result<(), String> {
-        let mut channel = self
+        let id = self
             .channel
             .filter(|_| label == CHANNEL)
-            .and_then(|id| self.rtc.channel(id))
             .ok_or_else(|| format!("no open data channel {label}"))?;
+        match self.rtc.channel(id) {
+            Some(channel) => Self::write(channel, bytes),
+            None if self.early.len() < EARLY_RELAY => {
+                self.early.push_back(bytes.to_vec());
+                Ok(())
+            }
+            None => Err("data channel is full".to_owned()),
+        }
+    }
+
+    fn write(mut channel: Channel<'_>, bytes: &[u8]) -> Result<(), String> {
         if channel.write(true, bytes).map_err(failure)? {
             Ok(())
         } else {
@@ -194,6 +214,12 @@ impl Session {
     fn event(&mut self, event: Event) -> Result<(), String> {
         match event {
             Event::Connected => self.connected = true,
+            Event::ChannelOpen(id, _) if Some(id) == self.channel => {
+                while let Some(bytes) = self.early.pop_front() {
+                    let channel = self.rtc.channel(id).ok_or("data channel closed")?;
+                    Self::write(channel, &bytes)?;
+                }
+            }
             Event::IceConnectionStateChange(IceConnectionState::Disconnected) => {
                 self.failed = true;
             }
