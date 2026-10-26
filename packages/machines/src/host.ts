@@ -13,6 +13,7 @@ import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
 import type { AttachGenerationStore } from "./generation-store";
 import type { StreamingMachineHandle, StreamWriteOptions, StreamWriteReceipt } from "./stream-write";
+import type { z } from "zod";
 
 interface MachineHostOptions {
   /**
@@ -59,6 +60,17 @@ interface MachineHostOptions {
   readonly capacity?: readonly Machine.CapacityRow[];
   readonly scheduler?: LeaseScheduler;
   readonly idleTtlMs?: number;
+  /**
+   * Captured-input port (#1662): every `machine.input.*` call runs `forward`
+   * only through this port, which records the call as a kernel `tool.pre`
+   * effect and may refuse it. `forward` re-checks the attachment, generation
+   * and grant before it sends. Absent, every typed input refuses
+   * `permission_denied`; the host carries no input policy of its own.
+   */
+  readonly captureInput?: (
+    request: MachineInputCapture,
+    forward: Effect.Effect<Machine.InputWriteResult, MachineError>,
+  ) => Effect.Effect<Machine.InputWriteResult, MachineError>;
 }
 /** Default `staleAfterMs`: three missed default-cadence heartbeats. */
 const REPORT_STALE_AFTER_MS = 15_000;
@@ -102,7 +114,77 @@ export interface MachineHandle {
     send(request: Machine.AgentSessionSendRequest): Effect.Effect<Machine.AgentSessionSendResult, MachineError>;
     stop(request: Machine.AgentSessionStopRequest): Effect.Effect<Machine.AgentSessionStopResult, MachineError>;
   };
+  /**
+   * Computer use (#1662), gated by `computer.use` in the effective set AND
+   * the live enrollment. Optional so structural fakes stay valid; the host
+   * always provides it. The legacy `screen`/`input` pair above keeps its
+   * `screen.read`/`input.write` gate and its callers unchanged.
+   */
+  readonly computer?: ComputerHandle;
 }
+/** Computer-use wire methods (#1662) the host originates. */
+type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "InputPointer" | "InputKey" | "InputText" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"];
+type InputMethod = (typeof Machine.WireMethod)["InputPointer" | "InputKey" | "InputText"];
+type InputParams = Machine.InputPointerRequest | Machine.InputKeyRequest | Machine.InputTextRequest;
+/** What the captured-input port records: the exact call the host would forward. */
+export interface MachineInputCapture {
+  readonly machineId: Machine.MachineId;
+  /** The attachment generation when the call was captured; null when no peer was attached. */
+  readonly generation: number | null;
+  readonly method: InputMethod;
+  readonly params: InputParams;
+}
+/** Why a stream or channel ended: the peer's or host's close reason, or the attachment went away. */
+export type RelayEnd = Machine.StreamCloseRequest["reason"] | Machine.CdpCloseRequest["reason"] | "detached" | "revoked";
+export interface StreamListeners {
+  /** One peer → host negotiation record, delivered once per accepted seq. */
+  readonly onSignal: (signal: Machine.StreamSignalRequest) => void;
+  readonly onClose: (reason: RelayEnd) => void;
+}
+export interface ChannelListeners {
+  /** Opaque bytes of the channel; boundaries carry no meaning. */
+  readonly onChunk: (data: Uint8Array) => void;
+  readonly onClose: (reason: RelayEnd) => void;
+}
+/** A live stream handle: the host minted `streamId`; seq numbering is the host's. */
+export interface ComputerStream {
+  readonly streamId: string;
+  readonly expiresAt: number;
+  signal(signal: Machine.StreamSignalRequest["signal"]): Effect.Effect<Machine.StreamSignalResult, MachineError>;
+  close(): Effect.Effect<Machine.StreamCloseResult, MachineError>;
+}
+/** An opaque debugging-channel handle; the host relays bytes and never reads them. */
+export interface ComputerChannel {
+  readonly channelId: string;
+  readonly expiresAt: number;
+  send(data: Uint8Array): Effect.Effect<Machine.CdpChunkResult, MachineError>;
+  close(): Effect.Effect<Machine.CdpCloseResult, MachineError>;
+}
+type ComputerCapture = Exclude<Machine.ScreenCaptureResult, { status: "ok" }> | (Omit<Extract<Machine.ScreenCaptureResult, { status: "ok" }>, "data"> & { readonly data: Buffer });
+export interface ComputerHandle {
+  list(request?: Machine.ScreenListRequest): Effect.Effect<Machine.ScreenListResult, MachineError>;
+  capture(request: Machine.ScreenCaptureRequest): Effect.Effect<ComputerCapture, MachineError>;
+  pointer(request: Machine.InputPointerRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
+  key(request: Machine.InputKeyRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
+  text(request: Machine.InputTextRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
+  readonly stream: {
+    open(request: Omit<Machine.StreamOpenRequest, "streamId">, listeners: StreamListeners): Effect.Effect<ComputerStream | Extract<Machine.StreamOpenResult, { status: "refused" }>, MachineError>;
+  };
+  readonly cdp: {
+    open(request: Omit<Machine.CdpOpenRequest, "channelId">, listeners: ChannelListeners): Effect.Effect<ComputerChannel | Extract<Machine.CdpOpenResult, { status: "refused" }>, MachineError>;
+  };
+}
+interface RelayState {
+  /** Last accepted peer → host seq (-1 before the first). */
+  inbound: number;
+  /** Next host → peer seq. */
+  outbound: number;
+  readonly lock: Semaphore.Semaphore;
+  readonly end: (reason: RelayEnd) => void;
+}
+type Relay =
+  | (RelayState & { readonly kind: "stream"; readonly listeners: StreamListeners })
+  | (RelayState & { readonly kind: "cdp"; readonly listeners: ChannelListeners });
 /** Attached enrollment, negotiated capabilities and optional resource observations. */
 export type MachineInfo = Machine.Info & {
   readonly generation: number;
@@ -207,6 +289,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       permissions.delete(key);
       inFlight.delete(key);
       reports.delete(key);
+      endRelays(key);
       capacity.detach(attachment.offer.machineId, reason === "superseded" ? "stale_generation" : "disconnected");
       if (connectionByMachine.get(attachment.offer.machineId) === key) connectionByMachine.delete(attachment.offer.machineId);
       options.events.publish(Machine.Events.Detached, { machineId: attachment.offer.machineId, time: options.now(), reason });
@@ -328,6 +411,12 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         if (method === Machine.WireMethod.AgentPermission) {
           const request = yield* Effect.try({ try: () => Machine.AgentPermissionRequest.parse(params), catch: decodeMachineFailure("agent.permission.request") });
           respond(yield* decidePermission(request, source));
+          return;
+        }
+        const relayed = relayInbound(method, params, source.key);
+        if (relayed !== undefined) {
+          respond(yield* relayed);
+          yield* closeRetired(source.key);
           return;
         }
         if (method !== Machine.WireMethod.Attach) return yield* new MachineRefusalError({ reason: "invalid_method", message: `invalid method: ${method}` });
@@ -737,6 +826,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           send: (input) => agentCall(id, "agent.send", Machine.WireMethod.AgentSessionSend, Machine.AgentSessionSendRequest, Machine.AgentSessionSendResult, input),
           stop: (input) => agentCall(id, "agent.stop", Machine.WireMethod.AgentSessionStop, Machine.AgentSessionStopRequest, Machine.AgentSessionStopResult, input),
         },
+        computer: computerHandle(id),
       };
       handles.set(id, handle);
       return handle;
@@ -767,6 +857,278 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     function exportsOf(id: string): readonly { readonly name: Machine.ExportName; readonly path: string }[] {
       const roots = effectiveRoots(connection(id));
       return roots.filter((entry) => roots.every((other) => other === entry || other.path !== entry.path));
+    }
+    // ---- Computer use (#1662) ----
+    /** Open streams and debugging channels per attachment key; cleared on detach. */
+    const relays = new Map<string, Map<string, Relay>>();
+    function endRelays(key: string): void {
+      const open = relays.get(key);
+      relays.delete(key);
+      for (const relay of open?.values() ?? []) relay.end("detached");
+    }
+    function relaysOf(key: string): Map<string, Relay> {
+      const open = relays.get(key) ?? new Map<string, Relay>();
+      relays.set(key, open);
+      return open;
+    }
+    /** The relay `relayId` of `kind` on attachment `key`, or why there is none. */
+    function findRelay<K extends Relay["kind"]>(key: string, relayId: string, kind: K): Extract<Relay, { kind: K }> | "machine_not_attached" | "not_found" {
+      if (!attachments.has(key)) return "machine_not_attached";
+      const relay = relays.get(key)?.get(relayId);
+      return relay?.kind === kind ? relay as Extract<Relay, { kind: K }> : "not_found";
+    }
+    /** Removes the relay and reports its end once; false when it was already gone. */
+    function endRelay(key: string, relayId: string, reason: RelayEnd): boolean {
+      const relay = relays.get(key)?.get(relayId);
+      if (relay === undefined) return false;
+      relays.get(key)?.delete(relayId);
+      relay.end(reason);
+      return true;
+    }
+    /**
+     * Both must hold, judged live on every call: the CURRENT enrollment
+     * grants `computer.use` (a peer's offer never grants it), and the
+     * attachment's effective set holds it, which the peer only offers while
+     * a display session is available.
+     */
+    function computerGrant(id: string, peer: Attachment): "granted" | "permission_denied" | "not_available" {
+      if (options.enrollment(id)?.allowedCapabilities.includes(Machine.WellKnownCapability.computerUse) !== true) return "permission_denied";
+      return peer.capabilities.includes(Machine.WellKnownCapability.computerUse) ? "granted" : "not_available";
+    }
+    function decode<S extends z.ZodType>(schema: S, raw: Ipc.Response["result"], operation: string): Effect.Effect<z.output<S>, MachineError> {
+      return Effect.try({ try: () => schema.parse(raw), catch: decodeMachineFailure(operation) });
+    }
+    function computerCall<M extends ComputerMethod, S extends z.ZodType>(peer: Attachment, method: M, params: Ipc.Request["params"], schema: S): Effect.Effect<z.output<S>, MachineError> {
+      return Effect.suspend(() => {
+        peer.server.useConnection(peer.rawId);
+        return peer.server.call(method, params, Machine.EXEC_TIMEOUT_MS + 1000);
+      }).pipe(Effect.mapError(transportFailure(`${method}.call`)), Effect.flatMap((raw) => decode(schema, raw, `${method}.response`)));
+    }
+    function attached(id: string, operation: string): Effect.Effect<Attachment, MachineError> {
+      return Effect.try({ try: () => connection(id), catch: decodeMachineFailure(operation) });
+    }
+    function inputRefusal(grant: "permission_denied" | "not_available"): Machine.InputWriteResult {
+      return { status: "refused", reason: grant === "permission_denied" ? "permission_denied" : "input_not_available" };
+    }
+    /**
+     * The captured body: attachment and grant refusals are answered here, so
+     * a refused or disconnected call is captured like an admitted one. Sends
+     * only while `peer` (the attachment at capture time, if any) is still THE
+     * attachment of `id` and the grant still holds.
+     */
+    function forwardInput(id: string, peer: Attachment | undefined, method: InputMethod, params: InputParams): Effect.Effect<Machine.InputWriteResult, MachineError> {
+      return Effect.gen(function* () {
+        const current = yield* attached(id, `${method}.connection`);
+        if (current !== peer) return yield* new MachineRefusalError({ reason: "stale_generation", message: `attachment changed before ${method}: ${id}` });
+        const grant = computerGrant(id, peer);
+        if (grant !== "granted") return inputRefusal(grant);
+        return yield* computerCall(peer, method, params, Machine.InputWriteResult);
+      });
+    }
+    function input<M extends InputMethod>(id: string, method: M, schema: z.ZodType<InputParams>, request: InputParams): Effect.Effect<Machine.InputWriteResult, MachineError> {
+      return Effect.gen(function* () {
+        const params = yield* Effect.try({ try: () => schema.parse(request), catch: decodeMachineFailure(`${method}.request`) });
+        if (options.captureInput === undefined) return { status: "refused", reason: "permission_denied", message: "input requires a captured tool.pre effect" } as const;
+        const key = connectionByMachine.get(id);
+        const peer = key === undefined ? undefined : attachments.get(key);
+        return yield* options.captureInput({ machineId: id, generation: peer?.generation ?? null, method, params }, forwardInput(id, peer, method, params));
+      });
+    }
+    function screenGate(id: string, operation: string): Effect.Effect<Attachment | "permission_denied" | "not_available", MachineError> {
+      return attached(id, operation).pipe(Effect.map((peer) => {
+        const grant = computerGrant(id, peer);
+        return grant === "granted" ? peer : grant;
+      }));
+    }
+    /** One sequence step shared by both relay kinds: repeat of the last accepted seq is idempotent. */
+    function advance(relay: Relay, seq: number): "fresh" | "repeat" | "gap" {
+      if (seq === relay.inbound) return "repeat";
+      if (seq !== relay.inbound + 1) return "gap";
+      relay.inbound = seq;
+      return "fresh";
+    }
+    /** Relays a withdrawn grant retired whose peer side still needs the host's close, per attachment key. */
+    const retired = new Map<string, Array<{ readonly kind: Relay["kind"]; readonly relayId: string }>>();
+    /**
+     * The live enrollment check of an EXISTING relay, either direction: when
+     * `computer.use` is no longer granted the relay is retired at once (its
+     * listener ends `revoked`) and queued for a peer close.
+     */
+    function withdrawn(key: string, relayId: string, kind: Relay["kind"]): boolean {
+      const peer = attachments.get(key);
+      if (peer === undefined || computerGrant(peer.offer.machineId, peer) === "granted") return false;
+      endRelay(key, relayId, "revoked");
+      retired.set(key, [...(retired.get(key) ?? []), { kind, relayId }]);
+      return true;
+    }
+    /** Sends the queued peer closes; the relay is already gone host-side, so a failed close changes nothing. */
+    function closeRetired(key: string): Effect.Effect<void> {
+      const queued = retired.get(key) ?? [];
+      retired.delete(key);
+      const peer = attachments.get(key);
+      if (peer === undefined) return Effect.void;
+      return Effect.forEach(queued, ({ kind, relayId }) => (kind === "stream"
+        ? computerCall(peer, Machine.WireMethod.StreamClose, { streamId: relayId, reason: "requested" }, Machine.StreamCloseResult)
+        : computerCall(peer, Machine.WireMethod.CdpClose, { channelId: relayId, reason: "requested" }, Machine.CdpCloseResult)).pipe(Effect.ignore), { discard: true });
+    }
+    const STREAM_REVOKED = { status: "refused", reason: "stream_not_found", message: "computer.use is no longer granted" } as const;
+    function acceptSignal(key: string, request: Machine.StreamSignalRequest): Machine.StreamSignalResult {
+      const relay = findRelay(key, request.streamId, "stream");
+      if (relay === "machine_not_attached") return { status: "refused", reason: relay };
+      if (relay === "not_found") return { status: "refused", reason: "stream_not_found" };
+      if (withdrawn(key, request.streamId, "stream")) return STREAM_REVOKED;
+      const step = advance(relay, request.seq);
+      if (step === "gap") return { status: "refused", reason: "invalid_sequence" };
+      if (step === "fresh") relay.listeners.onSignal(request);
+      return { status: "accepted", seq: request.seq };
+    }
+    function acceptChunk(key: string, chunk: Machine.CdpChunk): Machine.CdpChunkResult {
+      const relay = findRelay(key, chunk.channelId, "cdp");
+      if (relay === "machine_not_attached") return { status: "refused", reason: relay };
+      if (relay === "not_found") return { status: "refused", reason: "channel_not_found" };
+      if (withdrawn(key, chunk.channelId, "cdp")) return { status: "refused", reason: "channel_closed" };
+      const step = advance(relay, chunk.seq);
+      if (step === "gap") return { status: "refused", reason: "invalid_sequence" };
+      if (step === "fresh") relay.listeners.onChunk(Buffer.from(chunk.data, "base64"));
+      return { status: "accepted", seq: chunk.seq };
+    }
+    function closeAnswer(key: string, relayId: string, kind: Relay["kind"], reason: RelayEnd): "closed" | "machine_not_attached" | "not_found" {
+      const relay = findRelay(key, relayId, kind);
+      if (typeof relay === "string") return relay;
+      endRelay(key, relayId, reason);
+      return "closed";
+    }
+    /** Peer → host relay methods; undefined for any other method. */
+    function relayInbound(method: string, params: Ipc.Request["params"], key: string): Effect.Effect<Ipc.Response["result"], MachineError> | undefined {
+      if (method === Machine.WireMethod.StreamSignal)
+        return decode(Machine.StreamSignalRequest, params, "stream.signal.decode").pipe(Effect.map((request) => acceptSignal(key, request)));
+      if (method === Machine.WireMethod.CdpChunk)
+        return decode(Machine.CdpChunk, params, "cdp.chunk.decode").pipe(Effect.map((chunk) => acceptChunk(key, chunk)));
+      if (method === Machine.WireMethod.StreamClose)
+        return decode(Machine.StreamCloseRequest, params, "stream.close.decode").pipe(Effect.map(({ streamId, reason }): Machine.StreamCloseResult => {
+          const state = closeAnswer(key, streamId, "stream", reason);
+          return state === "closed" ? { status: "closed", streamId } : { status: "refused", reason: state === "not_found" ? "stream_not_found" : state };
+        }));
+      if (method === Machine.WireMethod.CdpClose)
+        return decode(Machine.CdpCloseRequest, params, "cdp.close.decode").pipe(Effect.map(({ channelId, reason }): Machine.CdpCloseResult => {
+          const state = closeAnswer(key, channelId, "cdp", reason);
+          return state === "closed" ? { status: "closed", channelId } : { status: "refused", reason: state === "not_found" ? "channel_not_found" : state };
+        }));
+      return undefined;
+    }
+    /**
+     * Registers the relay BEFORE the open is sent (a peer record racing the
+     * open answer is delivered, and concurrent opens share the bound), then
+     * keeps it only when the peer opened exactly the id the host minted.
+     */
+    function openRelay<R>(peer: Attachment, relayId: string, relay: Relay, opened: Effect.Effect<R, MachineError>, echoed: (result: R) => string | undefined): Effect.Effect<R, MachineError> {
+      const open = relaysOf(peer.key);
+      open.set(relayId, relay);
+      const drop = Effect.sync(() => { open.delete(relayId); });
+      return opened.pipe(Effect.onError(() => drop), Effect.flatMap((result): Effect.Effect<R, MachineError> => {
+        const echo = echoed(result);
+        if (echo === undefined) return drop.pipe(Effect.as(result));
+        if (echo !== relayId) return drop.pipe(Effect.andThen(Effect.fail(new MachineRefusalError({ reason: "invalid_response", message: `peer opened ${echo} for ${relayId}` }))));
+        return Effect.succeed(result);
+      }));
+    }
+    function signalRefusal(key: string, streamId: string, outbound: number, expiresAt: number): Machine.StreamSignalResult | undefined {
+      const live = findRelay(key, streamId, "stream");
+      if (live === "machine_not_attached") return { status: "refused", reason: live };
+      if (live === "not_found") return { status: "refused", reason: "stream_not_found" };
+      if (options.now() >= expiresAt) return { status: "refused", reason: "stream_expired" };
+      if (outbound >= Machine.STREAM_MAX_SIGNALS) return { status: "refused", reason: "signal_limit" };
+      return undefined;
+    }
+    function streamOf(peer: Attachment, streamId: string, relay: Extract<Relay, { kind: "stream" }>, expiresAt: number): ComputerStream {
+      return {
+        streamId, expiresAt,
+        signal: (signal) => relay.lock.withPermits(1)(Effect.gen(function* () {
+          const refusal = signalRefusal(peer.key, streamId, relay.outbound, expiresAt);
+          if (refusal !== undefined) return refusal;
+          if (withdrawn(peer.key, streamId, "stream")) return yield* closeRetired(peer.key).pipe(Effect.as(STREAM_REVOKED));
+          const request = yield* decode(Machine.StreamSignalRequest, { streamId, seq: relay.outbound, signal }, "stream.signal.request");
+          const result = yield* computerCall(peer, Machine.WireMethod.StreamSignal, request, Machine.StreamSignalResult);
+          if (result.status === "accepted") relay.outbound += 1;
+          return result;
+        })),
+        close: () => Effect.suspend(() => {
+          if (!endRelay(peer.key, streamId, "requested")) return Effect.succeed<Machine.StreamCloseResult>({ status: "refused", reason: attachments.has(peer.key) ? "stream_not_found" : "machine_not_attached" });
+          return computerCall(peer, Machine.WireMethod.StreamClose, { streamId, reason: "requested" }, Machine.StreamCloseResult);
+        }),
+      };
+    }
+    function channelOf(peer: Attachment, channelId: string, relay: Extract<Relay, { kind: "cdp" }>, expiresAt: number): ComputerChannel {
+      return {
+        channelId, expiresAt,
+        send: (data) => relay.lock.withPermits(1)(Effect.gen(function* () {
+          const live = findRelay(peer.key, channelId, "cdp");
+          if (live === "machine_not_attached") return { status: "refused", reason: live } as const;
+          if (live === "not_found") return { status: "refused", reason: "channel_not_found" } as const;
+          if (withdrawn(peer.key, channelId, "cdp")) return yield* closeRetired(peer.key).pipe(Effect.as({ status: "refused", reason: "channel_closed" } as const));
+          const chunk = yield* decode(Machine.CdpChunk, { channelId, seq: relay.outbound, data: Buffer.from(data).toString("base64") }, "cdp.chunk.request");
+          const result = yield* computerCall(peer, Machine.WireMethod.CdpChunk, chunk, Machine.CdpChunkResult);
+          if (result.status === "accepted") relay.outbound += 1;
+          return result;
+        })),
+        close: () => Effect.suspend(() => {
+          if (!endRelay(peer.key, channelId, "requested")) return Effect.succeed<Machine.CdpCloseResult>({ status: "refused", reason: attachments.has(peer.key) ? "channel_not_found" : "machine_not_attached" });
+          return computerCall(peer, Machine.WireMethod.CdpClose, { channelId, reason: "requested" }, Machine.CdpCloseResult);
+        }),
+      };
+    }
+    function openStream(id: string, request: Omit<Machine.StreamOpenRequest, "streamId">, listeners: StreamListeners): Effect.Effect<ComputerStream | Extract<Machine.StreamOpenResult, { status: "refused" }>, MachineError> {
+      return Effect.gen(function* () {
+        const peer = yield* screenGate(id, "stream.connection");
+        if (peer === "permission_denied") return { status: "refused", reason: peer } as const;
+        if (peer === "not_available") return { status: "refused", reason: "stream_not_available" } as const;
+        const streams = [...relaysOf(peer.key).values()].filter((relay) => relay.kind === "stream").length;
+        if (streams >= Machine.STREAM_MAX_CONCURRENT) return { status: "refused", reason: "stream_limit" } as const;
+        const streamId = options.id();
+        const params = yield* decode(Machine.StreamOpenRequest, { ...request, streamId }, "stream.open.request");
+        const relay: Extract<Relay, { kind: "stream" }> = { kind: "stream", inbound: -1, outbound: 0, lock: Semaphore.makeUnsafe(1), listeners, end: (reason) => listeners.onClose(reason) };
+        const opened = yield* openRelay(peer, streamId, relay, computerCall(peer, Machine.WireMethod.StreamOpen, params, Machine.StreamOpenResult), (result) => result.status === "opened" ? result.streamId : undefined);
+        return opened.status === "opened" ? streamOf(peer, streamId, relay, opened.expiresAt) : opened;
+      });
+    }
+    function openChannel(id: string, request: Omit<Machine.CdpOpenRequest, "channelId">, listeners: ChannelListeners): Effect.Effect<ComputerChannel | Extract<Machine.CdpOpenResult, { status: "refused" }>, MachineError> {
+      return Effect.gen(function* () {
+        const peer = yield* screenGate(id, "cdp.connection");
+        if (peer === "permission_denied") return { status: "refused", reason: "cdp_not_available", message: "computer.use is not granted" } as const;
+        if (peer === "not_available") return { status: "refused", reason: "cdp_not_available" } as const;
+        const channelId = options.id();
+        const params = yield* decode(Machine.CdpOpenRequest, { ...request, channelId }, "cdp.open.request");
+        const relay: Extract<Relay, { kind: "cdp" }> = { kind: "cdp", inbound: -1, outbound: 0, lock: Semaphore.makeUnsafe(1), listeners, end: (reason) => listeners.onClose(reason) };
+        const opened = yield* openRelay(peer, channelId, relay, computerCall(peer, Machine.WireMethod.CdpOpen, params, Machine.CdpOpenResult), (result) => result.status === "opened" ? result.channelId : undefined);
+        return opened.status === "opened" ? channelOf(peer, channelId, relay, opened.expiresAt) : opened;
+      });
+    }
+    function computerHandle(id: string): ComputerHandle {
+      return {
+        list: (request = {}) => Effect.gen(function* () {
+          const params = yield* decode(Machine.ScreenListRequest, request, "screen.list.request");
+          const peer = yield* screenGate(id, "screen.list.connection");
+          if (typeof peer === "string") return { status: "refused", reason: peer === "permission_denied" ? peer : "screen_not_available" } as const;
+          return yield* computerCall(peer, Machine.WireMethod.ScreenList, params, Machine.ScreenListResult);
+        }),
+        capture: (request) => Effect.gen(function* () {
+          const params = yield* decode(Machine.ScreenCaptureRequest, request, "screen.capture.request");
+          const peer = yield* screenGate(id, "screen.capture.connection");
+          if (typeof peer === "string") return { status: "refused", reason: peer === "permission_denied" ? peer : "screen_not_available" } as const;
+          const result = yield* computerCall(peer, Machine.WireMethod.ScreenCapture, params, Machine.ScreenCaptureResult);
+          if (result.status !== "ok") return result;
+          const data = Buffer.from(result.data, "base64");
+          // The base64 length bound admits up to two decoded bytes past the legacy ceiling.
+          return data.length > Machine.SCREEN_PNG_MAX_BYTES
+            ? { status: "refused", reason: "capture_failed", message: `capture exceeds ${Machine.SCREEN_PNG_MAX_BYTES} bytes` } as const
+            : { ...result, data };
+        }),
+        pointer: (request) => input(id, Machine.WireMethod.InputPointer, Machine.InputPointerRequest, request),
+        key: (request) => input(id, Machine.WireMethod.InputKey, Machine.InputKeyRequest, request),
+        text: (request) => input(id, Machine.WireMethod.InputText, Machine.InputTextRequest, request),
+        stream: { open: (request, listeners) => openStream(id, request, listeners) },
+        cdp: { open: (request, listeners) => openChannel(id, request, listeners) },
+      };
     }
     return {
       get, list, place: capacity.place, capacity: capacity.capacity, exports: exportsOf,
