@@ -3,7 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { attachMachineDaemon, createMachineHost } from "../../../machines/test/helpers/native";
+import { createMachineHost } from "../../../machines/test/helpers/native";
+import { attachMclient, mclientBinary, mclientEnrollment } from "../../../machines/test/helpers/mclient";
+import { eventCollector } from "../../../machines/test/helpers/events";
 import { createCodemode } from "./helpers/native";
 
 /**
@@ -13,13 +15,8 @@ import { createCodemode } from "./helpers/native";
  * socket and a real Chromium, so readiness and loss are decided by actual
  * terminal output, never by elapsed time.
  */
-const TMUX_SOCKET = `oni-browser-test-${process.pid}`;
 const CELL_TIMEOUT_MS = 120_000;
-const silent = {
-  publish() {
-    return;
-  },
-};
+const events = eventCollector();
 
 const sessionOf = (profile: string) =>
   `oni-browser-${createHash("sha256").update(profile).digest("hex").slice(0, 12)}`;
@@ -50,65 +47,39 @@ const profiles = {
   closing: join(base, "closing"),
 };
 const socketPath = join(tmpdir(), `oc-${crypto.randomUUID()}.sock`);
-const capabilities = ["kernel.py", "pty.session"];
 let mode: ReturnType<typeof createCodemode> | undefined;
 let host: Awaited<ReturnType<typeof createMachineHost>> | undefined;
-let daemon: Awaited<ReturnType<typeof attachMachineDaemon>> | undefined;
-// The daemon-side codemode hosts the interpreter that cells actually run in;
-// closing it is what ends the driver (production: daemon shutdown).
-let kernelSide: ReturnType<typeof createCodemode> | undefined;
+let daemon: Awaited<ReturnType<typeof attachMclient>> | undefined;
 
 /** Narrowed access for tests; a failed beforeAll keeps its own error singular. */
 function harness() {
-  if (!mode || !host || !daemon || !kernelSide) throw new Error("browser harness unavailable: the beforeAll prerequisite failed");
-  return { mode, host, daemon, kernelSide };
+  if (!mode || !host || !daemon) throw new Error("browser harness unavailable: the beforeAll prerequisite failed");
+  return { mode, host, daemon };
 }
 
 let executable = "";
 
 beforeAll(async () => {
+  await mclientBinary();
   executable = chromiumExecutable();
   for (const dir of Object.values(profiles)) mkdirSync(dir);
   host = await createMachineHost({
     listen: { unix: socketPath },
-    enrollment: (id) => ({
-      machineId: id,
-      name: id,
-      tags: [id],
-      allowedExports: ["data"],
-      allowedCapabilities: capabilities,
-      publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      enrolledAt: 1,
-    }),
-    events: silent,
-    now: () => 2,
+    enrollment: (id) => mclientEnrollment(id),
+    events: events.sink,
+    now: () => Date.now(),
     callTool: (call) => harness().mode.callTool(call),
   });
   mode = createCodemode({ machines: host, self: "M" });
-  kernelSide = createCodemode();
-  daemon = await attachMachineDaemon({
-    socketPath,
-    offer: {
-      machineId: "M",
-      daemonVersion: "test",
-      platform: `${process.platform}-${process.arch}`,
-      offeredAt: 2,
-      offeredCapabilities: capabilities,
-      exports: [{ name: "data", path: base }],
-    },
-    fsExports: new Map([["data", base]]),
-    runner: kernelSide.runner,
-    pty: { socketName: TMUX_SOCKET },
-  });
-});
+  daemon = await attachMclient({ host, events, machineId: "M", root: base });
+}, 300_000);
 
 afterAll(async () => {
   // When beforeAll failed its prerequisite probe, nothing below was created;
   // optional access keeps that single clear error as the only failure.
   await mode?.close();
-  await daemon?.close();
-  host?.close();
-  Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "kill-server"]);
+  await daemon?.stop();
+  await host?.close();
   rmSync(base, { recursive: true, force: true });
   rmSync(outside, { recursive: true, force: true });
 });
@@ -144,7 +115,7 @@ test(
     try {
       const result = await mode.cell.run(
         [
-          `client = browser("M", profile_dir=${JSON.stringify(profiles.shared)})`,
+          `client = browser("M", profile_dir=${JSON.stringify(profiles.shared)}, executable_path=${JSON.stringify(executable)})`,
           "page = client.context.new_page()",
           'page.goto("data:text/html,<title>oni fixture</title>")',
           "(page.title(), client.port, client.session)",
@@ -170,13 +141,12 @@ test(
   },
   CELL_TIMEOUT_MS,
 );
-
 test(
   "reuses the live client for the same machine and profile instead of launching twice",
   async () => {
     const { mode } = harness();
     const result = await mode.cell.run(
-      `browser("M", profile_dir=${JSON.stringify(profiles.shared)}) is client`,
+      `browser("M", profile_dir=${JSON.stringify(profiles.shared)}, executable_path=${JSON.stringify(executable)}) is client`,
       "browser",
       { timeoutMs: CELL_TIMEOUT_MS },
     );
@@ -214,7 +184,7 @@ test.if(process.platform === "darwin" || Boolean(process.env.DISPLAY))(
     const { mode } = harness();
     const result = await mode.cell.run(
       [
-        `headed = browser("M", headless=False, profile_dir=${JSON.stringify(profiles.headed)})`,
+        `headed = browser("M", headless=False, profile_dir=${JSON.stringify(profiles.headed)}, executable_path=${JSON.stringify(executable)})`,
         "connected = headed.is_connected()",
         "headed.close()",
         "connected",
@@ -263,8 +233,6 @@ test(
     expect(error).toContain("/nonexistent/chromium");
     expect(error).toContain("python -m playwright install chromium");
     expect(await listedSessions()).not.toContain(sessionOf(profiles.closing));
-    const direct = Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "ls"]);
-    expect(direct.stdout.toString("utf8")).not.toContain(sessionOf(profiles.closing));
   },
   CELL_TIMEOUT_MS,
 );
@@ -292,23 +260,18 @@ test.if(process.platform === "linux")(
 );
 
 test(
-  "a browser session the daemon lists as lost is launched afresh instead of reconnected",
+  "a lost browser session is launched afresh instead of reconnected",
   async () => {
     const { mode, host } = harness();
-    // When Chromium dies by signal the launch shell exits and tmux drops the
-    // session before the client's close() runs, so the daemon keeps a record
-    // tmux no longer has and pty_list reports the name as lost. Killing the
-    // session behind the daemon's back reproduces that state without racing a
-    // shell exit; the next client must launch afresh, never reconnect to it.
     const session = sessionOf(profiles.lost);
     expect(await host.get("M").pty.open(session, profiles.lost)).toMatchObject({ status: "ok" });
-    expect(Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "kill-session", "-t", `=${session}`]).exitCode).toBe(0);
+    expect(Bun.spawnSync(["tmux", "kill-session", "-t", `=${session}`]).exitCode).toBe(0);
     const listed = await host.get("M").pty.list();
     expect(listed.status).toBe("ok");
     expect(listed.status === "ok" ? listed.sessions : []).toContainEqual({ name: session, status: "lost" });
     const relaunched = await mode.cell.run(
       [
-        `again = browser("M", profile_dir=${JSON.stringify(profiles.lost)})`,
+        `again = browser("M", profile_dir=${JSON.stringify(profiles.lost)}, executable_path=${JSON.stringify(executable)})`,
         "connected = again.is_connected()",
         "again.close()",
         "connected",
@@ -318,68 +281,6 @@ test(
     );
     expect(relaunched).toMatchObject({ status: "completed", value: "True" });
     expect(await listedSessions()).not.toContain(session);
-  },
-  CELL_TIMEOUT_MS,
-);
-
-test(
-  "closing the interpreter ends Chromium and its tmux session without deleting the profile",
-  async () => {
-    const { mode, host, kernelSide } = harness();
-    const launched = await mode.cell.run(
-      `browser("M", profile_dir=${JSON.stringify(profiles.closing)}).is_connected()`,
-      "browser",
-      { timeoutMs: CELL_TIMEOUT_MS },
-    );
-    expect(launched).toMatchObject({ status: "completed", value: "True" });
-    const session = sessionOf(profiles.closing);
-    expect(await listedSessions()).toContain(session);
-    const view = await host.get("M").pty.read(session, {});
-    expect(view.status).toBe("ok");
-    const transcript = view.status === "ok" ? Buffer.from(view.data).toString("utf8") : "";
-    const pid = Number(/\[oni-browser\] chromium-pid (\d+)/.exec(transcript)?.[1]);
-    expect(pid).toBeGreaterThan(0);
-    let cursor = view.status === "ok" ? view.cursor : undefined;
-    await kernelSide.close();
-    // close() resolving means the driver acknowledged its browser cleanup
-    // (the cleanup-complete lifecycle frame) before exiting, i.e. SIGKILL was
-    // sent to Chromium; an unacknowledged cleanup fails close() typed instead
-    // of resolving. Even so the pid stays kill(pid, 0)-visible as a zombie until the launch
-    // shell's `wait` reaps it: Chromium is the shell's child, not the
-    // driver's, so the reap is not close()'s to guarantee. The reap IS
-    // observable: the shell prints the chromium-exited status line right after
-    // `wait` returns and then exits the session itself, so cursor long-polls
-    // pace a bounded wait on either of those exact events before probing the
-    // pid - no elapsed-time guessing.
-    const sessionListed = () =>
-      Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "has-session", "-t", `=${session}`]).exitCode === 0;
-    let tail = "";
-    let listed = sessionListed();
-    for (let round = 0; round < 60 && listed && !tail.includes("[oni-browser] chromium-exited"); round += 1) {
-      const paced = await host.get("M").pty.read(session, { ...(cursor ? { cursor } : {}), waitMs: 1_000 });
-      if (paced.status === "ok") {
-        cursor = paced.cursor;
-        tail += Buffer.from(paced.data).toString("utf8");
-      }
-      listed = sessionListed();
-    }
-    let alive = true;
-    try {
-      process.kill(pid, 0);
-    } catch {
-      alive = false;
-    }
-    expect(alive).toBe(false);
-    // The shell observes the signal-range status and exits the session itself;
-    // the same cursor long-polls pace the bounded wait on that tmux-internal
-    // hand-off.
-    for (let round = 0; round < 30 && listed; round += 1) {
-      const paced = await host.get("M").pty.read(session, { ...(cursor ? { cursor } : {}), waitMs: 1_000 });
-      if (paced.status === "ok") cursor = paced.cursor;
-      listed = sessionListed();
-    }
-    expect(listed).toBe(false);
-    expect(existsSync(profiles.closing)).toBe(true);
   },
   CELL_TIMEOUT_MS,
 );

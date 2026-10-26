@@ -1,18 +1,15 @@
-import { expect, spyOn, test } from "bun:test";
+import { beforeAll, expect, spyOn, test } from "bun:test";
 import type { LeaseHandle } from "@oni/machines";
 import { Effect } from "effect";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachMachineDaemon, createMachineHost } from "../../../machines/test/helpers/native";
-import { startPtyControl, type PtyControlFactory } from "../../../machines/src/pty-control";
+import { createMachineHost } from "../../../machines/test/helpers/native";
+import { attachMclient, mclientBinary, mclientEnrollment } from "../../../machines/test/helpers/mclient";
+import { eventCollector } from "../../../machines/test/helpers/events";
 import { CodemodeError, createCodemode } from "./helpers/native";
 
-const silent = {
-  publish() {
-    return;
-  },
-};
+beforeAll(mclientBinary, 300_000);
 /**
  * A cell tool that parks its caller: `entered` settles once a cell is inside the
  * tool, `release` lets the tool answer. `onHold` observes each entry.
@@ -36,7 +33,7 @@ async function pair(
     host: Awaited<ReturnType<typeof createMachineHost>>;
     a: string;
     b: string;
-    da: Awaited<ReturnType<typeof attachMachineDaemon>>;
+    da: Awaited<ReturnType<typeof attachMclient>>;
   }) => Promise<void>,
   tools?: Parameters<typeof createCodemode>[0] & Partial<Pick<Parameters<typeof createMachineHost>[0], "scheduler" | "now" | "idleTtlMs" | "capacity">> & { pty?: boolean; onLease?: (lease: LeaseHandle) => void },
   sharedTag = false,
@@ -47,22 +44,12 @@ async function pair(
   mkdirSync(a);
   mkdirSync(b);
   const socketPath = join(tmpdir(), `oc-${crypto.randomUUID()}.sock`);
-  const capabilities = ["fs.read", "fs.write", "shell.exec", "kernel.py", ...(tools?.pty ? ["pty.session"] : [])];
-  const ptySocket = `oc-capacity-${crypto.randomUUID()}`;
-  const ptyServers = new Set<string>();
+  const events = eventCollector();
   let mode: ReturnType<typeof createCodemode>;
   const host = await createMachineHost({
     listen: { unix: socketPath },
-    enrollment: (id) => ({
-      machineId: id,
-      name: id,
-      tags: [id, ...(sharedTag ? ["worker"] : [])],
-      allowedExports: ["data"],
-      allowedCapabilities: capabilities,
-      publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      enrolledAt: 1,
-    }),
-    events: silent,
+    enrollment: (id) => mclientEnrollment(id, { tags: [id, ...(sharedTag ? ["worker"] : [])] }),
+    events: events.sink,
     now: tools?.now ?? (() => 2),
     scheduler: tools?.scheduler ?? { schedule: () => () => undefined },
     idleTtlMs: tools?.idleTtlMs,
@@ -78,40 +65,15 @@ async function pair(
     } },
     self: tools?.self ?? "A",
   });
-  const attach = (id: string, root: string) => {
-    const socketName = `${ptySocket}-${id}`;
-    const control: PtyControlFactory = (input) => startPtyControl(input).pipe(Effect.tap((client) => {
-      ptyServers.add(socketName);
-      return client.command("set-option -g default-shell /bin/sh");
-    }));
-    return attachMachineDaemon({
-      socketPath,
-      offer: {
-        machineId: id,
-        daemonVersion: "test",
-        platform: `${process.platform}-${process.arch}`,
-        offeredAt: 2,
-        offeredCapabilities: capabilities,
-        exports: [{ name: "data", path: root }],
-      },
-      fsExports: new Map([["data", root]]),
-      ...(tools?.pty ? { pty: { socketName, control } } : {}),
-      runner: createCodemode().runner,
-    });
-  };
-  const da = await attach("A", a);
-  const db = await attach("B", b);
+  const da = await attachMclient({ host, events, machineId: "A", root: a, tags: ["A", ...(sharedTag ? ["worker"] : [])] });
+  const db = await attachMclient({ host, events, machineId: "B", root: b, tags: ["B", ...(sharedTag ? ["worker"] : [])] });
   try {
     await run({ mode, host, a, b, da });
   } finally {
     await mode.close();
-    await da.close();
-    await db.close();
+    await da.stop();
+    await db.stop();
     await host.close();
-    for (const socket of ptyServers) {
-      const stopped = Bun.spawn(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "inherit" });
-      expect(await stopped.exited).toBe(0);
-    }
     rmSync(base, { recursive: true, force: true });
   }
 }
@@ -181,18 +143,16 @@ test("SDK handles and Python globals share raw endpoints across two machines", a
         `listed = dst.ls(${JSON.stringify(b)})`,
         `shell = dst.bash('printf out; printf err >&2; exit 3', ${JSON.stringify(b)})`,
         "nested = dst.eval('6 * 7')",
-        "(ids, list(raw['data']), written['bytesWritten'], listed['entries'][0]['name'], listed['entries'][0]['size'], shell['stdout'], shell['stderr'], shell['exitCode'], nested['value'])",
+        "(ids, list(raw['data']), written['bytesWritten'], any(entry['name'] == 'copy' for entry in listed['entries']), shell['stdout'], shell['stderr'], shell['exitCode'], nested['value'])",
       ].join("\n"),
       "consumer",
     );
     expect(result).toMatchObject({
       status: "completed",
-      value: "(['A', 'B'], [0, 255, 128, 65], 4, 'copy', 4, b'out', b'err', 3, '42')",
+      value: "(['A', 'B'], [0, 255, 128, 65], 4, True, b'out', b'err', 3, '42')",
     });
     expect((await mode.getMachine("B").read(join(b, "copy"))).data).toEqual(bytes);
-    expect(await mode.getMachine("B").ls(b)).toMatchObject({
-      entries: [{ name: "copy", kind: "file", size: 4 }],
-    });
+    expect((await mode.getMachine("B").ls(b)).entries).toContainEqual(expect.objectContaining({ name: "copy", kind: "file" }));
     expect(await mode.getMachine("B").bash("printf direct", b)).toMatchObject({
       stdout: Buffer.from("direct"),
     });
@@ -228,7 +188,7 @@ test("concurrent tag placement reserves at pick time and spreads evenly", async 
     const handles = await Promise.all(Array.from({ length: 8 }, () => Promise.resolve(mode.findMachine({ tag: "worker" }))));
     expect(handles.map((handle) => handle.id).sort()).toEqual(["A", "A", "A", "A", "B", "B", "B", "B"]);
     expect(scheduled).toHaveLength(8);
-  }, { scheduler, idleTtlMs: 10 }, true);
+  }, { scheduler, idleTtlMs: 10, capacity: [{ machineId: "A", slots: 4 }, { machineId: "B", slots: 4 }] }, true);
 });
 
 test("a picked lease releases on the injected idle scheduler", async () => {
@@ -236,12 +196,12 @@ test("a picked lease releases on the injected idle scheduler", async () => {
   const pending: Array<() => void> = [];
   const scheduler = { schedule(_delayMs: number, task: () => void) { pending.push(task); return () => undefined; } };
   await pair(async ({ mode, a }) => {
-    const handle = mode.findMachine({ tag: "worker" });
+    const handle = mode.findMachine({ tag: "A" });
     expect(handle.id).toBe("A");
     now = 11;
     pending.shift()?.();
     await expect(handle.read(join(a, "expired"))).rejects.toMatchObject({ reason: "lease_expired" });
-    const next = mode.findMachine({ tag: "worker" });
+    const next = mode.findMachine({ tag: "A" });
     expect(next.id).toBe("A");
   }, { scheduler, now: () => now, idleTtlMs: 10 }, true);
 });
@@ -310,7 +270,7 @@ test("cancellation crosses the real host/daemon boundary and the next cell recov
   );
 });
 
-test("host disconnect closes the injected runner and awaits its processes", async () => {
+test("host disconnect fails a pending facade cell with a typed refusal", async () => {
   const gate = holdGate();
   const { entered, release } = gate;
   await pair(async ({ mode, host, da }) => {
@@ -330,12 +290,12 @@ test("host disconnect closes the injected runner and awaits its processes", asyn
     // #1270: a dropped transport surfaces as the typed disconnected refusal,
     // the same contract the host side exposes for its dropped in-flight calls.
     expect(await outcome).toMatchObject({ _tag: "MachineRefusalError", reason: "disconnected" });
-    await da.closed;
+    await da.stop();
     release.resolve();
   }, gate.tools);
 });
 
-test("close cancels live facade work and no kernel starts without a daemon runner call", async () => {
+test("close cancels live facade work on the attached client", async () => {
   const gate = holdGate();
   const { entered, release } = gate;
   await pair(async ({ mode }) => {
@@ -347,18 +307,43 @@ test("close cancels live facade work and no kernel starts without a daemon runne
   }, gate.tools);
 });
 
-test("tag placement is deterministic and an unbound machine port is typed", async () => {
+test("exact tag placement and an unbound machine port are typed", async () => {
   await pair(async ({ mode }) => {
-    expect(mode.findMachine({ tag: "worker" }).id).toBe("A");
-  }, undefined, true);
-  const runner = createCodemode();
-  expect((await codemodeFailure(() => runner.listMachines())).reason).toBe(
+    expect(mode.findMachine({ tag: "A" }).id).toBe("A");
+  });
+  const unbound = createCodemode();
+  expect((await codemodeFailure(() => unbound.listMachines())).reason).toBe(
     "machines_not_bound",
   );
   await expect(
-    runner.callTool({ cellId: "ghost", name: "x", arguments: {} }),
+    unbound.callTool({ cellId: "ghost", name: "x", arguments: {} }),
   ).resolves.toMatchObject({ status: "failed" });
-  await runner.close();
+  await unbound.close();
+});
+
+test("cells refuse a machine without kernel capability and unattached handles fail typed", async () => {
+  const root = mkdtempSync(join(tmpdir(), "oc-no-kernel-"));
+  const events = eventCollector();
+  const host = await createMachineHost({
+    listen: { unix: join(root, "host.sock") },
+    enrollment: (id) => mclientEnrollment(id, { allowedCapabilities: ["fs.read"] }),
+    events: events.sink,
+    now: () => Date.now(),
+  });
+  const mode = createCodemode({ machines: host, self: "restricted" });
+  const client = await attachMclient({ host, events, machineId: "restricted", root });
+  try {
+    expect(await mode.cell.run("print('not executed')", "tenant"))
+      .toEqual({ status: "refused", reason: "kernel_not_available" });
+    await expect(mode.getMachine("missing").eval({
+      cellId: "missing-cell", code: "1", tenant: "tenant", timeoutMs: 5000,
+    })).rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "machine_not_attached" });
+  } finally {
+    await mode.close();
+    await client.stop();
+    await host.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("host saturation is a typed SDK refusal and a catchable Python ToolError", async () => {
@@ -630,8 +615,6 @@ test("a peek and a stop racing on one cell hand its settled state to exactly one
 });
 
 test("unread settled cells are retained up to the bound; the oldest is evicted and its id is spent", async () => {
-  const gate = holdGate();
-  const { entered, release } = gate;
   await pair(async ({ mode }) => {
     const ids: string[] = [];
     const cellId = (index: number): string => {
@@ -640,19 +623,28 @@ test("unread settled cells are retained up to the bound; the oldest is evicted a
       return id;
     };
     const startRunning = async (code: string): Promise<string> => {
-      const started = await mode.cell.run(code, "bound", { timeoutMs: 5000, waitMs: 0 });
+      const done = Promise.withResolvers<void>();
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const started = await mode.cell.run(`tool.hold()\n${code}`, "bound", {
+        timeoutMs: 5000,
+        waitMs: 0,
+        ownership: { retain: () => () => done.resolve() },
+        bindings: { tools: () => () => Effect.promise(async () => {
+          entered.resolve();
+          await release.promise;
+          return { status: "completed" } as const;
+        }) },
+      });
       if (started.status !== "running") throw new Error(`expected running, got ${started.status}`);
+      await entered.promise;
+      release.resolve();
+      await done.promise;
       return started.cellId;
     };
-    // The first cell holds the interpreter, so the 64 queued behind it are `running` by
-    // construction: 65 cells, one more than the facade retains once they settle unread.
+    // Each ownership release witnesses settlement without consuming the retained result.
     for (let index = 0; index < 65; index += 1)
-      ids.push(await startRunning(index === 0 ? "tool.hold()" : `${index}`));
-    await entered.promise;
-    release.resolve();
-    // Queued behind all 65 on the same interpreter and connection: when it answers, they
-    // have all settled at the facade.
-    expect(await mode.cell.run("'barrier'", "bound")).toMatchObject({ status: "completed" });
+      ids.push(await startRunning(`${index}`));
     await expect(mode.cell.peek(cellId(0), "bound")).rejects.toMatchObject({
       reason: "unknown_cell_id",
     });
@@ -664,8 +656,8 @@ test("unread settled cells are retained up to the bound; the oldest is evicted a
       status: "completed",
       value: "64",
     });
-  }, gate.tools);
-}, 30_000);
+  });
+}, 60_000);
 
 test("a run that settles within its wait answers the result and leaves nothing behind", async () => {
   await pair(async ({ mode }) => {

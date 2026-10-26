@@ -1,11 +1,9 @@
 import { Effect } from "effect";
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Machine } from "@oni/protocol";
 import { createCodemode as create } from "../../../src";
-import { PythonKernel as NativeKernel } from "../../../src/kernel";
 import { decodeCodeFailure } from "../../../src/failure";
 import type { CodeError } from "../../../src/errors";
-import { type CodeRunner, type MachineHost, foreign } from "../../../../machines/test/helpers/native";
+import type { MachineHost } from "../../../../machines/test/helpers/native";
 import { acquireSync, run } from "../../../../machines/test/ipc/helpers/effects";
 export * from "../../../src/errors";
 
@@ -13,12 +11,6 @@ type Caller = (call: Machine.ToolCall) => Promise<Machine.ToolCallResult>;
 type Boundary = (call: Machine.ToolCall, body: () => Promise<Machine.ToolCallResult>) => Promise<Machine.ToolCallResult>;
 function code<A>(body: () => Promise<A>): Effect.Effect<A, CodeError> {
   return Effect.tryPromise({ try: body, catch: decodeCodeFailure("test.code") });
-}
-export class PythonKernel {
-  readonly native = new NativeKernel();
-  run(request: Machine.CellRequest, call: Caller, signal?: AbortSignal) { return run(this.native.run(request, (request) => foreign(() => call(request)), signal)); }
-  peek(cellId: string) { return this.native.peek(cellId); }
-  close() { return run(this.native.close()); }
 }
 /** Deterministic injected cell-id entropy (#1245) for tests. */
 function sequentialCellIds(): () => string {
@@ -34,7 +26,6 @@ export function createCodemode(options: {
   tools?: (tenant: string) => Caller;
   boundary?: (tenant: string) => Boundary;
   self?: string;
-  onInterpreterSpawn?: (tenant: string, process: ChildProcessWithoutNullStreams) => void;
 } = {}) {
   const completion = options.completion;
   const toolOutput = options.toolOutput;
@@ -49,13 +40,8 @@ export function createCodemode(options: {
     tools: tools ? (tenant) => { const call = tools(tenant); return (request) => code(() => call(request)); } : undefined,
     boundary: boundary ? (tenant) => { const decide = boundary(tenant); return (call, body) => code(() => decide(call, () => run(body()))); } : undefined,
     self: options.self,
-    onInterpreterSpawn: options.onInterpreterSpawn,
   }));
-  const runner: CodeRunner = { native: native.runner,
-    runCode: (request, call, signal) => run(native.runner.runCode(request, (request) => foreign(() => call(request)), signal)),
-    peekCode: native.runner.peekCode,
-    close: async () => { await run(native.close()); await close(); },
-  };
+  const shutdown = async () => { await run(native.close()); await close(); };
   type Handle = ReturnType<typeof native.getMachine>;
   function wrapHandle(handle: Handle) {
     return { id: handle.id, read: (...args: Parameters<Handle["read"]>) => run(handle.read(...args)),
@@ -73,7 +59,7 @@ export function createCodemode(options: {
     if (!found) { found = wrapHandle(value); handles.set(value, found); }
     return found;
   }
-  return { native, runner, close: runner.close, retire: (tenant: string) => run(native.retire(tenant)), listMachines: native.listMachines,
+  return { native, close: shutdown, listMachines: native.listMachines,
     getMachine: (id: string) => handle(native.getMachine(id)),
     findMachine: (query: Parameters<typeof native.findMachine>[0]) => handle(native.findMachine(query)),
     callTool: (...args: Parameters<typeof native.callTool>) => run(native.callTool(...args)),
