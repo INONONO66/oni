@@ -3,7 +3,6 @@ import { PassThrough } from "node:stream";
 import { z } from "zod";
 import { createProcessReplyChannel } from "../src/composition/process-replies";
 import { testClockRuntime } from "./helpers/effect";
-import { deliveryMedia } from "../src/composition/delivery-media";
 import { bounded } from "./helpers/protected-dispatch";
 import { answer } from "./helpers/child-answer";
 
@@ -40,7 +39,7 @@ test("an unacknowledged answer fails with the typed timeout at the 30s deadline"
   }
 });
 
-test.each(["media", "bytes"] as const)("an unacknowledged %s request expires on the injected clock", async (operation) => {
+test("an unacknowledged byte request expires on the injected clock", async () => {
   const clock = testClockRuntime();
   const input = new PassThrough();
   const written = Promise.withResolvers<void>();
@@ -48,8 +47,7 @@ test.each(["media", "bytes"] as const)("an unacknowledged %s request expires on 
   try {
     input.write("initial\n");
     await channel.first;
-    const work = operation === "media" ? channel.media.load(deliveryMedia(), ["m"]) : channel.media.bytes("ref");
-    const rejected = clock.run(work).catch((error: Error) => error);
+    const rejected = clock.run(channel.media.bytes("ref")).catch((error: Error) => error);
     await written.promise;
     await clock.adjust(30_000);
     expect(await rejected).toMatchObject({ name: "ProcessReplyError", code: "timeout" });

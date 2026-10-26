@@ -1,7 +1,6 @@
 import { AppInvariantError } from "./invariant";
 import { Core } from "@oni/agent";
-import { type LlmService, makeLlmService } from "@oni/llm";
-import { Operational } from "@oni/protocol";
+import { makeLlmService } from "@oni/llm";
 type Entropy = Core.Entropy;
 type EntropySource = Core.EntropySource;
 const ObservationSink = Core.ObservationSink;
@@ -17,7 +16,6 @@ export const LlmLive = Layer.sync(Core.Llm, () => makeLlmService());
 import { pid } from "node:process";
 import { type Clock, Context, Data, Effect, Layer, type ManagedRuntime, type Scope, flow } from "effect";
 import { BunCrypto } from "./composition/cluster-crypto";
-import { addBounded } from "./composition/bounded-set";
 import { type DeliveryMedia, deliveryMedia, mediaLlm } from "./composition/delivery-media";
 import type { ProcessMedia } from "./composition/process-replies";
 import {
@@ -59,7 +57,7 @@ export class SessionEntityBinding extends Context.Service<
   { bind(ports: SessionEntityPorts): void }
 >()("@oni/oni/SessionEntityBinding") {}
 
-/** The runtime's one delivery-media registry: commits remember parts into it, the bound Llm reads them back. */
+/** The runtime's late-bound byte source for refs in replayed messages. */
 export class DeliveryMediaRegistry extends Context.Service<DeliveryMediaRegistry, DeliveryMedia>()(
   "@oni/oni/DeliveryMediaRegistry",
 ) {}
@@ -194,11 +192,7 @@ function wiredLayer(
   const media = deliveryMedia();
   const remote = options.media;
   if (remote !== undefined) media.bind(remote.bytes, remote.derive);
-  const llm = Layer.sync(Core.Llm, () => {
-    const service = mediaLlm(makeLlmService(), media);
-    if (remote === undefined) return service;
-    return processMediaLlm(service, media, remote);
-  });
+  const llm = Layer.sync(Core.Llm, () => mediaLlm(makeLlmService(), media));
   const app = Layer.mergeAll(
     Layer.effect(AppScope, Effect.scope).pipe(Layer.provideMerge(generations)),
     options.llm ?? llm,
@@ -208,30 +202,6 @@ function wiredLayer(
   ).pipe(Layer.provideMerge(ledger));
   const root = options.now === undefined ? app : Layer.mergeAll(app, wallClockLayer(now));
   return options.logger === undefined ? root : root.pipe(Layer.provideMerge(options.logger));
-}
-
-function processMediaLlm(service: LlmService, media: DeliveryMedia, remote: ProcessMedia): LlmService {
-  // The registry itself tracks successful lookups; its FIFO eviction makes an
-  // ID unseen again. Empty or failed lookups have a separate 256-ID FIFO.
-  const empty = new Set<string>();
-  return {
-    ...service,
-    run: (input, sink, dependencies) => Effect.suspend(() => {
-      const ids = [...new Set(input.messages.filter((message) => message.info.role === "user")
-        .map((message) => message.info.id))].filter((id) => !empty.has(id) && media.recall(id) === undefined);
-      return Effect.forEach(ids, (id) => remote.load(media, [id]).pipe(
-        Effect.catch((error) => Effect.sync(() => input.events.publish(Operational.Events.Warn, {
-          traceId: input.trace.traceId, sessionId: input.trace.sessionId, time: input.now(),
-          component: "process.media", msg: "input media metadata unavailable",
-          context: { messageId: id, err: String(error) },
-        }))),
-        Effect.tap(() => Effect.sync(() => {
-          if (media.recall(id) !== undefined) return;
-          addBounded(empty, id, 256);
-        })),
-      ), { discard: true }).pipe(Effect.andThen(service.run(input, sink, dependencies)));
-    }),
-  };
 }
 
 export type AppServices =

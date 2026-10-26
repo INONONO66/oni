@@ -1148,7 +1148,7 @@ export async function startOni(options: StartOptions = {}) {
       if (sessionRunner(id) !== "process") return Promise.resolve();
       return processSessions.wake(id).catch((error: Error) => incident("process session wake failed", error));
     };
-    const deliveryDeps = { plane, client: entityClient, clock: services.now, media: services.media };
+    const deliveryDeps = { plane, client: entityClient, clock: services.now };
     const commitDelivery = createAutomationDelivery(
       deliveryDeps, channelStores.automations,
     );

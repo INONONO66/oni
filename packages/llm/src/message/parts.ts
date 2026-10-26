@@ -1,4 +1,4 @@
-import { type Gateway, Operational } from "@oni/protocol";
+import { Delivery, type Gateway, Operational } from "@oni/protocol";
 import type { FilePart, ImagePart, TextPart } from "ai";
 import { Effect, Result } from "effect";
 import { Capability } from "../model/capability";
@@ -70,6 +70,7 @@ export function resolveInputParts<E>(input: {
       for (const replacement of derived.parts) {
         const block = yield* resolvePart(replacement, input.model, input.bytes);
         if (!("reason" in block)) blocks.push(block);
+        else unaccepted.push(block);
       }
       if (derived.text !== undefined) text.push({ type: "text", text: derived.text });
     }
@@ -82,14 +83,21 @@ export function resolveMessageParts(
 ): Effect.Effect<ReadonlyMap<string, readonly UserBlock[]>> {
   return Effect.gen(function* () {
     const blocksById = new Map<string, UserBlock[]>();
-    if (input.media === undefined) return blocksById;
-    const users = new Set(input.messages.filter((message) => message.info.role === "user").map((message) => message.info.id));
-    for (const entry of input.media.parts) {
-      if (!users.has(entry.messageId)) continue;
+    for (const message of input.messages) {
+      if (message.info.role !== "user") continue;
+      const parts = message.parts.filter((part) => part.type === "file");
+      if (parts.length === 0) continue;
+      if (input.media === undefined) {
+        blocksById.set(message.info.id, parts.map((part) => ({ type: "text", text: Delivery.text([part]) })));
+        continue;
+      }
       const resolved = yield* resolveInputParts({
-        parts: entry.parts, model: input.model, bytes: input.media.bytes, derive: input.media.derive,
+        parts, model: input.model, bytes: input.media.bytes, derive: input.media.derive,
       });
-      blocksById.set(entry.messageId, [...(blocksById.get(entry.messageId) ?? []), ...resolved.blocks]);
+      blocksById.set(message.info.id, [
+        ...resolved.blocks,
+        ...resolved.unaccepted.map(({ part }) => ({ type: "text" as const, text: Delivery.text([part]) })),
+      ]);
       for (const missed of resolved.unaccepted) {
         if (missed.reason !== "unresolved") continue;
         input.events.publish(Operational.Events.Warn, {

@@ -54,10 +54,9 @@ describe("run schema-only tools and cache breakpoints", () => {
     expect(capture.args.messages).toEqual([]);
   });
 
-  test("orphan media never invents a user message", async () => {
+  test("a media port without user file parts never invents a user message", async () => {
     await capture.run({
-      media: { parts: [{ messageId: "missing", parts: [{ kind: "image", ref: "image" }] }],
-        bytes: () => Effect.die(new Error("orphan bytes must not be read")) },
+      media: { bytes: () => Effect.die(new Error("bytes must not be read")) },
     });
     expect(capture.args.messages).toEqual([]);
   });

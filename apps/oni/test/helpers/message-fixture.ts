@@ -143,7 +143,7 @@ export function messageFixture(
      * driving a turn, so the next `send` opens its turn on both deliveries
      * (the kernel drains every pending prompt into one turn, oldest first).
      */
-    async stage(text: string, origin: Delivery.Origin): Promise<void> {
+    async stage(text: string, origin: Delivery.Origin, media?: Gateway.MediaPart): Promise<void> {
       const kernel = plane.openKernel(sessionId);
       const row = kernel.row(sessionId);
       if (row.fenceOwner === null) throw new Error("fixture session holds no fence");
@@ -159,7 +159,7 @@ export function messageFixture(
               id: `staged-${row.revision}`,
               sessionId,
               kind: "prompt",
-              content: [{ kind: "text", text }],
+              content: [{ kind: "text", text }, ...(media === undefined ? [] : [media])],
               origin,
               at: 100,
               parentActionId: kernel.latestAction(sessionId)?.id ?? null,

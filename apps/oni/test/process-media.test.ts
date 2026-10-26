@@ -12,7 +12,6 @@ import { appRuntime, closeAcquiredEffects, runAbortableEffect, runRuntimeEffect 
 import { boundToolHolder } from "./helpers/tool-ports";
 import { bounded } from "./helpers/protected-dispatch";
 import { contentBlocks, messageStart, messageEnd, sseResponse } from "./helpers/anthropic-sse";
-import { DeliveryMediaRegistry } from "../src/runtime";
 
 const IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jA1sAAAAASUVORK5CYII=";
 const REF = "mac:/inbox/image.png";
@@ -33,7 +32,7 @@ function response(): Response {
   ]);
 }
 
-test.each(["bound", "empty", "failed"] as const)("the runtime loads only new history IDs with %s metadata", async (mode) => {
+test.each(["bound", "unbound"] as const)("replayed user file reaches the in-process model as an image with a %s source", async (mode) => {
   const captures: z.infer<typeof ProviderBody>[] = [];
   const provider = Bun.serve({
     hostname: "127.0.0.1",
@@ -43,20 +42,12 @@ test.each(["bound", "empty", "failed"] as const)("the runtime loads only new his
       return response();
     },
   });
-  const loads: string[][] = [];
-  const warnings: z.infer<typeof Operational.Events.Warn.schema>[] = [];
   const runtime = appRuntime({
     composed: boundToolHolder(),
-    media: {
+    ...(mode === "unbound" ? {} : { media: {
       bytes: () => Effect.succeed({ bytes: Buffer.from(IMAGE, "base64"), mime: "image/png" }),
       derive: () => Effect.succeed({ parts: [] }),
-      load: (registry, ids) => Effect.suspend(() => {
-        loads.push([...ids]);
-        if (mode === "failed") return Effect.fail(new Error("metadata unavailable"));
-        if (mode === "bound") for (const id of ids) registry.remember(id, [{ kind: "image", ref: REF }]);
-        return Effect.void;
-      }),
-    },
+    } }),
   });
   try {
     const llm = await runRuntimeEffect(runtime, Core.Llm);
@@ -65,78 +56,27 @@ test.each(["bound", "empty", "failed"] as const)("the runtime loads only new his
       model,
       auth: { type: "api", key: "fixture-key" },
       transport: { baseUrl: `http://127.0.0.1:${provider.port}/v1` },
-      messages: [],
-      tools: [], now: () => 100, id: () => crypto.randomUUID(),
-      trace: { traceId: "trace", sessionId: "session", runId: "run" },
-      events: { publish: (event, data) => {
-        if (event.name === Operational.Events.Warn.name) warnings.push(Operational.Events.Warn.schema.parse(data));
-      } },
-    };
-    const sink = { onMessage: () => undefined, onToolCall: () => undefined, onToolResult: () => undefined };
-    for (const id of ["first", "arrived-during-turn"]) {
-      input.messages.push({
+      messages: [{
         info: {
-          role: "user", id, sessionID: "session", agent: "resident", time: { created: 100 },
+          role: "user", id: "replayed", sessionID: "session", agent: "resident", time: { created: 100 },
           model: { providerID: "anthropic", modelID: "claude-opus-4-5" },
         },
-        parts: [{ type: "text", id: `${id}-text`, messageID: id, sessionID: "session", text: id }],
-      });
-      await runRuntimeEffect(runtime, llm.run(input, sink));
-    }
-    expect(loads).toEqual([["first"], ["arrived-during-turn"]]);
-    expect(captures.map((body) => body.messages.flatMap((message) =>
-      message.content.filter((block) => block.type === "image")).length)).toEqual(mode === "bound" ? [1, 2] : [0, 0]);
-    expect(warnings.map((warning) => warning.context)).toEqual(mode === "failed" ? [
-      { messageId: "first", err: "Error: metadata unavailable" },
-      { messageId: "arrived-during-turn", err: "Error: metadata unavailable" },
-    ] : []);
-  } finally {
-    await runtime.dispose();
-    await provider.stop(true);
-  }
-});
-
-test("metadata IDs are refetched after either FIFO or registry eviction", async () => {
-  const loads: string[] = [];
-  const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: response });
-  const runtime = appRuntime({
-    composed: boundToolHolder(),
-    media: {
-      bytes: () => Effect.die(new Error("fixture must not read bytes")),
-      derive: () => Effect.succeed({ parts: [] }),
-      load: (registry, ids) => Effect.sync(() => {
-        loads.push(...ids);
-        for (const id of ids) {
-          if (id === "media") registry.remember(id, [{ kind: "image", ref: REF }]);
-        }
-      }),
-    },
-  });
-  try {
-    const llm = await runRuntimeEffect(runtime, Core.Llm);
-    const registry = await runRuntimeEffect(runtime, DeliveryMediaRegistry);
-    const model = await runRuntimeEffect(runtime, llm.resolveModel({ provider: "anthropic", id: "claude-opus-4-5" }, () => 1));
-    const textModel = { ...model, input: ["text"] };
-    const call = (ids: string[]) => runRuntimeEffect(runtime, llm.run({
-      model: textModel,
-      auth: { type: "api", key: "fixture-key" },
-      transport: { baseUrl: `http://127.0.0.1:${provider.port}/v1` },
-      messages: ids.map((id) => ({
-        info: { role: "user" as const, id, sessionID: "session", agent: "resident", time: { created: 1 },
-          model: { providerID: "anthropic", modelID: "fixture" } },
-        parts: [{ type: "text" as const, id: `${id}-text`, messageID: id, sessionID: "session", text: id }],
-      })),
-      tools: [], now: () => 1, id: () => crypto.randomUUID(),
-      trace: { traceId: "trace", sessionId: "session", runId: "run" }, events: { publish: () => undefined },
-    }, { onMessage: () => undefined, onToolCall: () => undefined, onToolResult: () => undefined }));
-    await call(["media", "empty"]);
-    for (let id = 0; id < 256; id += 1) registry.remember(String(id), [{ kind: "image", ref: REF }]);
-    await call(["media", "empty"]);
-    expect(loads).toEqual(["media", "empty", "media"]);
-    const more = Array.from(new Array(256).keys(), (id) => `empty-${id}`);
-    await call(more);
-    await call(["media", "empty", more[255] ?? "missing"]);
-    expect(loads).toEqual(["media", "empty", "media", ...more, "empty"]);
+        parts: [
+          { type: "text", id: "replayed-text", messageID: "replayed", sessionID: "session", text: "inspect" },
+          { type: "file", id: "replayed-file", messageID: "replayed", sessionID: "session", kind: "image", ref: REF, mime: "image/png" },
+        ],
+      }],
+      tools: [], now: () => 100, id: () => crypto.randomUUID(),
+      trace: { traceId: "trace", sessionId: "session", runId: "run" },
+      events: { publish: () => undefined },
+    };
+    const sink = { onMessage: () => undefined, onToolCall: () => undefined, onToolResult: () => undefined };
+    await runRuntimeEffect(runtime, llm.run(input, sink));
+    const content = captures.flatMap((body) => body.messages.flatMap((message) => message.content));
+    expect(content.flatMap((block) => block.type === "image" ? [block.source.data] : []))
+      .toEqual(mode === "bound" ? [IMAGE] : []);
+    expect(content.flatMap((block) => block.type === "text" ? [block.text] : []))
+      .toEqual(mode === "bound" ? ["inspect"] : ["inspect", `[image: ${REF}]`]);
   } finally {
     await runtime.dispose();
     await provider.stop(true);
@@ -192,11 +132,8 @@ test.each(["bound", "unbound", "derived"] as const)("real process entry carries 
     deliver: async () => { throw new Error("resident fixture must not send"); },
   });
   try {
-    await fixture.stage("inspect the attached image", { encodingVersion: 1, value: { kind: "sdk" } });
-    const pending = fixture.plane.openKernel(fixture.sessionId).pendingMessages(fixture.sessionId);
-    const id = pending[0]?.id;
-    if (id === undefined) throw new Error("missing fixture delivery");
-    registry.remember(id, mode === "derived" ? [derived] : [{ kind: "image", ref: REF, mime: "image/png" }]);
+    await fixture.stage("inspect the attached image", { encodingVersion: 1, value: { kind: "sdk" } },
+      mode === "derived" ? derived : { kind: "image", ref: REF, mime: "image/png" });
 
     await bounded(transport.wake(fixture.sessionId));
     await bounded(requested.promise);

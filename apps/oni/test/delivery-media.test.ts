@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { classifyFailure, type LlmService, type PartBytes, type PartDerive } from "@oni/llm";
 import { type Gateway, type Message, Operational } from "@oni/protocol";
 import { Effect } from "effect";
-import { deliveryMedia, deliveryMediaParts, mediaLlm } from "../src/composition/delivery-media";
+import { deliveryMedia, mediaLlm } from "../src/composition/delivery-media";
 import { DeliveryMediaRegistry } from "../src/runtime";
 import { Bus } from "./helpers/bus";
 import { runEffect, runRuntimeEffect } from "./helpers/effect";
@@ -13,21 +13,12 @@ const suite = residentSuite();
 
 type RunInput = Parameters<LlmService["run"]>[0];
 const png: Gateway.MediaPart = { kind: "image", ref: "mac:/inbox/a.png", mime: "image/png" };
-const gone: Gateway.MediaPart = { kind: "image", ref: "mac:/inbox/gone.png", mime: "image/png" };
 const bytes: PartBytes = () => Effect.die(new Error("the host must not resolve bytes"));
-
-test("delivery media extraction preserves media order without text parts", () => {
-  expect(deliveryMediaParts([
-    { kind: "text", text: "look" }, png,
-    { kind: "text", text: "and listen" },
-    { kind: "audio", ref: "mac:/inbox/b.wav" },
-  ])).toEqual([png, { kind: "audio", ref: "mac:/inbox/b.wav" }]);
-});
 
 function user(id: string): Message.WithParts {
   return {
     info: { id, sessionID: "s", role: "user", time: { created: 1 }, agent: "resident", model: { providerID: "p", modelID: "m" } },
-    parts: [],
+    parts: [{ type: "file", id: `${id}-file`, messageID: id, sessionID: "s", ...png }],
   };
 }
 const assistant: Message.WithParts = {
@@ -62,57 +53,29 @@ function harness() {
   return { media, calls, call, run, llm, service, sink, dependencies };
 }
 
-test("the registry ignores absent parts and evicts by latest remember at its cap", () => {
-  const media = deliveryMedia(2);
-  media.remember("d1", [png]);
-  media.remember("empty", []);
-  media.remember("absent", undefined);
-  media.remember("d2", [gone]);
-  media.remember("d3", [png, gone]);
-  expect([media.recall("d1"), media.recall("empty"), media.recall("absent"), media.recall("d2"), media.recall("d3")])
-    .toEqual([undefined, undefined, undefined, [gone], [png, gone]]);
-  media.remember("d2", [png]);
-  media.remember("d4", [gone]);
-  expect([media.recall("d2"), media.recall("d3"), media.recall("d4")]).toEqual([[png], undefined, [gone]]);
-});
-
-test("the default registry retains at most 256 deliveries", () => {
-  const media = deliveryMedia();
-  for (let i = 0; i <= 256; i += 1) media.remember(String(i), [png]);
-  expect(media.recall("0")).toBeUndefined();
-  expect(media.recall("1")).toEqual([png]);
-  expect(media.recall("256")).toEqual([png]);
-});
-
-test("the host forwards raw parts by user id even for a requested text model", async () => {
+test("the host binds bytes for replayed file parts without resolving them", async () => {
   const h = harness();
   h.media.bind(bytes);
-  h.media.remember("u1", [png]);
-  h.media.remember("u2", [gone]);
-  h.media.remember("a1", [gone]);
-  h.media.remember("missing", [gone]);
   const input = h.call([user("u1"), assistant, user("unregistered"), user("u2")]);
   await h.run(input);
   expect(h.calls).toEqual([[{
-    ...input, media: { parts: [{ messageId: "u1", parts: [png] }, { messageId: "u2", parts: [gone] }], bytes },
+    ...input, media: { bytes },
   }, h.sink, h.dependencies]]);
   expect(input.media).toBeUndefined();
   expect(h.llm.resolveModel).toBe(h.service.resolveModel);
   expect(h.llm.classifyFailure).toBe(h.service.classifyFailure);
 });
 
-test("without registered user parts the delegate receives the original input", async () => {
+test("a bound source reaches the delegate even without file parts", async () => {
   const h = harness();
   h.media.bind(bytes);
-  h.media.remember("a1", [png]);
-  const input = h.call([assistant, user("missing")]);
+  const input = h.call([assistant]);
   await h.run(input);
-  expect(h.calls[0]?.[0]).toBe(input);
+  expect(h.calls[0]?.[0].media).toEqual({ bytes });
 });
 
 test("late binding and rebinding select the current byte source without resolving it", async () => {
   const h = harness();
-  h.media.remember("u1", [png]);
   const input = h.call([user("u1")]);
   await h.run(input);
   expect(h.calls[0]?.[0]).toBe(input);
@@ -128,13 +91,12 @@ test("late binding and rebinding select the current byte source without resolvin
   expect(h.calls[2]?.[0].media?.derive).toBeUndefined();
 });
 
-test("media is recalled when the delegate effect executes", async () => {
+test("the current byte source is read when the delegate effect executes", async () => {
   const h = harness();
   const pending = h.llm.run(h.call([user("u1")]), h.sink);
-  h.media.remember("u1", [png]);
   h.media.bind(bytes);
   await runEffect(pending);
-  expect(h.calls[0]?.[0].media).toEqual({ parts: [{ messageId: "u1", parts: [png] }], bytes });
+  expect(h.calls[0]?.[0].media).toEqual({ bytes });
 });
 
 test("boot binds derivation while ingress preserves raw video for the selected candidate", async () => {
@@ -166,7 +128,7 @@ test("boot binds derivation while ingress preserves raw video for the selected c
   const deliveredText = message.parts.flatMap((entry) => entry.type === "text" ? [entry.text] : []).join("\n");
   expect(deliveredText.split(inputText)).toHaveLength(2);
   expect(deliveredText.split(part.ref)).toHaveLength(2);
-  expect(media.recall(message.info.id)).toEqual([part]);
+  expect(message.parts.some((entry) => entry.type === "file" && entry.ref === part.ref)).toBe(true);
   expect(await runEffect(derive(part, { input: ["text"] }))).toEqual({ text: "[video 1s, 0 frames]", parts: [] });
   const warning = eventSignal<ReturnType<typeof Operational.Events.Warn.schema.parse>>("derivative warning");
   suite.defer(Bus.subscribe(Operational.Events.Warn, (event) => {

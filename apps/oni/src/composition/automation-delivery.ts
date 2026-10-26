@@ -7,7 +7,6 @@ import {
   createMessageDeliveryCommit, deliverPayload, materializeDeliveryTarget, pendingDeliveryRow, type MessageDeliveryDeps,
 } from "./message-session";
 import { AutomationWake } from "./automation-alarm";
-import { deliveryMediaParts } from "./delivery-media";
 
 const AutomationOrigin = z.object({
   automation: z.object({ id: z.string(), newSession: z.boolean(), instructions: z.string().optional() }),
@@ -33,7 +32,6 @@ export function createAutomationDelivery(
     if (wake.deliver === undefined)
       return yield* new Core.AgentFailure({ operation: "automation.deliver", cause: "alarm intake is not composed" });
     const payload = yield* deliverPayload(input);
-    deps.media?.remember(input.id, deliveryMediaParts(input.content));
     const receipt = yield* wake.deliver(payload).pipe(
       Effect.mapError((error) => new Core.AgentFailure({ operation: "automation.deliver", cause: error._tag })),
     );

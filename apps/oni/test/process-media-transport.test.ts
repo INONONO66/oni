@@ -14,7 +14,6 @@ type TransportOptions = Parameters<typeof createProcessSessionTransport>[0];
 
 function fixture(scenario: string, source?: PartBytes, run?: NonNullable<TransportOptions["media"]>["run"]) {
   const registry = deliveryMedia();
-  registry.remember("delivery", [{ kind: "image", ref: "mac:/inbox/a.png" }]);
   if (source !== undefined) registry.bind(source);
   const received: string[] = [];
   const transport = createProcessSessionTransport({
@@ -34,14 +33,6 @@ function fixture(scenario: string, source?: PartBytes, run?: NonNullable<Transpo
   });
   return { transport, received, registry, [Symbol.asyncDispose]: () => transport.close() };
 }
-
-test("parent replies with exactly the requested delivery's media", async () => {
-  await using f = fixture("media");
-  await bounded(f.transport.wake("child"));
-  expect(f.received.map((line) => ProcessReplyReceipt.parse(JSON.parse(line)))).toEqual([{
-    ok: true, inputId: "lookup", parts: [{ kind: "image", ref: "mac:/inbox/a.png" }],
-  }]);
-});
 
 test.each(["unbound", "read_failed", "too_large", "bound"] as const)("parent byte reply handles %s sources", async (mode) => {
   const source: PartBytes = () => mode === "read_failed"

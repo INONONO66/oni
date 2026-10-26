@@ -1,4 +1,4 @@
-import type { BusEvent, Gateway, Message, PlainObject, Tool } from "@oni/protocol";
+import type { BusEvent, Message, PlainObject, Tool } from "@oni/protocol";
 import { LlmCall, type Transcript } from "@oni/protocol";
 import { Effect } from "effect";
 import { streamText } from "ai";
@@ -45,9 +45,8 @@ export interface RunInput {
   shouldYield?: () => boolean;
   /** The shape is the provider's; forwarded verbatim. */
   providerOptions?: PlainObject;
-  /** The host hands parts, a byte source and a derivation; this package projects them for each selected model. */
+  /** The host binds a byte source and a derivation; parts ride on the messages. */
   media?: {
-    readonly parts: ReadonlyArray<{ readonly messageId: string; readonly parts: readonly Gateway.MediaPart[] }>;
     readonly bytes: PartBytes;
     readonly derive?: PartDerive;
   };

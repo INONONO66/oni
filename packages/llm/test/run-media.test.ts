@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Gateway, Message } from "@oni/protocol";
+import { Delivery, type Gateway, type Message } from "@oni/protocol";
 import { Effect } from "effect";
 import type { Capability } from "../src";
 import { assistantMessage } from "./helpers/fixtures";
@@ -11,10 +11,17 @@ const block = { type: "image", image: pixels, mediaType: "image/png" } as const;
 const model = { id: "vision", providerID: "openai", name: "vision", input: ["text", "image"] as const };
 const vision = { ...model, input: [...model.input] };
 
-function user(id: string, text: string): Message.WithParts {
+function file(id: string, media: Gateway.MediaPart): Message.FilePart {
+  return { type: "file", id: `${id}-${media.ref}`, messageID: id, sessionID: "s", ...media };
+}
+
+function user(id: string, text: string, media: readonly Gateway.MediaPart[] = []): Message.WithParts {
   return {
     info: { id, sessionID: "s", role: "user", time: { created: 1 }, agent: "test", model: { providerID: "openai", modelID: "vision" } },
-    parts: text === "" ? [] : [{ type: "text", id: `${id}-text`, messageID: id, sessionID: "s", text }],
+    parts: [
+      ...(text === "" ? [] : [{ type: "text" as const, id: `${id}-text`, messageID: id, sessionID: "s", text }]),
+      ...media.map((part) => file(id, part)),
+    ],
   };
 }
 
@@ -32,44 +39,69 @@ const continuation: Message.WithParts = {
 
 describe("per-message input media", () => {
   const capture = useStreamCapture();
-  const media = (messageId: string) => ({
-    parts: [{ messageId, parts: [image] }],
+  const media = () => ({
     bytes: () => Effect.succeed({ bytes: pixels, mime: "image/png" }),
   });
   const transcribed = (text: string) => capture.run({
-    model: vision, messages: [user("u1", "listen")],
+    model: vision, messages: [user("u1", "listen", [{ kind: "audio", ref: "voice" }])],
     media: {
-      parts: [{ messageId: "u1", parts: [{ kind: "audio", ref: "voice" }] }],
       bytes: () => Effect.die(new Error("audio must derive before byte lookup")),
       derive: () => Effect.succeed({ text, parts: [] }),
     },
   });
 
+  test("file without a media port becomes delivery placeholder text", async () => {
+    await capture.run({ model: vision, messages: [user("u1", "first", [image])] });
+    expect(capture.args.messages).toEqual([{
+      role: "user",
+      content: [{ type: "text", text: "first" }, { type: "text", text: Delivery.text([image]) }],
+    }]);
+    expect(capture.events.named("operational.warn")).toEqual([]);
+  });
+
+  test("unaccepted modality without derive becomes delivery placeholder text", async () => {
+    const audio = { kind: "audio", ref: "voice", mime: "audio/ogg" } as const;
+    await capture.run({
+      model: vision, messages: [user("u1", "", [audio])],
+      media: { bytes: () => Effect.die(new Error("modality must be rejected before byte lookup")) },
+    });
+    expect(capture.args.messages).toEqual([{
+      role: "user", content: [{ type: "text", text: Delivery.text([audio]) }],
+    }]);
+    expect(capture.events.named("operational.warn")).toEqual([]);
+  });
+
+  test("user text and image render as text then image blocks", async () => {
+    await capture.run({ model: vision, messages: [user("u1", "first", [image])], media: media() });
+    expect(capture.args.messages).toEqual([{
+      role: "user", content: [{ type: "text", text: "first" }, block],
+    }]);
+  });
+
   test("historical images stay on u1 rather than the last user", async () => {
-    const messages = [user("u1", "first"), assistant, user("u2", "second")];
-    await capture.run({ model: vision, messages, media: media("u1") });
+    const messages = [user("u1", "first", [image]), assistant, user("u2", "second")];
+    await capture.run({ model: vision, messages, media: media() });
     expect(capture.args.messages).toEqual([
       { role: "user", content: [{ type: "text", text: "first" }, block] },
       { role: "assistant", content: "answer" },
       { role: "user", content: "second" },
     ]);
-    expect(messages[0]?.parts).toHaveLength(1);
+    expect(messages[0]?.parts).toHaveLength(2);
   });
 
   test("an assistant tail never creates a synthetic user", async () => {
-    await capture.run({ model: vision, messages: [user("u1", "first"), assistant], media: media("u1") });
+    await capture.run({ model: vision, messages: [user("u1", "first", [image]), assistant], media: media() });
     expect(capture.args.messages).toEqual([
       { role: "user", content: [{ type: "text", text: "first" }, block] },
       { role: "assistant", content: "answer" },
     ]);
   });
 
-  test("tool continuation without a matching user does not resolve or relocate media", async () => {
+  test("file part on an assistant message is ignored", async () => {
     let reads = 0;
     await capture.run({
-      model: vision, messages: [continuation],
-      media: { parts: [{ messageId: "tool", parts: [image] }, { messageId: "missing", parts: [image] }],
-        bytes: () => Effect.sync(() => { reads += 1; return { bytes: pixels, mime: "image/png" }; }) },
+      model: vision, messages: [{ ...continuation, parts: [...continuation.parts, file("tool", image)] }],
+      media: { bytes: () => Effect.sync(() => { reads += 1; return { bytes: pixels, mime: "image/png" }; }) },
     });
     expect(capture.args.messages).toEqual([
       { role: "assistant", content: [{ type: "tool-call", toolCallId: "call", toolName: "read", input: {}, providerExecuted: false }] },
@@ -78,10 +110,27 @@ describe("per-message input media", () => {
     expect(reads).toBe(0);
   });
 
+  test("unresolved derived replacement becomes a placeholder and warns", async () => {
+    const audio = { kind: "audio", ref: "voice" } as const;
+    await capture.run({
+      model: vision, messages: [user("u1", "", [audio])],
+      media: {
+        bytes: () => Effect.fail(new Error("missing frame")),
+        derive: () => Effect.succeed({ parts: [image] }),
+      },
+    });
+    expect(capture.args.messages).toEqual([{
+      role: "user", content: [{ type: "text", text: Delivery.text([image]) }],
+    }]);
+    expect(capture.events.named("operational.warn")).toMatchObject([{
+      component: "llm.media", context: { ref: image.ref, kind: "image", err: "Error: missing frame" },
+    }]);
+  });
+
   test("an existing empty user carries image-only content before cache normalization", async () => {
     await capture.run({
       model: { ...vision, id: "claude-vision", api: { npm: "@ai-sdk/anthropic" } },
-      messages: [user("u1", "")], media: media("u1"),
+      messages: [user("u1", "", [image])], media: media(),
     });
     expect(capture.args.messages).toEqual([{
       role: "user", content: [block],
@@ -91,25 +140,27 @@ describe("per-message input media", () => {
 
   test("unresolved parts warn once while modality misses stay silent", async () => {
     await capture.run({
-      model: vision, messages: [user("u1", "first")],
-      media: { parts: [{ messageId: "u1", parts: [image, { kind: "audio", ref: "voice", mime: "audio/ogg" }] }],
-        bytes: () => Effect.fail(new Error("missing bytes")) },
+      model: vision, messages: [user("u1", "first", [image, { kind: "audio", ref: "voice", mime: "audio/ogg" }])],
+      media: { bytes: () => Effect.fail(new Error("missing bytes")) },
     });
     expect(capture.events.named("operational.warn")).toEqual([{
       traceId: "trace-stream-capture", sessionId: "session-stream-capture", time: 1_735_689_600_000,
       component: "llm.media", msg: "input part unresolved",
       context: { ref: image.ref, kind: "image", err: "Error: missing bytes" },
     }]);
-    expect(capture.args.messages).toEqual([{ role: "user", content: "first" }]);
+    expect(capture.args.messages).toEqual([{ role: "user", content: [
+      { type: "text", text: "first" },
+      { type: "text", text: Delivery.text([image]) },
+      { type: "text", text: Delivery.text([{ kind: "audio", ref: "voice", mime: "audio/ogg" }]) },
+    ] }]);
   });
 
   test("derived text stays with its user after images and survives normalization", async () => {
     await capture.run({
       model: { ...vision, id: "claude-vision", api: { npm: "@ai-sdk/anthropic" } },
-      messages: [user("u1", "first"), assistant, user("u2", "second")],
+      messages: [user("u1", "first", [{ kind: "audio", ref: "voice" }, image]), assistant, user("u2", "second")],
       media: {
-        ...media("u1"),
-        parts: [{ messageId: "u1", parts: [{ kind: "audio", ref: "voice" }, image] }],
+        ...media(),
         derive: () => Effect.succeed({ text: "transcript", parts: [] }),
       },
     });
@@ -125,9 +176,8 @@ describe("per-message input media", () => {
     const started = Promise.withResolvers<void>();
     const released = Promise.withResolvers<void>();
     const pending = capture.run({
-      model: vision, messages: [user("u1", "first")], signal: controller.signal,
+      model: vision, messages: [user("u1", "first", [image])], signal: controller.signal,
       media: {
-        parts: [{ messageId: "u1", parts: [image] }],
         bytes: () => Effect.callback(() => {
           started.resolve();
           return Effect.sync(() => released.resolve());
@@ -176,9 +226,8 @@ describe("per-message input media", () => {
     await capture.run({
       model: { ...vision, input: ["text", "audio"], api: { npm: "@ai-sdk/openai", style } },
       auth: proxy ? { type: "proxy", baseURL: "https://proxy.invalid/v1" } : { type: "api", key: "test" },
-      messages: [user("u1", "listen")],
+      messages: [user("u1", "listen", [{ kind: "audio", ref: "voice", mime: "audio/wav" }])],
       media: {
-        parts: [{ messageId: "u1", parts: [{ kind: "audio", ref: "voice", mime: "audio/wav" }] }],
         bytes: () => Effect.succeed({ bytes: pixels, mime: "audio/wav" }),
         derive: (_part, candidate) => Effect.sync(() => {
           models.push(candidate);

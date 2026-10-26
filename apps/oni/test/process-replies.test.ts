@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import type { Delivery } from "@oni/protocol";
 import { createProcessReplyChannel, ProcessReplyError } from "../src/composition/process-replies";
-import { deliveryMedia } from "../src/composition/delivery-media";
 import { z } from "zod";
 import { Effect, Logger } from "effect";
 import { runEffect } from "./helpers/effect";
@@ -55,45 +54,36 @@ test("process receiving transport correlates replies without minting another req
 });
 
 const MediaRequest = z.object({
-  kind: z.enum(["request_media", "request_bytes"]), inputId: z.string(),
-  messageId: z.string().optional(), ref: z.string().optional(),
+  kind: z.literal("request_bytes"), inputId: z.string(), ref: z.string(),
 });
 
-test("media and bytes share correlation with an answer without changing message identity", async () => {
+test("bytes share correlation with an answer without changing the reference", async () => {
   using f = fixture((line) => {
     const frame = MediaRequest.safeParse(JSON.parse(line));
     if (!frame.success) return;
     const request = frame.data;
-    const value = request.kind === "request_media"
-      ? { parts: [{ kind: "image", ref: "mac:/inbox/a.png" }] }
-      : { bytes: Buffer.from([0, 255, 1]).toString("base64"), mime: "image/png" };
+    const value = { bytes: Buffer.from([0, 255, 1]).toString("base64"), mime: "image/png" };
     f.input.write(`${JSON.stringify({ ok: true, inputId: request.inputId, ...value })}\n`);
   });
   f.input.write("initial\n");
   await f.channel.first;
-  const registry = deliveryMedia();
   const answering = f.channel.answer(answer);
-  await runEffect(f.channel.media.load(registry, ["delivery-id"]));
-  expect(registry.recall("delivery-id")).toEqual([{ kind: "image", ref: "mac:/inbox/a.png" }]);
   expect(await runEffect(f.channel.media.bytes("mac:/inbox/a.png")))
     .toEqual({ bytes: new Uint8Array([0, 255, 1]), mime: "image/png" });
-  expect(f.output.slice(1).map((line) => MediaRequest.parse(JSON.parse(line)))).toMatchObject([
-    { kind: "request_media", messageId: "delivery-id" }, { kind: "request_bytes", ref: "mac:/inbox/a.png" },
-  ]);
+  expect(f.output.slice(1).map((line) => MediaRequest.parse(JSON.parse(line))))
+    .toMatchObject([{ kind: "request_bytes", ref: "mac:/inbox/a.png" }]);
   f.input.write(`${JSON.stringify({ ok: true, inputId: answer.inputId, resolution: "resolved" })}\n`);
   expect(await answering).toBe("resolved");
 });
 
-test.each(["media", "bytes"] as const)("wrong %s receipt fails its typed pending operation", async (operation) => {
+test("wrong byte receipt fails its typed pending operation", async () => {
   using f = fixture((line) => {
     const { inputId } = MediaRequest.parse(JSON.parse(line));
     f.input.write(`${JSON.stringify({ ok: true, inputId, resolution: "resolved" })}\n`);
   });
   f.input.write("initial\n");
   await f.channel.first;
-  const result = operation === "media"
-    ? runEffect(f.channel.media.load(deliveryMedia(), ["m"]))
-    : runEffect(f.channel.media.bytes("ref"));
+  const result = runEffect(f.channel.media.bytes("ref"));
   await expect(result).rejects.toMatchObject({ name: "ProcessReplyError", code: "invalid_receipt" });
 });
 
@@ -109,14 +99,12 @@ test.each(["unbound", "read_failed", "too_large"] as const)("byte refusal preser
   });
 });
 
-test.each(["media", "bytes"] as const)("parent close settles %s waits and refuses requests after close", async (operation) => {
+test("parent close settles byte waits and refuses requests after close", async () => {
   const written = Promise.withResolvers<void>();
   using f = fixture(() => written.resolve());
   f.input.write("initial\n");
   await f.channel.first;
-  const request = () => operation === "media"
-    ? runEffect(f.channel.media.load(deliveryMedia(), ["m"]))
-    : runEffect(f.channel.media.bytes("ref"));
+  const request = () => runEffect(f.channel.media.bytes("ref"));
   const waiting = request().then(() => undefined, (error: Error) => error);
   await written.promise;
   f.input.end();

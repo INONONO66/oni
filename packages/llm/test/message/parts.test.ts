@@ -63,7 +63,7 @@ describe("resolveInputParts", () => {
     }))).toEqual({ blocks: [], unaccepted: [{ part: photo, reason: "modality" }] });
   });
 
-  test("refused parts derive once and put text after media without recursive derivation", () => {
+  test("refused parts derive once and retain unreadable replacements without recursive derivation", () => {
     const derived: string[] = [];
     const result = runTestSync(resolveInputParts({
       parts: [voice, photo, lost], model: vision, bytes,
@@ -80,11 +80,15 @@ describe("resolveInputParts", () => {
         { type: "image", image: png, mediaType: "image/png" },
         { type: "text", text: "transcript" },
       ],
-      unaccepted: [{ part: lost, reason: "unresolved", cause: "no bytes for mac:/gone.png" }],
+      unaccepted: [
+        { part: voice, reason: "modality" },
+        { part: lost, reason: "unresolved", cause: "no bytes for mac:/gone.png" },
+        { part: lost, reason: "unresolved", cause: "no bytes for mac:/gone.png" },
+      ],
     });
   });
 
-  test("source format refusal invokes derivation and unreadable replacements are silent", () => {
+  test("source format refusal invokes derivation and retains unreadable replacements", () => {
     const source: Gateway.MediaPart = { kind: "audio", ref: "source" };
     const derived: string[] = [];
     expect(runTestSync(resolveInputParts({
@@ -94,7 +98,10 @@ describe("resolveInputParts", () => {
         derived.push(part.ref);
         return { parts: [{ kind: "audio", ref: "replacement" }] };
       }),
-    }))).toEqual({ blocks: [], unaccepted: [] });
+    }))).toEqual({
+      blocks: [],
+      unaccepted: [{ part: { kind: "audio", ref: "replacement" }, reason: "modality" }],
+    });
     expect(derived).toEqual(["source"]);
   });
 });
