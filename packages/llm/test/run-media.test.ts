@@ -78,6 +78,58 @@ describe("per-message input media", () => {
     }]);
   });
 
+  test("text before and after an image stays on opposite sides of its bytes", async () => {
+    const message = user("u1", "BEFORE", [image]);
+    await capture.run({
+      model: vision,
+      messages: [{ ...message, parts: [...message.parts, { type: "text", id: "after", messageID: "u1", sessionID: "s", text: "AFTER" }] }],
+      media: media(),
+    });
+    expect(capture.args.messages).toEqual([{
+      role: "user", content: [{ type: "text", text: "BEFORE" }, block, { type: "text", text: "AFTER" }],
+    }]);
+  });
+
+  test("missing image stays before the readable image", async () => {
+    const missing = { kind: "image", ref: "mac:/missing", mime: "image/png" } as const;
+    await capture.run({
+      model: vision, messages: [user("u1", "", [missing, image])],
+      media: { bytes: (ref) => ref === image.ref
+        ? Effect.succeed({ bytes: pixels, mime: "image/png" })
+        : Effect.fail(new Error("missing bytes")) },
+    });
+    expect(capture.args.messages).toEqual([{
+      role: "user", content: [{ type: "text", text: Delivery.text([missing]) }, block],
+    }]);
+  });
+
+  test.each(["", "   "])("empty derivation text %j leaves a file-only placeholder", async (text) => {
+    const report = { kind: "file", ref: "mac:/report.pdf", name: "report.pdf", mime: "application/pdf" } as const;
+    await capture.run({
+      model: vision, messages: [user("u1", "", [report])],
+      media: {
+        bytes: () => Effect.die(new Error("unsupported file must not read bytes")),
+        derive: () => Effect.succeed({ parts: [], text }),
+      },
+    });
+    expect(capture.args.messages).toEqual([{
+      role: "user", content: [{ type: "text", text: Delivery.text([report]) }],
+    }]);
+  });
+
+  test("derived replacement occupies its source position without a duplicate placeholder", async () => {
+    const source = { kind: "audio", ref: "mac:/voice", mime: "audio/wav" } as const;
+    const message = user("u1", "BEFORE", [source]);
+    await capture.run({
+      model: vision,
+      messages: [{ ...message, parts: [...message.parts, { type: "text", id: "after", messageID: "u1", sessionID: "s", text: "AFTER" }] }],
+      media: { ...media(), derive: () => Effect.succeed({ parts: [image] }) },
+    });
+    expect(capture.args.messages).toEqual([{
+      role: "user", content: [{ type: "text", text: "BEFORE" }, block, { type: "text", text: "AFTER" }],
+    }]);
+  });
+
   test("historical images stay on u1 rather than the last user", async () => {
     const messages = [user("u1", "first", [image]), assistant, user("u2", "second")];
     await capture.run({ model: vision, messages, media: media() });
@@ -155,7 +207,7 @@ describe("per-message input media", () => {
     ] }]);
   });
 
-  test("derived text stays with its user after images and survives normalization", async () => {
+  test("derived text stays at its source position and survives normalization", async () => {
     await capture.run({
       model: { ...vision, id: "claude-vision", api: { npm: "@ai-sdk/anthropic" } },
       messages: [user("u1", "first", [{ kind: "audio", ref: "voice" }, image]), assistant, user("u2", "second")],
@@ -165,7 +217,7 @@ describe("per-message input media", () => {
       },
     });
     expect(capture.args.messages).toEqual([
-      { role: "user", content: [{ type: "text", text: "first" }, block, { type: "text", text: "transcript" }] },
+      { role: "user", content: [{ type: "text", text: "first" }, { type: "text", text: "transcript" }, block] },
       { role: "assistant", content: "answer" },
       { role: "user", content: "second", providerOptions: { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } } } },
     ]);

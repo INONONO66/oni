@@ -77,8 +77,8 @@ describe("resolveInputParts", () => {
     expect(result).toEqual({
       blocks: [
         { type: "image", image: png, mediaType: "image/png" },
-        { type: "image", image: png, mediaType: "image/png" },
         { type: "text", text: "transcript" },
+        { type: "image", image: png, mediaType: "image/png" },
       ],
       unaccepted: [
         { part: voice, reason: "modality" },
