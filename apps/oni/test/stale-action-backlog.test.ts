@@ -251,7 +251,7 @@ test("a stale action delivered DURING a turn closes via turn.consumed.stale at t
         id: "stale-action",
         sessionId: "S",
         kind: "action",
-        content: [{ kind: "text", text: "{}" }],
+        content: "{}",
         origin: { encodingVersion: 1, value: { kind: "hook.late", after: 1 } },
         createdAt: 31,
         parentActionId: kernel.latestAction("S")?.id ?? null,

@@ -34,12 +34,12 @@ test("the read model accepts only typed child intake rows", () => {
   const received = rows.map((row) => ({
     kind: "action" as const,
     intent: { encodingVersion: 1 as const, value: { kind: "child_activity" } },
-    effect: { encodingVersion: 1 as const, value: { content: canonicalJson(row) } },
+    effect: { encodingVersion: 1 as const, value: { content: [{ kind: "text", text: canonicalJson(row) }] } },
   }));
   expect(receivedChildRows([
     ...received,
     { kind: "action", intent: { encodingVersion: 1, value: { kind: "another_source" } }, effect: { encodingVersion: 1, value: null } },
-    { kind: "action", intent: { encodingVersion: 1, value: { kind: "child_activity" } }, effect: { encodingVersion: 1, value: { content: "not-json" } } },
+    { kind: "action", intent: { encodingVersion: 1, value: { kind: "child_activity" } }, effect: { encodingVersion: 1, value: { content: [{ kind: "text", text: "not-json" }] } } },
   ])).toEqual(rows);
 });
 
