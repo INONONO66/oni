@@ -12,7 +12,7 @@ import { Bus } from "../helpers/observation";
 
 import type { ObservationSink } from "@oni/protocol";
 import { useMemoryStores } from "../helpers/storage";
-import { adoptWriter } from "../helpers/session";
+import { adoptWriter, promptAction } from "../helpers/session";
 
 const SIGNAL_TIMEOUT_MS = 1_000;
 
@@ -279,16 +279,7 @@ function prompt(
   content: string,
   parentActionId: string,
 ): LedgerAction.Append {
-  return {
-    id,
-    parentId: parentActionId,
-    sessionId,
-    kind: "prompt",
-    intent: { encodingVersion: 1, value: { source: "test" } },
-    effect: { encodingVersion: 1, value: { deliveryKind: "prompt", content: [{ kind: "text", text: content }] } },
-    irreversible: true,
-    ts: 5,
-  };
+  return promptAction({ id, parentId: parentActionId, sessionId, content, ts: 5 });
 }
 
 /** One fenced single-action commit; returns the committed receipt. */

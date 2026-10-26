@@ -1,4 +1,19 @@
-import { canonicalDigest, type LedgerAction, type LedgerSession, type SessionTransition } from "@oni/protocol";
+import { canonicalDigest, Delivery, type LedgerAction, type LedgerSession, type SessionTransition } from "@oni/protocol";
+
+export function pendingDeliveryRow(kind: Delivery.Kind, id: string): Delivery.Row {
+  return Delivery.Row.parse({
+    id,
+    sessionId: "s1",
+    kind,
+    content: [{ kind: "text", text: "payload" }],
+    origin: { encodingVersion: 1, value: { channel: "test" } },
+    status: "pending",
+    consumedBy: null,
+    consumedAt: null,
+    createdAt: 10,
+    ordinal: 1,
+  });
+}
 
 /** A resident session row `id` leased to owner `kernel` at fence/revision/generation 1 in `state`. */
 export function kernelOwnedRow(id: string, state: LedgerSession.State): LedgerSession.Row {

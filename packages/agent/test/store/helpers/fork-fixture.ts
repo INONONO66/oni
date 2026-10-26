@@ -1,7 +1,8 @@
 import { configureAction } from "../../../src/core/store/configure";
 import { Effect, Result } from "effect";
 import { afterEach, beforeEach } from "bun:test";
-import type { Delivery, LedgerAction } from "@oni/protocol";
+import type { LedgerAction } from "@oni/protocol";
+import { pendingPromptRow } from "../../helpers/fork-seed";
 import { runLedgerSync } from "./effect";
 import { type LedgerStores, testNow, useMemoryStores } from "./storage";
 import { adoptWriter, materializeSession } from "./session";
@@ -64,21 +65,6 @@ function forkFixture(stores: LedgerStores, child: () => ChildStore) {
     );
   }
 
-  function deliveryRow(id: string, content: string, createdAt: number): Delivery.Row {
-    return {
-      id,
-      sessionId: PARENT,
-      kind: "prompt",
-      content: [{ kind: "text", text: content }],
-      origin: { encodingVersion: 1, value: { source: "test" } },
-      status: "pending",
-      consumedBy: null,
-      consumedAt: null,
-      createdAt,
-      ordinal: 1,
-    };
-  }
-
   /**
    * Parent chain: genesis configure, input msg-1, its delivery into turn-1, the
    * turn terminal, an armed alarm, and a pending input msg-2.
@@ -96,7 +82,7 @@ function forkFixture(stores: LedgerStores, child: () => ChildStore) {
       at: 2,
     });
     const [delivery] = deliveryActions(
-      [deliveryRow("msg-1", "first", 2)],
+      [pendingPromptRow(PARENT, "msg-1", "first", 2)],
       { kind: "turn", turnId: "turn-1" },
       "before_llm",
       input.id,
