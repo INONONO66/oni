@@ -156,7 +156,7 @@ function drainStepBoundary(
   const created = yield* Clock.currentTimeMillis;
   for (const message of drained?.messages ?? []) {
     appendRunMessages(state, [
-      withMessageId(createUserMessage(message.text, state.sessionId, { now: () => created, id }), message.id),
+      withMessageId(createUserMessage(message.content ?? [{ kind: "text", text: message.text }], state.sessionId, { now: () => created, id }), message.id),
     ]);
   }
   return drained?.messages.length ?? 0;

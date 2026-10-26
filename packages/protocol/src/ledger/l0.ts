@@ -18,6 +18,17 @@ const Identifier = z.string().min(1);
 const InputKind = z.enum(["prompt", "interrupt", "resume", "cancel", "action"]);
 const NullableIdentifier = Identifier.nullable();
 
+/**
+ * Delivered input content: ordered text and media parts. Declared before
+ * `SessionTurn` because its delivery boundary row carries it; `Delivery`
+ * re-exports both as the public names.
+ */
+const DeliveryContentPart = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("text"), text: z.string() }).strict(),
+  MediaPart,
+]);
+const DeliveryContent = z.array(DeliveryContentPart).readonly();
+
 export { EncodedPayload } from "../journal/declaration.js";
 
 export namespace LedgerAction {
@@ -480,7 +491,7 @@ export namespace SessionTurn {
       turnId: Identifier,
       deliveryId: Identifier,
       kind: InputKind,
-      content: z.string(),
+      content: DeliveryContent,
       origin: EncodedPayload,
       /** Loop-consumption width (#1252); absent means the `followUp` default. */
       delivery: z.enum(["steer", "followUp"]).optional(),
@@ -592,15 +603,37 @@ export namespace Delivery {
   export const Kind = InputKind;
   export type Kind = z.infer<typeof Kind>;
 
+  export const ContentPart = DeliveryContentPart;
+  export type ContentPart = z.infer<typeof ContentPart>;
+
+  export const Content = DeliveryContent;
+  export type Content = z.infer<typeof Content>;
+
+  /** The one string reading of delivered content: text parts verbatim, media as `[kind: name]`, in order. */
+  export function text(content: Content): string {
+    return content
+      .map((part) =>
+        part.kind === "text" ? part.text : `[${part.kind}: ${part.name ?? part.ref}]`,
+      )
+      .join("\n");
+  }
+
+  /** A `prompt` carries at least one part; an `action` may carry none (its payload can live in `origin`), as may control signals. */
+  function refineContent(row: { kind: Kind; content: Content }, context: z.RefinementCtx): void {
+    if (row.kind === "prompt" && row.content.length === 0) {
+      context.addIssue({ code: "custom", path: ["content"], message: "prompt delivery requires content" });
+    }
+  }
+
   export const Status = z.enum(["pending", "consumed"]);
   export type Status = z.infer<typeof Status>;
 
-  export const Row = z
+  const RowShape = z
     .object({
       id: Identifier,
       sessionId: Identifier,
       kind: Kind,
-      content: z.string(),
+      content: Content,
       origin: EncodedPayload,
       /** Loop-consumption mode (#1253): `steer` drains at tool.post boundaries, `followUp` only at turn end. Absent folds to `followUp`. */
       delivery: DeliveryWidth.optional(),
@@ -613,10 +646,11 @@ export namespace Delivery {
       ordinal: z.number().int().positive(),
     })
     .strict();
+  export const Row = RowShape.superRefine(refineContent);
   export type Row = z.infer<typeof Row>;
   export type Origin = EncodedPayload;
 
-  export const Commit = Row.omit({
+  export const Commit = RowShape.omit({
     status: true,
     consumedBy: true,
     consumedAt: true,
@@ -624,12 +658,6 @@ export namespace Delivery {
   })
     .extend({
       parentActionId: NullableIdentifier.default(null),
-      /**
-       * Media riding beside `content` for the model call only: `Row` has no
-       * such field, so the ledger fold never learns a modality and `content`
-       * stays the text a replay reads.
-       */
-      parts: z.array(MediaPart).readonly().optional(),
       sender: z
         .object({
           sessionId: Identifier,
@@ -644,6 +672,7 @@ export namespace Delivery {
         .strict()
         .optional(),
     })
+    .superRefine(refineContent)
     .refine(
       (row) =>
         row.createSession === undefined ||

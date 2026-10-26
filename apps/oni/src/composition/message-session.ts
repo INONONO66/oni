@@ -6,7 +6,7 @@ import { Delivery, Gateway, SessionGeneration, type ConsumptionSettings, type Le
 import { type ConversationBinding, SendAdmissionConflict, type createGatewayRouter } from "@oni/channels";
 import { z } from "zod";
 import type { AppLedgerPlane } from "./cluster-runtime";
-import type { DeliveryMedia } from "./delivery-media";
+import { deliveryMediaParts, type DeliveryMedia } from "./delivery-media";
 import { outboundMessage } from "./terminal-message";
 
 type Ports = Parameters<typeof createGatewayRouter>[0];
@@ -78,6 +78,8 @@ export function pendingDeliveryRow(input: Delivery.Commit, ordinal: number): Del
     kind: input.kind,
     content: input.content,
     origin: input.origin,
+    ...(input.delivery === undefined ? {} : { delivery: input.delivery }),
+    ...(input.after === undefined ? {} : { after: input.after }),
     status: "pending",
     consumedBy: null,
     consumedAt: null,
@@ -171,7 +173,8 @@ export function deliverPayload(input: Delivery.Commit): Effect.Effect<DeliverPay
       message !== undefined &&
       (input.id !== message.messageId ||
         input.sessionId !== message.destinationSessionId ||
-        input.content !== message.content)
+        input.content[0]?.kind !== "text" ||
+        input.content[0].text !== message.content)
     ) {
       return yield* new AgentFailure({
         operation: "message.commit",
@@ -186,11 +189,12 @@ export function deliverPayload(input: Delivery.Commit): Effect.Effect<DeliverPay
     const control = input.kind === "interrupt" || input.kind === "resume" ? input.kind : undefined;
     // #1311: the outbound message declares its consumption boundary (a child
     // settlement rides `followUp`); the deliver body carries it explicitly.
-    const delivery = message?.delivery;
+    const delivery = message?.delivery ?? input.delivery;
     return {
       kind: control === undefined ? input.kind : "signal",
       body: JSON.stringify({
         content: input.content,
+        ...(input.after === undefined ? {} : { after: input.after }),
         ...(control === undefined ? {} : { control }),
         ...(delivery === undefined ? {} : { delivery }),
       }),
@@ -210,7 +214,7 @@ export function commitDeliverPayload(deps: MessageDeliveryDeps) {
     Effect.gen(function* () {
       yield* materializeDeliveryTarget(deps.plane, input, deps.clock);
       // The entity drains inside the Deliver RPC, so the parts must be held before it runs the turn.
-      deps.media?.remember(input.id, input.parts);
+      deps.media?.remember(input.id, deliveryMediaParts(input.content));
       const receipt = yield* deps
         .client(input.sessionId)
         .Deliver(payload)

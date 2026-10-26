@@ -5,7 +5,7 @@ import { channelTransaction } from "../helpers/channel-transaction";
 import { effectFailure } from "../helpers/effect-failure";
 import { runEffect } from "../helpers/effect";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { Gateway, type Delivery } from "@oni/protocol";
+import { Delivery, Gateway } from "@oni/protocol";
 import { z } from "zod";
 import { createGatewayRouter, type GatewayRouterPorts } from "../../src/router";
 import { resetStores } from "./_router-fixture";
@@ -86,7 +86,7 @@ test("session ingest commits once through the injected delivery without a channe
   expect(commits[0]).toMatchObject({
     sessionId: "child",
     kind: "prompt",
-    content: "work",
+    content: [{ kind: "text", text: "work" }],
     sender: { sessionId: "parent", owner: "process", fence: 1 },
     origin: { value: { kind: "message", senderSessionId: "parent", sourceActionId: "source" } },
   });
@@ -117,7 +117,7 @@ test.each([
     expect(commits).toHaveLength(0);
   } else {
     await runEffect(result);
-    expect(commits[0]?.content).toBe("redacted");
+    expect(Delivery.text(commits[0]?.content ?? [])).toBe("redacted");
   }
 });
 

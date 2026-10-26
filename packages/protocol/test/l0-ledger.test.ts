@@ -86,7 +86,7 @@ describe("L0 ledger protocol", () => {
       id: "delivery-1",
       sessionId: "session-1",
       kind: "prompt",
-      content: "hello",
+      content: [{ kind: "text", text: "hello" }],
       origin: payload,
       createdAt: 100,
     };
@@ -188,7 +188,7 @@ describe("L0 ledger protocol", () => {
         id: "delivery-1",
         sessionId: "session-1",
         kind: "prompt",
-        content: "hello",
+        content: [{ kind: "text", text: "hello" }],
         origin: payload,
         status: "pending",
         consumedBy: null,

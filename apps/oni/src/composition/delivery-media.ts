@@ -1,13 +1,11 @@
 import type { LlmService, PartBytes, PartDerive } from "@oni/llm";
-import type { Gateway } from "@oni/protocol";
+import type { Delivery, Gateway } from "@oni/protocol";
 import { Effect } from "effect";
 
 /**
  * Media a delivery commit carried, held in process memory until the turn that
- * drains it calls the model. `Delivery.Row` has no parts by design, so the
- * ledger never learns a modality; the cost is that a restart between commit
- * and run loses the bytes (the prompt's `[attached …]` line still names the
- * file for the model to read).
+ * drains it calls the model. The ledger records media refs in content; this
+ * sidecar supplies the byte source until model input consumes those refs.
  */
 export interface DeliveryMedia {
   remember(deliveryId: string, parts: readonly Gateway.MediaPart[] | undefined): void;
@@ -19,6 +17,10 @@ export interface DeliveryMedia {
 }
 
 const DELIVERY_MEDIA_CAP = 256;
+
+export function deliveryMediaParts(content: Delivery.Content): readonly Gateway.MediaPart[] {
+  return content.filter((part): part is Gateway.MediaPart => part.kind !== "text");
+}
 
 export function deliveryMedia(cap = DELIVERY_MEDIA_CAP): DeliveryMedia {
   const held = new Map<string, readonly Gateway.MediaPart[]>();

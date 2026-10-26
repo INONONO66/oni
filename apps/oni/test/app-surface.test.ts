@@ -101,7 +101,7 @@ test("facade interrupt rides the entity Deliver signal: the activation's writer 
     // One received interrupt row from the session itself, consumed by the
     // turn's own `before_llm` boundary drain.
     expect(signals.map((action) => action.effect.value)).toEqual([
-      { deliveryKind: "interrupt", content: "" },
+      { deliveryKind: "interrupt", content: [] },
       expect.objectContaining({ phase: "delivery", kind: "interrupt", boundary: "before_llm", deliveryId: signals[0]?.id }),
     ]);
     expect(signals[0]?.intent.value).toEqual({ kind: "session", id: sessionId });

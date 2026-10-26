@@ -24,7 +24,7 @@ const pendingPrompt = Delivery.Row.parse({
   id: "in-1",
   sessionId: "s1",
   kind: "prompt",
-  content: "payload",
+  content: [{ kind: "text", text: "payload" }],
   origin: { encodingVersion: 1, value: { channel: "test" } },
   status: "pending",
   consumedBy: null,

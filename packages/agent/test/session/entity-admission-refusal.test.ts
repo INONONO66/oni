@@ -34,7 +34,7 @@ function seedWedgedSession(sessionsDir: string, catalogFile: string) {
       expectedRevision: kernel.row("wedged").revision,
       actions: [
         receivedMessageAction({
-          id: "wedged:seed", sessionId: "wedged", kind: "prompt", content: "seed",
+          id: "wedged:seed", sessionId: "wedged", kind: "prompt", content: [{ kind: "text", text: "seed" }],
           origin: { encodingVersion: 1, value: { kind: "session", id: "wedged" } },
           parentActionId: null, at: seedClock(),
         }),
@@ -103,7 +103,7 @@ test("the shutdown seal retries a revision conflict exactly three times, then fa
       expectedRevision: kernel.row("spin").revision,
       actions: [
         receivedMessageAction({
-          id: "spin:seed", sessionId: "spin", kind: "prompt", content: "seed",
+          id: "spin:seed", sessionId: "spin", kind: "prompt", content: [{ kind: "text", text: "seed" }],
           origin: { encodingVersion: 1, value: { kind: "session", id: "spin" } },
           parentActionId: null, at: seedClock(),
         }),

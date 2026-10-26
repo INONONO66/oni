@@ -15,7 +15,7 @@ import { commitIn, retryRevision, type ActivationHandle, type SessionKernel } fr
 
 interface ReceivedEnvelope {
   readonly messageId: string;
-  readonly content: string;
+  readonly content: Delivery.Content;
   readonly origin: string;
 }
 
@@ -245,7 +245,10 @@ export function deliver(
     const body = yield* Effect.try({
       try: () => {
         parsePlainJson(payload.source);
-        return decodeDeliverBody(parsePlainJson(payload.body));
+        const decoded = decodeDeliverBody(parsePlainJson(payload.body));
+        if (payload.kind === "prompt" && decoded.content.length === 0)
+          throw new Error("prompt content is empty");
+        return decoded;
       },
       catch: malformed,
     });

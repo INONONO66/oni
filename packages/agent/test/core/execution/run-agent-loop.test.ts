@@ -18,7 +18,7 @@ import { isolated, isolatedLedger } from "../../helpers/isolated";
 import { dispatchingRunner } from "../../helpers/effect-g2";
 import { expect, test, spyOn } from "bun:test";
 import { seedPolicy } from "../../helpers/seed-policy";
-import { Message, canonicalDigest, type LedgerSession, type PlainValue } from "@oni/protocol";
+import { Delivery, Message, canonicalDigest, type LedgerSession, type PlainValue } from "@oni/protocol";
 import { z } from "zod";
 import { closeSessions } from "../../../src/core/session/run";
 import { session } from "../../../src/testing/registry";
@@ -269,11 +269,11 @@ test("compaction projection and lossless revert survive SQLite reopen without de
             commit(input).pipe(
               Effect.tap(() =>
                 Effect.sync(() => {
-                  const during = input.actions.filter(
-                    (action) =>
-                      action.kind === "prompt" &&
-                      String(object(action.effect.value)?.content ?? "").startsWith("during-"),
-                  ).length;
+                  const during = input.actions.filter((action) => {
+                    if (action.kind !== "prompt") return false;
+                    const parsed = Delivery.Content.safeParse(object(action.effect.value)?.content);
+                    return parsed.success && Delivery.text(parsed.data).startsWith("during-");
+                  }).length;
                   count += during;
                   if (during > 0 && count >= 2) admitted.resolve();
                 }),
@@ -286,7 +286,9 @@ test("compaction projection and lossless revert survive SQLite reopen without de
           );
           yield* Effect.promise(() => admitted.promise).pipe(Effect.timeout("5 seconds"));
           const pending = kernel.pendingMessages("compact");
-          expect(pending.map((item) => item.content)).toEqual(["during-1", "during-2"]);
+          expect(pending.map((item) => item.content)).toEqual([
+            [{ kind: "text", text: "during-1" }], [{ kind: "text", text: "during-2" }],
+          ]);
           summary.resolve("checkpoint");
           yield* Effect.forEach([second, ...concurrent], Fiber.join);
           const before = sessionTree(kernel, "compact");

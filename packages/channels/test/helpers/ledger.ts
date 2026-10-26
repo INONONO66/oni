@@ -141,13 +141,14 @@ export function commitReceivedMessage(
     if (existing !== undefined) return Effect.succeed({ row: asRow(existing.ordinal) });
     const fence = adoptLedgerFence(input.sessionId, "fixture-delivery");
     const row = kernel.row(input.sessionId);
+    const content: Delivery.Content = input.content;
     const action: LedgerAction.Append = {
       id: input.id,
       parentId: input.parentActionId,
       sessionId: input.sessionId,
       kind: "prompt",
       intent: input.origin,
-      effect: { encodingVersion: 1, value: { deliveryKind: input.kind, content: input.content } },
+      effect: { encodingVersion: 1, value: { deliveryKind: input.kind, content: [...content] } },
       irreversible: true,
       ts: input.createdAt,
     };

@@ -47,7 +47,7 @@ export function commitReceivedMessage(
               id: input.id,
               sessionId: input.sessionId,
               kind: input.kind,
-              content: input.content,
+              content: input.content === "" ? [] : [{ kind: "text", text: input.content }],
               origin: input.origin,
               parentActionId: input.parentActionId,
               at: input.createdAt,

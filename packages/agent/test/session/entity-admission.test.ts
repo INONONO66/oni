@@ -49,7 +49,7 @@ function item(kind: Delivery.Kind, sessionId = "S"): Delivery.Row {
     id: `M${itemSequence}`,
     sessionId,
     kind,
-    content: kind,
+    content: [{ kind: "text", text: kind }],
     origin: { encodingVersion: 1, value: { kind: "session", id: sessionId } },
     status: "pending",
     consumedBy: null,

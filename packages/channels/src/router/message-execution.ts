@@ -110,6 +110,11 @@ export function actorTarget(
   };
 }
 
+/** Delivered content: the rendered text (when any) followed by the inbound media parts. */
+function deliveredContent(text: string, parts: Delivery.Content | undefined): Delivery.Content {
+  return [...(text.length === 0 ? [] : [{ kind: "text" as const, text }]), ...(parts ?? [])];
+}
+
 function deliveryAdmission(
   context: MessageContext,
   intent: LedgerAction.Receipt,
@@ -121,8 +126,7 @@ function deliveryAdmission(
     id: messageId,
     sessionId: prepared.target,
     kind: external?.automation?.kind ?? (send.type === "message" ? "prompt" : send.type),
-    content,
-    ...(external?.parts === undefined ? {} : { parts: external.parts }),
+    content: deliveredContent(content, external?.parts),
     createdAt: commitAt,
     parentActionId: null,
     ...(prepared.sender === undefined ? {} : { sender: prepared.sender }),

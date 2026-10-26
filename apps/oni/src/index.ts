@@ -494,7 +494,7 @@ export async function startOni(options: StartOptions = {}) {
       entityClient(child)
         .Deliver({
           kind: "signal",
-          body: JSON.stringify({ content: "delegation deadline expired", control: "cancel" }),
+          body: JSON.stringify({ content: [{ kind: "text", text: "delegation deadline expired" }], control: "cancel" }),
           source: JSON.stringify({ kind: "alarm", purpose: DELEGATION_DEADLINE }),
           idempotencyKey: `${occurrenceId}:cancel`,
         })
@@ -982,7 +982,7 @@ export async function startOni(options: StartOptions = {}) {
               entityClient(sessionId)
                 .Deliver({
                   kind: "prompt",
-                  body: JSON.stringify({ content }),
+                  body: JSON.stringify({ content: [{ kind: "text", text: content }] }),
                   source: JSON.stringify({ kind: "contact", contact, ...(replyTo === undefined ? {} : { replyTo }) }),
                   idempotencyKey: `${replyTo ?? services.entropy.id()}:reply`,
                 })
@@ -1008,7 +1008,7 @@ export async function startOni(options: StartOptions = {}) {
         entityClient(sessionId).Deliver({
           kind: "action",
           body: JSON.stringify({
-            content: canonicalJson(payload),
+            content: [{ kind: "text", text: canonicalJson(payload) }],
             ...(after === undefined ? {} : { after }),
           }),
           source: JSON.stringify({ kind: "hook.late" }),
@@ -1464,7 +1464,7 @@ export async function startOni(options: StartOptions = {}) {
               yield* entityClient(id)
               .Deliver({
                 kind: "signal",
-                body: JSON.stringify({ content: "", control: "interrupt" }),
+                body: JSON.stringify({ content: [], control: "interrupt" }),
                 source: JSON.stringify({ kind: "session", id }),
                 idempotencyKey: services.entropy.id(),
               })

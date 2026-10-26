@@ -256,7 +256,7 @@ test("the resident's reply reaches the channel through the real gateway, under t
     id: PROMPT_ID,
     sessionId,
     kind: "prompt",
-    content: "ping",
+    content: [{ kind: "text", text: "ping" }],
     origin: slackOrigin(CHANNEL),
     createdAt: 10,
     parentActionId: null,

@@ -239,7 +239,7 @@ describe("authenticated gateway ingress", () => {
     expect(calls[0]?.toolChoice).toBe("none");
     const prompt = sessionTree("session:evidence", resident.plane.sessionStore("session:evidence").actions)
       .find((action) => action.kind === "prompt");
-    expect(prompt?.effect.value).toMatchObject({ content: "EVIDENCE_SENTINEL" });
+    expect(prompt?.effect.value).toMatchObject({ content: [{ kind: "text", text: "EVIDENCE_SENTINEL" }] });
   });
   test("a normal prompt restores tool driving after an evidence-only turn", async () => {
     const outputs: string[] = [];

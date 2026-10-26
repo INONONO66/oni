@@ -42,7 +42,7 @@ function openWithAdmission(
       id: admission.id,
       sessionId: admission.sessionId,
       kind: "prompt",
-      content: admission.content,
+      content: [{ kind: "text", text: admission.content }],
       origin: { encodingVersion: 1, value: { kind: "session", sessionId: id } },
       createdAt: 100,
       parentActionId: null,

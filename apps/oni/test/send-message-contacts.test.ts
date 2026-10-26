@@ -564,7 +564,7 @@ test("boot binds both bundles: guard rows seeded on the live policy plane and th
         const entity = makeClient(resident.id);
         const message = {
           kind: "prompt",
-          body: JSON.stringify({ content: "once" }),
+          body: JSON.stringify({ content: [{ kind: "text", text: "once" }] }),
           source: JSON.stringify({
             kind: "message",
             messageId: "contact-m1",
@@ -591,7 +591,7 @@ test("boot binds both bundles: guard rows seeded on the live policy plane and th
       id: "contact-m2",
       sessionId: resident.id,
       kind: "prompt",
-      content: "twice",
+      content: [{ kind: "text", text: "twice" }],
       origin: {
         encodingVersion: 1,
         value: {
@@ -612,7 +612,7 @@ test("boot binds both bundles: guard rows seeded on the live policy plane and th
         const makeClient = yield* SessionEntity.client;
         return yield* makeClient(resident.id).Deliver({
           kind: "prompt",
-          body: JSON.stringify({ content: "twice" }),
+          body: JSON.stringify({ content: [{ kind: "text", text: "twice" }] }),
           source: JSON.stringify({
             kind: "message",
             messageId: "contact-m2",

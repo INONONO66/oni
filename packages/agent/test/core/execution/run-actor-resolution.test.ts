@@ -17,7 +17,7 @@ async function observedActorId(trace: RunTrace): Promise<string> {
   try {
     await isolated(runTestAgent(
       {
-        messages: [{ role: "user", content: "hi" }],
+        messages: [{ role: "user", content: [{ kind: "text", text: "hi" }] }],
         traceContext: trace,
       },
       {

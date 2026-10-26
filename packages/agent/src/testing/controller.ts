@@ -175,7 +175,8 @@ export function createController(
       return Effect.gen(function* () {
         const current = kernel.row(sessionId);
         const received = receivedMessageAction({
-          id: entropy(), sessionId, kind, content, origin, at: clock(),
+          id: entropy(), sessionId, kind, content: content === "" ? [] : [{ kind: "text", text: content }],
+          origin, at: clock(),
           parentActionId: kernel.latestAction(sessionId)?.id ?? null,
         });
         const interrupted = kind === "interrupt" && current.state === "running";

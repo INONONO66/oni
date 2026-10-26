@@ -159,7 +159,7 @@ export function messageFixture(
               id: `staged-${row.revision}`,
               sessionId,
               kind: "prompt",
-              content: text,
+              content: [{ kind: "text", text }],
               origin,
               at: 100,
               parentActionId: kernel.latestAction(sessionId)?.id ?? null,

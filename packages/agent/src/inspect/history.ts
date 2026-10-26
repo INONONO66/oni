@@ -5,7 +5,8 @@ import { z } from "zod";
 
 import type { SessionKernel } from "../core/session/entity";
 import { AgentInvariantViolation } from "../core/ports/failure";
-import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@oni/protocol";
+import { canonicalDigest, type CheckpointPolicy, Delivery, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@oni/protocol";
+import { createUserMessage, withMessageId } from "../core/journal/message-factory";
 import { actionPayloadBytes } from "../core/store/action-row";
 
 /**
@@ -71,7 +72,7 @@ function applyHistoryAction(
     state.messages.push(prompt);
     const delivery = SessionReads.delivery(action);
     if (delivery !== undefined)
-      state.compatibility.push({ id: delivery.deliveryId, role: "user", text: delivery.content });
+      state.compatibility.push({ id: delivery.deliveryId, role: "user", text: Delivery.text(delivery.content) });
   }
   const snapshot = assistantSnapshot(action);
   if (snapshot !== undefined) {
@@ -438,17 +439,13 @@ function deliveredPrompt(
 ): Message.WithParts | undefined {
   const delivery = SessionReads.delivery(action);
   if (delivery?.kind !== "prompt") return undefined;
-  return durableText(
-    {
-      id: delivery.deliveryId,
-      sessionID: sessionId,
-      role: "user",
-      time: { created: action.ts },
-      agent: sessionId,
-      model: { providerID: "", modelID: "" },
-    },
-    delivery.content,
-  );
+  // Replay must be deterministic: part ids derive from the delivery id and
+  // their position, never from entropy, and never collide within a message.
+  let ordinal = 0;
+  return withMessageId(createUserMessage(delivery.content, sessionId, {
+    now: () => action.ts,
+    id: () => `${delivery.deliveryId}:part:${ordinal++}`,
+  }), delivery.deliveryId);
 }
 
 /** An executed assistant message action carries the message snapshot as its result. */

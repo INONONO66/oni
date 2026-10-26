@@ -130,7 +130,7 @@ export function fold(state: Message.WithParts | undefined, fact: Schema.Fact): F
 /**
  * Appended parts must be born non-terminal so every lifecycle step flows
  * through part.advanced: tool parts start pending, text/reasoning parts start
- * without an end time. Punctual part types are complete at birth by nature.
+ * without an end time. Punctual part types (step and file) are complete at birth by nature.
  */
 function isAppendableInitialState(part: Message.Part): boolean {
   switch (part.type) {
@@ -141,6 +141,7 @@ function isAppendableInitialState(part: Message.Part): boolean {
       return part.time?.end === undefined;
     case "step-start":
     case "step-finish":
+    case "file":
       return true;
   }
 }
@@ -158,6 +159,7 @@ function advancePart(
       return advanceTextLikePart(part, transition);
     case "step-start":
     case "step-finish":
+    case "file":
       // Punctual parts: appended whole, never advanced.
       return undefined;
   }

@@ -183,7 +183,7 @@ export function createSessionAdmission(
       intake: [], backlog,
     };
     const item = Delivery.Row.parse({
-      id: entropy(), sessionId, kind: "action", content: "", status: "pending",
+      id: entropy(), sessionId, kind: "action", content: [], status: "pending",
       consumedBy: null, consumedAt: null, createdAt: clock(), ordinal: kernel.row(sessionId).revision + 1,
       origin: { encodingVersion: 1, value: {
         ...PlainObjectSchema.parse(external.origin.value),
@@ -275,7 +275,7 @@ export function createSessionAdmission(
   function evaluatePromptPolicies(
     items: readonly Delivery.Row[],
   ): Effect.Effect<
-    { readonly refusal: SessionPolicyRefusal | undefined; readonly contents: ReadonlyMap<string, string> },
+    { readonly refusal: SessionPolicyRefusal | undefined; readonly contents: ReadonlyMap<string, Delivery.Content> },
     ExecutionError,
     RunnerServices
   > {
@@ -283,7 +283,7 @@ export function createSessionAdmission(
       const ledger = createExecutionLedger();
       let refusal: SessionPolicyRefusal | undefined;
       // The boundary delivers the prompt.pre rewritten body, not the original.
-      const contents = new Map<string, string>();
+      const contents = new Map<string, Delivery.Content>();
       for (const item of items) {
         if (item.kind !== "prompt") continue;
         const recorded: PlainValue = { deliveryId: item.id, status: "recorded" };
@@ -295,13 +295,16 @@ export function createSessionAdmission(
         const outcome = yield* executor.runExisting({
           kind: "prompt",
           op: "delivery",
-          intent: { deliveryId: item.id, body: item.content, origin: item.origin.value, createdAt: item.createdAt, ordinal: item.ordinal },
+          intent: { deliveryId: item.id, body: [...item.content], origin: item.origin.value, createdAt: item.createdAt, ordinal: item.ordinal },
           effect: { status: "recorded" },
         }, (pre) =>
           Effect.sync(() => {
             const value = pre.value;
-            if (value !== null && typeof value === "object" && !Array.isArray(value) && typeof value.body === "string" && value.body !== item.content)
-              contents.set(item.id, value.body);
+            if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+              const parsed = Delivery.Content.safeParse(value.body);
+              if (parsed.success && canonicalDigest(parsed.data) !== canonicalDigest(item.content))
+                contents.set(item.id, parsed.data);
+            }
             return recorded;
           }));
         if (refusal !== undefined) continue;

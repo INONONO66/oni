@@ -36,7 +36,7 @@ test("unknown judge verdict filters the automation but preserves the ordinary pr
   expect(ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:judge-one"))
     .toEqual([expect.objectContaining({ decision: "filtered",
       runWhen: { verdict: "unknown", reason: "judge_unknown" } })]);
-  expect(commits).toEqual([expect.objectContaining({ kind: "prompt", content: ownerPrompt(judged) })]);
+  expect(commits).toEqual([expect.objectContaining({ kind: "prompt", content: [{ kind: "text", text: ownerPrompt(judged) }] })]);
   expect(commits[0]?.sessionId).not.toBe("worker");
 });
 
@@ -63,7 +63,7 @@ test.each(["none", "filtered", "limited"] as const)(
     const result = await runEffect(makeRouter().ingest(ownerSender, facts));
     expect(result).toMatchObject({ status: "executed", handle: { target: "ordinary" } });
     expect(commits).toEqual([expect.objectContaining({
-      sessionId: "ordinary", kind: "prompt", content: ownerPrompt(facts),
+      sessionId: "ordinary", kind: "prompt", content: [{ kind: "text", text: ownerPrompt(facts) }],
     })]);
     const rows = ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm");
     expect(rows).toHaveLength(1);

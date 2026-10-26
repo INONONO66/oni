@@ -49,7 +49,7 @@ function pendingRow(kind: Delivery.Kind, ordinal = 1): Delivery.Row {
     id: `I${ordinal}`,
     sessionId: "S",
     kind,
-    content: kind,
+    content: [{ kind: "text", text: kind }],
     ordinal,
     createdAt: ordinal,
     status: "pending",
@@ -474,7 +474,7 @@ describe("T01-T15 real controller transition witnesses", () => {
             isolatedLedger()
               .kernel.pendingMessages("S")
               .map((item) => item.content),
-          ).toEqual(["one", "two"]);
+          ).toEqual([[{ kind: "text", text: "one" }], [{ kind: "text", text: "two" }]]);
           expect(drained).toEqual([]);
           yield* Deferred.succeed(release, undefined);
           yield* bounded(Fiber.join(running));

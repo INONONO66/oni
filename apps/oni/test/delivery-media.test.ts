@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { classifyFailure, type LlmService, type PartBytes, type PartDerive } from "@oni/llm";
 import { type Gateway, type Message, Operational } from "@oni/protocol";
 import { Effect } from "effect";
-import { deliveryMedia, mediaLlm } from "../src/composition/delivery-media";
+import { deliveryMedia, deliveryMediaParts, mediaLlm } from "../src/composition/delivery-media";
 import { DeliveryMediaRegistry } from "../src/runtime";
 import { Bus } from "./helpers/bus";
 import { runEffect, runRuntimeEffect } from "./helpers/effect";
@@ -15,6 +15,14 @@ type RunInput = Parameters<LlmService["run"]>[0];
 const png: Gateway.MediaPart = { kind: "image", ref: "mac:/inbox/a.png", mime: "image/png" };
 const gone: Gateway.MediaPart = { kind: "image", ref: "mac:/inbox/gone.png", mime: "image/png" };
 const bytes: PartBytes = () => Effect.die(new Error("the host must not resolve bytes"));
+
+test("delivery media extraction preserves media order without text parts", () => {
+  expect(deliveryMediaParts([
+    { kind: "text", text: "look" }, png,
+    { kind: "text", text: "and listen" },
+    { kind: "audio", ref: "mac:/inbox/b.wav" },
+  ])).toEqual([png, { kind: "audio", ref: "mac:/inbox/b.wav" }]);
+});
 
 function user(id: string): Message.WithParts {
   return {

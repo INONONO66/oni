@@ -107,7 +107,7 @@ test("the app reconciles a lost create on TestClock cadence and retires it on mo
       expect(calls).toBe(before + 1);
       const prompt = kernel.actionById(`${main.occurrenceId}:prompt`);
       expect(prompt?.kind).toBe("prompt");
-      expect(prompt?.effect.value).toMatchObject({ content: JSON.stringify({ path, event: "create" }) });
+      expect(prompt?.effect.value).toMatchObject({ content: [{ kind: "text", text: JSON.stringify({ path, event: "create" }) }] });
       expect(cadence().map((row) => [row.occurrenceId, row.fireAt])).toEqual([[empty.occurrenceId, tick + 1_000]]);
       expect(cadenceChain()?.armCount).toBe(1);
       expect(cadenceChain()?.settled.size).toBe(0);

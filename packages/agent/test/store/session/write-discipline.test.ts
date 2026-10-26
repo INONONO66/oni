@@ -39,7 +39,7 @@ function promptAction(
     sessionId,
     kind: "prompt",
     intent: { encodingVersion: 1, value: { source: "test" } },
-    effect: { encodingVersion: 1, value: { deliveryKind: "prompt", content } },
+    effect: { encodingVersion: 1, value: { deliveryKind: "prompt", content: [{ kind: "text", text: content }] } },
     irreversible: true,
     ts,
   };

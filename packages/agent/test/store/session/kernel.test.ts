@@ -257,15 +257,15 @@ function delivery(input: {
     intent: { encodingVersion: 1, value: { deliveryId: input.deliveryId } },
     effect: {
       encodingVersion: 1,
-      value: SessionTurn.Delivery.parse({
+      value: {
         phase: "delivery",
         turnId: input.turnId,
         deliveryId: input.deliveryId,
         kind: "prompt",
-        content: input.content,
+        content: [{ kind: "text", text: input.content }],
         origin: { encodingVersion: 1, value: { source: "test" } },
         boundary: "before_llm",
-      }),
+      },
     },
     irreversible: true,
     ts: 9,
@@ -285,7 +285,7 @@ function prompt(
     sessionId,
     kind: "prompt",
     intent: { encodingVersion: 1, value: { source: "test" } },
-    effect: { encodingVersion: 1, value: { deliveryKind: "prompt", content } },
+    effect: { encodingVersion: 1, value: { deliveryKind: "prompt", content: [{ kind: "text", text: content }] } },
     irreversible: true,
     ts: 5,
   };
@@ -434,7 +434,7 @@ describe("session kernel folds", () => {
     expect(SessionReads.turnIntent(intent)?.resultId).toBe("result-1");
     expect(SessionReads.turnResume(resumed)?.resumeCount).toBe(1);
     expect(turnCheckpoint(checked)?.boundaryActionId).toBe("checkpoint-1");
-    expect(SessionReads.delivery(delivered)?.content).toBe("continue");
+    expect(SessionReads.delivery(delivered)?.content).toEqual([{ kind: "text", text: "continue" }]);
     expect(turnTerminal(closed)?.kind).toBe("result");
     expect(SessionReads.turnIntent(configured)).toBeUndefined();
     expect(SessionReads.delivery(intent)).toBeUndefined();
@@ -471,8 +471,8 @@ describe("session kernel folds", () => {
       .receipts[0]?.action;
     if (first === undefined || second === undefined) throw new Error("prompt commits failed");
     expect(kernel.pendingMessages(sessionId)).toMatchObject([
-      { id: "prompt-1", content: "first", kind: "prompt", status: "pending", ordinal: 1 },
-      { id: "prompt-2", content: "second", kind: "prompt", status: "pending", ordinal: 2 },
+      { id: "prompt-1", content: [{ kind: "text", text: "first" }], kind: "prompt", status: "pending", ordinal: 1 },
+      { id: "prompt-2", content: [{ kind: "text", text: "second" }], kind: "prompt", status: "pending", ordinal: 2 },
     ]);
 
     const deliveredFirst = delivery({

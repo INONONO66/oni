@@ -149,7 +149,7 @@ const deliverPrompt = (sessionId: string, key: string) =>
     const makeClient = yield* SessionEntity.client;
     return yield* makeClient(sessionId).Deliver({
       kind: "prompt",
-      body: JSON.stringify({ content: `hello ${key}` }),
+      body: JSON.stringify({ content: [{ kind: "text", text: `hello ${key}` }] }),
       source: JSON.stringify({
         kind: "message",
         messageId: key,

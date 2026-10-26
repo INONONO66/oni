@@ -178,7 +178,7 @@ function deliverRemovedKind(
         return yield* Effect.result(
           makeClient(sessionId).Deliver({
             kind,
-            body: JSON.stringify({ content: "spurious" }),
+            body: JSON.stringify({ content: [{ kind: "text", text: "spurious" }] }),
             source: JSON.stringify({
               kind: "message",
               messageId: `${kind}-off-probe`,

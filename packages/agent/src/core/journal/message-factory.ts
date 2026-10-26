@@ -1,4 +1,4 @@
-import type { Message } from "@oni/protocol";
+import type { Delivery, Message } from "@oni/protocol";
 
 /** The factory refuses to reach for ambient clocks or entropy. */
 export interface MessageSource {
@@ -16,7 +16,7 @@ function messageIdentity(sessionID: string, source: MessageSource, timeCreated?:
 }
 
 export function createUserMessage(
-  content: string,
+  content: Delivery.Content,
   sessionID: string,
   source: MessageSource,
   partMetadata?: Message.TextPart["metadata"],
@@ -28,7 +28,17 @@ export function createUserMessage(
     model: { providerID: "", modelID: "" },
   };
 
-  return withTextPart(info, content, partMetadata, source);
+  // One message part per delivered part, in delivery order: the model reads
+  // text and media interleaved exactly as the sender arranged them.
+  return {
+    info,
+    parts: content.map((part): Message.Part => {
+      const identity = { id: source.id(), sessionID: info.sessionID, messageID: info.id };
+      if (part.kind === "text")
+        return { ...identity, type: "text", text: part.text, ...(partMetadata === undefined ? {} : { metadata: partMetadata }) };
+      return { ...identity, ...part, type: "file" };
+    }),
+  };
 }
 
 export function createAssistantMessage(

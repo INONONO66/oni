@@ -87,7 +87,7 @@ function watchCut() {
           outcome: "delivered", ts: now,
         }),
         receivedMessageAction({
-          id: `${occurrenceId}:prompt`, sessionId, kind: "prompt", content: "watch prompt",
+          id: `${occurrenceId}:prompt`, sessionId, kind: "prompt", content: [{ kind: "text", text: "watch prompt" }],
           origin: { encodingVersion: 1, value: { watchId } }, parentActionId: firedFactId, at: now,
         }),
       ],

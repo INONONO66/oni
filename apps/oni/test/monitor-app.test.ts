@@ -4,7 +4,8 @@ import { expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
 import type { Core } from "@oni/agent";
 import { Bus, newTraceId } from "./helpers/bus";
-import { L0Observation, type Tool } from "@oni/protocol";
+import { Delivery, L0Observation, type Tool } from "@oni/protocol";
+import { z } from "zod";
 import { foldAlarmChains, watchStateOf } from "../src/bundles/alarms/index";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { planeOf } from "./helpers/ledger";
@@ -138,7 +139,7 @@ test("app monitor source escapes the creating tool wave and wakes the session on
   expect(calls).toBe(2);
   const prompts = alarmPrompts(plane, arm.sessionId, arm.watchId);
   expect(prompts).toHaveLength(1);
-  expect((prompts[0]?.effect.value as { content?: string }).content).toBe("WAKE");
+  expect(Delivery.text(z.object({ content: Delivery.Content }).parse(prompts[0]?.effect.value).content)).toBe("WAKE");
   const delivered = () => sessionTree(arm.sessionId, plane.sessionStore(arm.sessionId).actions)
     .filter((action) => action.kind === "alarm" && action.id.endsWith(":delivered")).length;
   expect(delivered()).toBe(1);
@@ -220,7 +221,7 @@ test("a monitor watch observes a named tmux terminal and leaves it open", async 
   expect(prompts).toHaveLength(1);
   const prompt = prompts[0];
   if (prompt === undefined) throw new Error("missing watch prompt");
-  expect((prompt.effect.value as { content?: string }).content).toContain("WAKE-7342");
+  expect(Delivery.text(z.object({ content: Delivery.Content }).parse(prompt.effect.value).content)).toContain("WAKE-7342");
   const tree = sessionTree(arm.sessionId, plane.sessionStore(arm.sessionId).actions);
   expect(tree.filter((action) => action.kind === "alarm" && action.id.endsWith(":delivered"))).toHaveLength(1);
   await runEffect(daemon.close());

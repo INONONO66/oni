@@ -115,7 +115,9 @@ test.each([
       handle: { target: "request-owner" },
     });
     expect(commits).toHaveLength(0);
-    expect(ledger().kernel.pendingMessages("request-owner")).toMatchObject([{ content: "answer" }]);
+    expect(ledger().kernel.pendingMessages("request-owner")).toMatchObject([
+      { content: [{ kind: "text", text: "answer" }] },
+    ]);
     expect(ledger().kernel.requestById("request-raw-action")?.state).toBe("resolved");
   } else {
     const failure: Error = await effectFailure(outcome);

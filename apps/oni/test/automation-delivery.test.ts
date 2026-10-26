@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Ingress } from "@oni/protocol";
+import { Delivery, Ingress } from "@oni/protocol";
 import { residentSuite } from "./helpers/resident-suite";
 import { automationFacts, automationFixture, automationRecord } from "./helpers/automation";
 import { runAppEffect } from "../src/gateway";
@@ -23,6 +23,22 @@ test("a matched call fact delivers one action without joining a voice route", as
   }));
 });
 
+test("a media-only prompt into a new session leads with the instructions text part", async () => {
+  const f = await automationFixture(suite);
+  f.stores.automations.add(automationRecord({ target: "new", kind: "prompt", instructions: "INSTRUCTIONS_SENTINEL" }));
+  const result = await f.ingest({
+    ...automationFacts, render: "",
+    attachments: [{ kind: "image", ref: "self:/photo.png", mime: "image/png" }],
+  });
+  expect(result.status).toBe("executed");
+  if (result.status !== "executed") throw new Error("automation refused");
+  const received = f.plane.openKernel(result.handle.target).actionById(result.handle.messageId);
+  expect(received?.effect.value).toMatchObject({ content: [
+    { kind: "text", text: "INSTRUCTIONS_SENTINEL" },
+    { kind: "image", ref: "self:/photo.png", mime: "image/png" },
+  ] });
+});
+
 for (const target of ["new", "session"] as const) {
   for (const kind of ["prompt", "action"] as const) {
     test(`${target}/${kind} reaches the real entity once with the record's instructions and receipt`, async () => {
@@ -44,12 +60,16 @@ for (const target of ["new", "session"] as const) {
       if (kind === "action") {
         const content = received?.effect.value;
         if (content === null || typeof content !== "object" || Array.isArray(content)) throw new Error("missing action content");
-        expect(Ingress.TriggerContext.parse(JSON.parse(String(content.content))).automationId).toBe("build");
+        const parts = Delivery.Content.parse(content.content);
+        if (parts[0]?.kind !== "text") throw new Error("missing action text");
+        expect(Ingress.TriggerContext.parse(JSON.parse(parts[0].text)).automationId).toBe("build");
         if (target === "new")
           expect(kernel.actionById(`${result.handle.messageId}:instructions`)?.effect.value)
-            .toMatchObject({ content: "INSTRUCTIONS_SENTINEL" });
+            .toMatchObject({ content: [{ kind: "text", text: "INSTRUCTIONS_SENTINEL" }] });
       } else if (target === "new") {
-        expect(received?.effect.value).toMatchObject({ content: "INSTRUCTIONS_SENTINEL\n\nBUILD_SENTINEL" });
+        expect(received?.effect.value).toMatchObject({ content: [
+          { kind: "text", text: "INSTRUCTIONS_SENTINEL\n\nBUILD_SENTINEL" },
+        ] });
       }
       expect(f.stores.automations.decisions(result.handle.messageId)).toContainEqual(expect.objectContaining({
         decision: "matched", target: `session:${result.handle.target}`, actionSeq: received?.ordinal,

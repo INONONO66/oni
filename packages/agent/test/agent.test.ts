@@ -128,7 +128,7 @@ describe("ChatAgent public run contract", () => {
     await expect(isolated(agent(async () => {
         calls += 1;
         return createStopOutcome();
-      }).run({ messages: [{ role: "user", content: "hello" }] }))).rejects.toThrow("agent run requires a trace context");
+      }).run({ messages: [{ role: "user", content: [{ kind: "text", text: "hello" }] }] }))).rejects.toThrow("agent run requires a trace context");
     expect(calls).toBe(0);
   });
 

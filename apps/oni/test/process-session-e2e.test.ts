@@ -347,7 +347,7 @@ test("process session drain consumes resume backlog through the entity fold", as
       intent: { encodingVersion: 1, value: { kind: "sdk" } },
       effect: {
         encodingVersion: 1,
-        value: { deliveryKind: "resume", content: "continue" },
+        value: { deliveryKind: "resume", content: [{ kind: "text", text: "continue" }] },
       },
       irreversible: true,
       ts: 100,

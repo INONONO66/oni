@@ -5,7 +5,7 @@ import { assertNoLegacyRequestStores } from "./helpers/storage-evidence";
 import { ownerStart } from "./helpers/owner-start";
 import { Bus, newTraceId } from "./helpers/bus";
 import { Core } from "@oni/agent";
-import { Gateway, L0Observation, SessionTransition, SessionTurn } from "@oni/protocol";
+import { Delivery, Gateway, L0Observation, SessionTransition, SessionTurn } from "@oni/protocol";
 import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { planeOf } from "./helpers/ledger";
@@ -230,7 +230,7 @@ test("a child settlement opens the parent's next turn as its followUp input afte
           intent !== null && typeof intent === "object" && !Array.isArray(intent) && typeof intent.delivery === "string"
             ? intent.delivery
             : "unset";
-        if (delivery.success && delivery.data.content.includes("CHILD_SENTINEL"))
+        if (delivery.success && Delivery.text(delivery.data.content).includes("CHILD_SENTINEL"))
           trace.push(`delivered:${mode}`);
       }
     }

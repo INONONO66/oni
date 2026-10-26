@@ -301,7 +301,7 @@ test("a bundle off at boot composes out: no tool face, no bundle adoption, unkno
         return yield* Effect.result(
           makeClient(sessionId).Deliver({
             kind: "monitor.feed",
-            body: JSON.stringify({ content: "spurious" }),
+            body: JSON.stringify({ content: [{ kind: "text", text: "spurious" }] }),
             source: JSON.stringify({
               kind: "message",
               messageId: "off-probe",

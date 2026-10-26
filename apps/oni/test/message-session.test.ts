@@ -6,8 +6,10 @@ import { Delivery, SessionGeneration, type LedgerSession, type SessionTransition
 import { Effect } from "effect";
 import {
   createMessageDeliveryCommit,
+  deliverPayload,
   materializeDeliveryTarget,
   messageMaterialization,
+  pendingDeliveryRow,
 } from "../src/composition/message-session";
 import { outboundMessage } from "../src/composition/terminal-message";
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
@@ -34,7 +36,7 @@ function deliveryCommit(
     id: `${id}:message`,
     sessionId: id,
     kind: "prompt",
-    content: "hello",
+    content: [{ kind: "text", text: "hello" }],
     origin,
     createdAt: 100,
     parentActionId: null,
@@ -197,7 +199,7 @@ test("entity delivery refuses bytes that do not match the outbound letter", asyn
           id: "different-letter",
           sessionId: message.destinationSessionId,
           kind: "prompt",
-          content: message.content,
+          content: [{ kind: "text", text: message.content }],
           origin: { encodingVersion: 1, value: message },
           createdAt: 100,
           parentActionId: null,
@@ -217,4 +219,27 @@ test("entity delivery refuses bytes that do not match the outbound letter", asyn
   } finally {
     plane.close();
   }
+});
+
+test("entity delivery serializes ordered text and media with its consumption boundary", async () => {
+  const input: Delivery.Commit = {
+    ...deliveryCommit("media"),
+    content: [
+      { kind: "text", text: "look" },
+      { kind: "image", ref: "self:/image.png", mime: "image/png" },
+    ],
+    delivery: "steer",
+    after: 7,
+  };
+  const payload = await runEffect(deliverPayload(input));
+  expect(JSON.parse(payload.body)).toEqual({
+    content: input.content,
+    delivery: "steer",
+    after: 7,
+  });
+  expect(pendingDeliveryRow(input, 3)).toMatchObject({
+    content: input.content,
+    delivery: "steer",
+    after: 7,
+  });
 });

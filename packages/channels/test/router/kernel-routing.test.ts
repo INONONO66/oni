@@ -33,7 +33,7 @@ describe("GatewayRouter kernel routing", () => {
     expect(commits[0]).toMatchObject({
       sessionId: mapped.id,
       kind: "prompt",
-      content: ownerPrompt(),
+      content: [{ kind: "text", text: ownerPrompt() }],
     });
   });
   test("publishes one canonical route decision", async () => {

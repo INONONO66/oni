@@ -162,7 +162,7 @@ export function outboundRowsIn(
 
 const ReceivedEffect = z.object({
   deliveryKind: Delivery.Kind,
-  content: z.string(),
+  content: Delivery.Content,
   delivery: z.enum(["steer", "followUp"]).optional(),
 });
 
@@ -540,7 +540,7 @@ function foldTailAction({ tails, pending }: TailWindow, action: LedgerAction.Nod
   const delivered = delivery(action);
   if (delivered !== undefined) {
     if (delivered.kind !== "prompt") return;
-    const message = { role: "user" as const, text: delivered.content };
+    const message = { role: "user" as const, text: Delivery.text(delivered.content) };
     const open = tails.get(delivered.turnId);
     if (open !== undefined) open.messages.push(message);
     else pending.set(delivered.turnId, [...(pending.get(delivered.turnId) ?? []), message]);

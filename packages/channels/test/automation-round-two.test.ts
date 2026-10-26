@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
-import { Ingress } from "@oni/protocol";
+import { Delivery, Ingress } from "@oni/protocol";
 import { ChannelsFailure } from "../src/errors.js";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "./helpers/effect.js";
@@ -94,7 +94,7 @@ test("clock-only closure keeps full and expired windows separate without losing 
   expect(ledger().stores.automations.groups()).toHaveLength(1);
   await runEffect(router.advance(20_000));
   expect(commits).toHaveLength(3);
-  const bodies = commits.map((row) => Ingress.TriggerContext.parse(JSON.parse(row.content)));
+  const bodies = commits.map((row) => Ingress.TriggerContext.parse(JSON.parse(Delivery.text(row.content))));
   expect(bodies.flatMap((body) => body.event.messages)).toHaveLength(66);
   expect(new Set(commits.map((row) => row.sessionId)).size).toBe(3);
 });

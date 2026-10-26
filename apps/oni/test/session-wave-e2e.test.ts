@@ -403,7 +403,7 @@ test("an interrupt after the turn sealed leaves no stray consumable signal", asy
           const makeClient = yield* Core.SessionEntity.client;
           return yield* makeClient(row.id).Deliver({
             kind: "signal",
-            body: JSON.stringify({ content: "", control: "interrupt" }),
+            body: JSON.stringify({ content: [], control: "interrupt" }),
             source: JSON.stringify({ kind: "session", id: row.id }),
             idempotencyKey: "late-interrupt",
           });

@@ -14,12 +14,12 @@ const commit: Delivery.Commit = {
   id: "delivery",
   sessionId: "receiver",
   kind: "prompt",
-  content: "hello",
+  content: [{ kind: "text", text: "hello" }],
   origin: { encodingVersion: 1, value: { kind: "session", id: "child" } },
   createdAt: 1,
   parentActionId: null,
 };
-const deliver = { kind: "prompt", body: JSON.stringify({ content: "hello" }), source: JSON.stringify(commit.origin.value), idempotencyKey: commit.id };
+const deliver = { kind: "prompt", body: JSON.stringify({ content: commit.content }), source: JSON.stringify(commit.origin.value), idempotencyKey: commit.id };
 
 function fixture(onWrite?: (line: string) => void) {
   const input = new PassThrough();

@@ -7,6 +7,10 @@ import { rmSync } from "node:fs";
 import { Effect } from "effect";
 import { SessionEntity } from "../../src/core/session/entity";
 import { FenceRefused } from "../../src/core/store/errors";
+import { openSessionStore } from "../../src/core/store/session-file";
+import { openCatalogStore } from "../../src/core/store/catalog";
+import { createSessionKernel } from "../../src/core/store/fence";
+import { foldSessionHistory } from "../../src/inspect/history";
 import {
   clusterTempDir,
   readChain,
@@ -44,6 +48,46 @@ test("a malformed Deliver body or source is refused `malformed_body` with zero n
   expect(body).toMatchObject({ _tag: "DeliverRefused", code: "malformed_body" });
   expect(source).toMatchObject({ _tag: "DeliverRefused", code: "malformed_body" });
   expect(after).toBe(before);
+});
+
+test("a prompt with empty content is refused through Deliver without a journal append", async () => {
+  const sessionId = "empty-prompt";
+  const file = sessionFileFor(sessionsDir, sessionId);
+  const { refusal, before, after } = await runCluster(options, Effect.gen(function* () {
+    yield* sendPrompt(sessionId, "seed-empty", "seed");
+    const before = readChain(file, sessionId).length;
+    const refusal = yield* sendDeliver(sessionId, {
+      kind: "prompt", idempotencyKey: "empty-delivery", content: [],
+    }).pipe(Effect.flip);
+    return { refusal, before, after: readChain(file, sessionId).length };
+  }));
+  expect(refusal).toMatchObject({ _tag: "DeliverRefused", code: "malformed_body" });
+  expect(after).toBe(before);
+});
+
+test("a mixed prompt delivered through the RPC replays as text and file after reopening", async () => {
+  const sessionId = "mixed-prompt";
+  const content = [
+    { kind: "text" as const, text: "look here" },
+    { kind: "image" as const, ref: "blob:photo", mime: "image/png" },
+  ];
+  const receipt = await runCluster(options, sendDeliver(sessionId, {
+    kind: "prompt", idempotencyKey: "mixed-input", content,
+  }));
+  expect(receipt.existed).toBe(false);
+  const session = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
+  const catalog = openCatalogStore(catalogFile, { now: () => 1 });
+  try {
+    const kernel = createSessionKernel(session, catalog);
+    const history = foldSessionHistory(sessionId, kernel.historyPage(sessionId, { limit: 256 }).actions);
+    expect(history.find((message) => message.info.id === "mixed-input")?.parts).toMatchObject([
+      { type: "text", text: "look here" },
+      { type: "file", kind: "image", ref: "blob:photo", mime: "image/png" },
+    ]);
+  } finally {
+    session.close();
+    catalog.close();
+  }
 });
 
 test("a registered non-prompt kind without a control op is refused `malformed_body`", async () => {

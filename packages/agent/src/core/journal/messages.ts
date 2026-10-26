@@ -1,6 +1,7 @@
 import { DateTime, PrimaryKey, Schema } from "effect";
 import { ClusterSchema, DeliverAt } from "effect/cluster";
 import { Rpc } from "effect/rpc";
+import { Delivery } from "@oni/protocol";
 import { AdmissionFailure } from "../ports/failure";
 export { AdmissionFailure } from "../ports/failure";
 
@@ -127,7 +128,7 @@ export const AlarmRpc = Rpc.make("Alarm", {
 
 /** `delivery` selects the loop-consumption boundary (`steer | followUp`, default `followUp`). */
 export const DeliverBody = Schema.Struct({
-  content: Schema.String,
+  content: Schema.declare((value): value is Delivery.Content => Delivery.Content.safeParse(value).success),
   control: Schema.optional(Schema.Literals(["interrupt", "resume", "cancel"])),
   delivery: Schema.optional(Schema.Literals(["steer", "followUp"])),
   /** `action` inputs: the journal ordinal the payload was computed against; past head = stale. */

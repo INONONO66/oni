@@ -479,8 +479,8 @@ describe("durable session handle: admission and turn sealing", () => {
         const thirdCommitted = signal<void>();
         suite.sink.onCommit = () => {
           const rows = deliveryRows(handle.id);
-          if (rows.some((row) => row.content === "second prompt")) secondCommitted.resolve();
-          if (rows.some((row) => row.content === "third prompt")) thirdCommitted.resolve();
+          if (rows.some((row) => row.content[0]?.kind === "text" && row.content[0].text === "second prompt")) secondCommitted.resolve();
+          if (rows.some((row) => row.content[0]?.kind === "text" && row.content[0].text === "third prompt")) thirdCommitted.resolve();
         };
         const second = yield* Effect.forkChild(handle.prompt("second prompt"));
         yield* bounded(secondCommitted.promise, "second prompt committed");
@@ -506,9 +506,9 @@ describe("durable session handle: admission and turn sealing", () => {
         ]);
         expect(drained).toEqual([[], []]);
         expect(deliveryRows(handle.id).map((row) => [row.content, row.status])).toEqual([
-          ["first prompt", "consumed"],
-          ["second prompt", "consumed"],
-          ["third prompt", "consumed"],
+          [[{ kind: "text", text: "first prompt" }], "consumed"],
+          [[{ kind: "text", text: "second prompt" }], "consumed"],
+          [[{ kind: "text", text: "third prompt" }], "consumed"],
         ]);
         expect(deliveries(handle.id).map((delivery) => delivery.deliveryId)).toEqual(
           deliveryRows(handle.id).map((row) => row.id),

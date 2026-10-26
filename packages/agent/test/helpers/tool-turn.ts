@@ -89,7 +89,7 @@ export function toolTurnWorld(options: {
       forwards: forwardState(), keepAlive: () => Effect.void,
     };
     const prompt = (origin: PlainValue = { kind: "external", inboundTreatment: "full_access" }) =>
-      deliver(handle, { kind: "prompt", body: '{"content":"act"}', source: canonicalJson(origin), idempotencyKey: entropy.id() });
+      deliver(handle, { kind: "prompt", body: '{"content":[{"kind":"text","text":"act"}]}', source: canonicalJson(origin), idempotencyKey: entropy.id() });
     const settled = Effect.suspend(() => handle.live.current === undefined
       ? Effect.void : Deferred.await(handle.live.current));
     return {

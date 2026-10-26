@@ -458,7 +458,7 @@ test("#1347 a folded state past the row cap degrades explicitly: the checkpoint'
   const prompt = (content: string) =>
     nth(deliveryActions(
       [{
-        id: `${id}:big`, sessionId: id, kind: "prompt", content, origin: { encodingVersion: 1, value: {} },
+        id: `${id}:big`, sessionId: id, kind: "prompt", content: [{ kind: "text", text: content }], origin: { encodingVersion: 1, value: {} },
         status: "pending", consumedBy: null, consumedAt: null, createdAt: 100, ordinal: 1,
       }],
       { kind: "turn", turnId },
