@@ -3,7 +3,7 @@ export const CORE_END_STATE_TARGETS = {
   rootFiles: ["api.ts", "index.ts"],
   schemaOwners: ["store/catalog.ts", "store/session-file/index.ts"],
   bands: ["composition", "gate", "journal", "loop", "observation", "ports", "read-model", "session", "store"],
-  workspaces: 9,
+  workspaces: 10,
   namespaces: ["Bundle", "Core", "Inspect", "Testing"],
   inspectionImports: {
     "journal/compaction.ts": 1,

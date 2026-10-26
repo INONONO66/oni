@@ -153,6 +153,16 @@
         "typescript": "^5.3.0",
       },
     },
+    "packages/sync": {
+      "name": "@oni/sync",
+      "version": "0.0.1",
+      "dependencies": {
+        "@oni/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5",
+      },
+    },
     "packages/ui": {
       "name": "@oni/ui",
       "version": "0.0.0",
@@ -476,6 +486,8 @@
     "@oni/machines": ["@oni/machines@workspace:packages/machines"],
 
     "@oni/protocol": ["@oni/protocol@workspace:packages/protocol"],
+
+    "@oni/sync": ["@oni/sync@workspace:packages/sync"],
 
     "@oni/ui": ["@oni/ui@workspace:packages/ui"],
 

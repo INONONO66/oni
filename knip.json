@@ -64,6 +64,10 @@
       "entry": ["test/**/*.test.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"]
     },
+    "packages/sync": {
+      "entry": ["test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
     "packages/ui": {
       "entry": ["test/**/*.test.{ts,tsx}"],
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]

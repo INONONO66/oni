@@ -51,7 +51,8 @@ export interface WorkspaceTopology {
  * protocol <- agent, llm, machines, channels, apps/oni, apps/desktop;
  * agent <- channels, apps/oni; llm <- apps/oni;
  * machines <- codemode, apps/oni; codemode <- apps/oni;
- * channels <- apps/oni; ui <- apps/desktop.
+ * channels <- apps/oni; ui <- apps/desktop. `@oni/sync` (#1629) knows
+ * protocol only; hosts reach it through an injected bundle source.
  */
 export const TOPOLOGY = [
   {
@@ -112,6 +113,20 @@ export const TOPOLOGY = [
     // The shared Python-backed cell runtime (#1272): it consumes the machines
     // structural host/daemon contracts and protocol schemas, nothing else.
     allowedDeps: ["@oni/protocol", "@oni/machines"],
+    testLane: true,
+    coverageLane: true,
+    knipWorkspace: true,
+    tsconfigVerify: true,
+  },
+  {
+    key: "sync",
+    displayName: "sync",
+    dir: "packages/sync",
+    packageName: "@oni/sync",
+    // Project checkpoints, content-addressed bundles and the read-only synced
+    // view (#1629). Pure data over protocol; machines and the app bind it
+    // through injected ports, never by importing it into a band below.
+    allowedDeps: ["@oni/protocol"],
     testLane: true,
     coverageLane: true,
     knipWorkspace: true,
