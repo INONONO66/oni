@@ -6,7 +6,11 @@ use std::{
     time::Duration,
 };
 
-use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
+use nix::{
+    errno::Errno,
+    sys::{signal::kill, wait::waitpid},
+    unistd::Pid,
+};
 use oni_machine_client::{
     attach::{Negotiated, Session},
     code::{Code, CodeError},
@@ -529,4 +533,286 @@ async fn malformed_and_off_schema_driver_frames_are_typed_failures() {
     ));
     let outcome = off_schema.run(request("mine", "1"), client.caller()).await;
     assert!(matches!(outcome, Err(CodeError::Frame(_))), "{outcome:?}");
+}
+
+#[tokio::test]
+async fn twelve_tenant_interpreters_end_on_detach() {
+    let (service, _client, _root) = service().await;
+    let mut pids = Vec::new();
+    for index in 0..12 {
+        let result = serve(
+            &service,
+            "machine.run_code",
+            json!({"cellId":format!("tenant-{index}"),"tenant":format!("tenant-{index}"),
+                "code":"import os\nos.getpid()","timeoutMs":5000}),
+        )
+        .await;
+        assert_eq!(result["status"], "completed", "{result}");
+        pids.push(
+            result["value"]
+                .as_str()
+                .expect("pid")
+                .parse::<i32>()
+                .expect("numeric pid"),
+        );
+    }
+    assert_eq!(
+        pids.iter().collect::<std::collections::HashSet<_>>().len(),
+        12
+    );
+    service.detached();
+    for pid in pids {
+        let waited = tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio::task::spawn_blocking(move || waitpid(Pid::from_raw(pid), None)),
+        )
+        .await
+        .expect("interpreter exit")
+        .expect("wait task");
+        assert!(matches!(waited, Ok(_) | Err(Errno::ECHILD)), "{waited:?}");
+        assert_eq!(kill(Pid::from_raw(pid), None), Err(Errno::ESRCH));
+    }
+}
+
+#[tokio::test]
+async fn browser_transcript_retains_utf8_tail_and_chromium_pid() {
+    let (service, _client, _root) = service().await;
+    let result = serve(
+        &service,
+        "machine.run_code",
+        cell(
+            "browser-tail",
+            "import __main__\nc = __main__.BrowserClient('m', '/tmp/profile', True)\n\
+c._append_transcript(__main__._BROWSER_MARK + ' chromium-pid 12345')\n\
+c._append_transcript('x' * 70000 + '€')\n\
+(len(c._transcript.encode('utf-8')), c._transcript.endswith('€'), c._chromium_pid())",
+            5000,
+        ),
+    )
+    .await;
+    assert_eq!(result["status"], "completed", "{result}");
+    assert_eq!(result["value"], "(65536, True, 12345)");
+    service.detached();
+}
+
+#[tokio::test]
+async fn parallel_honors_concurrency_limit_and_preserves_input_order() {
+    let (service, _client, _root) = service().await;
+    let result = serve(
+        &service,
+        "machine.run_code",
+        cell(
+            "parallel",
+            "import threading\nbarrier = threading.Barrier(2, timeout=5)\n\
+def thunk(n):\n    def run():\n        barrier.wait()\n        return n * 10\n    return run\n\
+parallel([thunk(1), thunk(2), thunk(3), thunk(4)], max_concurrency=2)",
+            10000,
+        ),
+    )
+    .await;
+    assert_eq!(result["status"], "completed", "{result}");
+    assert_eq!(result["value"], "[10, 20, 30, 40]");
+    service.detached();
+}
+
+#[tokio::test]
+async fn raised_cell_retains_preceding_output_and_caller_traceback() {
+    let (service, _client, _root) = service().await;
+    let result = serve(
+        &service,
+        "machine.run_code",
+        cell("raise", "print('before')\nraise ValueError('boom')", 5000),
+    )
+    .await;
+    assert_eq!(result["status"], "raised", "{result}");
+    assert_eq!(result["output"]["stdout"], "before\n");
+    let error = result["error"].as_str().expect("error");
+    assert!(error.contains("ValueError: boom"), "{error}");
+    assert!(error.contains("<cell raise>"), "{error}");
+    assert!(!error.contains("exec(compile("), "{error}");
+    service.detached();
+}
+
+#[tokio::test]
+async fn completed_cell_captures_stderr_separately_from_stdout() {
+    let (service, _client, _root) = service().await;
+    let result = serve(
+        &service,
+        "machine.run_code",
+        cell(
+            "streams",
+            "import sys\nprint('out')\nprint('err', file=sys.stderr)",
+            5000,
+        ),
+    )
+    .await;
+    assert_eq!(result["status"], "completed", "{result}");
+    assert_eq!(result["output"], json!({"stdout":"out\n","stderr":"err\n"}));
+    service.detached();
+}
+
+#[tokio::test]
+async fn statement_only_cell_completes_without_value() {
+    let (service, _client, _root) = service().await;
+    let result = serve(
+        &service,
+        "machine.run_code",
+        cell("statement", "x = 1", 5000),
+    )
+    .await;
+    assert_eq!(result["status"], "completed", "{result}");
+    assert_eq!(result["output"], json!({"stdout":"","stderr":""}));
+    assert!(result.get("value").is_none(), "{result}");
+    service.detached();
+}
+
+#[tokio::test]
+async fn rejected_host_tool_preserves_the_error_message_in_raised_cell() {
+    let (service, _client, mut reader, mut writer, _root) = blocked_service().await;
+    let run = serve(
+        &service,
+        "machine.run_code",
+        cell("rejected", "tool.demo()", 5000),
+    );
+    let reject = async {
+        let call = reader.next().await.expect("host frame").expect("host call");
+        assert_eq!(call["method"], "machine.call_tool");
+        write_frame(
+            &mut writer,
+            &json!({"v":2,"type":"response","id":call["id"],
+                "error":{"code":-32000,"message":"disk on fire"}}),
+        )
+        .await
+        .expect("refusal");
+    };
+    let (result, ()) = tokio::join!(run, reject);
+    assert_eq!(result["status"], "raised", "{result}");
+    assert!(
+        result["error"]
+            .as_str()
+            .expect("error")
+            .contains("disk on fire"),
+        "{result}"
+    );
+    service.detached();
+}
+
+#[tokio::test]
+async fn stray_call_id_answer_does_not_disturb_a_waiting_tool_call() {
+    let (service, _client, mut reader, mut writer, _root) = blocked_service().await;
+    let run = serve(
+        &service,
+        "machine.run_code",
+        cell(
+            "stray",
+            "import __main__\n__main__._emit({'kind':'tool_call','cellId':'stray',\
+'callId':'stray-id','name':'ghost','arguments':{}})\ntool.real()",
+            5000,
+        ),
+    );
+    let host = async {
+        let first = reader
+            .next()
+            .await
+            .expect("first frame")
+            .expect("first call");
+        assert_eq!(first["params"]["name"], "ghost");
+        let second = reader
+            .next()
+            .await
+            .expect("second frame")
+            .expect("second call");
+        assert_eq!(second["params"]["name"], "real");
+        for (call, value) in [(first, 999), (second, 42)] {
+            write_frame(
+                &mut writer,
+                &json!({"v":2,"type":"response","id":call["id"],
+                    "result":{"status":"completed","value":value}}),
+            )
+            .await
+            .expect("answer");
+        }
+    };
+    let (result, ()) = tokio::join!(run, host);
+    assert_eq!(result["status"], "completed", "{result}");
+    assert_eq!(result["value"], "42");
+    service.detached();
+}
+
+#[tokio::test]
+async fn late_answer_from_completed_cell_never_reaches_next_cell() {
+    let (service, _client, mut reader, mut writer, _root) = blocked_service().await;
+    let first = serve(
+        &service,
+        "machine.run_code",
+        cell(
+            "previous",
+            "import __main__\n__main__._emit({'kind':'tool_call','cellId':'previous',\
+'callId':'old-id','name':'old','arguments':{}})\ntool.sync()\n'first'",
+            5000,
+        ),
+    );
+    let host = async {
+        let first = reader
+            .next()
+            .await
+            .expect("first frame")
+            .expect("first call");
+        let second = reader
+            .next()
+            .await
+            .expect("second frame")
+            .expect("second call");
+        let (old, sync) = if first["params"]["name"] == "old" {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        assert_eq!(old["params"]["name"], "old");
+        assert_eq!(sync["params"]["name"], "sync");
+        write_frame(
+            &mut writer,
+            &json!({"v":2,"type":"response","id":sync["id"],
+                "result":{"status":"completed"}}),
+        )
+        .await
+        .expect("sync answer");
+        old
+    };
+    let (first_result, old) =
+        tokio::time::timeout(Duration::from_secs(10), async { tokio::join!(first, host) })
+            .await
+            .expect("previous cell and host call");
+    assert_eq!(first_result["value"], "'first'");
+    let second = serve(
+        &service,
+        "machine.run_code",
+        cell("next", "tool.new()", 5000),
+    );
+    let answer = async {
+        let new = reader.next().await.expect("new frame").expect("new call");
+        assert_eq!(new["params"]["name"], "new");
+        write_frame(
+            &mut writer,
+            &json!({"v":2,"type":"response","id":old["id"],
+                "result":{"status":"completed","value":999}}),
+        )
+        .await
+        .expect("late answer");
+        write_frame(
+            &mut writer,
+            &json!({"v":2,"type":"response","id":new["id"],
+                "result":{"status":"completed","value":42}}),
+        )
+        .await
+        .expect("current answer");
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(second, answer)
+    })
+    .await
+    .expect("next cell and current answer");
+    assert_eq!(result["status"], "completed", "{result}");
+    assert_eq!(result["value"], "42");
+    service.detached();
 }
