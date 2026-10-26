@@ -1,0 +1,9 @@
+{
+  "target": {
+    "kind": "display",
+    "display": 17
+  },
+  "encoding": {
+    "format": "png"
+  }
+}

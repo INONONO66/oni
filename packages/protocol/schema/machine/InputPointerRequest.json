@@ -1,0 +1,173 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "captureId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "move",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "captureId",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "button": {
+          "enum": [
+            "left",
+            "right",
+            "middle"
+          ],
+          "type": "string"
+        },
+        "captureId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "count": {
+          "maximum": 3,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "click",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "captureId",
+        "x",
+        "y",
+        "button",
+        "count"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "button": {
+          "enum": [
+            "left",
+            "right",
+            "middle"
+          ],
+          "type": "string"
+        },
+        "captureId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "button",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "down",
+            "up"
+          ],
+          "type": "string"
+        },
+        "x": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "captureId",
+        "x",
+        "y",
+        "button",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "captureId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "deltaX": {
+          "maximum": 10000,
+          "minimum": -10000,
+          "type": "integer"
+        },
+        "deltaY": {
+          "maximum": 10000,
+          "minimum": -10000,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "scroll",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "captureId",
+        "x",
+        "y",
+        "deltaX",
+        "deltaY"
+      ],
+      "type": "object"
+    }
+  ]
+}

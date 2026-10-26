@@ -1,0 +1,7 @@
+{
+  "channelId": "c",
+  "endpoint": {
+    "kind": "discover"
+  },
+  "lifetimeMs": 3600001
+}

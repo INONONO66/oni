@@ -68,6 +68,7 @@ describe("machine wire contract fixtures", () => {
       "PtyListRequest.wrong-type.json",
       "PtyReadParams.missing-name.json",
       "WireMethod.unknown-method.json",
+      "StreamId.empty.json",
     ];
     const rootFailure = rootFailures.includes(file);
     expect(issue?.path.length).toBeGreaterThan(rootFailure ? -1 : 0);

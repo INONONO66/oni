@@ -1,0 +1,7 @@
+{
+  "streamId": "s",
+  "seq": 0,
+  "signal": {
+    "type": "renegotiate"
+  }
+}

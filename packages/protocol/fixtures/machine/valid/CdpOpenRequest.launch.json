@@ -1,0 +1,8 @@
+{
+  "channelId": "cdp-2",
+  "endpoint": {
+    "kind": "launch",
+    "manifest": "default-browser"
+  },
+  "lifetimeMs": 3600000
+}

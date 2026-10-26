@@ -1,0 +1,171 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "displays": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "display": {
+                "exclusiveMinimum": 0,
+                "maximum": 16,
+                "type": "integer"
+              },
+              "height": {
+                "exclusiveMinimum": 0,
+                "maximum": 16384,
+                "type": "integer"
+              },
+              "primary": {
+                "type": "boolean"
+              },
+              "scale": {
+                "exclusiveMinimum": 0,
+                "maximum": 8,
+                "type": "number"
+              },
+              "width": {
+                "exclusiveMinimum": 0,
+                "maximum": 16384,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "display",
+              "width",
+              "height",
+              "scale",
+              "primary"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "observedAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "status": {
+          "const": "ok",
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "windows": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "bounds": {
+                "additionalProperties": false,
+                "properties": {
+                  "height": {
+                    "maximum": 16384,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "width": {
+                    "maximum": 16384,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "x": {
+                    "maximum": 16384,
+                    "minimum": -16384,
+                    "type": "integer"
+                  },
+                  "y": {
+                    "maximum": 16384,
+                    "minimum": -16384,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "display": {
+                "exclusiveMinimum": 0,
+                "maximum": 16,
+                "type": "integer"
+              },
+              "owner": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "windowId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "windowId",
+              "display",
+              "title",
+              "owner",
+              "bounds"
+            ],
+            "type": "object"
+          },
+          "maxItems": 512,
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "displays",
+        "windows",
+        "truncated",
+        "observedAt"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "machine_not_attached",
+            "screen_not_available",
+            "invalid_region",
+            "permission_denied",
+            "capture_failed",
+            "spawn_failed",
+            "read_failed",
+            "probe_timeout",
+            "display_not_found",
+            "window_not_found"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

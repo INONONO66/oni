@@ -35,6 +35,16 @@ export const WellKnownCapability = {
   inputWrite: "input.write",
   /** Persistent named terminals over tmux (#1273); offered only when tmux resolves at attach. */
   ptySession: "pty.session",
+  /**
+   * Computer use (#1662), the wire spelling of the issue shorthand
+   * `computer_use`. ONE id gates every `machine.screen.*`, `machine.input.*`,
+   * `machine.stream.*` and `machine.cdp.*` method: the Owner grants it in
+   * `Enrollment.allowedCapabilities`, the peer offers it only while it runs
+   * with a display session, and only the effective set (enrollment ∩ offer)
+   * admits a call. It neither implies nor is implied by `screen.read` /
+   * `input.write`, which keep gating the legacy single-call methods.
+   */
+  computerUse: "computer.use",
 } as const satisfies Record<string, CapabilityId>;
 
 /**
@@ -106,6 +116,20 @@ export const WireMethod = {
   AgentSessionStop: "agent.session.stop",
   /** Machine → host; the correlated response is the host's tool.pre decision. */
   AgentPermission: "agent.session.permission",
+  /** Computer use (#1662): every method below is gated by `computer.use`. */
+  ScreenList: "machine.screen.list",
+  ScreenCapture: "machine.screen.capture",
+  InputPointer: "machine.input.pointer",
+  InputKey: "machine.input.key",
+  InputText: "machine.input.text",
+  StreamOpen: "machine.stream.open",
+  /** Either direction: one typed SDP/ICE/data record of an open stream. */
+  StreamSignal: "machine.stream.signal",
+  StreamClose: "machine.stream.close",
+  CdpOpen: "machine.cdp.open",
+  /** Either direction: one bounded opaque chunk of an open debugging channel. */
+  CdpChunk: "machine.cdp.chunk",
+  CdpClose: "machine.cdp.close",
 } as const;
 
 /** Shared by Enrollment/Offer arrays and the machine.attached event payload. */
@@ -242,6 +266,36 @@ export const Offer = z
   .strict();
 export type Offer = z.infer<typeof Offer>;
 
+/**
+ * Live stream bounds (#1662), owned here because `machine.report` carries
+ * per-stream observations and the stream contracts quote the same numbers.
+ */
+export const STREAM_MAX_FPS = 60;
+/** Open streams per attachment; also bounds the observations one report carries. */
+export const STREAM_MAX_CONCURRENT = 4;
+export const STREAM_ENCODE_MAX_MS = 60_000;
+
+/** Host-minted id of one live stream, unique within its attachment. */
+export const StreamId = z.string().min(1).max(128);
+export type StreamId = z.infer<typeof StreamId>;
+
+/**
+ * One open stream's encoder facts at report time (#1662): measured rates
+ * over the report interval, never targets. `retainedBytes` is the frame-pool
+ * memory the stream holds, so the host can see the bounded pool working.
+ */
+export const StreamObservation = z
+  .object({
+    streamId: StreamId,
+    fps: z.number().nonnegative().max(STREAM_MAX_FPS),
+    bytesPerSecond: z.number().int().nonnegative(),
+    encodeMs: z.number().nonnegative().max(STREAM_ENCODE_MAX_MS),
+    droppedFrames: z.number().int().nonnegative(),
+    retainedBytes: z.number().int().nonnegative(),
+  })
+  .strict();
+export type StreamObservation = z.infer<typeof StreamObservation>;
+
 /** Live load facts carried by one `machine.report` heartbeat (#1555). */
 export const Load = z
   .object({
@@ -264,6 +318,12 @@ export const Report = z
     machineId: MachineId,
     reportedAt: EpochMs,
     load: Load,
+    /**
+     * Open live streams at report time (#1662). Absent when none is open; a
+     * peer only has streams after the host opened them, so a host that never
+     * calls `machine.stream.open` never receives this field.
+     */
+    streams: z.array(StreamObservation).max(STREAM_MAX_CONCURRENT).optional(),
   })
   .strict();
 export type Report = z.infer<typeof Report>;
@@ -1174,3 +1234,421 @@ export const AgentPermissionDecision = z.discriminatedUnion("status", [
   }).strict(),
 ]);
 export type AgentPermissionDecision = z.infer<typeof AgentPermissionDecision>;
+
+/**
+ * Computer use (#1662): display/window enumeration, bounded frame capture,
+ * typed pointer/key/text input, a negotiated live stream and a debugging
+ * channel tunnel. Every method is gated by `computer.use` in the effective
+ * set. The legacy `machine.screen_read` / `machine.input_write` pair keeps
+ * its callers and shapes; the methods below reuse its anchors rather than
+ * restating them: captures share {@link SCREEN_PNG_MAX_BYTES} and the
+ * accessibility-tree bound, input answers with {@link InputWriteResult}
+ * (one refusal vocabulary), text input shares {@link INPUT_MAX_TEXT_CHARS},
+ * displays keep the 1-based index of `ScreenReadRequest.display`, and the
+ * screen refusal vocabulary is a strict superset of {@link ScreenReadResult}'s.
+ * Mapping: `screen_read` = `screen.capture` of a display as PNG with
+ * `accessibility: true`; each `input_write` action = one `input.pointer`
+ * (click, move, scroll), `input.key` (key) or `input.text` (type) call.
+ */
+
+/** Pixel/point extent ceiling for every dimension and coordinate below. */
+export const COMPUTER_MAX_DIMENSION = 16_384;
+/** One encoded capture (PNG or JPEG) shares the legacy {@link SCREEN_PNG_MAX_BYTES} ceiling. */
+const SCREEN_CAPTURE_MAX_BASE64 = SCREEN_PNG_MAX_BASE64;
+export const SCREEN_LIST_MAX_DISPLAYS = 16;
+export const SCREEN_LIST_MAX_WINDOWS = 512;
+export const SCREEN_MAX_SCALE = 8;
+export const INPUT_SCROLL_MAX_DELTA = 10_000;
+export const STREAM_MAX_BITRATE_BPS = 50_000_000;
+/** One encoded video frame; frames past it are dropped, never split. */
+export const STREAM_FRAME_MAX_BYTES = 2_097_152;
+export const STREAM_KEYFRAME_MIN_MS = 100;
+export const STREAM_KEYFRAME_MAX_MS = 60_000;
+export const STREAM_MAX_LIFETIME_MS = 3_600_000;
+/** Signal records per stream per direction; `seq` stays below it. */
+export const STREAM_MAX_SIGNALS = 256;
+export const STREAM_SDP_MAX_CHARS = 65_536;
+export const STREAM_CANDIDATE_MAX_CHARS = 1024;
+/**
+ * One relayed data-channel message. The decoded caps below are multiples of
+ * 3, so the base64 length bound admits exactly that many decoded bytes.
+ */
+export const STREAM_DATA_MAX_BYTES = 16_383;
+const STREAM_DATA_MAX_BASE64 = (STREAM_DATA_MAX_BYTES / 3) * 4;
+export const CDP_CHUNK_MAX_BYTES = 262_143;
+const CDP_CHUNK_MAX_BASE64 = (CDP_CHUNK_MAX_BYTES / 3) * 4;
+export const CDP_MAX_LIFETIME_MS = 3_600_000;
+
+const Coordinate = z.number().int().nonnegative().max(COMPUTER_MAX_DIMENSION);
+const Extent = z.number().int().positive().max(COMPUTER_MAX_DIMENSION);
+const RefusalMessage = z.string().min(1).max(256);
+const CaptureId = z.string().min(1).max(128);
+
+/** 1-based display index, the numbering of `ScreenReadRequest.display`. */
+const DisplayIndex = z.number().int().positive().max(SCREEN_LIST_MAX_DISPLAYS);
+/** Opaque peer-scoped window id, valid until the window closes. */
+const WindowId = z.string().min(1).max(128);
+
+/** Every legacy screen refusal plus the two targets only this surface names. */
+const ScreenRefusalReason = z.enum([
+  ...ScreenReadResult.options[1].shape.reason.options,
+  "display_not_found",
+  "window_not_found",
+]);
+const ScreenRefusal = z
+  .object({ status: z.literal("refused"), reason: ScreenRefusalReason, message: RefusalMessage.optional() })
+  .strict();
+
+/** `width`/`height` are display points; `scale` is pixels per point. */
+export const ScreenDisplay = z
+  .object({
+    display: DisplayIndex,
+    width: Extent,
+    height: Extent,
+    scale: z.number().positive().max(SCREEN_MAX_SCALE),
+    primary: z.boolean(),
+  })
+  .strict();
+export type ScreenDisplay = z.infer<typeof ScreenDisplay>;
+
+/** A window's frame in its display's points; minimized windows report zero extents. */
+export const ScreenWindow = z
+  .object({
+    windowId: WindowId,
+    display: DisplayIndex,
+    title: z.string().max(256),
+    owner: z.string().max(256),
+    bounds: z
+      .object({
+        x: z.number().int().min(-COMPUTER_MAX_DIMENSION).max(COMPUTER_MAX_DIMENSION),
+        y: z.number().int().min(-COMPUTER_MAX_DIMENSION).max(COMPUTER_MAX_DIMENSION),
+        width: Coordinate,
+        height: Coordinate,
+      })
+      .strict(),
+  })
+  .strict();
+export type ScreenWindow = z.infer<typeof ScreenWindow>;
+
+/** `windows: true` adds window enumeration; displays are always listed. */
+export const ScreenListRequest = z.object({ windows: z.boolean().optional() }).strict();
+export type ScreenListRequest = z.infer<typeof ScreenListRequest>;
+
+/** Past {@link SCREEN_LIST_MAX_WINDOWS} the list is cut and `truncated` is true. */
+export const ScreenListResult = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("ok"),
+      displays: z.array(ScreenDisplay).min(1).max(SCREEN_LIST_MAX_DISPLAYS),
+      windows: z.array(ScreenWindow).max(SCREEN_LIST_MAX_WINDOWS),
+      truncated: z.boolean(),
+      observedAt: EpochMs,
+    })
+    .strict(),
+  ScreenRefusal,
+]);
+export type ScreenListResult = z.infer<typeof ScreenListResult>;
+
+/** What a capture or a stream shows: one display (optionally a region of it) or one window. */
+const CaptureTarget = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("display"),
+      display: DisplayIndex,
+      region: z.object({ x: Coordinate, y: Coordinate, width: Extent, height: Extent }).strict().optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal("window"), windowId: WindowId }).strict(),
+]);
+
+/**
+ * `maxDimension` caps the longer encoded edge and `maxBytes` the encoded
+ * size (default {@link SCREEN_PNG_MAX_BYTES}); the peer downscales and
+ * re-encodes to meet both and never truncates. `accessibility` asks for the
+ * bounded accessibility tree of a display capture.
+ */
+export const ScreenCaptureRequest = z
+  .object({
+    target: CaptureTarget,
+    encoding: z.discriminatedUnion("format", [
+      z.object({ format: z.literal("png") }).strict(),
+      z.object({ format: z.literal("jpeg"), quality: z.number().int().min(1).max(100) }).strict(),
+    ]),
+    maxDimension: Extent.optional(),
+    maxBytes: z.number().int().positive().max(SCREEN_PNG_MAX_BYTES).optional(),
+    accessibility: z.boolean().optional(),
+  })
+  .strict();
+export type ScreenCaptureRequest = z.infer<typeof ScreenCaptureRequest>;
+
+/**
+ * A captured frame is a typed wire payload, never a file on the host.
+ * `width`/`height` are the encoded pixels; `captureId` is the anchor every
+ * `machine.input.*` call names, and only the latest one is accepted.
+ */
+export const ScreenCaptureResult = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("ok"),
+      captureId: CaptureId,
+      display: DisplayIndex,
+      format: z.enum(["png", "jpeg"]),
+      data: Base64.min(1).max(SCREEN_CAPTURE_MAX_BASE64),
+      width: Extent,
+      height: Extent,
+      downscaled: z.boolean(),
+      observedAt: EpochMs,
+      accessibilityTree: BoundedAccessibilityTree.optional(),
+    })
+    .strict(),
+  ScreenRefusal,
+]);
+export type ScreenCaptureResult = z.infer<typeof ScreenCaptureResult>;
+
+/**
+ * Pointer input in display points of the display `captureId` captured.
+ * A stale anchor refuses `stale_capture` and nothing executes; the answer is
+ * {@link InputWriteResult}, the legacy input vocabulary.
+ */
+const PointerButton = z.enum(["left", "right", "middle"]);
+const PointerAt = { captureId: CaptureId, x: Coordinate, y: Coordinate };
+const ScrollDelta = z.number().int().min(-INPUT_SCROLL_MAX_DELTA).max(INPUT_SCROLL_MAX_DELTA);
+export const InputPointerRequest = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("move"), ...PointerAt }).strict(),
+  z
+    .object({ kind: z.literal("click"), ...PointerAt, button: PointerButton, count: z.number().int().min(1).max(3) })
+    .strict(),
+  z
+    .object({ kind: z.literal("button"), ...PointerAt, button: PointerButton, state: z.enum(["down", "up"]) })
+    .strict(),
+  z.object({ kind: z.literal("scroll"), ...PointerAt, deltaX: ScrollDelta, deltaY: ScrollDelta }).strict(),
+]);
+export type InputPointerRequest = z.infer<typeof InputPointerRequest>;
+
+/** `key` uses the peer's key vocabulary; an unknown name refuses `unsupported_action`. */
+export const InputKeyRequest = z
+  .object({
+    captureId: CaptureId,
+    key: z.string().min(1).max(64),
+    action: z.enum(["press", "down", "up"]),
+    modifiers: z
+      .object({
+        shift: z.boolean().optional(),
+        control: z.boolean().optional(),
+        alt: z.boolean().optional(),
+        meta: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type InputKeyRequest = z.infer<typeof InputKeyRequest>;
+
+export const InputTextRequest = z
+  .object({ captureId: CaptureId, text: z.string().min(1).max(INPUT_MAX_TEXT_CHARS) })
+  .strict();
+export type InputTextRequest = z.infer<typeof InputTextRequest>;
+
+/**
+ * Host → peer: start encoding `source` under a bounded frame budget. The
+ * peer adapts quality under congestion but never exceeds a bound, and closes
+ * the stream itself at `lifetimeMs` (`machine.stream.close` reason `expired`).
+ */
+export const StreamOpenRequest = z
+  .object({
+    streamId: StreamId,
+    source: CaptureTarget,
+    video: z
+      .object({
+        maxFps: z.number().int().min(1).max(STREAM_MAX_FPS),
+        keyframeIntervalMs: z.number().int().min(STREAM_KEYFRAME_MIN_MS).max(STREAM_KEYFRAME_MAX_MS),
+        maxBitrateBps: z.number().int().positive().max(STREAM_MAX_BITRATE_BPS),
+        /** A video frame needs even sides, so the smallest representable cap is 2. */
+        maxDimension: Extent.min(2),
+        maxFrameBytes: z.number().int().positive().max(STREAM_FRAME_MAX_BYTES),
+      })
+      .strict(),
+    dataChannel: z.boolean(),
+    lifetimeMs: z.number().int().positive().max(STREAM_MAX_LIFETIME_MS),
+  })
+  .strict();
+export type StreamOpenRequest = z.infer<typeof StreamOpenRequest>;
+
+export const StreamOpenResult = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("opened"), streamId: StreamId, expiresAt: EpochMs }).strict(),
+  z
+    .object({
+      status: z.literal("refused"),
+      reason: z.enum([
+        "machine_not_attached",
+        "stream_not_available",
+        "display_not_found",
+        "window_not_found",
+        "permission_denied",
+        "stream_limit",
+        "already_open",
+        "encoder_failed",
+      ]),
+      message: RefusalMessage.optional(),
+    })
+    .strict(),
+]);
+export type StreamOpenResult = z.infer<typeof StreamOpenResult>;
+
+/**
+ * Either direction: one negotiation record of an open stream. `seq` starts at
+ * 0 per stream and direction and grows by one; a repeat of the last accepted
+ * seq is idempotent, any other gap refuses `invalid_sequence`, and seq
+ * {@link STREAM_MAX_SIGNALS} refuses `signal_limit`. `data` relays one
+ * data-channel message while the peer connection is not yet carrying it.
+ */
+export const StreamSignalRequest = z
+  .object({
+    streamId: StreamId,
+    seq: z.number().int().nonnegative().max(STREAM_MAX_SIGNALS - 1),
+    signal: z.discriminatedUnion("type", [
+      z.object({ type: z.literal("offer"), sdp: z.string().min(1).max(STREAM_SDP_MAX_CHARS) }).strict(),
+      z.object({ type: z.literal("answer"), sdp: z.string().min(1).max(STREAM_SDP_MAX_CHARS) }).strict(),
+      z
+        .object({
+          type: z.literal("candidate"),
+          candidate: z.string().min(1).max(STREAM_CANDIDATE_MAX_CHARS),
+          sdpMid: z.string().min(1).max(64).optional(),
+          sdpMLineIndex: z.number().int().nonnegative().max(255).optional(),
+        })
+        .strict(),
+      z.object({ type: z.literal("end_of_candidates") }).strict(),
+      z
+        .object({
+          type: z.literal("data"),
+          label: z.string().min(1).max(64),
+          data: Base64.min(1).max(STREAM_DATA_MAX_BASE64),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+export type StreamSignalRequest = z.infer<typeof StreamSignalRequest>;
+
+/** The accepted branch shared by both per-direction sequenced results. */
+const SequenceAccepted = z.object({ status: z.literal("accepted"), seq: z.number().int().nonnegative() }).strict();
+
+export const StreamSignalResult = z.discriminatedUnion("status", [
+  SequenceAccepted,
+  z
+    .object({
+      status: z.literal("refused"),
+      reason: z.enum([
+        "machine_not_attached",
+        "stream_not_found",
+        "stream_expired",
+        "invalid_sequence",
+        "signal_limit",
+        "invalid_signal",
+      ]),
+      message: RefusalMessage.optional(),
+    })
+    .strict(),
+]);
+export type StreamSignalResult = z.infer<typeof StreamSignalResult>;
+
+/** Either direction: the host closes on request, the peer on expiry or failure. */
+export const StreamCloseRequest = z
+  .object({ streamId: StreamId, reason: z.enum(["requested", "expired", "failed"]) })
+  .strict();
+export type StreamCloseRequest = z.infer<typeof StreamCloseRequest>;
+
+export const StreamCloseResult = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("closed"), streamId: StreamId }).strict(),
+  z
+    .object({ status: z.literal("refused"), reason: z.enum(["machine_not_attached", "stream_not_found"]) })
+    .strict(),
+]);
+export type StreamCloseResult = z.infer<typeof StreamCloseResult>;
+
+/** Host-minted id of one debugging channel, unique within its attachment. */
+const CdpChannelId = z.string().min(1).max(128);
+
+/**
+ * Host → peer: open a browser debugging-protocol (CDP) channel. `discover`
+ * attaches to an endpoint already listening on the peer; `launch` starts
+ * one from the named launch manifest the peer's dialect module owns. The
+ * wire never names a browser vendor.
+ */
+export const CdpOpenRequest = z
+  .object({
+    channelId: CdpChannelId,
+    endpoint: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("discover") }).strict(),
+      z
+        .object({
+          kind: z.literal("launch"),
+          manifest: z.string().max(64).regex(/^[a-z][a-z0-9_-]*$/, {
+            message: "manifest name must be lowercase alphanumeric with - or _",
+          }),
+        })
+        .strict(),
+    ]),
+    lifetimeMs: z.number().int().positive().max(CDP_MAX_LIFETIME_MS),
+  })
+  .strict();
+export type CdpOpenRequest = z.infer<typeof CdpOpenRequest>;
+
+export const CdpOpenResult = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("opened"), channelId: CdpChannelId, expiresAt: EpochMs }).strict(),
+  z
+    .object({
+      status: z.literal("refused"),
+      reason: z.enum([
+        "machine_not_attached",
+        "cdp_not_available",
+        "endpoint_not_found",
+        "manifest_not_found",
+        "launch_failed",
+        "channel_limit",
+        "already_open",
+      ]),
+      message: RefusalMessage.optional(),
+    })
+    .strict(),
+]);
+export type CdpOpenResult = z.infer<typeof CdpOpenResult>;
+
+/**
+ * Either direction: bytes of the channel, opaque to the wire. Chunk
+ * boundaries carry no meaning; `seq` follows the stream signal rule (start
+ * at 0 per direction, grow by one, repeat of the last is idempotent).
+ */
+export const CdpChunk = z
+  .object({
+    channelId: CdpChannelId,
+    seq: z.number().int().nonnegative(),
+    data: Base64.min(1).max(CDP_CHUNK_MAX_BASE64),
+  })
+  .strict();
+export type CdpChunk = z.infer<typeof CdpChunk>;
+
+export const CdpChunkResult = z.discriminatedUnion("status", [
+  SequenceAccepted,
+  z
+    .object({
+      status: z.literal("refused"),
+      reason: z.enum(["machine_not_attached", "channel_not_found", "channel_closed", "invalid_sequence"]),
+    })
+    .strict(),
+]);
+export type CdpChunkResult = z.infer<typeof CdpChunkResult>;
+
+/** Either direction: the host closes on request, the peer on expiry or endpoint loss. */
+export const CdpCloseRequest = z
+  .object({ channelId: CdpChannelId, reason: z.enum(["requested", "expired", "endpoint_closed", "failed"]) })
+  .strict();
+export type CdpCloseRequest = z.infer<typeof CdpCloseRequest>;
+
+export const CdpCloseResult = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("closed"), channelId: CdpChannelId }).strict(),
+  z
+    .object({ status: z.literal("refused"), reason: z.enum(["machine_not_attached", "channel_not_found"]) })
+    .strict(),
+]);
+export type CdpCloseResult = z.infer<typeof CdpCloseResult>;

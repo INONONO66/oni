@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "accessibility": {
+      "type": "boolean"
+    },
+    "encoding": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "png",
+              "type": "string"
+            }
+          },
+          "required": [
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "jpeg",
+              "type": "string"
+            },
+            "quality": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "format",
+            "quality"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "maxBytes": {
+      "exclusiveMinimum": 0,
+      "maximum": 4194304,
+      "type": "integer"
+    },
+    "maxDimension": {
+      "exclusiveMinimum": 0,
+      "maximum": 16384,
+      "type": "integer"
+    },
+    "target": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "display": {
+              "exclusiveMinimum": 0,
+              "maximum": 16,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "display",
+              "type": "string"
+            },
+            "region": {
+              "additionalProperties": false,
+              "properties": {
+                "height": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 16384,
+                  "type": "integer"
+                },
+                "width": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 16384,
+                  "type": "integer"
+                },
+                "x": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "y": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "x",
+                "y",
+                "width",
+                "height"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "display"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "window",
+              "type": "string"
+            },
+            "windowId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "windowId"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "required": [
+    "target",
+    "encoding"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,8 @@
+{
+  "streamId": "stream-1",
+  "seq": 0,
+  "signal": {
+    "type": "offer",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n"
+  }
+}

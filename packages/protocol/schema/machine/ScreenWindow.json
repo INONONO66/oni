@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "bounds": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "width": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "x": {
+          "maximum": 16384,
+          "minimum": -16384,
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 16384,
+          "minimum": -16384,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "type": "object"
+    },
+    "display": {
+      "exclusiveMinimum": 0,
+      "maximum": 16,
+      "type": "integer"
+    },
+    "owner": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "windowId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "windowId",
+    "display",
+    "title",
+    "owner",
+    "bounds"
+  ],
+  "type": "object"
+}

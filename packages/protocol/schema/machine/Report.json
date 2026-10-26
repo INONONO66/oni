@@ -34,6 +34,54 @@
     "reportedAt": {
       "minimum": 0,
       "type": "number"
+    },
+    "streams": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "bytesPerSecond": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "droppedFrames": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "encodeMs": {
+            "maximum": 60000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "fps": {
+            "maximum": 60,
+            "minimum": 0,
+            "type": "number"
+          },
+          "retainedBytes": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "streamId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "fps",
+          "bytesPerSecond",
+          "encodeMs",
+          "droppedFrames",
+          "retainedBytes"
+        ],
+        "type": "object"
+      },
+      "maxItems": 4,
+      "type": "array"
     }
   },
   "required": [

@@ -1,0 +1,19 @@
+{
+  "machineId": "m1",
+  "reportedAt": 1700000000000,
+  "load": {
+    "loadAvg1": 0.5,
+    "memoryAvailableBytes": 1024,
+    "inFlight": 0
+  },
+  "streams": [
+    {
+      "streamId": "stream-1",
+      "fps": 29.5,
+      "bytesPerSecond": 250000,
+      "encodeMs": 4.2,
+      "droppedFrames": 3,
+      "retainedBytes": 4194304
+    }
+  ]
+}

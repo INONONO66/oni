@@ -24,7 +24,18 @@
     "agent.session.tail",
     "agent.session.send",
     "agent.session.stop",
-    "agent.session.permission"
+    "agent.session.permission",
+    "machine.screen.list",
+    "machine.screen.capture",
+    "machine.input.pointer",
+    "machine.input.key",
+    "machine.input.text",
+    "machine.stream.open",
+    "machine.stream.signal",
+    "machine.stream.close",
+    "machine.cdp.open",
+    "machine.cdp.chunk",
+    "machine.cdp.close"
   ],
   "type": "string"
 }

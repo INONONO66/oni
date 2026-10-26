@@ -1,0 +1,8 @@
+{
+  "kind": "button",
+  "captureId": "cap-1",
+  "x": 16384,
+  "y": 16384,
+  "button": "right",
+  "state": "down"
+}

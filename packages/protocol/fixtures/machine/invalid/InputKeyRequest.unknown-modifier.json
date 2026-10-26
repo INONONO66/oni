@@ -1,0 +1,8 @@
+{
+  "captureId": "cap-1",
+  "key": "a",
+  "action": "press",
+  "modifiers": {
+    "hyper": true
+  }
+}

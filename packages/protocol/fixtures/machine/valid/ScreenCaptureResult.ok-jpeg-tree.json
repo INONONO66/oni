@@ -1,0 +1,19 @@
+{
+  "status": "ok",
+  "captureId": "cap-2",
+  "display": 1,
+  "format": "jpeg",
+  "data": "anBlZy1ieXRlcw==",
+  "width": 1280,
+  "height": 832,
+  "downscaled": true,
+  "observedAt": 1700000000001,
+  "accessibilityTree": {
+    "app": "Editor",
+    "windows": [
+      {
+        "name": "Notes"
+      }
+    ]
+  }
+}

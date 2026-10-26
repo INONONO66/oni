@@ -1,0 +1,16 @@
+{
+  "streamId": "s",
+  "source": {
+    "kind": "display",
+    "display": 1
+  },
+  "video": {
+    "maxFps": 61,
+    "keyframeIntervalMs": 2000,
+    "maxBitrateBps": 4000000,
+    "maxDimension": 1920,
+    "maxFrameBytes": 1048576
+  },
+  "dataChannel": false,
+  "lifetimeMs": 1000
+}

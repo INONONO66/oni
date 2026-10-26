@@ -1,0 +1,5 @@
+{
+  "status": "refused",
+  "reason": "stream_limit",
+  "message": "4 streams already open"
+}

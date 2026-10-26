@@ -1,0 +1,8 @@
+{
+  "streamId": "stream-1",
+  "fps": 61,
+  "bytesPerSecond": 250000,
+  "encodeMs": 4.2,
+  "droppedFrames": 3,
+  "retainedBytes": 4194304
+}

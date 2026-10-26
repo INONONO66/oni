@@ -1,0 +1,8 @@
+{
+  "streamId": "stream-1",
+  "seq": 2,
+  "signal": {
+    "type": "candidate",
+    "candidate": "candidate:2 1 udp 1 192.0.2.2 9 typ host"
+  }
+}
