@@ -1084,10 +1084,11 @@ async fn attach_grant_reaches_handlers_and_detach_revokes_it() {
     let params = read.clone();
     let exchange = async move {
         let request = expect(&mut host, "machine.attach").await;
-        assert_eq!(
-            request["params"]["offeredCapabilities"],
-            json!(["fs.read", "fs.write", "shell.exec"])
-        );
+        let mut offered = vec!["fs.read", "fs.write", "shell.exec"];
+        if oni_machine_client::code::Code::available() {
+            offered.push("kernel.py");
+        }
+        assert_eq!(request["params"]["offeredCapabilities"], json!(offered));
         host.send(reply(
             &request,
             json!({
@@ -1147,6 +1148,9 @@ async fn run_default_offers_the_available_capabilities_of_its_config() {
         && oni_machine_client::input::Input::platform().available()
     {
         expected.push("input.write".to_owned());
+    }
+    if oni_machine_client::code::Code::available() {
+        expected.push("kernel.py".to_owned());
     }
     assert_eq!(offered, json!(expected));
     let socket = directory.path().join("hook.sock");

@@ -41,6 +41,7 @@ use crate::{
     },
     attach::{Hooks, Negotiated, Session},
     budget::{Pressure, Retained},
+    code::Code,
     config::ClientConfig,
     exec::{Exec, DEFAULT_DEADLINE},
     fs::{FsDriver, FsError},
@@ -63,10 +64,11 @@ const MAX_SESSIONS: usize = 256;
 const SCREEN_READ: &str = "screen.read";
 const COMPUTER_USE: &str = "computer.use";
 const INPUT_WRITE: &str = "input.write";
+const PYTHON_KERNEL: &str = "kernel.py";
 
 /// Every capability this client can serve; the enrollment receipt allows all
 /// of them so a later attach can offer whatever is available by then.
-pub const SUPPORTED: [&str; 8] = [
+pub const SUPPORTED: [&str; 9] = [
     FS_READ,
     FS_WRITE,
     SHELL_EXEC,
@@ -75,6 +77,7 @@ pub const SUPPORTED: [&str; 8] = [
     SCREEN_READ,
     COMPUTER_USE,
     INPUT_WRITE,
+    PYTHON_KERNEL,
 ];
 
 /// The capabilities offered at attach: the filesystem only with an export,
@@ -89,6 +92,7 @@ pub fn available(exports: bool, pty: bool) -> Vec<String> {
             AGENT_SESSION => false,
             SCREEN_READ | COMPUTER_USE => false,
             INPUT_WRITE => false,
+            PYTHON_KERNEL => false,
             _ => true,
         })
         .map(str::to_owned)
@@ -138,6 +142,7 @@ pub struct Service {
     input: Arc<Input>,
     cdp: Cdp,
     stream: Stream,
+    code: Code,
 }
 
 /// Asks the attached host for a permission verdict; no connection, a
@@ -209,23 +214,6 @@ fn value(result: impl Serialize) -> Value {
 
 fn wire<T: Serialize, E: Display>(outcome: Result<T, E>) -> Result<Value, String> {
     outcome.map(value).map_err(|error| error.to_string())
-}
-
-/// Methods this client never offers: no code runner.
-/// `cancel_code` answers like a daemon without a runner: nothing to cancel.
-fn unoffered(method: WireMethod, params: Value) -> Result<Value, String> {
-    match method {
-        WireMethod::MachineRunCode => {
-            decode::<CellRequest>(params).map(|_| refused("kernel_not_available"))
-        }
-        WireMethod::MachinePeekCode => {
-            decode::<PeekCode>(params).map(|_| refused("kernel_not_available"))
-        }
-        WireMethod::MachineCancelCode => {
-            decode::<CancelCode>(params).map(|_| json!({"cancelled": false}))
-        }
-        host_served => Err(invalid(host_served)),
-    }
 }
 
 impl crate::agent::hook::Decide for Service {
@@ -384,6 +372,9 @@ impl Service {
         if screen.available() && input.available() {
             offered.push(INPUT_WRITE.to_owned());
         }
+        if Code::available() {
+            offered.push(PYTHON_KERNEL.to_owned());
+        }
         Arc::new(Self {
             offered,
             exports,
@@ -397,6 +388,7 @@ impl Service {
             input: Arc::new(input),
             cdp,
             stream: Stream::new(address),
+            code: Code::new(),
         })
     }
 
@@ -443,6 +435,28 @@ impl Service {
     /// The fs and exec methods; anything else falls through to the terminal methods.
     async fn machine_dispatch(&self, method: WireMethod, params: Value) -> Result<Value, String> {
         match method {
+            WireMethod::MachineRunCode => {
+                let request: CellRequest = decode(params)?;
+                if !self.has(PYTHON_KERNEL) {
+                    return Ok(refused("kernel_not_available"));
+                }
+                let caller = self.caller().clone().ok_or("machine_not_attached")?;
+                self.code
+                    .run(request, caller)
+                    .await
+                    .map_err(|error| error.to_string())
+            }
+            WireMethod::MachinePeekCode => {
+                let request: PeekCode = decode(params)?;
+                if !self.has(PYTHON_KERNEL) {
+                    return Ok(refused("kernel_not_available"));
+                }
+                Ok(self.code.peek(&request.cell_id))
+            }
+            WireMethod::MachineCancelCode => {
+                let request: CancelCode = decode(params)?;
+                Ok(json!({"cancelled": self.code.stop(&request.cell_id)}))
+            }
             WireMethod::MachineFsOp => decode(params).map(|request| self.fs_op(&request)),
             WireMethod::MachineFsStream => decode(params).map(|request| self.fs_stream(&request)),
             WireMethod::MachineExec => self.exec(&decode(params)?).await,
@@ -827,6 +841,7 @@ impl Session for Service {
     }
 
     fn detached(&self) {
+        self.code.detach();
         *self.grant() = None;
         *self.caller() = None;
         self.fs().abort_all();
@@ -929,7 +944,7 @@ impl Service {
 
 /// The computer-use family, routed outside `serve` so each family keeps
 /// its own gate: screen frames, anchored input, the CDP tunnel and the
-/// stream relay. Anything else is answered as unoffered.
+/// stream relay. Anything else is a method the host serves itself.
 impl Service {
     async fn serve_computer(&self, method: WireMethod, params: Value) -> Result<Value, String> {
         match method {
@@ -946,7 +961,7 @@ impl Service {
             WireMethod::MachineStreamOpen
             | WireMethod::MachineStreamSignal
             | WireMethod::MachineStreamClose => self.serve_stream(method, params).await,
-            other => unoffered(other, params),
+            host_served => Err(invalid(host_served)),
         }
     }
 
