@@ -1355,13 +1355,18 @@ fn long_config_directory_fallback_handles_its_temp_directory_states() {
     let again = hook::socket_path(&long_dir).expect("existing fallback directory is reused");
     assert_eq!(again, first);
     assert_eq!(
-        std::fs::metadata(&short_dir).expect("fallback directory").permissions().mode() & 0o777,
+        std::fs::metadata(&short_dir)
+            .expect("fallback directory")
+            .permissions()
+            .mode()
+            & 0o777,
         0o700
     );
 
     std::fs::remove_dir_all(&short_dir).expect("clear");
     std::fs::write(&short_dir, b"squatter").expect("squatter file");
-    let squatted = hook::socket_path(&long_dir).expect_err("a file at the fallback directory is refused");
+    let squatted =
+        hook::socket_path(&long_dir).expect_err("a file at the fallback directory is refused");
     assert_eq!(squatted.kind(), std::io::ErrorKind::AlreadyExists);
 
     let long_tmp = tmp.path().join("t".repeat(hook::SUN_PATH_LIMIT));
