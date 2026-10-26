@@ -5,7 +5,7 @@ import { isContained, normalizeExportRoot } from "./contained";
 import { createIpcServer, createIpcTcpServer, type IpcServer, type IpcTlsIdentity } from "./ipc";
 import { typedCall } from "./typed-call";
 import { type BusEvent, type Ipc, Machine } from "@oni/protocol";
-import { Effect, Exit, Fiber, Semaphore, type Scope } from "effect";
+import { Deferred, Effect, Exit, Fiber, Semaphore, type Scope } from "effect";
 import { MachinesFailure, MachineCellError, MachineRefusalError, TransportFailure, type MachineError } from "./errors";
 import { decodeMachineFailure } from "./failure";
 import { onAbort } from "./interrupt-on";
@@ -39,6 +39,9 @@ interface MachineHostOptions {
    * `{ status: "failed" }` tool result.
    */
   readonly callTool: (call: Machine.ToolCall) => Effect.Effect<Machine.ToolCallResult, MachineError>;
+  /** Composition supplies the captured tool.pre decision, not machine policy. */
+  readonly decideAgentPermission?: (machineId: Machine.MachineId, request: Machine.AgentPermissionRequest) => Effect.Effect<Machine.AgentPermissionDecision, MachineError>;
+  readonly agentPermissionDeadlineMs?: number;
   /**
    * Machine ids protected from fresh-offer supersession (#1271): while such
    * an id is attached, an offer without a generation is refused
@@ -59,6 +62,8 @@ interface MachineHostOptions {
 }
 /** Default `staleAfterMs`: three missed default-cadence heartbeats. */
 const REPORT_STALE_AFTER_MS = 15_000;
+const AGENT_SESSION_CAPABILITY = "agent.session";
+const AGENT_PERMISSION_DEADLINE_MS = 30_000;
 /** A bulk read still fits a single codemode tool reply after base64 encoding. */
 const BULK_READ_MAX_BYTES = 8 * 1024 * 1024;
 type Value<O extends Machine.FsValue["op"]> = Extract<Machine.FsValue, { op: O }>;
@@ -67,6 +72,13 @@ type ReadValue = Omit<Value<"read">, "data"> & { readonly data: Uint8Array };
 type ExecValue = Omit<Extract<Machine.ExecResult, { status: "completed" }>, "stdout" | "stderr"> & { readonly stdout: Uint8Array; readonly stderr: Uint8Array };
 type ScreenValue = Omit<Extract<Machine.ScreenReadResult, { status: "ok" }>, "png"> & { readonly png: Uint8Array };
 type DetachReason = import("zod").infer<typeof Machine.Events.Detached.schema>["reason"];
+type AgentSessionMethod =
+  | typeof Machine.WireMethod.AgentSessionList | typeof Machine.WireMethod.AgentSessionOpen
+  | typeof Machine.WireMethod.AgentSessionTail | typeof Machine.WireMethod.AgentSessionSend
+  | typeof Machine.WireMethod.AgentSessionStop;
+type AgentSessionRequest =
+  | Machine.AgentSessionListRequest | Machine.AgentSessionOpenRequest | Machine.AgentSessionTailRequest
+  | Machine.AgentSessionSendRequest | Machine.AgentSessionStopRequest;
 export interface MachineHandle {
   readonly fs: {
     read(path: string, window?: { offset?: number; limit?: number }): Effect.Effect<ReadValue, MachineError>;
@@ -82,6 +94,14 @@ export interface MachineHandle {
   readonly pty: PtyHandle;
   runCode(cell: Machine.CellRequest, signal?: AbortSignal): Effect.Effect<Machine.CellResult, MachineError>;
   peekCode(cellId: string): Effect.Effect<Machine.PeekAnswer, MachineError>;
+  /** Optional for existing test doubles outside machines; real host handles always supply it. */
+  readonly agentSession?: {
+    list(request: Machine.AgentSessionListRequest): Effect.Effect<Machine.AgentSessionListResult, MachineError>;
+    open(request: Machine.AgentSessionOpenRequest): Effect.Effect<Machine.AgentSessionOpenResult, MachineError>;
+    tail(request: Machine.AgentSessionTailRequest): Effect.Effect<Machine.AgentSessionTailResult, MachineError>;
+    send(request: Machine.AgentSessionSendRequest): Effect.Effect<Machine.AgentSessionSendResult, MachineError>;
+    stop(request: Machine.AgentSessionStopRequest): Effect.Effect<Machine.AgentSessionStopResult, MachineError>;
+  };
 }
 /** Attached enrollment, negotiated capabilities and optional resource observations. */
 export type MachineInfo = Machine.Info & {
@@ -170,6 +190,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     /** Machines that attached at least once: their detached window reads `disconnected`. */
     const known = new Set<string>();
     const inFlight = new Map<string, Set<string>>();
+    const permissions = new Map<string, Map<string, Deferred.Deferred<void>>>();
     const handles = new Map<string, StreamingMachineHandle>();
     const revoked = new Map<string, number>();
     let closed = false;
@@ -181,6 +202,9 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       const attachment = attachments.get(key);
       if (attachment === undefined) return;
       attachments.delete(key);
+      for (const pending of permissions.get(key)?.values() ?? [])
+        Deferred.doneUnsafe(pending, Exit.succeed(undefined));
+      permissions.delete(key);
       inFlight.delete(key);
       reports.delete(key);
       capacity.detach(attachment.offer.machineId, reason === "superseded" ? "stale_generation" : "disconnected");
@@ -197,6 +221,39 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       return Effect.suspend(() => {
         if (!attachments.has(key) || !inFlight.get(key)?.has(call.cellId)) return new MachineCellError({ code: "unknown_cell_id", cellId: call.cellId, message: `no cell in flight: ${call.cellId}` });
         return options.callTool(call);
+      });
+    }
+    function decidePermission(request: Machine.AgentPermissionRequest, source: RequestSource): Effect.Effect<Machine.AgentPermissionDecision> {
+      return Effect.gen(function* () {
+        const denied = (reason: "denied" | "timeout"): Machine.AgentPermissionDecision =>
+          ({ status: "refused", sessionId: request.sessionId, requestId: request.requestId, reason });
+        const peer = attachments.get(source.key);
+        if (peer === undefined || !source.server.isConnected(source.rawId) || peer.offer.peer.kind !== "client" ||
+          !peer.capabilities.includes(AGENT_SESSION_CAPABILITY) || options.decideAgentPermission === undefined)
+          return denied("denied");
+        const key = `${request.sessionId}\0${request.requestId}`;
+        const pending = permissions.get(source.key) ?? new Map<string, Deferred.Deferred<void>>();
+        if (pending.has(key)) return denied("denied");
+        const disconnected = yield* Deferred.make<void>();
+        pending.set(key, disconnected);
+        permissions.set(source.key, pending);
+        const verdict = yield* Effect.race(
+          options.decideAgentPermission(peer.offer.machineId, request).pipe(
+            Effect.map((decision) => {
+              const parsed = Machine.AgentPermissionDecision.safeParse(decision);
+              return parsed.success && parsed.data.sessionId === request.sessionId && parsed.data.requestId === request.requestId
+                ? parsed.data : denied("denied");
+            }),
+            Effect.catch(() => Effect.succeed(denied("denied"))),
+            Effect.timeoutOption(options.agentPermissionDeadlineMs ?? AGENT_PERMISSION_DEADLINE_MS),
+            Effect.map((outcome) => outcome._tag === "Some" ? outcome.value : denied("timeout")),
+          ),
+          Deferred.await(disconnected).pipe(Effect.as(denied("denied"))),
+        ).pipe(Effect.ensuring(Effect.sync(() => {
+          pending.delete(key);
+          if (pending.size === 0) permissions.delete(source.key);
+        })));
+        return attachments.get(source.key) === peer && source.server.isConnected(source.rawId) ? verdict : denied("denied");
       });
     }
     function admissionValid(offer: Machine.Offer, source: RequestSource, revision: number | undefined): "closed" | "machine_not_enrolled" | undefined {
@@ -268,6 +325,11 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           respond(report(incoming, source));
           return;
         }
+        if (method === Machine.WireMethod.AgentPermission) {
+          const request = yield* Effect.try({ try: () => Machine.AgentPermissionRequest.parse(params), catch: decodeMachineFailure("agent.permission.request") });
+          respond(yield* decidePermission(request, source));
+          return;
+        }
         if (method !== Machine.WireMethod.Attach) return yield* new MachineRefusalError({ reason: "invalid_method", message: `invalid method: ${method}` });
         const offer = yield* Effect.try({ try: () => Machine.Offer.parse(params), catch: decodeMachineFailure("attach.decode") });
         yield* attach(offer, respond, source);
@@ -316,6 +378,37 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         throw new MachineRefusalError({ reason: "machine_not_attached", message: `machine is not attached: ${id}` });
       }
       return attachment;
+    }
+    function agentPeer(id: string): Attachment {
+      const peer = connection(id);
+      if (peer.offer.peer.kind !== "client" || !peer.capabilities.includes(AGENT_SESSION_CAPABILITY))
+        throw new MachineRefusalError({ reason: "invalid_method", message: "agent session capability is not granted" });
+      return peer;
+    }
+    function agentCall<I extends AgentSessionRequest, O>(
+      id: string,
+      label: string,
+      method: AgentSessionMethod,
+      requestSchema: { parse(value: I): I },
+      resultSchema: { parse(value: Ipc.Response["result"]): O },
+      input: I,
+      checks?: {
+        readonly before?: (peer: Attachment, request: I) => Effect.Effect<void, MachineError>;
+        readonly after?: (peer: Attachment, result: O) => Effect.Effect<void, MachineError>;
+      },
+    ): Effect.Effect<O, MachineError> {
+      return Effect.gen(function* () {
+        const request = yield* Effect.try({ try: () => requestSchema.parse(input), catch: decodeMachineFailure(`${label}.request`) });
+        const peer = yield* Effect.try({ try: () => agentPeer(id), catch: decodeMachineFailure(`${label}.connection`) });
+        if (checks?.before) yield* checks.before(peer, request);
+        peer.server.useConnection(peer.rawId);
+        const raw = yield* typedCall(peer.server, method, request).pipe(Effect.mapError(transportFailure(label)));
+        if (attachments.get(peer.key) !== peer)
+          return yield* new MachineRefusalError({ reason: "stale_generation", message: "agent session attachment was superseded" });
+        const result = yield* Effect.try({ try: () => resultSchema.parse(raw), catch: decodeMachineFailure(`${label}.response`) });
+        if (checks?.after) yield* checks.after(peer, result);
+        return result;
+      });
     }
     /**
      * ONE effective root set (#1512 r2 L11) both the host's routing
@@ -629,6 +722,21 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           const raw = yield* typedCall(peer.server, Machine.WireMethod.PeekCode, request).pipe(Effect.mapError(transportFailure("cell.peek")));
           return yield* Effect.try({ try: () => Machine.PeekAnswer.parse(raw), catch: decodeMachineFailure("cell.peek.response") });
         }),
+        agentSession: {
+          list: (input) => agentCall(id, "agent.list", Machine.WireMethod.AgentSessionList, Machine.AgentSessionListRequest, Machine.AgentSessionListResult, input),
+          open: (input) => agentCall(id, "agent.open", Machine.WireMethod.AgentSessionOpen, Machine.AgentSessionOpenRequest, Machine.AgentSessionOpenResult, input, {
+            after: (peer, result) => result.status === "ok" && result.cursor.generation !== peer.generation
+              ? new MachineRefusalError({ reason: "stale_generation", message: "agent session cursor generation mismatch" }) : Effect.void,
+          }),
+          tail: (input) => agentCall(id, "agent.tail", Machine.WireMethod.AgentSessionTail, Machine.AgentSessionTailRequest, Machine.AgentSessionTailResult, input, {
+            before: (peer, request) => "cursor" in request && request.cursor.generation !== peer.generation
+              ? new MachineRefusalError({ reason: "stale_generation", message: "agent session cursor generation mismatch" }) : Effect.void,
+            after: (peer, result) => result.status === "ok" && result.cursor.generation !== peer.generation
+              ? new MachineRefusalError({ reason: "stale_generation", message: "agent session cursor generation mismatch" }) : Effect.void,
+          }),
+          send: (input) => agentCall(id, "agent.send", Machine.WireMethod.AgentSessionSend, Machine.AgentSessionSendRequest, Machine.AgentSessionSendResult, input),
+          stop: (input) => agentCall(id, "agent.stop", Machine.WireMethod.AgentSessionStop, Machine.AgentSessionStopRequest, Machine.AgentSessionStopResult, input),
+        },
       };
       handles.set(id, handle);
       return handle;
