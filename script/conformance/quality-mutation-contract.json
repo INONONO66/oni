@@ -316,7 +316,7 @@
         "lineDimension": "coverage.py executable source lines (no excludes); unknown/unloaded extracted driver remains0 not omitted",
         "branchDimension": "coverage.py full static possible arcs for branch lines, all exits required; short-circuit operand decision counters added by d945-python-coverage@1 for each BoolOp transition, preserving single evaluation",
         "thresholds": "all four dimensions100 per virtual file and aggregate; same no-rounding/missing-data policy as TS",
-        "processSurface": "instrument isolated driver source through test-owned transform of PYTHON_DRIVER binding in emitted test copy; real PythonKernel spawn, stdin/stdout/reverse calls remain intact; observe process exit and trace flush, include background threads; no product source seam required",
+        "processSurface": "historical TypeScript driver instrumentation; the Rust client now owns driver.py and its subprocess, so this obsolete probe is not an active coverage receipt",
         "liveness": "killed/crashed driver trace missing => incomplete, not0success; use bounded exact command/exit signals, no sleeps/polls"
       },
       "mutation": {

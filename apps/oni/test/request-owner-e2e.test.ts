@@ -94,12 +94,11 @@ function child(catalogPath: string, sessionsDir: string, at: number, recovering 
       process.kill("SIGKILL");
       await process.exited;
       expect(process.signalCode).toBe("SIGKILL");
-      const logs = await output;
-      if (logs.some((text) => text.length > 0)) console.log(logs.join("\n"));
+      // The detached mclient inherits these pipes and survives a parent SIGKILL;
+      // EOF is not a signal that the crashed app process has exited.
     },
     async close() {
       if (process.exitCode !== null || process.signalCode !== null) {
-        await output;
         return;
       }
       const started = events.some((event) => event.type === "ready");

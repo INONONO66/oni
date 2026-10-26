@@ -13,6 +13,9 @@ what it records becomes the first live evidence. Shipped state is in
   key; `ONI_WS_TOKEN` when the socket is reachable off loopback).
 - `oni daemon install` (or `oni start` in a terminal), then
   `oni doctor`: every check `PASS`, `health` answering.
+- Install the platform's `mclient` beside `dist/app/` in the Oni install,
+  or set `ONI_MCLIENT_BIN` to its executable path before starting the
+  Resident service. The npm package does not include that binary.
 - The daemon's socket stays on loopback for every step below: a login and a
   channel declaration carry a credential across it in clear.
 - Voice notes and video, when the model cannot read them: a voice note is

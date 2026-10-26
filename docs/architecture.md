@@ -52,7 +52,7 @@ Each package depends only on the allowlist in `script/check-deps.ts`. The app co
 
 ## Execution Targets and Driver Band
 
-A machine is WHERE execution happens, never WHO is delegated to. `packages/machines` exposes list/get and raw fs/exec/runCode handles over protocol/IPC contracts. `packages/codemode` consumes only the structural machines port and protocol, owning machine object handles and per-tenant interpreters. The composition root injects the returned runner into a machine daemon; the brain facade does not spawn Python. Authorization occurs at kernel `tool.pre` and daemon offered/negotiated capability and export enforcement, not in an app VFS. The retained `run_code` adapter calls `cell.run` once. `oni machine attach` supplies the production daemon composition.
+A machine is WHERE execution happens, never WHO is delegated to. `packages/machines` owns host attachment, admission, capacity, raw fs/exec/runCode handles and IPC transport. `packages/codemode` owns machine object handles and cell routing over that host port. The Rust `mclient` is the only machine peer and owns confined drivers and the Python interpreter; the self machine boots as its own spawned client. Authorization occurs at kernel `tool.pre` and the effective enrollment/offer capability and export checks, not in an app VFS. `mclient run --config <settings.json>` attaches a remote machine.
 
 Messages address WHO: an existing session, a new parent-linked child session, or a registered external actor. Native and process are session runner choices, not parallel message lifecycles. A send returns a handle; there is no synchronous child-join tool.
 

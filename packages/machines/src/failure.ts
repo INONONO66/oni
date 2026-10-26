@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MachinesFailure, MachineCellError, MachineRefusalError, SpawnFailure, FilesystemFailure, TransportFailure, type MachineError } from "./errors";
+import { MachinesFailure, MachineCellError, MachineRefusalError, TransportFailure, type MachineError } from "./errors";
 import { IpcConnectionError, IpcPeerKeyMismatchError, IpcProtocolError, IpcRemoteError, IpcTimeoutError, type IpcError } from "./ipc/errors";
 
 /** One fallback for every machines-owned domain (including `@oni/codemode`): a Cause without a typed error becomes MachinesFailure. */
@@ -10,7 +10,7 @@ function machinesFallback(operation: string) {
 export function decodeMachineFailure(operation: string) {
   return z.union([
     z.instanceof(MachinesFailure), z.instanceof(MachineCellError), z.instanceof(MachineRefusalError),
-    z.instanceof(SpawnFailure), z.instanceof(FilesystemFailure), z.instanceof(TransportFailure),
+    z.instanceof(TransportFailure),
     machinesFallback(operation),
   ]).transform((error): MachineError => error).parse;
 }

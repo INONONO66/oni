@@ -67,13 +67,13 @@ oni/
 │   ├── protocol/        # Zod schemas and cross-package contracts
 │   ├── agent/           # durable sessions, stateless runAgent loop, executor, policy gate, stores, llm port
 │   ├── llm/             # model-call layer: providers, stream processor, accounting, failure classifier
-│   ├── machines/        # raw list/get/fs/exec/runCode/pty WHERE endpoint + ipc transport
-│   ├── codemode/        # code facade, machine handles, per-tenant interpreter runner
+│   ├── machines/        # host attachment, handles, admission, capacity and IPC transport
+│   ├── codemode/        # code facade, machine handles and cell routing
 │   ├── channels/        # channel drivers and perimeter gateway router
 │   └── ui/              # shared console presentation and design system
 ├── clients/             # Rust cargo workspace for machine-side clients (own Cargo.lock, outside the Bun workspace)
 │   ├── protocol/        # oni-protocol: Rust types generated at build time from packages/protocol/schema/machine
-│   └── machine-client/  # oni-machine-client: the mclient binary (version + CLI skeleton in #1623 P1)
+│   └── machine-client/  # Rust mclient peer: attach, drivers and Python code runner
 ├── script/              # conformance and repository gates
 ├── turbo.json
 └── package.json
@@ -119,13 +119,13 @@ ui <- apps/desktop
 | `packages/protocol` | Schemas, wire contracts, pure folds | I/O, storage, product decisions |
 | `packages/agent` | Generic durable-session mechanics over its store facts, stateless loop, and compaction; the generic policy gate (`src/core/gate/`); handle-scoped catalog/session-file stores, action hash chain, decision facts, and activation fence CAS (`src/core/store/`); the model-call port and retry decision (`src/core/llm.ts`, `src/core/retry.ts`); bus and scoped observation (`src/observation/`) | Product-specific session identity, routing, lifecycle policy, or authority decisions; provider adapters or the `ai` SDK (that is `packages/llm`'s) |
 | `packages/llm` | The model-call layer behind the core port: provider resolution and adapters over `ai@7.0.93`, one streaming attempt per `run`, stream-event processing, usage accounting, credential storage, the pure `classifyFailure` | Retry scheduling, attempt caps, fallback, compaction, or any `@oni/agent` import |
-| `packages/machines` | Machine attachment, confined fs, exec and injected code wire; framing and bidirectional transport (`src/ipc/`); the structural host/daemon contracts code mode consumes; contract-v2 admission order and the host-minted attach generation (#1624): the `AttachGenerationStore` port with its memory and file stores (`src/generation-store.ts`), CAS minting, `stale_generation` lease fencing and `superseded` detaches in `src/host.ts` | Enrollment policy, kernel policy, model rendering or product judgment; the generation file's location (the app passes the path) |
-| `packages/codemode` | Code facade (`createCodemode`), machine object handles, per-tenant Python interpreter and cell `run/peek/stop` lifecycle, code-mode prelude, codemode errors and call routing | Kernel policy, ledger state, model rendering, machine transport or enrollment |
+| `packages/machines` | Host attachment, admission, generation CAS, capacity, host-side fs/exec/PTY/computer handles and IPC transport (`src/ipc/`). The host routes calls to an attached Rust client and fences stale generations. | Client drivers, Python execution, enrollment policy, kernel policy or product judgment. |
+| `packages/codemode` | `createCodemode` facade, machine object handles, cell `run/peek/stop` routing, codemode errors and host tool-call routing. | Interpreter processes and prelude (Rust client), kernel policy, ledger, machine transport or enrollment. |
 | `packages/channels` | Drivers over the agent-messenger SDK transport (each SDK subpath imported only by its provider's seam file, `sdk.ts` for the bot and `owner-sdk.ts` for the Owner account, #1569) plus perimeter routing, physical request correlation, identity-keyed delivery (`<platform>:<identity>` routes) and admission; the channel-facing perimeter stores (`src/store/`) | Session content or product execution; the SDK's own credential store |
 | `apps/oni` | Product composition: Resident, gateway, delegation, code mode, boot/shutdown | Reimplementation of package primitives |
 | `apps/desktop` | Electron shell: main/preload/renderer build pipeline, window security defaults, the gateway endpoint resolved from env in main and handed to the renderer over one `contextBridge` call; AI SDK chat state and the gateway transport; client state in one TanStack `Store` (`state/store.ts`: sessions, tabs with strictly local history, active id, retained closed snapshots, collapsed project groups, per-session drafts) read through `useStore` selectors, and server state through TanStack Query (`state/queries.ts` mints every key; the only query is the gateway endpoint — the wire has no session-list method yet); native Menu → value-only preload → one disposed App subscription; app-owned places/icons, kind-grouped Sessions list, prompt-title lifecycle, search invocation/reveal, attention ordering and App-lifetime Chat cache; no mock data of any kind. Desktop owns the unified SessionCard state, phase-to-glyph mapping, and pinned/demand/report/residue/watch/rest attention kinds. | Kernel logic; anything beyond protocol contracts; **transcript presentation — that is `packages/ui`'s** |
 | `clients/protocol` | Rust shapes generated from `packages/protocol/schema/machine` (the JSON Schema export of `Machine.*`, `index.json` first), `CONTRACT_VERSION` read from that index, the schema-validated `decode<T: WireRoot>` boundary with typed `DecodeError::{Schema, Shape}` (the only decode entry clients use), the one hand-written presence helper (`src/presence.rs`, keeps explicit `null` and empty collections on the round-trip), and the fixture tests over `packages/protocol/fixtures/machine` (every valid fixture decodes and re-serializes to the identical value, every invalid fixture is refused with `DecodeError::Schema`) | Hand-written wire shapes; any schema that does not come out of the generator; raw `serde_json::from_value` on wire input |
-| `clients/machine-client` | The `mclient` binary: `--version` prints the client and contract version; `join`/`run` exist as CLI skeleton only and exit 2 with `not implemented in this phase` (#1623 P1) | Attach, transport, session sync or any daemon behavior until a later phase ships it |
+| `clients/machine-client` | The Rust `mclient` binary: join, attach, reconnect, transport, confined fs/exec/PTY/screen/input handlers, and the Python code runner and prelude (`src/code/driver.py`). | Host enrollment decisions, app policy or ledger state. |
 | `packages/ui` | The renderer's UI package: tokens (`src/styles.css`), primitives, window chrome, the transcript's presentation (timeline, the three voices, tool rows and their folding, the composer, the approval tray), and the stable `Console` frame with generic `ConsoleContent`/`transcript` composition; `src/index.ts` exports only what apps/desktop imports, and `src/names.ts` is the single owner of every `data-ui` address. StatusGlyph owns generic tone/shape presentation and reference palette status tokens, never session phases. | Application places, project/session resolution, kernel logic or state policy. Touched Console contracts use generic transcript records; the lower-level Timeline sessionId adapter remains a legacy boundary |
 
 ## WHERE TO LOOK
@@ -139,9 +139,10 @@ ui <- apps/desktop
 | Session loop, executor, and compaction | `packages/agent/src/core/run.ts`, `packages/agent/src/core/turn.ts`, `packages/agent/src/core/gate/decide.ts`, `packages/agent/src/plugins/compaction/` |
 | Channel driver or perimeter route | `packages/channels/src/` |
 | Messaging identity, reply door vs `send_message`, SDK transport (#1569) | `docs/conversation-and-message-io.md`, `packages/channels/src/provider/slack/sdk.ts` |
-| Raw machine endpoints | `packages/machines/src/` |
+| Host-side machine endpoints | `packages/machines/src/host.ts`, `packages/machines/src/pty-host.ts`, `packages/machines/src/stream-write.ts` |
+| Client drivers and Python prelude | `clients/machine-client/src/{fs,pty,screen,input}/`, `clients/machine-client/src/code/driver.py` |
 | Machine attach admission, peer contract version, attach generation CAS and fencing (#1624) | `packages/machines/src/host.ts` (`negotiate`, `generationOf`, `supersede`), `packages/machines/src/generation-store.ts`, `Peer`/`AttachGeneration` in `packages/protocol/src/machine/schema.ts`, `resolveMachineGenerationsPath` in `apps/oni/src/config.ts` |
-| Code mode and injected interpreter | `packages/codemode/src/` |
+| Code mode and cell routing | `packages/codemode/src/` |
 | Resident and app composition | `apps/oni/src/bundles/resident/index.ts`, `apps/oni/src/index.ts` |
 | App policy, messaging, and prompts | `apps/oni/src/bundles/core-policy/`, `apps/oni/src/bundles/messaging/`, `apps/oni/src/bundles/prompt/` |
 | App alarms and provision operations | `apps/oni/src/bundles/alarms/`, `apps/oni/src/bundles/provision/` |
@@ -151,7 +152,7 @@ ui <- apps/desktop
 | First live run of messaging: declare a bot from the CLI, the readiness report, the runbook (#1600 lane R4) | `apps/oni/src/cli/channel.ts`, `apps/oni/src/cli/messaging.ts`, `docs/first-live-run.md` |
 | A2A door, Linear and Owner-only providers, the Person `reach` grant (#1569) | `packages/channels/src/provider/{a2a,linear,instagram,kakaotalk}/`, `A2A_DOOR_ID`/`a2aRoster` in `apps/oni/src/channels.ts`, `grants` in `apps/oni/src/index.ts` |
 | Delegation caps, deadline, and child replies (#1258) | `apps/oni/src/bundles/delegation-policy/` |
-| Product tools and provisioning (no local fs/shell: every tool routes through the attached machine daemon, #1271; every tool is a removable bundle listed in `apps/oni/src/manifest.ts`, #1561) | `apps/oni/src/bundles/tools/<tool>/index.ts` (`file` bundle: `bundles/tools/file/`), `apps/oni/src/bundles/provision/provision.ts` |
+| Product tools and provisioning (no local fs/shell: every tool routes through the attached machine client, #1271; every tool is a removable bundle listed in `apps/oni/src/manifest.ts`, #1561) | `apps/oni/src/bundles/tools/<tool>/index.ts` (`file` bundle: `bundles/tools/file/`), `apps/oni/src/bundles/provision/provision.ts` |
 | Machine wire contract as JSON Schema (#1623; `Machine.contractVersion`, the generator, the valid/invalid fixtures) | `packages/protocol/src/machine/contract.ts`, `script/generate-machine-schema.ts`, `packages/protocol/schema/machine/`, `packages/protocol/fixtures/machine/`, `packages/protocol/test/machine-contract.test.ts` |
 | Rust client types and the mclient binary (#1623) | `clients/protocol/build.rs`, `clients/protocol/tests/fixtures.rs`, `clients/machine-client/src/main.rs` |
 | Shipped-state truth | `docs/implementation-status.md` |

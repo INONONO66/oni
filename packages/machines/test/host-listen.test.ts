@@ -6,7 +6,6 @@ import { Effect } from "effect";
 import { Machine } from "@oni/protocol";
 import { createMachineHost as nativeHost } from "../src/host";
 import { createMemoryGenerationStore } from "../src/generation-store";
-import { PTY_OPEN_SIZE } from "../src/pty";
 import { createMachineHost, refusingToolPort } from "./helpers/native";
 import { connectIpcTcpClient } from "./ipc/helpers/native";
 import { attachMclient, mclientBinary } from "./helpers/mclient";
@@ -142,7 +141,6 @@ describe("host listener set (#1270)", () => {
         // method, equals what the tmux server itself reports for that pane.
         const snapshot = await pty.screen("qa");
         if (snapshot.status !== "ok") throw new Error(`screen refused: ${snapshot.reason}`);
-        expect(snapshot.rows).toHaveLength(PTY_OPEN_SIZE.rows);
         expect(snapshot.rows).toHaveLength(Number(paneFact("#{pane_height}")));
         expect(snapshot.rows.filter((row) => row.includes("TCP-PTY-OK"))).toHaveLength(1);
         expect(snapshot.cursor).toEqual({ x: Number(paneFact("#{cursor_x}")), y: Number(paneFact("#{cursor_y}")) });

@@ -172,7 +172,7 @@ export function toolPorts(
     llm: (call) => runAppEffect(runtime, currentInvocation().generation.provide(ports.completion(call))),
     messages: { ingest: (...args) =>
       runAppEffect(runtime, ports.messages.ingest(...args).pipe(
-        Effect.provideService(Core.ExecutorContext, currentInvocation().executor),
+        Effect.provideService(Core.ExecutorContext, Core.currentExecutor()),
       )),
     },
   };

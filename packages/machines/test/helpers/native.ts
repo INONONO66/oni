@@ -1,9 +1,8 @@
 import { Effect } from "effect";
 import type { Machine } from "@oni/protocol";
 import * as Native from "../../src";
-import { createFsDriver as fsDriver } from "../../src/fs";
 import { decodeMachineFailure } from "../../src/failure";
-import { acquire, run, sync } from "../ipc/helpers/effects";
+import { acquire, run } from "../ipc/helpers/effects";
 export * from "../../src/errors";
 
 function sequentialIds(prefix: string): () => string {
@@ -53,11 +52,3 @@ export async function createMachineHost(options: Omit<Parameters<typeof Native.c
   };
 }
 export type MachineHost = Awaited<ReturnType<typeof createMachineHost>>;
-export function createFsDriver(...args: Parameters<typeof fsDriver>) {
-  const native = sync(fsDriver(...args));
-  const driver = (...params: Parameters<typeof native>) => run(native(...params));
-  driver.stream = (...params: Parameters<typeof native.stream>) => run(native.stream(...params));
-  driver.abortAll = () => sync(native.abortAll());
-  driver.close = () => sync(native.close());
-  return driver;
-}

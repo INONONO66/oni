@@ -39,29 +39,6 @@ export async function wireDaemon(host: Awaited<ReturnType<typeof wireHost>>, roo
   return { ...client, close: client.stop };
 }
 
-type FsCall = (request: Machine.FsRequest) => Promise<Machine.FsResult>;
-
-export async function expectInsideRead(fsOp: FsCall, path: string) {
-  await expect(fsOp({ op: "read", export: "docs", path })).resolves.toEqual({
-    status: "completed",
-    value: {
-      op: "read",
-      data: Buffer.from("inside").toString("base64"),
-      bytesRead: 6,
-      size: 6,
-      truncated: false,
-    },
-  });
-}
-
-export async function expectEscape(fsOp: FsCall) {
-  await expect(fsOp({ op: "read", export: "docs", path: "escape" })).resolves.toEqual({
-    status: "refused",
-    reason: "path_escapes_export",
-    message: "path escapes export: escape",
-  });
-}
-
 export async function expectKernelUnavailable(result: Promise<Machine.CellResult>) {
   expect(await result).toEqual({ status: "refused", reason: "kernel_not_available" });
 }

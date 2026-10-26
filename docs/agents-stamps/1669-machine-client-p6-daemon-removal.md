@@ -1,0 +1,1 @@
+#1669 (epic #1622) on `feat/1622-machine-client-p6-daemon-removal` (2026-10-26, base `c62c0c2be`, PR pending): removed the TypeScript machine peer and daemon-only tests, kept host/IPC and real-client coverage, and cut documentation over to the Rust `mclient`; receipts in `docs/implementation-status.md` and the P6 verification report.

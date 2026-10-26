@@ -263,8 +263,8 @@ describe("real machine consumer surface", () => {
           exitCode: null,
           signal: "SIG15",
         });
-        await expect(target.exec("true", join(root, "absent"))).rejects.toMatchObject({
-          _tag: "TransportFailure", operation: "exec.call", cause: expect.stringContaining("ENOENT"),
+        await expect(target.exec("true", join(root, "absent"))).resolves.toEqual({
+          status: "refused", reason: "path_escapes_export",
         });
         symlinkSync("/tmp", join(root, "outside"));
         await expect(target.exec("true", join(root, "outside"))).resolves.toEqual({

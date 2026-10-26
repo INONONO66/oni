@@ -11,7 +11,7 @@ alone says what is wired.
 
 Oni is an agent OS. Its reach grows along two axes:
 
-- **Axis A — body (machines).** Devices attach by running a daemon that dials
+- **Axis A — body (machines).** Devices attach by running `mclient`, which dials
   home. What the OS may do on a device is `effective = enrollment ∩ offer`.
 - **Axis B — workforce (delegation).** Work is commissioned through ONE
   address vocabulary covering internal loops and external actors uniformly.
@@ -23,8 +23,8 @@ The protocol contracts for both belong together because they meet in the tool ca
 - `Machine.Enrollment` — Owner-side admission record: the capability allowlist
   for one machine. Never empty (an enrolled machine with nothing allowed is a
   contradiction).
-- `Machine.Offer` — daemon-side attach report: what the machine can do right
-  now. May be empty; the daemon re-offers when modules come up. Since #1624
+- `Machine.Offer` — client-side attach report: what the machine can do right
+  now. May be empty; the client re-offers when modules come up. Since #1624
   it carries a required `peer {kind: "daemon" | "client", contractVersion}`
   and an optional `generation` (the last one the host accepted, presented on
   reconnect only).
@@ -34,21 +34,21 @@ The protocol contracts for both belong together because they meet in the tool ca
 - `Machine.CapabilityId` — dot-namespaced lowercase grammar (`fs.read`,
   `shell.exec`, `kernel.py`, `screen.read`, `input.write`, `pty.session`).
   Open vocabulary,
-  owned grammar: enrollment writer, daemon offer, and tool `requires` all
+  owned grammar: enrollment writer, client offer, and tool `requires` all
   parse the same shape.
 - Events: `machine.attached` (carries the effective set in force),
   `machine.detached` (reason `connection_closed | host_closed |
   enrollment_removed | enrollment_replaced | superseded_by_reattach |
   superseded`); new host emissions use `superseded`.
 
-The daemon itself is the driver-band `packages/machines` package
-({protocol, ipc} deps only, reverse-connection over the ipc transport);
+The Rust `mclient` is the only machine peer; `packages/machines` owns the
+host and IPC transport;
 enrollment storage is a ledger record; attach admission is kernel judgment.
 
 ### 2.1 Raw machine and code-mode consumers
 
 `MachineHost.list()` returns attached enrollment fields, tags (empty when
-omitted), the effective capability set, and os/arch from the daemon's platform
+omitted), the effective capability set, and os/arch from the client's platform
 report. Detached machines are absent. `get(id)` returns a stable handle, even
 before attachment; calling an unattached handle throws `MachineRefusalError`
 with `machine_not_attached`. Handles follow reattachment by identity, not by
@@ -59,17 +59,17 @@ The handle exposes `fs.read/write/list/stat`, `exec(cmd,cwd)` and
 a virtual root or URL. The longest matching offered root translates to the
 existing export-relative `machine.fs_op` wire. Equal normalized roots refuse
 `ambiguous_export`; the host does not select a broader root to evade a narrower
-root's refusal. Offers carry named absolute roots; daemon configuration must
+root's refusal. Offers carry named absolute roots; client settings must
 match those roots. Missing enrollment export grants fail closed.
 
 There are exactly two authorization boundaries: the kernel executor's
-`tool.pre` for app-originated effects, and the daemon's negotiated capability,
+`tool.pre` for app-originated effects, and the client's negotiated capability,
 offer and export checks. Host path translation and same-connection cell
 provenance are protocol mechanics, not additional policy checks. The app has
 no VFS capability gate or cross-machine prohibition. Both consumer doors use
 the same raw endpoint; the plain-tool locus door belongs to #949.
 
-- `fs.read` gates read/list/stat. `fs.write` gates write. The daemon checks
+- `fs.read` gates read/list/stat. `fs.write` gates write. The client checks
   both its own offer and the enrollment/offer negotiation on every request.
 - The descriptor-pinned `openat(O_NOFOLLOW)` confinement walk is retained.
   Symlinks are expanded under the pinned root; escaping and dangling external
@@ -85,7 +85,7 @@ the same raw endpoint; the plain-tool locus door belongs to #949.
   JSON wire bytes are lossless base64, never lossy UTF-8 or model previews.
   Reads retain the 262144-byte window cap and lists the 1000-entry cap, both
   with explicit truncation facts.
-- `shell.exec` grants machine shell authority. For each call, the daemon
+- `shell.exec` grants machine shell authority. For each call, the client
   re-resolves the effective export root pathname and validates the requested
   cwd before spawning `/bin/sh` by pathname. Exec does not share the fs
   branch's pinned-root invariant: replacing the export-root pathname before a
@@ -94,7 +94,7 @@ the same raw endpoint; the plain-tool locus door belongs to #949.
   and spawn is a bounded, accepted TOCTOU for now (follow-up #938 in
   `docs/SLOP.md`).
   This is path validation, not an OS shell sandbox: a shell running as the
-  daemon OS user remains arbitrary within that user's normal OS authority
+  client OS user remains arbitrary within that user's normal OS authority
   (including absolute paths and `cd` elsewhere). The Owner grants `exec`
   knowingly. Every execution requires an absolute cwd; no cwd persists between
   calls. Results
@@ -109,10 +109,8 @@ the same raw endpoint; the plain-tool locus door belongs to #949.
 
 - Wire methods `machine.screen_read` and `machine.input_write`; both gate on
   the effective capability set like every other machine operation. The macOS
-  adapter (`packages/machines/src/computer-use.ts`) shells out to
-  `screencapture`/`sips`/`osascript`/`cliclick` through an injectable
-  `CommandRunner` port (`packages/machines/src/commands.ts`, argv spawn, no
-  shell, 256KiB output cap), so tests never touch the real screen.
+  client adapter lives in `clients/machine-client/src/computer.rs` and
+  `src/screen/` and bounds each capture and input request.
 - Attach-time probes decide the offer: `screen.read` requires a real tiny
   capture to succeed; `input.write` requires `cliclick` on PATH plus the
   Accessibility (System Events) grant. A capability whose probe fails is
@@ -243,19 +241,17 @@ typed). Handles, events and codemode are transport-blind: a machine is the
 same machine on either door, and if one bind fails startup fails with the
 other listener released.
 
-Trust is certificate- and key-pinned, not public PKI: the daemon JSON carries
-the host's certificate PEM (`hostCertificate`) — the TLS chain must validate
-against it and the presented key must carry its fingerprint — while the host
-pins the daemon's key through the REQUIRED `Enrollment.publicKey` (sha256
+Trust is key-pinned, not public PKI: `mclient join` records the host key pin,
+and `run` verifies that key on every TLS connection. The host pins the
+client's key through the REQUIRED `Enrollment.publicKey` (sha256
 over SPKI DER, 64 lowercase hex). On TCP, an
 offered machineId whose presented key differs from the enrollment pin is
 refused `peer_key_mismatch` before admission, and a pin-mismatched intruder
 never displaces a valid attachment. Unix connections carry no peer key; the
 enrollment pin is simply not consulted there. See `docs/key-generation.md`
-for openssl one-liners, rotation, and addressing (Tailscale = tailnet IP in
-`tcp.host`; LAN = interface address). Breaking (#1270): `Enrollment.publicKey`
+for openssl one-liners, rotation, and addressing. `Enrollment.publicKey`
 is REQUIRED — existing `ONI_MACHINES_ENROLLED` values without it fail
-closed at boot until each enrollment carries the daemon's key fingerprint.
+closed at boot until each enrollment carries the client's key fingerprint.
 
 `ONI_MACHINES_ENROLLED` is a first-boot seed for each machine id, not
 ongoing authority. Once an id has a stored enrollment, later environment edits
@@ -271,27 +267,21 @@ Disconnection is a first-class state: while a known machine's transport is
 down, its handle calls — including calls that were in flight when the
 transport dropped — fail once with typed `MachineRefusalError`
 `disconnected` (never replayed); a machine that never attached stays
-`machine_not_attached`. A daemon configured with `reconnect` (the CLI enables it for tcp
-attachments; a unix daemon exits with its same-box host) keeps its
-drivers alive and redials with full-jitter exponential backoff (base 250ms,
-cap 30s, injected scheduler/randomness in tests); a successful reattach
+`machine_not_attached`. The client redials with full-jitter exponential
+backoff (base 250ms, cap 30s); a successful reattach
 resets the backoff and the host's existing handles serve the replacement
 connection. A REFUSED reattach is terminal: the refusal surfaces, nothing is
-rescheduled, and the daemon closes (the CLI exits nonzero) until restart or
+rescheduled, and the client exits nonzero until restart or
 config change. A reconnect presents the generation the host minted for the
 previous attachment (next section); a `stale_generation` or
-`unsupported_contract` refusal fails the daemon with the typed
-`MachinesFailure { operation: "daemon.attach", cause }`, on first attach as
-the startup error and on reattach through `closed`.
+`unsupported_contract` refusal terminates the client.
 
 ### 2.3.1 Contract admission and the attach generation (#1624)
 
 `Machine.contractVersion` is 2 and `Machine.supportedContractVersions` is
-`[2]`. Every offer names its peer: the daemon composes
-`{ kind: "daemon", contractVersion: Machine.contractVersion }` itself, so a
-daemon configuration (the CLI JSON, `MachineDaemonOptions.offer`) is
-`Omit<Machine.Offer, "peer" | "generation">`; a `client` peer uses the same
-Offer shape with `kind: "client"`. The host judges one offer at a time (a
+`[2]`. Every offer names its peer: `mclient` composes
+`{ kind: "client", contractVersion: Machine.contractVersion }` itself.
+The host judges one offer at a time (a
 `Semaphore(1)` wraps `attach`) in this fixed order, and the first failing
 step answers:
 
@@ -316,7 +306,7 @@ required `generations: AttachGenerationStore` port
 `stale_generation` if the second attempt loses too. A reconnect offer must
 present exactly the current generation or it is refused `stale_generation`.
 The accepted value is returned as `AttachResult.attached.generation`,
-appears on `MachineInfo` (`generation` plus `peer`), and the daemon keeps it
+appears on `MachineInfo` (`generation` plus `peer`), and the client keeps it
 for its next reconnect.
 
 Admission supersedes: once a generation is accepted, the incumbent connection
@@ -339,8 +329,7 @@ default `~/.oni/machines/generations.json`.
 `clients/machine-client` is the second peer kind on the same wire: a single
 Rust binary that joins a host once and then attaches with
 `peer: { kind: "client", contractVersion: oni_protocol::CONTRACT_VERSION }`.
-The host treats it like any daemon (same enrollment, same admission order,
-same handles); the differences are what it offers and how it is operated.
+The host admits it under the enrollment and exposes the same handles.
 
 **Transport.** Frames are UTF-8, LF-terminated JSON, at most 16 MiB whether
 complete or still pending. Calls get monotonic `c<n>` ids, a 30 s timeout,
@@ -388,7 +377,7 @@ refusal (`fs_not_available`, `exec_not_available`, `pty_not_available`,
 (`machine_not_attached` for `fs_stream`). Detach drops the grant and aborts
 every open transfer.
 
-**Parity with the daemon.** Filesystem: `fs_op` read/write/list/stat and
+**Filesystem.** `fs_op` read/write/list/stat and
 `fs_stream` begin/chunk/finish/abort over the same descriptor-pinned,
 no-follow confinement (each symlink expanded by rewriting the remaining path
 from the export root, at most 40 expansions), 256 KiB read and write caps
@@ -539,7 +528,7 @@ The brain host is an ordinary attached machine. `machines.self` enrolls the
 application host itself: `{id?: "self", capabilities, exports[{name, path}]}`
 via `ONI_MACHINES_SELF` (JSON), with `ONI_MACHINES_DEFAULT` naming
 the machine a prefix-less path resolves to (default `self`). Self exports are
-mandatory and absolute — the Owner names the host roots the in-process daemon
+mandatory and absolute — the Owner names the host roots the spawned client
 may expose; no host path outside them is readable, writable, listable,
 stat-able, or usable as a shell cwd. Duplicate self/enrolled ids, a default
 absent from effective enrollments, and empty or relative exports are typed
@@ -549,7 +538,7 @@ directory where inbound channel attachments are stored before the Resident
 sees the message; unset, attachments keep their platform references.
 
 Boot order is fixed: validate the plane, start the listener set, start an
-in-process daemon with the self exports/capabilities, dial the host's own
+spawned `mclient` with the self exports, dial the host's own
 unix listener and complete `machine.attach`, and only then publish tool
 ports. Every failure in that chain is the one typed startup refusal
 `self_attach_failed { cause }`; there is no local execution fallback — ever.
@@ -557,33 +546,31 @@ ports. Every failure in that chain is the one typed startup refusal
 local locus: `parseLocus(input, { defaultMachine })` maps `/absolute/path`
 to the configured default machine and preserves explicit
 `machineId:/absolute/path`; relative paths refuse (no process cwd exists).
-A self daemon that disconnects after boot keeps the tools published but
+A self client that disconnects after boot keeps the tools published but
 every call refuses with the typed `disconnected` reason; the lifecycle
 surface is the typed `machine.detached` event plus a logged
-`self_attach_failed` cause. `oni machine
-attach` is unchanged: a remote daemon attaches alongside `self` over the
+`self_attach_failed` cause. A remote `mclient` attaches alongside `self` over the
 same protocol and negotiates capabilities through the same
 enrollment/offer intersection.
 
 ### 2.5 Persistent terminals (`pty.session` over tmux, #1273)
 
 - Capability `pty.session` is offered only when `tmux` resolves on PATH at
-  attach time (probe via the same `CommandRunner` port); enrollment ∩ offer
+  attach time; enrollment ∩ offer
   stays authoritative, so an installed binary alone grants nothing. Wire
   methods: `machine.pty_open/pty_write/pty_read/pty_resize/pty_close/pty_list`
   with protocol-owned bounds (`PTY_READ_MAX_BYTES` 256 KiB,
   `PTY_WRITE_MAX_BYTES` 16 KiB, list 1000, cols/rows 1000, `waitMs` <= 30 s)
   and typed refusals `pty_not_found` / `pty_not_available` /
   `path_escapes_export`.
-- The daemon runs ONE tmux control-mode client (`tmux -C`, module split
-  `pty-control` / `pty-decode` / `pty-registry` / `pty.ts`); each `pty_open`
+- The client runs one tmux control-mode connection (`tmux -C`); each `pty_open`
   is `new-session -d` with cwd confined by the SAME `openCwd` rule as exec
   (refused before any session exists, symlink escapes included). Same-name
   open reattaches, never creates a second session; each session's window is
   linked into the reserved control session `omo-pty-control` because
   `%output` only flows for the attached session's panes.
-- The daemon shares the user's DEFAULT tmux server (the private `-L` socket
-  is test-only): granting `pty.session` exposes every grammar-conforming
+- The client uses the user's default tmux server unless its optional
+  `tmuxSocket` setting selects a private server: granting `pty.session` exposes every grammar-conforming
   session on that server — reattach-by-name reaches sessions the user created
   (cwd confinement applies at open, not reattach) and `pty_close` can kill
   them (socket ownership on the shared server: #1666). This is the accepted #1273 design (restart rediscovery makes a prior
@@ -597,7 +584,7 @@ enrollment/offer intersection.
   with `truncated: true` and a cursor past ALL observed output; a
   foreign-generation cursor resumes after the current snapshot. The optional
   `machine.pty_output` notification is a wake-up only, never output state.
-- The tmux server, not the daemon, owns session lifetime: a daemon restart
+- The tmux server, not the client, owns session lifetime: a client restart
   rediscovers sessions by name (`list-sessions`) with scrollback and cursor
   continuity. tmux server death marks every session `lost`, settles pending
   reads as `pty_not_available`, and withdraws the capability until the next
@@ -635,8 +622,8 @@ before the interrupt. `stop` aborts the cell's own controller and settles it as
 `cancelled`; the code never runs again. A settled background result is handed
 over exactly once, and an id from another tenant is `unknown_cell_id`.
 
-Only a daemon's injected `createCodemode().runner` starts Python, lazily on
-its first request. Codemode owns the interpreter map, per-tenant persistence,
+The Rust client starts Python lazily on its first code request and owns the
+interpreter map, per-tenant persistence,
 parallel helper, `completion(prompt, model=, system=, schema=)` helper (a
 `schema` answer is decoded with `json.loads`), callId routing and cell
 bindings. Different tenants never share an interpreter. Nested handle `eval`
@@ -653,25 +640,25 @@ Forged, late and detached callbacks cannot inherit another cell's authority; an
 output frame naming another cell is dropped. `machine.cancel_code` propagates
 AbortSignal cancellation. Timeout/cancel/stop kills that interpreter, discards
 its state and lets its successor start fresh.
-Attachment loss closes the injected runner; `daemon.close()` and `closed`
-await process cleanup. Facade close cancels and awaits its live requests.
+Attachment loss closes the client runner and awaits process cleanup.
+Facade close cancels and awaits its live requests.
 
-`oni machine attach <config.json>` is the minimal production composition
-of the retained daemon wire. It prints its structured attach result, exits 1
-on refusal, and awaits close on host loss or SIGINT/SIGTERM. It is distinct
-from `oni daemon`, which still manages the Resident service. Example:
+`mclient run --config <settings.json>` attaches the Rust machine peer.
+The app's self machine starts that binary as a child; `oni daemon` manages
+the separate Resident service. The settings file carries machine identity,
+host address, export roots, tags and memory budget, not an offered-capability
+allow-list. The host's enrollment row limits effective capabilities.
+After `mclient join`, run with settings such as:
 
 ```json
 {
-  "socketPath": "/tmp/oni-machines.sock",
-  "offer": {
-    "machineId": "laptop",
-    "offeredCapabilities": ["fs.read", "fs.write", "shell.exec", "kernel.py"],
-    "exports": [{ "name": "work", "path": "/home/owner/work" }],
-    "daemonVersion": "1",
-    "platform": "linux-arm64",
-    "offeredAt": 1
-  }
+  "machineId": "laptop",
+  "name": "Laptop",
+  "host": "127.0.0.1:7643",
+  "unix": "/tmp/oni-machines.sock",
+  "exports": [{ "name": "work", "path": "/home/owner/work" }],
+  "tags": ["local"],
+  "memoryBudgetMb": 1024
 }
 ```
 
@@ -759,7 +746,7 @@ A machine remains WHERE execution happens, not a messaging target. Actor deliver
 
 The executor's `tool.pre` policy point owns call-time admission. There is no
 separate target-selection package or capability-based catalog fold. Machine
-operations additionally cross the daemon's negotiated capability/export boundary.
+operations additionally cross the client's negotiated capability/export boundary.
 The model-fallback fold belongs to the agent model plane (`packages/agent/src/model/`). Tool `safe` derives only from
 `category === "query"`.
 

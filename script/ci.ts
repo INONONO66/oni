@@ -142,6 +142,16 @@ function artifacts(mode: "pack" | "restore", root: string): void {
   if (mode === "pack") run(["tar", "-cf", archive, ...dirs], root);
 }
 
+/** Lanes whose tests attach a real client: build it once per lane unless the runner names one. */
+function ensureClientBinary(key: string, root: string): void {
+  if (key !== "machines" && key !== "codemode" && key !== "oniApp") return;
+  const binary = process.env.ONI_MCLIENT_BIN ?? join(root, "clients/target/release/mclient");
+  if (process.env.ONI_MCLIENT_BIN === undefined)
+    run(["cargo", "build", "--release", "--locked", "-p", "oni-machine-client"], join(root, "clients"));
+  else if (!existsSync(binary)) throw new CiError(`missing client binary: ${binary}`);
+  process.env.ONI_MCLIENT_BIN = binary;
+}
+
 function testLane(key: string | undefined, root: string): void {
   if (key && scriptPartitions.some((partition) => partition === key)) {
     run(scriptTestCommand(key), join(root, "script"));
@@ -151,13 +161,7 @@ function testLane(key: string | undefined, root: string): void {
   }
   const lane = LANES.find((candidate) => candidate.key === key);
   if (!lane) throw new CiError(`unknown lane: ${key}`);
-  if (key === "machines" || key === "codemode" || key === "oniApp") {
-    const binary = process.env.ONI_MCLIENT_BIN ?? join(root, "clients/target/release/mclient");
-    if (process.env.ONI_MCLIENT_BIN === undefined)
-      run(["cargo", "build", "--release", "--locked", "-p", "oni-machine-client"], join(root, "clients"));
-    else if (!existsSync(binary)) throw new CiError(`missing client binary: ${binary}`);
-    process.env.ONI_MCLIENT_BIN = binary;
-  }
+  ensureClientBinary(lane.key, root);
   const workspace = TOPOLOGY.find((candidate) => candidate.key === lane.key);
   const override = workspace && "ciTestCommand" in workspace ? workspace.ciTestCommand : undefined;
   run(override ? override.split(" ") : [

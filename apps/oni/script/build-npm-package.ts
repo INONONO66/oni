@@ -14,6 +14,8 @@ import { fileURLToPath } from "node:url";
  * - `dist/app/process-entry.js` — the process-transport child, resolved by
  *   the app as a sibling of the running bundle.
  * - `bin/oni.js` — node-runnable stub that re-executes under bun.
+ * - The package does not carry mclient; the service installs it beside
+ *   `dist/app/` or sets `ONI_MCLIENT_BIN`.
  * - the generated package.json carries no workspace dependency: workspace
  *   packages are folded into the bundles and never exist on the npm registry.
  *   Its only dependencies are the native addons below, pinned to the version
