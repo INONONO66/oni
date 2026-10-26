@@ -57,6 +57,8 @@ impl Budget {
 pub struct Retained {
     pub pty_bytes: usize,
     pub transfers: usize,
+    pub frame_bytes: usize,
+    pub stream_bytes: usize,
 }
 
 /// The hook the runtime wiring implements so memory pressure can measure and
@@ -65,6 +67,11 @@ pub struct Retained {
 pub trait Pressure: Send + Sync {
     fn retained(&self) -> Retained;
     fn shed(&self);
+
+    /// One `machine.report` stream observation per live stream.
+    fn streams(&self) -> Vec<Value> {
+        Vec::new()
+    }
 }
 
 pub struct NoRetention;
@@ -83,6 +90,13 @@ pub fn refusal(method: &str, params: Option<&Value>) -> Option<Value> {
         "machine.fs_stream" if params.is_some_and(|value| value["op"] == "begin") => Some(
             json!({"status":"refused","reason":"too_large","message":"memory budget exceeded"}),
         ),
+        "machine.screen.capture" => Some(
+            json!({"status":"refused","reason":"capture_failed","message":"memory budget exceeded"}),
+        ),
+        "machine.screen_read" => Some(json!({"status":"refused","reason":"capture_failed"})),
+        "machine.stream.open" => Some(
+            json!({"status":"refused","reason":"stream_limit","message":"memory budget exceeded"}),
+        ),
         _ => None,
     }
 }
@@ -95,4 +109,35 @@ pub struct Metrics {
     pub in_flight: usize,
     pub retained_pty_bytes: usize,
     pub transfers: usize,
+    pub retained_frame_bytes: usize,
+    pub retained_stream_bytes: usize,
+    #[serde(flatten)]
+    pub streams: StreamTotals,
+}
+
+/// The live streams of one beat folded into one `metrics.jsonl` line: fps,
+/// bytes/s and dropped frames summed, encode time the slowest stream's.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamTotals {
+    pub stream_fps: f64,
+    pub stream_bytes_per_second: u64,
+    pub stream_encode_ms: f64,
+    pub stream_dropped_frames: u64,
+}
+
+impl StreamTotals {
+    /// Folds `machine.report` stream observations; a missing field counts as zero.
+    pub fn of(streams: &[Value]) -> Self {
+        streams.iter().fold(Self::default(), |total, stream| Self {
+            stream_fps: total.stream_fps + stream["fps"].as_f64().unwrap_or(0.0),
+            stream_bytes_per_second: total.stream_bytes_per_second
+                + stream["bytesPerSecond"].as_u64().unwrap_or(0),
+            stream_encode_ms: total
+                .stream_encode_ms
+                .max(stream["encodeMs"].as_f64().unwrap_or(0.0)),
+            stream_dropped_frames: total.stream_dropped_frames
+                + stream["droppedFrames"].as_u64().unwrap_or(0),
+        })
+    }
 }

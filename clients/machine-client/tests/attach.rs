@@ -1,3 +1,5 @@
+#[path = "support/script.rs"]
+mod script;
 #[path = "support/mod.rs"]
 mod support;
 
@@ -14,7 +16,7 @@ use std::{
 
 use oni_machine_client::{
     attach::{self, offer, result, run_with_probe, AttachError, Attachment, Hooks, Outcome},
-    budget::{self, Budget, BudgetAction, Metrics, NoRetention, Pressure, Retained},
+    budget::{self, Budget, BudgetAction, Metrics, NoRetention, Pressure, Retained, StreamTotals},
     config::{self, ClientConfig, Export, JoinOptions},
     handlers::{available, Service},
     pty::ops::Pty,
@@ -137,11 +139,22 @@ impl Pressure for CountingPressure {
         Retained {
             pty_bytes: 77,
             transfers: 2,
+            frame_bytes: 9,
+            stream_bytes: 11,
         }
     }
 
     fn shed(&self) {
         self.sheds.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn streams(&self) -> Vec<Value> {
+        (0..6)
+            .map(|index| {
+                json!({"streamId":format!("s{index}"),"fps":12.5,"bytesPerSecond":4000,
+                    "encodeMs":1.5,"droppedFrames":index,"retainedBytes":11})
+            })
+            .collect()
     }
 }
 
@@ -234,6 +247,19 @@ fn budget_refusal_gates_exec_and_transfer_begin_only() {
     );
     assert_eq!(budget::refusal("machine.fs_stream", None), None);
     assert_eq!(budget::refusal("machine.fs", None), None);
+    assert_eq!(
+        budget::refusal("machine.screen.capture", None).expect("refused")["reason"],
+        "capture_failed"
+    );
+    assert_eq!(
+        budget::refusal("machine.screen_read", None),
+        Some(json!({"status":"refused","reason":"capture_failed"}))
+    );
+    assert_eq!(
+        budget::refusal("machine.stream.open", None).expect("refused")["reason"],
+        "stream_limit"
+    );
+    assert_eq!(budget::refusal("machine.screen.list", None), None);
     NoRetention.shed();
     assert_eq!(NoRetention.retained(), Retained::default());
 }
@@ -359,18 +385,16 @@ fn tailnet_names_resolve_through_status_json() {
     );
     assert!(config::resolve_peer("laptop", b"not json").is_err());
     let dir = tempfile::tempdir().expect("bin");
-    let binary = dir.path().join("tailscale");
-    let script = format!(
+    let body = format!(
         "#!/bin/sh\n[ \"$1 $2\" = \"status --json\" ] && printf '%s' '{}'\n",
         std::str::from_utf8(status).expect("utf-8")
     );
-    std::fs::write(&binary, script).expect("script");
-    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).expect("mode");
+    script::script(dir.path(), "tailscale", &body);
     assert_eq!(
         config::resolve_with("laptop", dir.path().as_os_str()).expect("resolved"),
         "100.1.2.3"
     );
-    std::fs::write(&binary, "#!/bin/sh\nexit 1\n").expect("failing script");
+    script::script(dir.path(), "tailscale", "#!/bin/sh\nexit 1\n");
     assert!(matches!(
         config::resolve_with("laptop", dir.path().as_os_str()),
         Err(config::ConfigError::HostUnresolved)
@@ -419,6 +443,9 @@ fn metrics_keep_last_thousand_json_lines() {
                 in_flight: 2,
                 retained_pty_bytes: 3,
                 transfers: 4,
+                retained_frame_bytes: 5,
+                retained_stream_bytes: 6,
+                streams: StreamTotals::default(),
             },
         )
         .expect("append");
@@ -442,6 +469,9 @@ fn metrics_keep_last_thousand_json_lines() {
             in_flight: 0,
             retained_pty_bytes: 0,
             transfers: 0,
+            retained_frame_bytes: 0,
+            retained_stream_bytes: 0,
+            streams: StreamTotals::default(),
         }
     )
     .is_err());
@@ -622,6 +652,11 @@ async fn unix_attach_saves_generation_heartbeats_and_offers_it_on_reconnect() {
                 report["params"]["load"],
                 json!({"loadAvg1":0.5,"memoryAvailableBytes":1024,"inFlight":0})
             );
+            let carried = oni_protocol::decode::<oni_protocol::Report>(report["params"].clone())
+                .expect("report with stream observations validates");
+            let streams = carried.streams.expect("streams");
+            assert_eq!(streams.len(), 4, "observations are bounded");
+            assert_eq!(streams[3].dropped_frames, 3);
             host.send(reply(&report, json!({"status":"accepted"})))
                 .await;
         }
@@ -645,9 +680,21 @@ async fn unix_attach_saves_generation_heartbeats_and_offers_it_on_reconnect() {
     assert_eq!(
         (
             first["retainedPtyBytes"].as_u64(),
-            first["transfers"].as_u64()
+            first["transfers"].as_u64(),
+            first["retainedFrameBytes"].as_u64(),
+            first["retainedStreamBytes"].as_u64()
         ),
-        (Some(77), Some(2))
+        (Some(77), Some(2), Some(9), Some(11))
+    );
+    assert_eq!(
+        (
+            first["streamFps"].as_f64(),
+            first["streamBytesPerSecond"].as_u64(),
+            first["streamEncodeMs"].as_f64(),
+            first["streamDroppedFrames"].as_u64()
+        ),
+        (Some(75.0), Some(24_000), Some(1.5), Some(15)),
+        "every live stream folds into the metrics line, not only the reported four"
     );
     assert_eq!(pressure.sheds.load(Ordering::Relaxed), 0);
     drop(host);
@@ -1093,6 +1140,14 @@ async fn run_default_offers_the_available_capabilities_of_its_config() {
     let tmux = Pty::new("tmux", None, "g".into()).await.offered();
     let mut expected = available(true, tmux);
     expected.extend(tmux.then(|| "agent.session".to_owned()));
+    if oni_machine_client::screen::Screen::platform().available() {
+        expected.extend(["screen.read".to_owned(), "computer.use".to_owned()]);
+    }
+    if oni_machine_client::screen::Screen::platform().available()
+        && oni_machine_client::input::Input::platform().available()
+    {
+        expected.push("input.write".to_owned());
+    }
     assert_eq!(offered, json!(expected));
     let socket = directory.path().join("hook.sock");
     use std::os::unix::fs::{FileTypeExt, PermissionsExt};
@@ -1105,4 +1160,73 @@ async fn run_default_offers_the_available_capabilities_of_its_config() {
     assert!(matches!(missing, Err(AttachError::Io(_))), "{missing:?}");
     let absent = attach::run_default(Some(&directory.path().join("absent.json"))).await;
     assert!(matches!(absent, Err(AttachError::Config(_))), "{absent:?}");
+}
+
+struct Uplinked(std::sync::Mutex<Option<attach::Uplink>>);
+
+impl attach::Session for Uplinked {
+    fn attached(&self, _: &attach::Negotiated) {}
+    fn detached(&self) {}
+    fn uplink(&self, uplink: attach::Uplink) {
+        *self.0.lock().expect("uplink slot") = Some(uplink);
+    }
+}
+
+#[tokio::test]
+async fn uplink_calls_ride_the_attachment_and_fail_once_it_ends() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = unix_settings(&host, directory.path()).await;
+    let session = Arc::new(Uplinked(std::sync::Mutex::new(None)));
+    let mut hooks = hooks(Arc::new(NoRetention));
+    hooks.session = session.clone();
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let slot = session.clone();
+    let exchange = async move {
+        let request = expect(&mut host, "machine.attach").await;
+        let uplink = slot.0.lock().expect("uplink slot").clone().expect("uplink");
+        host.send(attached(&request, 1)).await;
+        let chunk = json!({"channelId":"c","seq":0,"data":"AA=="});
+        let hosting = async {
+            loop {
+                let frame = host.incoming.recv().await.expect("frame");
+                if frame["method"] == "machine.cdp.chunk" {
+                    assert_eq!(frame["params"], chunk);
+                    host.send(reply(&frame, json!({"status":"accepted","seq":0})))
+                        .await;
+                    break;
+                }
+                host.send(reply(&frame, json!({"status":"accepted"}))).await;
+            }
+        };
+        let (answer, ()) = tokio::join!(uplink.call("machine.cdp.chunk", chunk.clone()), hosting);
+        assert_eq!(
+            answer.expect("answered"),
+            Some(json!({"status":"accepted","seq":0}))
+        );
+        uplink
+    };
+    let (outcome, uplink) = tokio::join!(attachment.once(), exchange);
+    assert_eq!(outcome.expect("ended"), Outcome::Ended);
+    let after = uplink.call("machine.cdp.chunk", json!({})).await;
+    assert!(
+        matches!(
+            after,
+            Err(oni_machine_client::transport::request_table::CallError::Disconnected)
+        ),
+        "{after:?}"
+    );
+}
+
+#[tokio::test]
+async fn run_default_refuses_a_malformed_cdp_manifest() {
+    let host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    unix_settings(&host, directory.path()).await;
+    std::fs::write(directory.path().join("cdp.json"), b"{\"ports\":[0]}").expect("manifest");
+    let path = directory.path().join("client.json");
+    let outcome = attach::run_default(Some(&path)).await;
+    assert!(matches!(outcome, Err(AttachError::Io(_))), "{outcome:?}");
 }

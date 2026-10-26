@@ -225,6 +225,17 @@ pub fn append_metrics(path: &Path, metrics: &Metrics) -> io::Result<()> {
     Ok(())
 }
 
+/// Stream observations one `machine.report` carries.
+pub const MAX_STREAM_OBSERVATIONS: usize = 4;
+
+/// Adds the bounded `streams` observations to a report; none adds nothing.
+pub fn with_streams(report: &mut serde_json::Value, mut streams: Vec<serde_json::Value>) {
+    streams.truncate(MAX_STREAM_OBSERVATIONS);
+    if !streams.is_empty() {
+        report["streams"] = serde_json::Value::Array(streams);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

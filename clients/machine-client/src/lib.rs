@@ -1,10 +1,15 @@
 pub mod agent;
 pub mod attach;
 pub mod budget;
+pub mod cdp;
+pub mod computer;
 pub mod config;
 pub mod exec;
 pub mod fs;
 pub mod handlers;
+pub mod input;
 pub mod pty;
 pub mod report;
+pub mod screen;
+pub mod stream;
 pub mod transport;
