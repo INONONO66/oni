@@ -313,7 +313,7 @@ ext4 and APFS, and a filesystem without a no-replace rename answers
 answered `timed_out`, and the whole process group killed on timeout,
 cancellation or drop. Terminals: `pty_open/write/read/resize/close/list` over
 one tmux control-mode client on the user's default server (control session
-`oni-pty-control`), with the attach-time scrollback replay, a 1 MiB live
+`oni-pty-control`; socket ownership on that shared server is #1666), with the attach-time scrollback replay, a 1 MiB live
 window per terminal, 256 KiB reads, cursor continuity across client restart,
 and `pty_read` with `source: "screen"` for the pane snapshot.
 
@@ -347,6 +347,99 @@ synthetic stale generation refused with exit 3, and finally an attach with
 tmux stripped from `PATH` that must offer no `pty.session` and refuse
 `pty_open` with `pty_not_available`. The harness never builds the binary
 and never sleeps; it waits on host `Attached`/`Detached` events.
+
+### 2.3.3 Agent sessions, the sync cursor and the permission bridge (#1629)
+
+This is the target contract for the fourth phase of #1622. What of it is
+wired, and with which receipts, is the #1629 section of
+[implementation-status.md](implementation-status.md); the paragraphs
+marked *shipped* below name the parts that section already evidences.
+
+**Capability and methods.** A client peer that can run terminals and holds
+at least one export may offer `agent.session`. Behind that capability the
+host calls `agent.session.list`, `agent.session.open`, `agent.session.tail`,
+`agent.session.send` and `agent.session.stop`; the machine calls the host
+with `agent.session.permission`. The capability follows the usual rule,
+`effective = enrollment ∩ offer`, and is served only to `peer.kind ===
+"client"`. The methods are additive on contract v2. *Shipped* on both sides:
+`mclient join` lists `agent.session` in the enrollment receipt alongside the
+four P3 capabilities, so a real join can negotiate it; the attach offer
+drops it when tmux or an export is missing.
+
+**Sessions and layouts.** A session is one CLI process on the machine whose
+transcript the client can find on disk. The client supports exactly four
+dialects, selected by data in `agent/manifest.rs`, never by code outside
+`clients/machine-client/src/agent/`: `claude-code`, `codex`, `pi` and `omp`.
+Each dialect is a transcript layout (where the `.jsonl` lives, how the
+project path is encoded in it, whether the id is assigned by the client or
+discovered from the file name), a launch command and a permission mode.
+Parsers are pure over bytes and normalize every line into one disjoint
+record: a turn, a tool call, a tool result, a `corrupt` line with its reason,
+or a `truncated` line with its original byte count. Non-transcript metadata
+is skipped, never surfaced. `open` reclaims a live registered terminal,
+adopts an existing transcript by id, or launches; `attach` never launches;
+`send` and `stop` work only on a session the client owns. The per-project
+registry at `~/.oni/machine-client/agent-sessions.json` is a reclaim hint
+that binds one session id to one project and CLI; liveness is always
+observed, never assumed, including for a session the client already owns,
+and a launch cancelled before its session registers leaves no process. *Shipped* for all four layouts
+against retained fixtures; the `omp` fixture is pinned to the published
+format rather than copied from a live transcript, and `pi`/`omp` ids are
+discovered rather than assigned.
+
+**The cursor.** `tail` is a bounded page (32 records or 256 KiB) ending in a
+server-minted cursor `{sessionId, generation, byteOffset, recordHash}`,
+where `recordHash` binds the session id, attach generation, offset and complete
+prefix bytes and `generation` is
+the attach generation of #1624. The host never resumes by anything else: a
+continuation names no second session, a cursor from another session, a
+rewritten prefix or a shrunken file is `invalid_cursor`, and a cursor minted
+under an earlier generation is `invalid_cursor` on the client and
+`stale_generation` at the host's generation check. Cursor recovery is
+therefore mechanical: a reconnect at the same generation resumes from the
+last acknowledged source offset without restarting from zero; downstream effects
+still require their own acknowledgment or deduplication. A new
+generation requires an explicit resync by `sessionId` from the origin.
+Damage advances the cursor at record boundaries (a malformed complete line
+is one `corrupt` record and the cursor moves past it; a partial trailing
+line yields nothing and leaves the cursor in place; an oversized line is one
+`truncated` record). *Shipped*, with the resume, replay, concurrent-tail,
+reconnect and damage cases as test receipts.
+
+**Permission bridge.** The machine never decides a tool permission. A
+dialect in hook mode asks the running client over a private local socket
+(`hook.sock` in the client's config directory, 0600, named to every
+launched CLI in `ONI_MCLIENT_HOOK_SOCKET`) through `mclient hook permission
+--cli <name>`; the client relays `agent.session.permission` to the host,
+which answers through the application's injected decision port (the
+captured `tool.pre` gate; the app does not bind it yet, #1665, so the host
+denies). Every non-answer is a deny: no socket, no
+attached connection, a disconnect while pending, a malformed or mismatched
+answer, a port failure, and the deadline (30 s at the host by default, 150 s
+at the hook socket, 190 s in the shared module) all block the tool call, and a late answer finds no waiter.
+`codex` is served without a hook (its own terminal prompt stands) and that
+is the documented support limit, not an interception. *Shipped*: the host
+port with deny-on-timeout and deny-on-disconnect, the client relay and the
+fail-closed hook with exit 2 on every non-allow path; `pi` and `omp` share
+one hook module, reinstalled whenever the file differs from the shipped
+bytes and exercised in conformance, but not yet inside a live `pi` or `omp`
+process.
+
+**Sync checkpoints and the VFS.** Transcript and project bytes leave the
+machine as content-addressed bundles and per-project checkpoints owned by
+`packages/sync` (`@oni/sync`, protocol-only). A checkpoint id binds
+`{projectId, sequence, parent, changes}`, so replay from empty rebuilds the
+manifest and refuses a foreign project, a broken parent link, a wrong
+sequence or a tampered change as `checkpoint_broken`. `fetchBundle` trusts
+nothing from its source and re-verifies every entry and blob. The resulting
+view is a frozen read-only VFS over manifest keys (`list`, `read`, `stat`),
+with traversal rejected before lookup and digests checked on read; real-path
+confinement stays the machine host's `contained.ts`, and sync adds no
+second fs policy. Ownership: `packages/sync` holds the folds and the memory
+store; the host fetches through an injected `BundleSource`; the app binds
+that port and decides what is exported when. *Shipped* as the package and
+its conformance round trip (export, kill, import, re-attach, resume at the
+same byte); app composition of the port is not wired yet.
 
 ### 2.4 Self machine (#1271)
 
@@ -401,7 +494,7 @@ enrollment/offer intersection.
   is test-only): granting `pty.session` exposes every grammar-conforming
   session on that server — reattach-by-name reaches sessions the user created
   (cwd confinement applies at open, not reattach) and `pty_close` can kill
-  them. This is the accepted #1273 design (restart rediscovery makes a prior
+  them (socket ownership on the shared server: #1666). This is the accepted #1273 design (restart rediscovery makes a prior
   generation's sessions indistinguishable from the user's); names outside the
   `PtySessionName` grammar stay invisible to list/discovery and refuse typed.
 - `pty_read` is the authoritative pull: one cursor sequence replays the
