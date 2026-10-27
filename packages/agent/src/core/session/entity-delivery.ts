@@ -163,11 +163,23 @@ function detachTurn(handle: ActivationHandle, body: Effect.Effect<void, SessionE
 export type SessionDrainOutcome =
   | { readonly kind: "stop" }
   | { readonly kind: "refused"; readonly refusal: SessionAdmissionRefused }
-  | { readonly kind: "turn" };
+  | { readonly kind: "turn" }
+  | { readonly kind: "deferred"; readonly generation: number };
 
+/**
+ * Runs the session's eligible pending rows to a boundary. A turn start that
+ * finds the session's generation unavailable (the generation layer is
+ * draining at shutdown) defers instead of dying: the delivered row is
+ * already committed and stays pending for the next activation's drain, and
+ * a defect here would restart the entity mid-shutdown.
+ */
 export function drain(handle: ActivationHandle): Effect.Effect<SessionDrainOutcome, LedgerError | SessionError> {
   const { authority, kernel, env } = handle;
   const detach = (body: Effect.Effect<void, SessionError>) => detachTurn(handle, body);
+  const deferred = (generation: number): Effect.Effect<SessionDrainOutcome> =>
+    Effect.logWarning(`session drain deferred: generation ${generation} unavailable (${authority.sessionId})`).pipe(
+      Effect.as({ kind: "deferred" as const, generation }),
+    );
   return handle.gate.withPermits(1)(Effect.gen(function* () {
     let ranTurn = false;
     for (;;) {
@@ -195,7 +207,7 @@ export function drain(handle: ActivationHandle): Effect.Effect<SessionDrainOutco
           continue;
       }
     }
-  }));
+  }).pipe(Effect.catchTag("GenerationUnavailable", (error) => deferred(error.generation))));
 }
 
 const decodeDeliverBody = Schema.decodeUnknownSync(DeliverBody);
