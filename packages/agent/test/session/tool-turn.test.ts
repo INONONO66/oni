@@ -504,8 +504,8 @@ test("recovery seals an external turn without entering the model runner", () =>
 
 test("a drain whose turn start finds the generation draining defers typed: the committed row stays pending, no turn opens", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
-    let modelCalls = 0;
-    const world = yield* toolTurnWorld({ runner: () => { modelCalls += 1; return Effect.succeed({ kind: "result", text: "" }); } });
+    // A deferred drain never reaches the model: entering the runner is the failure.
+    const world = yield* toolTurnWorld({ runner: () => Effect.die(new Error("model runner entered during a draining generation")) });
     const row = world.kernel.row(world.sessionId);
     yield* world.kernel.commit({
       ...world.handle.authority, now: 1, state: row.state, expectedRevision: row.revision,
@@ -517,7 +517,6 @@ test("a drain whose turn start finds the generation draining defers typed: the c
     });
     yield* Context.get(world.context, GenerationLayers).drain;
     expect(yield* drain(world.handle)).toEqual({ kind: "deferred", generation: 1 });
-    expect(modelCalls).toBe(0);
     expect(world.kernel.pendingMessages(world.sessionId).map((item) => item.id)).toEqual(["late-prompt"]);
     expect(world.kernel.latestOpenTurn(world.sessionId)).toBeUndefined();
   }))));
