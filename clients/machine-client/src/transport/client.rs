@@ -219,10 +219,14 @@ async fn read_frames(
     handler: &Handler,
 ) -> Result<(), TransportError> {
     let mut tasks = JoinSet::new();
+    // Cells await host callbacks and may outlive many ordinary requests.
+    // They cannot consume the slots those callbacks and cancellation need.
+    let mut cells = JoinSet::new();
     let mut active = 0;
     let mut waiting = VecDeque::new();
     loop {
         tokio::select! {
+            _finished = cells.join_next(), if !cells.is_empty() => {}
             _finished = tasks.join_next(), if active > 0 => {
                 active -= 1;
                 if let Some((id, method, params)) = waiting.pop_front() {
@@ -236,6 +240,14 @@ async fn read_frames(
                     Message::Response { id, raw } => {
                         if let Ok(mut table) = requests.lock() {
                             table.resolve(&id, raw);
+                        }
+                    }
+                    Message::Request { id, method, params } if method == "machine.run_code" => {
+                        if cells.len() < WAITING {
+                            spawn_request(&mut cells, id, method, params, outbound.clone(), handler.clone());
+                        } else {
+                            outbound.send(Outbound::Frame(envelope::error(&id, 4001, "IPC inbound cell limit reached")))
+                                .await.map_err(|_| TransportError::Closed)?;
                         }
                     }
                     Message::Request { id, method, params } if active < EXECUTING => {
@@ -282,4 +294,63 @@ where
     Fut: Future<Output = Result<Value, String>> + Send + 'static,
 {
     Arc::new(move |method, params| Box::pin(callback(method, params)))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use serde_json::json;
+    use tokio::{
+        io::split,
+        sync::{mpsc, Semaphore},
+        time::timeout,
+    };
+
+    use super::{handler, Client, Framed};
+    use crate::transport::framing::write_frame;
+
+    #[tokio::test]
+    async fn sixteen_running_cells_leave_callback_and_cancel_slots_available() {
+        let (wire, host) = tokio::io::duplex(1 << 20);
+        let (reader, mut writer) = split(host);
+        let mut responses = Framed::new(reader);
+        let (started, mut received) = mpsc::unbounded_channel();
+        let gate = Arc::new(Semaphore::new(0));
+        let handler = handler({
+            let gate = gate.clone();
+            move |method, _| {
+                let started = started.clone();
+                let gate = gate.clone();
+                async move {
+                    if method == "machine.run_code" {
+                        started.send(()).expect("host listening");
+                        let _permit = gate.acquire().await.expect("open gate");
+                    }
+                    Ok(json!({"method":method}))
+                }
+            }
+        });
+        let _client = Client::from_stream(wire, handler);
+        for id in 0..16 {
+            write_frame(&mut writer, &json!({"v":2,"type":"request","id":id.to_string(),"method":"machine.run_code","params":{}}))
+                .await.expect("cell request");
+        }
+        for _ in 0..16 {
+            timeout(Duration::from_secs(5), received.recv())
+                .await
+                .expect("cell dispatched")
+                .expect("started");
+        }
+        write_frame(&mut writer, &json!({"v":2,"type":"request","id":"callback","method":"machine.cancel_code","params":{}}))
+            .await.expect("cancel request");
+        let reply = timeout(Duration::from_secs(5), responses.next())
+            .await
+            .expect("cancel serviced")
+            .expect("frame")
+            .expect("response");
+        assert_eq!(reply["id"], "callback");
+        assert_eq!(reply["result"]["method"], "machine.cancel_code");
+        gate.add_permits(16);
+    }
 }

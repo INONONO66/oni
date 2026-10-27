@@ -5,6 +5,7 @@ import concurrent.futures
 import contextlib
 import hashlib
 import signal
+import subprocess
 import urllib.request
 import io
 import itertools
@@ -751,6 +752,17 @@ def _browser_close_all():
     failed = []
     for _client in list(_browser_clients.values()):
         failed.extend(_client._stop_chromium())
+        _tmux = ["tmux"]
+        if os.environ["ONI_TMUX_SOCKET"]:
+            _tmux.extend(["-L", os.environ["ONI_TMUX_SOCKET"]])
+        try:
+            subprocess.run(
+                [*_tmux, "kill-session", "-t", "=" + _client.session],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                timeout=0.5,
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            failed.append({"step": "tmux_kill_session", "error": repr(exc)})
         _client._browser = None
         _client._cdp = None
     _browser_clients.clear()

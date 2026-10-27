@@ -4,7 +4,7 @@ mod driver;
 mod output;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -32,6 +32,7 @@ const STOP_GRACE: Duration = Duration::from_secs(2);
 struct Tenant {
     driver: AsyncMutex<Option<Driver>>,
     pid: Arc<AtomicU32>,
+    users: AtomicU32,
 }
 
 struct Running {
@@ -43,8 +44,27 @@ struct Running {
 
 pub struct Code {
     command: PathBuf,
+    tmux_socket: Option<String>,
     tenants: Mutex<HashMap<String, Arc<Tenant>>>,
-    running: Mutex<HashMap<String, Running>>,
+    idle: Mutex<VecDeque<String>>,
+    running: Arc<Mutex<HashMap<String, Running>>>,
+    cleanup: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+}
+
+struct RunningGuard {
+    cells: Arc<Mutex<HashMap<String, Running>>>,
+    cell_id: String,
+    tenant: Arc<Tenant>,
+}
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        self.cells
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.cell_id);
+        self.tenant.users.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 impl Code {
@@ -57,12 +77,21 @@ impl Code {
         Self::default()
     }
 
+    pub fn with_socket(tmux_socket: Option<String>) -> Self {
+        let mut code = Self::new();
+        code.tmux_socket = tmux_socket;
+        code
+    }
+
     /// A command override makes spawn and early-exit failures observable in tests.
     pub fn with_command(command: PathBuf) -> Self {
         Self {
             command,
+            tmux_socket: None,
             tenants: Mutex::new(HashMap::new()),
-            running: Mutex::new(HashMap::new()),
+            idle: Mutex::new(VecDeque::new()),
+            running: Arc::new(Mutex::new(HashMap::new())),
+            cleanup: Mutex::new(Vec::new()),
         }
     }
 
@@ -103,28 +132,51 @@ impl Code {
         {
             let _ = cell.stop.send(true);
         }
-        let mut tenants = self.tenants.lock().unwrap_or_else(PoisonError::into_inner);
-        for tenant in tenants.values() {
-            Driver::signal(&tenant.pid, Signal::SIGKILL);
+        let tenants =
+            std::mem::take(&mut *self.tenants.lock().unwrap_or_else(PoisonError::into_inner));
+        self.idle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        let mut cleanup = self.cleanup.lock().unwrap_or_else(PoisonError::into_inner);
+        for tenant in tenants.into_values() {
+            cleanup.push(tokio::spawn(async move {
+                let mut guard = tenant.driver.lock().await;
+                if let Some(driver) = guard.take() {
+                    driver.reap(STOP_GRACE).await;
+                }
+            }));
         }
-        tenants.clear();
+    }
+
+    pub async fn shutdown(&self) {
+        self.detach();
+        let cleanup =
+            std::mem::take(&mut *self.cleanup.lock().unwrap_or_else(PoisonError::into_inner));
+        for task in cleanup {
+            let _ = task.await;
+        }
     }
 
     pub async fn run(&self, request: CellRequest, caller: Caller) -> Result<Value, CodeError> {
         let cell_id = request.cell_id.to_string();
+        let tenant_id = request
+            .tenant
+            .as_ref()
+            .map_or_else(|| "default".to_owned(), |tenant| (**tenant).clone());
         let tenant = {
             let mut tenants = self.tenants.lock().unwrap_or_else(PoisonError::into_inner);
+            self.idle
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .retain(|id| id != &tenant_id);
             tenants
-                .entry(
-                    request
-                        .tenant
-                        .as_ref()
-                        .map_or_else(|| "default".to_owned(), |tenant| (**tenant).clone()),
-                )
+                .entry(tenant_id.clone())
                 .or_insert_with(|| {
                     Arc::new(Tenant {
                         driver: AsyncMutex::new(None),
                         pid: Arc::new(AtomicU32::new(0)),
+                        users: AtomicU32::new(0),
                     })
                 })
                 .clone()
@@ -147,6 +199,12 @@ impl Code {
                 },
             );
         }
+        tenant.users.fetch_add(1, Ordering::AcqRel);
+        let _running_guard = RunningGuard {
+            cells: self.running.clone(),
+            cell_id: cell_id.clone(),
+            tenant: tenant.clone(),
+        };
         let result = async {
             let deadline = Instant::now() + Duration::from_millis(request.timeout_ms.get());
             // Cancellation wins over a lock that becomes free in the same poll,
@@ -162,7 +220,7 @@ impl Code {
             let mut driver = match guard.take() {
                 Some(driver) => driver,
                 None => {
-                    let spawned = Driver::spawn(&self.command).await?;
+                    let spawned = Driver::spawn(&self.command, self.tmux_socket.as_deref()).await?;
                     tenant.pid.store(spawned.child.id().unwrap_or(0), Ordering::Release);
                     spawned
                 }
@@ -227,6 +285,29 @@ impl Code {
             // a stopped, timed-out or broken one takes the tenant down with it.
             if matches!(&answer, Ok(value) if value["status"] == "completed" || value["status"] == "raised") {
                 *guard = Some(driver);
+                let mut tenants = self.tenants.lock().unwrap_or_else(PoisonError::into_inner);
+                let mut idle = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
+                // A tenant can finish while a later cell is queued for its lock.
+                // The queue is cleared when that run begins, so retire only
+                // drivers whose mutex is actually free.
+                if tenant.users.load(Ordering::Acquire) == 1 {
+                    idle.push_back(tenant_id.clone());
+                }
+                while idle.len() > 8 {
+                    if let Some(id) = idle.pop_front() {
+                        if let Some(candidate) = tenants.get(&id).cloned() {
+                            if let Ok(mut state) = candidate.driver.try_lock() {
+                                if let Some(old) = state.take() {
+                                    self.cleanup.lock().unwrap_or_else(PoisonError::into_inner)
+                                        .push(tokio::spawn(old.reap(STOP_GRACE)));
+                                }
+                                drop(state);
+                                tenants.remove(&id);
+                            }
+                        }
+                    }
+                }
+                drop(guard);
             } else {
                 Driver::signal(&tenant.pid, Signal::SIGINT);
                 driver.reap(STOP_GRACE).await;
@@ -234,10 +315,6 @@ impl Code {
             }
             answer
         }.await;
-        self.running
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&cell_id);
         result
     }
 }

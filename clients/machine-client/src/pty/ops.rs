@@ -101,6 +101,10 @@ impl Pty {
         self.available
     }
 
+    pub fn socket(&self) -> Option<&str> {
+        self.socket.as_deref()
+    }
+
     /// Replay and live output bytes the registry retains; while another
     /// operation holds the registry, the last measurement.
     pub fn retained(&self) -> usize {

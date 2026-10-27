@@ -82,6 +82,63 @@ async fn cell_run_returns_stdout_and_value() {
 }
 
 #[tokio::test]
+async fn cancelled_request_drops_running_cell_before_reusing_its_id() {
+    let code = Arc::new(Code::new());
+    let (client, mut reader, _writer) = connection();
+    let running = {
+        let code = code.clone();
+        let caller = client.caller();
+        tokio::spawn(async move { code.run(request("reuse", "tool.wait()"), caller).await })
+    };
+    let call = tokio::time::timeout(Duration::from_secs(5), reader.next())
+        .await
+        .expect("tool callback")
+        .expect("frame")
+        .expect("request");
+    assert_eq!(call["method"], "machine.call_tool");
+    running.abort();
+    let _ = running.await.expect_err("aborted request");
+    assert_eq!(code.peek("reuse")["running"], false);
+    let answer = code
+        .run(request("reuse", "3 + 4"), client.caller())
+        .await
+        .expect("reused id");
+    assert_eq!(answer["status"], "completed");
+    code.shutdown().await;
+}
+
+#[tokio::test]
+async fn ninth_idle_tenant_retires_oldest_interpreter() {
+    let code = Code::new();
+    let (client, _reader, _writer) = connection();
+    for index in 0..9 {
+        let request: CellRequest = decode(json!({
+            "cellId": format!("cell-{index}"),
+            "tenant": format!("tenant-{index}"),
+            "code": format!("marker = 'tenant-{index}'\nmarker"),
+            "timeoutMs": 5000
+        }))
+        .expect("request");
+        let answer = code.run(request, client.caller()).await.expect("cell");
+        assert_eq!(answer["status"], "completed");
+    }
+    let check = |cell_id: &str, tenant: &str| -> CellRequest {
+        decode(json!({"cellId":cell_id,"tenant":tenant,"code":"globals().get('marker', 'missing')","timeoutMs":5000})).expect("request")
+    };
+    let retained = code
+        .run(check("recent", "tenant-8"), client.caller())
+        .await
+        .expect("recent");
+    assert_eq!(retained["value"], "'tenant-8'");
+    let restarted = code
+        .run(check("oldest", "tenant-0"), client.caller())
+        .await
+        .expect("oldest");
+    assert_eq!(restarted["value"], "'missing'");
+    code.shutdown().await;
+}
+
+#[tokio::test]
 async fn cell_tool_call_round_trips_through_host() {
     let root = tempfile::tempdir().expect("root");
     let pty = Pty::new("/definitely/missing/tmux", None, "code".into()).await;

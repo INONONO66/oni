@@ -138,7 +138,7 @@ export async function attachMclient(options: {
   const info = await Promise.race([
     pending.promise,
     exited.then((code) => { throw new Error(`mclient exited before attachment: ${code}`); }),
-  ]).catch((error: unknown) => {
+  ]).catch((error: Error) => {
     signalGroup(child.pid, "SIGKILL");
     rmSync(configRoot, { recursive: true, force: true });
     throw error;

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -16,6 +16,7 @@ import { createCodemode } from "./helpers/native";
  * terminal output, never by elapsed time.
  */
 const CELL_TIMEOUT_MS = 120_000;
+const TMUX_SOCKET = `oni-browser-test-${process.pid}-${crypto.randomUUID()}`;
 const events = eventCollector();
 
 const sessionOf = (profile: string) =>
@@ -71,7 +72,7 @@ beforeAll(async () => {
     callTool: (call) => harness().mode.callTool(call),
   });
   mode = createCodemode({ machines: host, self: "M" });
-  daemon = await attachMclient({ host, events, machineId: "M", root: base });
+  daemon = await attachMclient({ host, events, machineId: "M", root: base, tmuxSocket: TMUX_SOCKET });
 }, 300_000);
 
 afterAll(async () => {
@@ -80,6 +81,7 @@ afterAll(async () => {
   await mode?.close();
   await daemon?.stop();
   await host?.close();
+  Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "kill-server"]);
   rmSync(base, { recursive: true, force: true });
   rmSync(outside, { recursive: true, force: true });
 });
@@ -265,7 +267,7 @@ test(
     const { mode, host } = harness();
     const session = sessionOf(profiles.lost);
     expect(await host.get("M").pty.open(session, profiles.lost)).toMatchObject({ status: "ok" });
-    expect(Bun.spawnSync(["tmux", "kill-session", "-t", `=${session}`]).exitCode).toBe(0);
+    expect(Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "kill-session", "-t", `=${session}`]).exitCode).toBe(0);
     const listed = await host.get("M").pty.list();
     expect(listed.status).toBe("ok");
     expect(listed.status === "ok" ? listed.sessions : []).toContainEqual({ name: session, status: "lost" });
@@ -281,6 +283,53 @@ test(
     );
     expect(relaunched).toMatchObject({ status: "completed", value: "True" });
     expect(await listedSessions()).not.toContain(session);
+  },
+  CELL_TIMEOUT_MS,
+);
+
+test(
+  "closing the interpreter ends Chromium and its tmux session without deleting the profile",
+  async () => {
+    const { mode, host, daemon } = harness();
+    const launched = await mode.cell.run(
+      `browser("M", profile_dir=${JSON.stringify(profiles.closing)}, executable_path=${JSON.stringify(executable)}).is_connected()`,
+      "browser",
+      { timeoutMs: CELL_TIMEOUT_MS },
+    );
+    expect(launched).toMatchObject({ status: "completed", value: "True" });
+    const session = sessionOf(profiles.closing);
+    expect(await listedSessions()).toContain(session);
+    const view = await host.get("M").pty.read(session, {});
+    expect(view.status).toBe("ok");
+    const transcript = view.status === "ok" ? Buffer.from(view.data).toString("utf8") : "";
+    const pid = Number(/\[oni-browser\] chromium-pid (\d+)/.exec(transcript)?.[1]);
+    expect(pid).toBeGreaterThan(0);
+    const marker = `closed-${crypto.randomUUID()}`;
+    const closed = Promise.withResolvers<void>();
+    const observer = watch(base, (_event, filename) => {
+      if (filename === marker && existsSync(join(base, marker))) closed.resolve();
+    });
+    const deadline = setTimeout(() => {
+      const sessionStatus = Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "has-session", "-t", `=${session}`]).exitCode;
+      const pane = Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "capture-pane", "-p", "-t", `=${session}`]);
+      let chromiumAlive = true;
+      try { process.kill(pid, 0); } catch { chromiumAlive = false; }
+      closed.reject(new Error(`Chromium tmux session did not close: tmux=${sessionStatus}, chromiumAlive=${chromiumAlive}, pane=${pane.stdout.toString("utf8").slice(-500)}`));
+    }, 10_000);
+    try {
+      expect(Bun.spawnSync([
+        "tmux", "-L", TMUX_SOCKET, "set-hook", "-g", "session-closed",
+        `run-shell 'touch ${join(base, marker)}'`,
+      ]).exitCode).toBe(0);
+      await daemon.stop();
+      await closed.promise;
+    } finally {
+      clearTimeout(deadline);
+      observer.close();
+    }
+    expect(Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "has-session", "-t", `=${session}`]).exitCode).not.toBe(0);
+    expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+    expect(existsSync(profiles.closing)).toBe(true);
   },
   CELL_TIMEOUT_MS,
 );

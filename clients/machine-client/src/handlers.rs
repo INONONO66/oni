@@ -145,6 +145,13 @@ pub struct Service {
     code: Code,
 }
 
+impl Service {
+    pub async fn shutdown(&self) {
+        self.code.shutdown().await;
+        self.exec.shutdown().await;
+    }
+}
+
 /// Asks the attached host for a permission verdict; no connection, a
 /// timeout, a transport error or an undecodable answer is a refusal.
 struct HostRelay {
@@ -375,6 +382,7 @@ impl Service {
         if Code::available() {
             offered.push(PYTHON_KERNEL.to_owned());
         }
+        let tmux_socket = pty.socket().map(str::to_owned);
         Arc::new(Self {
             offered,
             exports,
@@ -388,7 +396,7 @@ impl Service {
             input: Arc::new(input),
             cdp,
             stream: Stream::new(address),
-            code: Code::new(),
+            code: Code::with_socket(tmux_socket),
         })
     }
 
@@ -842,6 +850,7 @@ impl Session for Service {
 
     fn detached(&self) {
         self.code.detach();
+        self.exec.detach();
         *self.grant() = None;
         *self.caller() = None;
         self.fs().abort_all();

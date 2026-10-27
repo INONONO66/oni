@@ -6,6 +6,11 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::time::Duration;
+#[cfg(target_os = "macos")]
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use nix::sys::signal::{killpg, Signal};
@@ -16,17 +21,74 @@ use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::sync::watch;
+#[cfg(target_os = "macos")]
+use tokio::sync::Notify;
 
 const MAX_OUTPUT: usize = 262_144;
 pub const DEFAULT_DEADLINE: Duration = Duration::from_millis(30_000);
 
 pub struct Exec {
     deadline: Duration,
+    #[cfg(target_os = "macos")]
+    groups: Arc<Groups>,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct Groups {
+    pids: Mutex<HashSet<Pid>>,
+    finished: Notify,
 }
 
 impl Exec {
     pub fn new(deadline: Duration) -> Self {
-        Self { deadline }
+        Self {
+            deadline,
+            #[cfg(target_os = "macos")]
+            groups: Arc::new(Groups::default()),
+        }
+    }
+
+    pub async fn shutdown(&self) {
+        #[cfg(target_os = "macos")]
+        loop {
+            // macOS has no parent-death signal: graceful detach kills recorded
+            // groups, but SIGKILL of the client cannot run this cleanup.
+            let notified = self.groups.finished.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let pids = self
+                .groups
+                .pids
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            if pids.is_empty() {
+                break;
+            }
+            for pid in pids {
+                let _ = killpg(pid, Signal::SIGKILL);
+            }
+            if tokio::time::timeout(Duration::from_secs(2), &mut notified)
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+
+    pub fn detach(&self) {
+        #[cfg(target_os = "macos")]
+        for pid in self
+            .groups
+            .pids
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+        {
+            let _ = killpg(*pid, Signal::SIGKILL);
+        }
     }
 }
 
@@ -95,11 +157,15 @@ async fn read_streams(
 }
 
 /// A dropped execution still kills its detached process group.
-struct ProcessGroup(Option<Pid>);
+struct ProcessGroup {
+    pid: Option<Pid>,
+    #[cfg(target_os = "macos")]
+    groups: Arc<Groups>,
+}
 
 impl ProcessGroup {
     fn kill(&self) {
-        if let Some(pid) = self.0 {
+        if let Some(pid) = self.pid {
             let _ = killpg(pid, Signal::SIGKILL);
         }
     }
@@ -108,6 +174,15 @@ impl ProcessGroup {
 impl Drop for ProcessGroup {
     fn drop(&mut self) {
         self.kill();
+        #[cfg(target_os = "macos")]
+        if let Some(pid) = self.pid {
+            self.groups
+                .pids
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&pid);
+            self.groups.finished.notify_waiters();
+        }
     }
 }
 
@@ -142,6 +217,8 @@ impl Exec {
             exports,
             cancelled,
             std::pin::pin!(tokio::time::sleep(self.deadline)),
+            #[cfg(target_os = "macos")]
+            self.groups.clone(),
         )
         .await
     }
@@ -152,6 +229,7 @@ async fn execute(
     exports: &[PathBuf],
     mut cancelled: watch::Receiver<bool>,
     deadline: Pin<&mut (dyn Future<Output = ()> + Send)>,
+    #[cfg(target_os = "macos")] groups: Arc<Groups>,
 ) -> Result<ExecResult, ExecError> {
     let Some(cwd) = confined(&request.cwd, exports) else {
         return result(json!({"status":"refused","reason":"path_escapes_export"}));
@@ -170,16 +248,49 @@ async fn execute(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     command.process_group(0);
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        let parent = nix::unistd::getpid();
+        // SAFETY: pre_exec runs in the forked child. The closure only invokes
+        // async-signal-safe syscalls, with no allocation or acquired locks.
+        unsafe {
+            command.as_std_mut().pre_exec(move || {
+                // SAFETY: prctl(PR_SET_PDEATHSIG, SIGKILL) takes integer
+                // arguments only; it retains no Rust pointers.
+                if unsafe { nix::libc::prctl(nix::libc::PR_SET_PDEATHSIG, nix::libc::SIGKILL) }
+                    == -1
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if nix::unistd::getppid() != parent {
+                    return Err(std::io::Error::from_raw_os_error(nix::libc::ESRCH));
+                }
+                Ok(())
+            });
+        }
+    }
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(_) => return result(json!({"status":"refused","reason":"io_error"})),
     };
-    let mut guard = ProcessGroup(
-        child
-            .id()
-            .and_then(|id| i32::try_from(id).ok())
-            .map(Pid::from_raw),
-    );
+    let pid = child
+        .id()
+        .and_then(|id| i32::try_from(id).ok())
+        .map(Pid::from_raw);
+    #[cfg(target_os = "macos")]
+    if let Some(pid) = pid {
+        groups
+            .pids
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(pid);
+    }
+    let mut guard = ProcessGroup {
+        pid,
+        #[cfg(target_os = "macos")]
+        groups,
+    };
     // Successful spawn with Stdio::piped always supplies both handles.
     let mut stdout = child.stdout.take().expect("stdout configured as piped");
     let mut stderr = child.stderr.take().expect("stderr configured as piped");
@@ -225,7 +336,17 @@ async fn execute(
             // A clean exit leaves the shell's own process group alone. Cancellation,
             // overflow, and deadline paths kill the group before waiting.
             if !captured.truncated {
-                guard.0 = None;
+                guard.pid = None;
+                #[cfg(target_os = "macos")]
+                if let Some(pid) = pid {
+                    guard
+                        .groups
+                        .pids
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .remove(&pid);
+                    guard.groups.finished.notify_waiters();
+                }
             }
             let signal = match status.signal() {
                 Some(9) => Some("SIGKILL".to_owned()),
@@ -251,6 +372,30 @@ pub(crate) mod blocked_shell;
 mod tests {
     use super::*;
     use blocked_shell::BlockedShell;
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn shutdown_kills_and_reaps_tracked_shell_group() {
+        let shell = BlockedShell::new(false);
+        let request = ExecRequest {
+            cmd: shell.command.parse().expect("command"),
+            cwd: shell.root.path().to_str().expect("utf8").into(),
+        };
+        let exec = Exec::new(DEFAULT_DEADLINE);
+        let (_sender, receiver) = watch::channel(false);
+        let exports = [shell.root.path().to_owned()];
+        let run = exec.execute(&request, &exports, receiver);
+        let shutdown = async {
+            shell.started().await;
+            exec.shutdown().await;
+        };
+        let (_result, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(run, shutdown)
+        })
+        .await
+        .expect("shell shutdown");
+        assert!(exec.groups.pids.lock().expect("groups").is_empty());
+    }
 
     #[tokio::test]
     async fn exec_reports_nonzero_exit_and_signal() {
@@ -315,6 +460,8 @@ mod tests {
                     &[shell.root.path().to_owned()],
                     receiver,
                     std::pin::pin!(shell.started()),
+                    #[cfg(target_os = "macos")]
+                    Arc::new(Groups::default()),
                 ),
             )
             .await
@@ -361,6 +508,8 @@ mod tests {
                 &exports,
                 receiver,
                 std::pin::pin!(std::future::pending()),
+                #[cfg(target_os = "macos")]
+                Arc::new(Groups::default()),
             )
             .await
             .expect("execution");
@@ -372,7 +521,14 @@ mod tests {
         };
         let (sender, receiver) = watch::channel(false);
         let deadline = std::pin::pin!(std::future::pending());
-        let run = execute(&request, &exports, receiver, deadline);
+        let run = execute(
+            &request,
+            &exports,
+            receiver,
+            deadline,
+            #[cfg(target_os = "macos")]
+            Arc::new(Groups::default()),
+        );
         let cancel = async {
             shell.started().await;
             sender.send(true).expect("execution still running");

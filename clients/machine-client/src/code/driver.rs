@@ -118,16 +118,18 @@ impl Driver {
         }
     }
 
-    pub async fn spawn(command: &PathBuf) -> Result<Self, CodeError> {
-        let mut child = Command::new(command)
+    pub async fn spawn(command: &PathBuf, tmux_socket: Option<&str>) -> Result<Self, CodeError> {
+        let mut command = Command::new(command);
+        command
             .args(["-u", "-c", SOURCE])
             .env("ONI_CELL_OUTPUT_MAX_BYTES", OUTPUT_LIMIT.to_string())
+            .env("ONI_TMUX_SOCKET", tmux_socket.unwrap_or(""))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(CodeError::Spawn)?;
+            .kill_on_drop(true);
+        command.process_group(0);
+        let mut child = command.spawn().map_err(CodeError::Spawn)?;
         let stdin = child.stdin.take().ok_or(CodeError::Exited)?;
         let stdout = child.stdout.take().ok_or(CodeError::Exited)?;
         Ok(Self {
@@ -143,8 +145,9 @@ impl Driver {
         self.stdin.write_all(&bytes).await.map_err(write_failure)
     }
 
-    /// Closes the request pipe so an idle driver leaves on EOF, then kills
-    /// one that is still inside a cell when the grace runs out.
+    /// EOF lets browser cleanup finish before the caller's one-second group
+    /// SIGKILL; only a stuck interpreter consumes the remaining two-second
+    /// grace before TERM and KILL escalation.
     pub async fn reap(self, grace: Duration) {
         let Self {
             mut child,
@@ -153,9 +156,24 @@ impl Driver {
         } = self;
         drop(stdin);
         drop(lines);
-        if timeout(grace, child.wait()).await.is_err() {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+        let deadline = tokio::time::Instant::now() + grace;
+        if timeout(
+            grace.saturating_sub(Duration::from_millis(500)),
+            child.wait(),
+        )
+        .await
+        .is_err()
+        {
+            if let Some(pid) = child.id().and_then(|id| i32::try_from(id).ok()) {
+                let _ = kill(Pid::from_raw(pid), Signal::SIGTERM);
+            }
+            if tokio::time::timeout_at(deadline, child.wait())
+                .await
+                .is_err()
+            {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+            }
         }
     }
 
@@ -167,6 +185,50 @@ impl Driver {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn interpreter_runs_outside_client_process_group() {
+        let driver = super::Driver::spawn(&"python3".into(), None)
+            .await
+            .expect("driver");
+        let pid = nix::unistd::Pid::from_raw(
+            i32::try_from(driver.child.id().expect("pid")).expect("pid range"),
+        );
+        let child_group = nix::unistd::getpgid(Some(pid)).expect("child group");
+        let parent_group = nix::unistd::getpgid(None).expect("test group");
+        assert_ne!(child_group, parent_group);
+        driver.reap(std::time::Duration::from_secs(2)).await;
+    }
+
+    #[tokio::test]
+    async fn eof_runs_browser_cleanup_before_interpreter_exits() {
+        let root = tempfile::tempdir().expect("temp directory");
+        let marker = root.path().join("closed");
+        let mut driver = super::Driver::spawn(&"python3".into(), None)
+            .await
+            .expect("driver");
+        driver
+            .send(&serde_json::json!({
+                "cellId":"cleanup",
+                "code":format!("class Browser:\n    session = 'oni-browser-test'\n    def _stop_chromium(self):\n        open({:?}, 'w').write('closed')\n        return []\nbrowser.__globals__['_browser_clients'][('machine', 'profile')] = Browser()", marker.to_str().expect("utf8")),
+                "timeoutMs":5000
+            }))
+            .await
+            .expect("send");
+        loop {
+            if matches!(
+                driver.next().await.expect("driver frame"),
+                super::Frame::Result { .. }
+            ) {
+                break;
+            }
+        }
+        driver.reap(std::time::Duration::from_secs(2)).await;
+        assert_eq!(
+            std::fs::read_to_string(marker).expect("browser cleanup"),
+            "closed"
+        );
+    }
+
     #[tokio::test]
     async fn a_lost_tool_call_task_is_a_frame_failure() {
         let mut calls = tokio::task::JoinSet::new();

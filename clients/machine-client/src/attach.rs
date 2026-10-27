@@ -574,6 +574,7 @@ pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
         _ = interrupted.recv() => Ok(()),
     };
     service.detached();
+    service.shutdown().await;
     permissions.abort_all();
     result
 }
