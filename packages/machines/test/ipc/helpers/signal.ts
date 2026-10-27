@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { z } from "zod";
 
 export function deferred<T = void>() {
@@ -21,47 +20,4 @@ export function captureError<T>(promise: Promise<T>): Promise<Error> {
     () => { throw new Error("expected promise to reject"); },
     z.instanceof(Error).parse,
   );
-}
-
-class ProcessStillPresentError extends Error {
-  constructor(pid: number, state: string) {
-    super(`process ${pid} still present (state ${state}) after the descendant-exit guard elapsed`);
-    this.name = "ProcessStillPresentError";
-  }
-}
-
-/** ESRCH is the only completion signal; EPERM or success means the pid is still in the process table. */
-const reaped = (pid: number): boolean => {
-  try { process.kill(pid, 0); return false; }
-  catch (error) { return z.object({ code: z.literal("ESRCH") }).safeParse(error).success; }
-};
-
-/**
- * Bounded observation poll across the process-table boundary — the one
- * sanctioned wait pattern. A SIGKILLed grandchild reparented to init stays a
- * zombie until init reaps it, and `kill(pid, 0)` succeeds on a zombie, so the
- * child's `close` event cannot stand in for descendant exit and there is no
- * event to subscribe to. Completion is `ESRCH` for every pid; the timeout is a
- * failure guard, never a synchronizer.
- */
-export async function awaitGone(pids: readonly number[], timeoutMs = 5_000): Promise<void> {
-  let present = [...pids];
-  let timer: ReturnType<typeof setInterval> | undefined;
-  const observed = new Promise<void>((resolve) => {
-    const observe = () => {
-      present = present.filter((pid) => !reaped(pid));
-      if (present.length === 0) resolve();
-    };
-    observe();
-    timer = setInterval(observe, 25);
-  });
-  try {
-    await within(observed, "every descendant to leave the process table", timeoutMs);
-  } catch {
-    const pid = present[0] ?? pids[0] ?? -1;
-    const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)]).stdout?.toString().trim();
-    throw new ProcessStillPresentError(pid, state || "not in ps output");
-  } finally {
-    clearInterval(timer);
-  }
 }

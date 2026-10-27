@@ -76,6 +76,8 @@ interface MachineHostOptions {
 const REPORT_STALE_AFTER_MS = 15_000;
 const AGENT_SESSION_CAPABILITY = "agent.session";
 const AGENT_PERMISSION_DEADLINE_MS = 30_000;
+/** Rust mclient gives a timed-out interpreter 2 s after SIGINT before killing it. */
+const CELL_CLEANUP_MARGIN_MS = 3_000;
 /** A bulk read still fits a single codemode tool reply after base64 encoding. */
 const BULK_READ_MAX_BYTES = 8 * 1024 * 1024;
 type Value<O extends Machine.FsValue["op"]> = Extract<Machine.FsValue, { op: O }>;
@@ -795,7 +797,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           });
           const cancellation = signal ? yield* Effect.forkScoped(onAbort(signal, Effect.void).pipe(Effect.andThen(cancel))) : undefined;
           peer.server.useConnection(peer.rawId);
-          return yield* typedCall(peer.server, Machine.WireMethod.RunCode, request, request.timeoutMs + 1000).pipe(
+          return yield* typedCall(peer.server, Machine.WireMethod.RunCode, request, request.timeoutMs + CELL_CLEANUP_MARGIN_MS).pipe(
             Effect.mapError(transportFailure("cell.call")),
             Effect.flatMap((raw) => Effect.try({ try: () => Machine.CellResult.parse(raw), catch: decodeMachineFailure("cell.response") })),
             Effect.tap(() => cancellation && signal?.aborted ? Fiber.join(cancellation) : Effect.void),

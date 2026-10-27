@@ -15,6 +15,7 @@ use std::{
 };
 
 use oni_machine_client::{
+    agent::hook,
     attach::{self, offer, result, run_with_probe, AttachError, Attachment, Hooks, Outcome},
     budget::{self, Budget, BudgetAction, Metrics, NoRetention, Pressure, Retained, StreamTotals},
     config::{self, ClientConfig, Export, JoinOptions},
@@ -41,7 +42,24 @@ fn config() -> ClientConfig {
         }],
         memory_budget_mb: 96,
         unix: None,
+        tmux_socket: None,
     }
+}
+
+#[test]
+fn optional_tmux_socket_round_trips_without_changing_default_settings() {
+    let default = config();
+    let serialized = serde_json::to_value(&default).expect("settings");
+    assert!(serialized.get("tmuxSocket").is_none());
+    let parsed: ClientConfig = serde_json::from_value(serialized).expect("default settings");
+    assert!(parsed.tmux_socket.is_none());
+
+    let mut named = default;
+    named.tmux_socket = Some("oni-private-server".into());
+    let serialized = serde_json::to_value(&named).expect("named settings");
+    assert_eq!(serialized["tmuxSocket"], "oni-private-server");
+    let parsed: ClientConfig = serde_json::from_value(serialized).expect("named settings");
+    assert_eq!(parsed.tmux_socket.as_deref(), Some("oni-private-server"));
 }
 
 fn join_options(host: &str) -> JoinOptions {
@@ -1062,6 +1080,134 @@ fn exported(host: &FakeHost, root: &Path, directory: &Path) -> ClientConfig {
 }
 
 #[tokio::test]
+async fn sigterm_detaches_and_removes_a_blocked_staged_transfer() {
+    use nix::{
+        sys::signal::{kill, Signal},
+        unistd::Pid,
+    };
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let root = tempfile::tempdir().expect("export root");
+    exported(&host, root.path(), directory.path());
+    let path = directory.path().join("client.json");
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .args(["run", "--config", path.to_str().expect("utf8 path")])
+        .kill_on_drop(true)
+        .spawn()
+        .expect("mclient process");
+    let scenario = async {
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(reply(
+            &request,
+            json!({"status":"attached","generation":1,
+            "effectiveCapabilities":["fs.write"],"effectiveExports":["notes"]}),
+        ))
+        .await;
+        let report = expect(&mut host, "machine.report").await;
+        host.send(reply(&report, json!({"status":"accepted"})))
+            .await;
+        host.send(
+            json!({"v":2,"type":"request","id":"stage","method":"machine.fs_stream",
+            "params":{"op":"begin","transferId":"blocked","mode":"write",
+                "export":"notes","path":"target"}}),
+        )
+        .await;
+        loop {
+            let frame = host.incoming.recv().await.expect("stream answer");
+            if frame["id"] == "stage" {
+                assert_eq!(frame["result"]["status"], "begun", "{frame}");
+                break;
+            }
+            host.send(reply(&frame, json!({"status":"accepted"}))).await;
+        }
+        assert_eq!(std::fs::read_dir(root.path()).expect("root").count(), 1);
+        let pid = i32::try_from(child.id().expect("live process")).expect("pid fits i32");
+        kill(Pid::from_raw(pid), Signal::SIGTERM).expect("terminate");
+        assert_eq!(child.wait().await.expect("process exit").code(), Some(0));
+        assert_eq!(std::fs::read_dir(root.path()).expect("root").count(), 0);
+    };
+    tokio::time::timeout(Duration::from_secs(10), scenario)
+        .await
+        .expect("staged transfer shutdown");
+}
+
+#[tokio::test]
+async fn named_tmux_socket_keeps_client_sessions_off_the_default_server() {
+    use nix::{
+        sys::signal::{kill, Signal},
+        unistd::Pid,
+    };
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let root = tempfile::tempdir().expect("export root");
+    let socket = format!("oni-mclient-test-{}", std::process::id());
+    let session = format!("oni-mclient-session-{}", std::process::id());
+    let mut settings = exported(&host, root.path(), directory.path());
+    settings.tmux_socket = Some(socket.clone());
+    config::save(&settings, directory.path()).expect("private settings");
+    let path = directory.path().join("client.json");
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .args(["run", "--config", path.to_str().expect("utf8 path")])
+        .env("TERM", "xterm")
+        .kill_on_drop(true)
+        .spawn()
+        .expect("mclient process");
+    let scenario = async {
+        let request = expect(&mut host, "machine.attach").await;
+        assert!(request["params"]["offeredCapabilities"]
+            .as_array()
+            .expect("capabilities")
+            .contains(&json!("pty.session")));
+        host.send(reply(
+            &request,
+            json!({"status":"attached","generation":1,
+            "effectiveCapabilities":["pty.session"],"effectiveExports":["notes"]}),
+        ))
+        .await;
+        let report = expect(&mut host, "machine.report").await;
+        host.send(reply(&report, json!({"status":"accepted"})))
+            .await;
+        host.send(
+            json!({"v":2,"type":"request","id":"pty","method":"machine.pty_open",
+            "params":{"name":session,"cwd":root.path()}}),
+        )
+        .await;
+        loop {
+            let frame = host.incoming.recv().await.expect("PTY answer");
+            if frame["id"] == "pty" {
+                assert_eq!(frame["result"]["status"], "ok", "{frame}");
+                break;
+            }
+            host.send(reply(&frame, json!({"status":"accepted"}))).await;
+        }
+        let named = std::process::Command::new("tmux")
+            .args(["-L", &socket, "has-session", "-t", &format!("={session}")])
+            .env("TERM", "xterm")
+            .status()
+            .expect("named server list");
+        let default = std::process::Command::new("tmux")
+            .args(["has-session", "-t", &format!("={session}")])
+            .env("TERM", "xterm")
+            .status()
+            .expect("default server list");
+        assert!(named.success());
+        assert!(!default.success());
+        let pid = i32::try_from(child.id().expect("live process")).expect("pid fits i32");
+        kill(Pid::from_raw(pid), Signal::SIGTERM).expect("terminate");
+        assert_eq!(child.wait().await.expect("process exit").code(), Some(0));
+    };
+    let outcome = tokio::time::timeout(Duration::from_secs(10), scenario).await;
+    if child.id().is_some() {
+        let _ = child.kill().await;
+    }
+    let _ = std::process::Command::new("tmux")
+        .args(["-L", &socket, "kill-server"])
+        .env("TERM", "xterm")
+        .status();
+    outcome.expect("named PTY round trip");
+}
+
+#[tokio::test]
 async fn attach_grant_reaches_handlers_and_detach_revokes_it() {
     let mut host = FakeHost::unix().await;
     let directory = tempfile::tempdir().expect("client directory");
@@ -1084,10 +1230,11 @@ async fn attach_grant_reaches_handlers_and_detach_revokes_it() {
     let params = read.clone();
     let exchange = async move {
         let request = expect(&mut host, "machine.attach").await;
-        assert_eq!(
-            request["params"]["offeredCapabilities"],
-            json!(["fs.read", "fs.write", "shell.exec"])
-        );
+        let mut offered = vec!["fs.read", "fs.write", "shell.exec"];
+        if oni_machine_client::code::Code::available() {
+            offered.push("kernel.py");
+        }
+        assert_eq!(request["params"]["offeredCapabilities"], json!(offered));
         host.send(reply(
             &request,
             json!({
@@ -1113,6 +1260,126 @@ async fn attach_grant_reaches_handlers_and_detach_revokes_it() {
     assert_eq!(outcome.expect("ended"), Outcome::Ended);
     let answer = (hooks.service)("machine.fs_op".into(), Some(read)).await;
     assert_eq!(answer.expect("refusal")["reason"], "fs_not_available");
+}
+
+#[tokio::test]
+async fn run_default_attaches_with_a_long_config_directory() {
+    let mut host = FakeHost::unix().await;
+    let home = tempfile::tempdir().expect("client home");
+    let directory = home.path().join("nested".repeat(20)).join("self");
+    assert!(directory.join("hook.sock").to_string_lossy().len() > 120);
+    let mut settings = unix_settings(&host, &directory).await;
+    settings.exports.clear();
+    config::save(&settings, &directory).expect("save without unrelated exports");
+    let path = directory.join("client.json");
+    let run = attach::run_default(Some(&path));
+    tokio::pin!(run);
+    let exchange = async {
+        let request = expect(&mut host, "machine.attach").await;
+        let socket = hook::socket_path(&directory).expect("advertised hook socket");
+        assert!(socket.starts_with(std::env::temp_dir()));
+        assert!(socket.to_string_lossy().len() < hook::SUN_PATH_LIMIT);
+        assert_eq!(
+            std::fs::metadata(socket.parent().expect("socket directory"))
+                .expect("private directory")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(&socket)
+                .expect("bound socket")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        tokio::net::UnixStream::connect(&socket)
+            .await
+            .expect("hook connects through advertised path");
+        host.send(attached(&request, 1)).await;
+        let report = expect(&mut host, "machine.report").await;
+        host.send(reply(
+            &report,
+            json!({"status":"refused","reason":"machine_not_attached"}),
+        ))
+        .await;
+        let mut host = host.reopen().await;
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(reply(
+            &request,
+            json!({"status":"refused","reason":"unsupported_contract"}),
+        ))
+        .await;
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::select! {
+            biased;
+            () = exchange => {}
+            outcome = &mut run => panic!("client stopped before attachment: {outcome:?}"),
+        }
+    })
+    .await
+    .expect("attachment exchange");
+    let outcome = run.await;
+    assert!(
+        matches!(outcome, Err(AttachError::Terminal(_))),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn short_config_directory_keeps_its_hook_socket_in_place() {
+    let directory = tempfile::tempdir().expect("client directory");
+    let socket = hook::socket_path(directory.path()).expect("hook socket");
+    assert_eq!(socket, directory.path().join("hook.sock"));
+}
+
+/// The fallback directory under the temp root: reused when it already exists,
+/// refused when a non-directory squats on its name or the root itself is too
+/// long. The root is passed explicitly: `TMPDIR` is process-global and the
+/// other tests in this binary spawn clients in parallel.
+#[test]
+fn long_config_directory_fallback_handles_its_temp_directory_states() {
+    let base = tempfile::tempdir().expect("base");
+    let long_dir = base.path().join("n".repeat(hook::SUN_PATH_LIMIT));
+    std::fs::create_dir_all(&long_dir).expect("long directory");
+    let tmp = tempfile::tempdir().expect("tmp");
+
+    let first = hook::socket_path_in(&long_dir, tmp.path()).expect("fallback socket");
+    let short_dir = first.parent().expect("fallback directory").to_path_buf();
+    assert!(short_dir.starts_with(tmp.path()));
+    std::fs::set_permissions(&short_dir, std::fs::Permissions::from_mode(0o755)).expect("loosen");
+    let again =
+        hook::socket_path_in(&long_dir, tmp.path()).expect("existing fallback directory is reused");
+    assert_eq!(again, first);
+    assert_eq!(
+        std::fs::metadata(&short_dir)
+            .expect("fallback directory")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+
+    std::fs::remove_dir_all(&short_dir).expect("clear");
+    std::fs::write(&short_dir, b"squatter").expect("squatter file");
+    let squatted = hook::socket_path_in(&long_dir, tmp.path())
+        .expect_err("a file at the fallback directory is refused");
+    assert_eq!(squatted.kind(), std::io::ErrorKind::AlreadyExists);
+
+    let blocked_root = tempfile::NamedTempFile::new_in("/tmp").expect("blocked root");
+    let blocked = hook::socket_path_in(&long_dir, blocked_root.path())
+        .expect_err("a file above the fallback directory is refused");
+    assert_eq!(blocked.raw_os_error(), Some(nix::libc::ENOTDIR));
+
+    let long_tmp = tmp.path().join("t".repeat(hook::SUN_PATH_LIMIT));
+    std::fs::create_dir_all(&long_tmp).expect("long tmp");
+    let overflow =
+        hook::socket_path_in(&long_dir, &long_tmp).expect_err("an overlong temp root is refused");
+    assert_eq!(overflow.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(overflow.to_string().contains("exceed sun_path"));
 }
 
 #[tokio::test]
@@ -1147,6 +1414,9 @@ async fn run_default_offers_the_available_capabilities_of_its_config() {
         && oni_machine_client::input::Input::platform().available()
     {
         expected.push("input.write".to_owned());
+    }
+    if oni_machine_client::code::Code::available() {
+        expected.push("kernel.py".to_owned());
     }
     assert_eq!(offered, json!(expected));
     let socket = directory.path().join("hook.sock");

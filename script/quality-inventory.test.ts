@@ -49,7 +49,6 @@ test("JSON boundary retains native syntax errors and validates finite structural
     contractHash: "hash",
     files: [entry],
     historical: [],
-    embedded: [],
     configurations: [],
   };
   expect(inventorySchema.parse(inventory)).toEqual(inventory);

@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, lstatSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import ts from "typescript";
 import { decodeJson as strictJson } from "./quality-json";
 import { qualitySource } from "./quality-source";
 import type { TypescriptMetricContract } from "./quality-typescript-metrics";
@@ -105,7 +104,7 @@ export const contractSchema = {
     if (
       !contract.roots.length ||
       !contract.projects.length ||
-      (contract.topology && [...contract.roots].sort().join(",") !== "apps,packages,script")
+      (contract.topology && [...contract.roots].sort().join(",") !== "apps,clients/machine-client/src/code,packages,script")
     )
       throw new InventoryError("schema", "", "invalid ownership contract");
     return contract;
@@ -140,7 +139,6 @@ export const inventorySchema = {
       "contractHash",
       "files",
       "historical",
-      "embedded",
       "configurations",
     ]);
     return {
@@ -148,7 +146,6 @@ export const inventorySchema = {
       contractHash: jsonString(object.contractHash),
       files: jsonArray(object.files, parseEntry),
       historical: jsonArray(object.historical, parseEntry),
-      embedded: jsonArray(object.embedded, parseEntry),
       configurations: jsonArray(object.configurations, (entry) => {
         const config = jsonObject(entry);
         return { path: relativePath(config.path), sha256: jsonString(config.sha256) };
@@ -311,7 +308,6 @@ export function buildInventory(root: string, contract: Contract): Inventory {
   if (contract.topology) assertTopologyComplete(undefined, root);
   const files: Inventory["files"] = [];
   const configurations: Inventory["configurations"] = [];
-  const embedded: Inventory["embedded"] = [];
   for (const directory of contract.roots)
     collect(root, resolve(root, directory), { files, configurations });
   // The root manifest is the package scope of every owned file without a
@@ -326,43 +322,6 @@ export function buildInventory(root: string, contract: Contract): Inventory {
       path: "tsconfig.base.json",
       sha256: digest(readFileSync(join(root, "tsconfig.base.json"))),
     });
-    const path = "packages/codemode/src/kernel.ts";
-    const source = ts.createSourceFile(
-      path,
-      readFileSync(join(root, path), "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-    );
-    function visit(node: ts.Node): void {
-      if (
-        ts.isVariableDeclaration(node) &&
-        ts.isIdentifier(node.name) &&
-        node.name.text === "PYTHON_DRIVER"
-      ) {
-        const init = node.initializer;
-        if (
-          !init ||
-          !ts.isTaggedTemplateExpression(init) ||
-          init.tag.getText(source) !== "String.raw" ||
-          !ts.isNoSubstitutionTemplateLiteral(init.template)
-        )
-          throw new InventoryError("inventory", path, "unsupported embedded driver representation");
-        const text = init.template.rawText;
-        if (text === undefined)
-          throw new InventoryError("inventory", path, "missing raw template text");
-        embedded.push({
-          path: `${path}#PYTHON_DRIVER`,
-          sha256: digest(text),
-          bytes: Buffer.byteLength(text),
-          category: "production",
-          language: "python",
-        });
-      }
-      ts.forEachChild(node, visit);
-    }
-    visit(source);
-    if (embedded.length !== 1)
-      throw new InventoryError("inventory", path, "embedded driver not uniquely inventoried");
   }
   configurations.sort((a, b) => compareText(a.path, b.path));
   files.sort((a, b) => compareText(a.path, b.path));
@@ -375,7 +334,6 @@ export function buildInventory(root: string, contract: Contract): Inventory {
     contractHash: digest(JSON.stringify(contract)),
     files,
     historical,
-    embedded,
     configurations,
   };
 }

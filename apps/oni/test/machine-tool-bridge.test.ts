@@ -1,10 +1,8 @@
-import { runEffect, acquireEffect, acquireSyncEffect } from "./helpers/scoped-effect";
+import { runEffect, acquireEffect } from "./helpers/scoped-effect";
 import { Effect } from "effect";
-import { createCodemode } from "@oni/codemode";
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { connectIpcClient, createMachineHost, createMemoryGenerationStore, typedCall } from "@oni/machines";
 import { Machine } from "@oni/protocol";
-import { attachMachineDaemon } from "@oni/machines";
 import type { MachineHost } from "@oni/machines";
 import type { PlainObject } from "@oni/protocol";
 import { MachineCellError } from "@oni/machines";
@@ -15,6 +13,8 @@ import { dispatchModelTool } from "./helpers/tool-dispatch";
 import { testMachinePorts } from "./helpers/native-tool-ports";
 import { testIds } from "./helpers/test-entropy";
 import { refusingToolPort } from "./helpers/tool-port";
+import { attachAppMclient, mclientBinary } from "./helpers/mclient";
+import { Bus } from "./helpers/bus";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -25,6 +25,7 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+beforeAll(mclientBinary, 300_000);
 
 /**
  * A host whose tool port only knows `add`, standing in for the composition
@@ -53,7 +54,7 @@ async function withBridge(
   try {
     await run({ host, calls });
   } finally {
-    await runEffect(daemon.close());
+    await daemon.stop();
     await runEffect(host.close());
   }
 }
@@ -440,15 +441,8 @@ describe("code-mode tool bridge", () => {
         return { status: "completed", value: calls };
       },
     });
-    const offer = bridgeOffer();
-    const first = await acquireEffect(attachMachineDaemon({
-      dispatcherBound: 8,
-      id: testIds("bridge-first"),
-      runner: acquireSyncEffect(createCodemode({ id: testIds("bridge-first-cell") })).runner,
-      socketPath: path,
-      offer,
-    }));
-    let second: Effect.Success<ReturnType<typeof attachMachineDaemon>> | undefined;
+    const first = await attachAppMclient({ socketPath: path, machineId: "m-1", root: "/tmp", exports: [] });
+    let second: Awaited<ReturnType<typeof attachAppMclient>> | undefined;
     try {
       const cell = runEffect(host.get("m-1").runCode({
         cellId: "live",
@@ -469,13 +463,7 @@ describe("code-mode tool bridge", () => {
 
       // Take the machine over while the cell sits inside its first tool call.
       await firstCallEntered;
-      second = await acquireEffect(attachMachineDaemon({
-        dispatcherBound: 8,
-        id: testIds("bridge-second"),
-        runner: acquireSyncEffect(createCodemode({ id: testIds("bridge-second-cell") })).runner,
-        socketPath: path,
-        offer,
-      }));
+      second = await attachAppMclient({ socketPath: path, machineId: "m-1", root: "/tmp", exports: [] });
       release();
 
       // Supersession closes the old transport, so its in-flight cell fails
@@ -486,8 +474,8 @@ describe("code-mode tool bridge", () => {
       expect(calls).toBe(1);
     } finally {
       release();
-      await runEffect(first.close());
-      if (second !== undefined) await runEffect(second.close());
+      await first.stop();
+      if (second !== undefined) await second.stop();
       await runEffect(host.close());
     }
   });
@@ -531,10 +519,8 @@ describe("code-mode tool bridge", () => {
 
   test("a forged frame claiming another cell is refused without a host call", async () => {
     await withBridge(async ({ host, calls }) => {
-      // Cell code can write raw frames to the driver's real stdout. A frame
-      // stamped with a different cellId must never become a host call; the
-      // legit call after it proves the kernel kept serving this cell.
-      const result = await runEffect(host.get("m-1").runCode({
+      // A forged cell id is rejected at the driver boundary before any host call.
+      await expect(runEffect(host.get("m-1").runCode({
         cellId: "honest",
         code: [
           "import json, sys",
@@ -543,14 +529,16 @@ describe("code-mode tool bridge", () => {
           "    'name': 'add', 'arguments': {'a': 1, 'b': 2},",
           "}) + '\\n')",
           "sys.__stdout__.flush()",
-          "tool.add(a=2, b=3)",
         ].join("\n"),
         timeoutMs: 15_000,
+      }))).rejects.toThrow("invalid python driver frame: tool call for another cell");
+      expect(calls).toEqual([]);
+      const result = await runEffect(host.get("m-1").runCode({
+        cellId: "after-forgery", code: "tool.add(a=2, b=3)", timeoutMs: 15_000,
       }));
-
       expect(result).toMatchObject({ status: "completed", value: "5" });
       expect(calls.map((call) => call.name)).toEqual(["add"]);
-      expect(calls[0]).toMatchObject({ cellId: "honest", arguments: { a: 2, b: 3 } });
+      expect(calls[0]).toMatchObject({ cellId: "after-forgery", arguments: { a: 2, b: 3 } });
     });
   });
 
@@ -605,7 +593,7 @@ describe("code-mode tool bridge", () => {
       expect(result).toMatchObject({ status: "raised" });
       expect(result.status === "raised" && result.error).toContain("host_tool_missing");
     } finally {
-      await runEffect(daemon.close());
+      await daemon.stop();
       await runEffect(host.close());
     }
   });
@@ -613,18 +601,10 @@ describe("code-mode tool bridge", () => {
 
 /**
  * bash{session} door (#1273): the existing bash tool drives a named
- * persistent tmux terminal on the daemon. Real tmux on a private socket.
+ * persistent tmux terminal on the client. Real tmux on a private socket.
  */
 describe("bash session door", () => {
   const TMUX_SOCKET = `oo-1273-bridge-${process.pid}`;
-  const offer: Omit<Machine.Offer, "peer" | "generation"> = {
-    machineId: "m-1",
-    daemonVersion: "0.1.0",
-    platform: "darwin",
-    offeredAt: 2000,
-    offeredCapabilities: ["pty.session"],
-    exports: [{ name: "shell", path: "/" }],
-  };
   async function sessionFixture(
     run: (api: {
       bash: ReturnType<typeof dispatchModelTool>;
@@ -647,28 +627,18 @@ describe("bash session door", () => {
         publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         enrolledAt: 1000,
       }),
-      events: { publish: () => undefined },
+      events: Bus,
       now: () => 5000,
     }));
-    // Each daemon generation mints ids from its own stream, as production
-    // entropy does: reusing the registry generation id across a restart lets
-    // a pre-restart cursor parse as a native offset into the new daemon's
-    // stream and skip output (PR #1283 CI, tmux 3.4 runner).
-    let generation = 0;
-    const daemonOptions = () => {
-      generation += 1;
-      return {
-        socketPath: path,
-        id: testIds(`pty-bridge-daemon-g${generation}`),
-        dispatcherBound: 8,
-        offer,
-        fsExports: new Map([["shell", "/"]]),
-        pty: { socketName: TMUX_SOCKET },
-      };
-    };
-    let daemon = await acquireEffect(attachMachineDaemon(daemonOptions()));
+    // A restarted client mints a new cursor generation while tmux retains
+    // the pane, so a cursor from the old process cannot skip new output.
+    const attach = () => attachAppMclient({
+      socketPath: path, machineId: "m-1", root: "/",
+      exports: [{ name: "shell", path: "/" }], tmuxSocket: TMUX_SOCKET,
+    });
+    let daemon = await attach();
     const bash = dispatchModelTool("bash", { machines: testMachinePorts(host) });
-    // Each bash call long-polls the daemon for terminal output; the loop
+    // Each bash call long-polls the client for terminal output; the loop
     // re-reads (empty command = just read) until the marker byte arrives.
     async function stdoutUntil(marker: string, command: string): Promise<string> {
       let seen = "";
@@ -684,12 +654,12 @@ describe("bash session door", () => {
         bash,
         stdoutUntil,
         restartDaemon: async () => {
-          await runEffect(daemon.close());
-          daemon = await acquireEffect(attachMachineDaemon(daemonOptions()));
+          await daemon.stop();
+          daemon = await attach();
         },
       });
     } finally {
-      await runEffect(daemon.close());
+      await daemon.stop();
       await runEffect(host.close());
       Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "kill-server"]);
     }
@@ -700,7 +670,7 @@ describe("bash session door", () => {
       const exported = await bash({ machine: "m-1", session: "qa", command: "export BRIDGE_X=42" } satisfies PlainObject);
       expect(JSON.parse(String(exported.content))).toMatchObject({ exitCode: 0, pending: false });
       expect(await stdoutUntil("door-42", "echo door-$BRIDGE_X")).toContain("door-42");
-      // Restart ONLY the daemon; the tmux server owns the terminal.
+      // Restart ONLY the client; the tmux server owns the terminal.
       await restartDaemon();
       expect(await stdoutUntil("again-42", "echo again-$BRIDGE_X")).toContain("again-42");
     });
@@ -712,7 +682,7 @@ describe("bash session door", () => {
       expect(await bash({ machine: "m-1", session: "qa", command: "true", timeout: 5 })).toMatchObject({ isError: true });
       expect(await bash({ machine: "m-1", command: "" })).toMatchObject({ isError: true });
       // The daemon's reserved control session is a typed refusal end to end.
-      expect(await bash({ machine: "m-1", session: "omo-pty-control", command: "" })).toMatchObject({ isError: true });
+      expect(await bash({ machine: "m-1", session: "oni-pty-control", command: "" })).toMatchObject({ isError: true });
       // An unknown name is not an error at this door: open-or-reattach creates it.
       const created = await bash({ machine: "m-1", session: "fresh", command: "" });
       expect(created.isError).toBeUndefined();

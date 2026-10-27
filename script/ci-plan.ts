@@ -52,6 +52,12 @@ type ChangeSelection = {
   changeClass: CiPlan["class"];
   globalReason?: string;
 };
+function maximumClass(current: CiPlan["class"], next: CiPlan["class"]): CiPlan["class"] {
+  return changeClasses.indexOf(next) > changeClasses.indexOf(current) ? next : current;
+}
+function unsafePath(path: string): boolean {
+  return path.split("/").some((part) => part === ".." || part === "." || part === "") || path.includes("\\");
+}
 function selectChanges(
   paths: readonly string[],
   topology: readonly WorkspaceTopology[],
@@ -59,13 +65,15 @@ function selectChanges(
   const selected = new Set<string>();
   let changeClass: CiPlan["class"] = "docs";
   for (const path of paths) {
-    const unsafe =
-      path.split("/").some((part) => part === ".." || part === "." || part === "") ||
-      path.includes("\\");
-    if (unsafe) return { selected, changeClass, globalReason: "global-or-unowned-path" };
+    if (unsafePath(path)) return { selected, changeClass, globalReason: "global-or-unowned-path" };
     if (/^(?:[^/]+\.md|docs\/.*)$/.test(path)) continue;
     if (/(^|\/)(package\.json|bun\.lockb?)$/.test(path))
       return { selected, changeClass, globalReason: "dependency-manifest-change" };
+    if (path.startsWith("clients/")) {
+      selected.add("@oni/machines");
+      changeClass = maximumClass(changeClass, "kernel");
+      continue;
+    }
     if (path.startsWith("script/") && !path.startsWith("script/conformance/")) {
       changeClass = "tooling";
       continue;
@@ -75,7 +83,7 @@ function selectChanges(
     if (owner.packageName === "@oni/protocol")
       return { selected, changeClass, globalReason: "shared-contract-change" };
     const next = owner.dir === "apps/desktop" || owner.dir === "packages/ui" ? "desktop" : "kernel";
-    if (changeClasses.indexOf(next) > changeClasses.indexOf(changeClass)) changeClass = next;
+    changeClass = maximumClass(changeClass, next);
     selected.add(owner.packageName);
   }
   return { selected, changeClass };

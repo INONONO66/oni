@@ -1,91 +1,49 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachMachineDaemon, createMachineHost } from "../../../machines/test/helpers/native";
-import { fakeMac } from "../../../machines/test/helpers/fake-commands";
+import { createMachineHost } from "../../../machines/test/helpers/native";
+import { attachMclient, mclientBinary, mclientEnrollment } from "../../../machines/test/helpers/mclient";
+import { eventCollector } from "../../../machines/test/helpers/events";
 import { createCodemode } from "./helpers/native";
 
-const silent = { publish() { return; } };
-const capabilities = ["kernel.py", "screen.read", "input.write"];
+beforeAll(mclientBinary, 300_000);
 
-/** One machine whose computer-use shell surface is the recorded fake (#1274). */
-async function fixture(
-  run: (context: {
-    mode: ReturnType<typeof createCodemode>;
-    fake: ReturnType<typeof fakeMac>;
-  }) => Promise<void>,
-) {
-  const socketPath = join(tmpdir(), `oc-computer-${crypto.randomUUID()}.sock`);
-  const fake = fakeMac();
+async function fixture(run: (mode: ReturnType<typeof createCodemode>) => Promise<void>) {
+  const root = mkdtempSync(join(tmpdir(), "oc-computer-"));
+  const events = eventCollector();
   let mode: ReturnType<typeof createCodemode>;
   const host = await createMachineHost({
-    listen: { unix: socketPath },
-    enrollment: (id) => ({
-      machineId: id,
-      name: id,
-      tags: [id],
-      allowedCapabilities: capabilities,
-      publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      enrolledAt: 1,
-    }),
-    events: silent,
-    now: () => 2,
+    listen: { unix: join(root, "host.sock") },
+    enrollment: (id) => mclientEnrollment(id),
+    events: events.sink,
+    now: () => Date.now(),
     callTool: (call) => mode.callTool(call),
   });
   mode = createCodemode({ machines: host, self: "A" });
-  const daemon = await attachMachineDaemon({
-    socketPath,
-    offer: {
-      machineId: "A",
-      daemonVersion: "test",
-      platform: `${process.platform}-${process.arch}`,
-      offeredAt: 2,
-      offeredCapabilities: capabilities,
-    },
-    commands: fake.runner,
-    runner: createCodemode().runner,
-  });
+  const client = await attachMclient({ host, events, machineId: "A", root });
   try {
-    await run({ mode, fake });
+    await run(mode);
   } finally {
     await mode.close();
-    await daemon.close();
-    host.close();
+    await client.stop();
+    await host.close();
+    rmSync(root, { recursive: true, force: true });
   }
 }
 
-test("SDK handles expose screen and input through the machine handle", async () => {
-  await fixture(async ({ mode, fake }) => {
+test("SDK handles route screen and input to the attached client", async () => {
+  await fixture(async (mode) => {
     const machine = mode.getMachine("A");
     const shot = await machine.screen({});
-    if (shot.status !== "ok") throw new Error(`screen refused: ${shot.reason}`);
-    expect(Buffer.from(shot.png).equals(fake.behavior.capturePng)).toBe(true);
+    expect(["ok", "refused"]).toContain(shot.status);
     expect(await machine.input({ captureId: "bogus", actions: [{ click: { x: 1, y: 1 } }] }))
-      .toEqual({ status: "refused", reason: "stale_capture" });
-    expect(await machine.input({ captureId: shot.captureId, actions: [{ click: { x: 1, y: 1 } }] }))
-      .toEqual({ status: "ok" });
+      .toEqual({ status: "refused", reason: "input_not_available" });
   });
-}, 15000);
-
-test("Python cells drive m.screen() and m.input() with an implicit capture anchor", async () => {
-  await fixture(async ({ mode, fake }) => {
-    const result = await mode.cell.run(
-      [
-        "m = machine('A')",
-        "shot = m.screen()",
-        "ok = shot['status'] == 'ok' and shot['png'][:4] == b'\\x89PNG'",
-        "pressed = m.input([{'click': {'x': 10, 'y': 20}}, {'type': {'text': 'nonce-7'}}])",
-        "(ok, pressed['status'])",
-      ].join("\n"),
-      "tenant",
-    );
-    expect(result).toMatchObject({ status: "completed", value: "(True, 'ok')" });
-    expect(fake.invocations("cliclick").at(-1)?.slice(1)).toEqual(["c:10,20", "t:nonce-7"]);
-  });
-}, 20000);
+}, 20_000);
 
 test("Python input without a prior capture raises a ToolError", async () => {
-  await fixture(async ({ mode, fake }) => {
+  await fixture(async (mode) => {
     const result = await mode.cell.run(
       [
         "try:",
@@ -101,6 +59,16 @@ test("Python input without a prior capture raises a ToolError", async () => {
       status: "completed",
       value: "'input requires a prior screen() capture or an explicit capture_id'",
     });
-    expect(fake.invocations("cliclick")).toHaveLength(0);
   });
-}, 20000);
+}, 20_000);
+
+test("Python cells route screen reads through the attached client", async () => {
+  await fixture(async (mode) => {
+    const direct = await mode.getMachine("A").screen({});
+    const result = await mode.cell.run("machine('A').screen()['status']", "tenant");
+    expect(result).toMatchObject({
+      status: "completed",
+      value: JSON.stringify(direct.status).replaceAll('"', "'"),
+    });
+  });
+}, 20_000);

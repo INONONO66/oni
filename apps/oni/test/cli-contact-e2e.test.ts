@@ -1,6 +1,6 @@
 /**
  * #1512 conformance: a test Resident sends to a declared `cli:` contact on an
- * attached machine (real daemon, real tmux on a private socket, real session
+ * attached machine (real client, real tmux on a private socket, real session
  * entity). The pane runs a FAKE child — a Bun program the pack's command
  * resolves to — that behaves as the vendor would toward the installed live
  * config using only the pack's captured fixtures. The sender gets one inbox
@@ -9,12 +9,11 @@
  * page; the pane is gone when the app stops. Completion is awaited on the
  * committed prompt row, never on time.
  */
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { chmodSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { attachMachineDaemon } from "@oni/machines";
 import { L0Observation, Provisioning, type Tool } from "@oni/protocol";
-import { Effect, Exit, Scope } from "effect";
+import { Effect } from "effect";
 import { foldAlarmChains } from "../src/bundles/alarms/index";
 import { cliContactRowId, cliSessionName } from "../src/bundles/child-activity/contact/declaration";
 import { cliDeadlineChain, DELEGATION_DEADLINE } from "../src/bundles/delegation-policy/index";
@@ -30,13 +29,13 @@ import { ownerStart } from "./helpers/owner-start";
 import { receivedMessages } from "./helpers/received-messages";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
-import { runEffect } from "./helpers/effect";
 import { testSelfMachine } from "./helpers/self-machine";
 import { socketPath } from "./helpers/socket-path";
-import { testIds } from "./helpers/test-entropy";
 import { nextFrame } from "./helpers/ws";
+import { attachAppMclient, mclientBinary } from "./helpers/mclient";
 
 const suite = residentSuite();
+beforeAll(mclientBinary, 300_000);
 const MACHINE = "m-1";
 const CONTACT = "reviewer";
 const CAPABILITIES = ["pty.session", "fs.read", "fs.write", "shell.exec"];
@@ -104,8 +103,8 @@ async function bootContact(prefix: string, send: Tool.Call["input"]) {
   const root = realpathSync(suite.tempDir(`${prefix}-work-`));
   const fakeDir = realpathSync(suite.tempDir(`${prefix}-bin-`));
   installFakeChild(fakeDir);
-  // The daemon spawns the tmux server, whose panes inherit this process's environment: the fake child first on
-  // PATH, and a plain POSIX shell so no user dotfile reorders it.
+  // The fixture starts the tmux server before the client attaches, so the
+  // fake child is first on its PATH even though the client is another process.
   const previous = { PATH: process.env.PATH, SHELL: process.env.SHELL };
   process.env.PATH = `${fakeDir}:${previous.PATH ?? ""}`;
   process.env.SHELL = "/bin/sh";
@@ -113,6 +112,9 @@ async function bootContact(prefix: string, send: Tool.Call["input"]) {
     process.env.PATH = previous.PATH;
     process.env.SHELL = previous.SHELL;
   });
+  expect(tmux("new-session", "-d", "-s", "fixture", "-c", root).exitCode).toBe(0);
+  expect(tmux("set-environment", "-g", "PATH", process.env.PATH ?? "").exitCode).toBe(0);
+  expect(tmux("set-option", "-g", "default-shell", "/bin/sh").exitCode).toBe(0);
   const machinesSocket = socketPath();
   const app = await suite.boot({
     config: suite.config(`${prefix}-db-`, {
@@ -129,17 +131,11 @@ async function bootContact(prefix: string, send: Tool.Call["input"]) {
     }),
     llm: scripted(send),
   });
-  // Own the daemon here; a cached module's afterEach hook belongs to its first importing file.
-  const daemonScope = await runEffect(Scope.make());
-  suite.defer(() => runEffect(Scope.close(daemonScope, Exit.void)));
-  await runEffect(attachMachineDaemon({
-    dispatcherBound: 8, socketPath: machinesSocket, id: testIds(`${prefix}-daemon`),
-    offer: {
-      machineId: MACHINE, daemonVersion: "0.1.0", platform: "darwin", offeredAt: 2000,
-      offeredCapabilities: CAPABILITIES, exports: [{ name: "work", path: root }],
-    },
-    fsExports: new Map([["work", root]]), pty: { socketName },
-  }).pipe(Scope.provide(daemonScope)));
+  const daemon = await attachAppMclient({
+    socketPath: machinesSocket, machineId: MACHINE, root,
+    exports: [{ name: "work", path: root }], tmuxSocket: socketName,
+  });
+  suite.defer(() => daemon.stop());
   const plane = await planeOf(app.runtime);
   const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "owner-token"]);
   const request: Provisioning.ChannelDeclareRequest = {

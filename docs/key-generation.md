@@ -1,16 +1,9 @@
 # Machine network keys (#1270)
 
-Each end of a network attachment verifies the other, asymmetrically: the
-daemon config carries the host's CERTIFICATE file (`hostCertificate`) and the
-TLS chain must validate against it (`rejectUnauthorized: true`) with the
-presented key's fingerprint equal to that certificate's — CN-only self-signed
-certs work, no hostname semantics apply. The host pins the daemon's KEY
-through `Enrollment.publicKey`. A fingerprint is 64 lowercase hex characters:
-sha256 over the public key's SPKI DER (`Machine.fingerprintOf`; from a
-certificate, `certificateKeyFingerprint` extracts the same SPKI first).
-Daemon certificates are only carriers (self-signed is the norm); the HOST
-certificate is a real trust anchor on the daemon side — its expiry is
-enforced by chain validation, so give it a long validity.
+The host pins the Rust client's key through `Enrollment.publicKey`. The client
+pins the host key after `mclient join`, using a 64-character lowercase hex
+SHA-256 fingerprint of the public key's SPKI DER. Its settings file does not
+carry TLS keys or the host pin; `join` records identity and trust state.
 
 ## Generate an identity (self-signed EC P-256)
 
@@ -19,20 +12,19 @@ openssl ecparam -name prime256v1 -genkey -noout -out host-key.pem
 openssl req -new -x509 -key host-key.pem -out host-cert.pem -days 3650 -subj "/CN=oni-host"
 ```
 
-Repeat with `daemon-key.pem` / `daemon-cert.pem` (any CN) on the machine that
-will attach.
+`mclient join` generates the client identity; no manual client certificate
+is needed.
 
-## Derive the fingerprint to pin (enrollment side only)
+## Derive the host fingerprint
 
 ```sh
-openssl x509 -in daemon-cert.pem -pubkey -noout \
+openssl x509 -in host-cert.pem -pubkey -noout \
   | openssl pkey -pubin -outform DER \
   | openssl dgst -sha256 -r | cut -d' ' -f1
 ```
 
-That value goes in the enrollment as `publicKey` (for the daemon's cert). The
-daemon side needs no fingerprint: its JSON points at the host certificate PEM
-itself.
+Pass that fingerprint to `mclient join --host-pin`. The client's enrollment
+`publicKey` comes from the receipt that `join` prints.
 
 ## Host exposure
 
@@ -46,24 +38,26 @@ ONI_MACHINES_TLS_CERT=/path/host-cert.pem
 ONI_MACHINES_TLS_KEY=/path/host-key.pem
 ```
 
-The unix socket stays bound regardless; same-box daemons keep zero config.
+The unix socket stays bound regardless; same-box clients can join over Unix.
 
-## Daemon config (`oni machine attach <config.json>`)
+## Client settings (`mclient run --config <settings.json>`)
 
 ```json
 {
-  "tcp": { "host": "100.64.0.7", "port": 7643 },
-  "hostCertificate": "/path/host-cert.pem",
-  "tlsCertificate": "/path/daemon-cert.pem",
-  "tlsPrivateKey": "/path/daemon-key.pem",
-  "offer": { "machineId": "studio", "offeredCapabilities": ["fs.read"], "daemonVersion": "1", "platform": "darwin-arm64", "offeredAt": 0 }
+  "machineId": "studio",
+  "name": "Studio",
+  "host": "100.64.0.7:7643",
+  "unix": null,
+  "exports": [{ "name": "work", "path": "/home/owner/work" }],
+  "tags": ["studio"],
+  "memoryBudgetMb": 1024
 }
 ```
 
-`hostCertificate` and the TLS fields are PEM file paths, read at attach time. Addressing is plain TCP:
-over Tailscale, put the tailnet IP (or MagicDNS name) in `tcp.host` — there is
-no app-level Tailscale integration; on a LAN, the host's interface address.
-Pinning makes the transport safe on any reachable network.
+Run `mclient join <host> --host-pin <fingerprint>` before starting the
+client. It persists the TLS identity and host pin separately from settings;
+`unix` names a same-box socket instead of TCP. Host enrollment bounds
+effective capabilities; no second capability filter lives in these settings.
 
 ## Client join (`mclient join`, #1626)
 
@@ -112,36 +106,24 @@ generates its own identity and records the host's key in one run:
 A join that fails after step 3 leaves the config and identity behind but no
 `host-pin`, so `run` refuses with the missing-file I/O error until the join
 completes. The host side needs nothing beyond the enrollment: the same
-`ONI_MACHINES_TCP_*`/`ONI_MACHINES_TLS_*` tuple serves daemons and clients.
+`ONI_MACHINES_TCP_*`/`ONI_MACHINES_TLS_*` tuple serves clients.
 
 ## Rotation
 
-DAEMON certificates may be re-issued freely as long as the KEY inside is
-unchanged — the enrollment pin survives. The HOST certificate may not:
-re-issuing it, EVEN WITH THE SAME KEY, fails chain validation against the old
-PEM (observed on Bun 1.4.1/1.4.2: a same-key, same-CN self-signed re-issue is
-refused `DEPTH_ZERO_SELF_SIGNED_CERT` — OpenSSL requires the presented
-self-signed certificate itself to be the trust anchor, not merely its key),
-so every daemon JSON must receive the new host PEM. Chain validation also
-enforces the host certificate's validity window: an expired host certificate
-refuses typed exactly like a mismatch (`IpcPeerKeyMismatchError`, code
-`CERT_HAS_EXPIRED`) — choose a long validity when generating it. Rotating a
-daemon key is an out-of-band admission change: update the enrollment
-`publicKey`, then swap the files. A stale host PEM or enrollment pin refuses
-with `peer_key_mismatch`; nothing downgrades. The Rust client pins the host
-KEY, not the certificate, so a same-key host re-issue keeps working for it;
-a host key change needs a fresh `mclient join` (or an edited `host-pin`).
+The Rust client pins the host key, not its certificate; reissuing a
+certificate with the same key preserves trust. A host key change needs
+a fresh `mclient join`. Rotating the client identity changes the enrollment
+`publicKey`, so the Owner must re-admit the new receipt.
 
-## QA recipe (ten lines)
+## QA recipe
 
 ```sh
 openssl ecparam -name prime256v1 -genkey -noout -out /tmp/hk.pem && openssl req -new -x509 -key /tmp/hk.pem -out /tmp/hc.pem -days 30 -subj "/CN=h"
-openssl ecparam -name prime256v1 -genkey -noout -out /tmp/dk.pem && openssl req -new -x509 -key /tmp/dk.pem -out /tmp/dc.pem -days 30 -subj "/CN=d"
-DF=$(openssl x509 -in /tmp/dc.pem -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 -r | cut -d' ' -f1)
+HP=$(openssl x509 -in /tmp/hc.pem -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 -r | cut -d' ' -f1)
 export ONI_MACHINES_TCP_HOST=127.0.0.1 ONI_MACHINES_TCP_PORT=7643 ONI_MACHINES_TLS_CERT=/tmp/hc.pem ONI_MACHINES_TLS_KEY=/tmp/hk.pem
-export ONI_MACHINES_ENROLLED="[{\"machineId\":\"qa\",\"name\":\"qa\",\"allowedCapabilities\":[\"kernel.py\"],\"publicKey\":\"$DF\",\"enrolledAt\":0}]"
-bun apps/oni/src/cli/main.ts start &   # host side, with the rest of your env
-printf '{"tcp":{"host":"127.0.0.1","port":7643},"hostCertificate":"/tmp/hc.pem","tlsCertificate":"/tmp/dc.pem","tlsPrivateKey":"/tmp/dk.pem","offer":{"machineId":"qa","offeredCapabilities":["kernel.py"],"daemonVersion":"qa","platform":"qa","offeredAt":0}}' > /tmp/machine.json
-bun apps/oni/src/cli/main.ts machine attach /tmp/machine.json   # prints {"status":"attached",...}
-# kill the host: the daemon stays up, retrying with jittered backoff (capped 30s); restart the host and the machine serves again under the same identity
+oni start    # with the host environment above
+mclient join 127.0.0.1:7643 --name qa --host-pin "$HP" --export work=/tmp
+# Admit the printed enrollment receipt through provision machine_add.
+mclient run --config ~/.oni/machine-client/client.json
+# Restart the host: the client reconnects with its saved generation.
 ```

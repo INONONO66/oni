@@ -2,7 +2,8 @@ import { Machine, type Ipc } from "@oni/protocol";
 import { Effect } from "effect";
 import type { MachineError } from "./errors";
 import { decodeMachineFailure } from "./failure";
-import { COMMAND_TIMEOUT_MS } from "./pty-control";
+
+const COMMAND_TIMEOUT_MS = 10_000;
 
 /**
  * Host-side pty surface (#1273), kept out of host.ts so the attachment
@@ -43,14 +44,14 @@ export interface PtyHandle {
 }
 
 /**
- * Host-side room on top of the daemon's per-command deadline
- * ({@link COMMAND_TIMEOUT_MS}, owned by `pty-control.ts`). Operations that
+ * Host-side room on top of the client's per-command deadline.
+ * Operations that
  * issue a known number of bounded control commands budget
  * `commands * COMMAND_TIMEOUT_MS + margin` through {@link controlBudget}, so
- * the daemon's typed deadline failure reaches the host before the host's own
+ * the client's typed deadline failure reaches the host before the host's own
  * transport timeout. The remaining calls (open, write, close, list, and the
  * stream read on top of its `waitMs`) keep the bare margin as #1273 shipped
- * them: that margin equals one command deadline, so for those the daemon is
+ * them: that margin equals one command deadline, so for those the client is
  * not guaranteed to time out first.
  */
 const PTY_CALL_MARGIN_MS = 10_000;

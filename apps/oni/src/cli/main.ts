@@ -9,7 +9,7 @@ import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { Core } from "@oni/agent";
 import { createChannelInstanceStore, createPersonStore, createSecretStore, openChannelStore, OwnerLogins } from "@oni/channels";
-import { Channel, listenForAbort, type Machine, parseJson, PlainValueSchema, Provisioning } from "@oni/protocol";
+import { Channel, listenForAbort, parseJson, PlainValueSchema, Provisioning } from "@oni/protocol";
 import { loadConfig } from "../config";
 import { installShutdownHandlers, startOni } from "..";
 import { type CliDeps, runCli } from "./commands";
@@ -345,26 +345,16 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     async attachMachine(configPath) {
       const runtime = ManagedRuntime.make(Layer.effect(Scope.Scope, Effect.scope));
       try {
-      const daemon = await runtime.runPromise(attachConfiguredMachine(configPath, platformEntropy().id));
-      // Snapshot the initial attachment: narrowing the SNAPSHOT keeps the live
-      // `daemon.attachment` getter unnarrowed for the re-read after `closed`.
-      const initialAttachment: Machine.AttachResult = daemon.attachment;
-      console.log(JSON.stringify(initialAttachment));
-      if (initialAttachment.status === "refused") {
-        return 1;
-      }
-      installShutdownHandlers({
-        stop: runtime.dispose,
-        exit: (code) => process.exit(code),
-        on: (signal, handler) => process.once(signal, handler),
-      });
-      // v4: dispose() interrupts every fiber the runtime runs, which would turn
-      // the SIGTERM path into a rejection here. daemon.closed needs no context,
-      // so await it outside the runtime; a MachineError still rejects as in v3.
-      await Effect.runPromise(daemon.closed);
-      // A daemon that closed because a reattach was REFUSED exits nonzero so
-      // supervisors see the revocation instead of a clean shutdown.
-      return daemon.attachment.status === "refused" ? 1 : 0;
+        const child = await runtime.runPromise(attachConfiguredMachine(configPath));
+        const stop = () => { void runtime.dispose(); };
+        process.once("SIGTERM", stop);
+        process.once("SIGINT", stop);
+        try {
+          return await child.exited;
+        } finally {
+          process.removeListener("SIGTERM", stop);
+          process.removeListener("SIGINT", stop);
+        }
       } finally {
         await runtime.dispose();
       }

@@ -24,7 +24,6 @@ const ObservationSink = Core.ObservationSink;
 const currentInvocation = Core.currentInvocation;
 type SessionEntryServices = Core.SessionEntryServices;
 const createSessionRequests = Core.createSessionRequests;
-const currentExecutor = Core.currentExecutor;
 const AgentFailure = Core.AgentFailure;
 const scopeObservation = Core.scopeObservation;
 const attemptUsage = Inspect.attemptUsage;
@@ -171,7 +170,11 @@ export function toolPorts(
             },
           },
     llm: (call) => runAppEffect(runtime, currentInvocation().generation.provide(ports.completion(call))),
-    messages: { ingest: (...args) => runAppEffect(runtime, ports.messages.ingest(...args)) },
+    messages: { ingest: (...args) =>
+      runAppEffect(runtime, ports.messages.ingest(...args).pipe(
+        Effect.provideService(Core.ExecutorContext, Core.currentExecutor()),
+      )),
+    },
   };
 }
 
@@ -771,7 +774,7 @@ export function createResidentGateway(
             );
           if (sender.kind === "external") return yield* externalRun(sender, request, execute);
           const outbound = yield* outboundMessage;
-          const result = yield* (outbound?.executor ?? currentExecutor()).run(request, execute);
+          const result = yield* (outbound?.executor ?? (yield* Core.executorContext)).run(request, execute);
           return {
             ...result,
             matchedRuleIds: messageDecisionRules(plane.read.session(sender.id), sender.id, request),

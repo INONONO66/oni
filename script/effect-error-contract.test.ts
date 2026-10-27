@@ -46,14 +46,11 @@ const machines = {
   MachinesFailure: new Machines.MachinesFailure(diagnostic),
   MachineCellError: new Machines.MachineCellError({ ...message, cellId: "cell", code: "unknown_cell_id" }),
   MachineRefusalError: new Machines.MachineRefusalError({ ...message, reason: "closed" }),
-  SpawnFailure: new Machines.SpawnFailure({ ...diagnostic, ...message }),
-  FilesystemFailure: new Machines.FilesystemFailure({ ...diagnostic, ...message }),
   TransportFailure: new Machines.TransportFailure({ ...diagnostic, ...message }),
 } satisfies { [K in Machines.MachineError["_tag"]]: Extract<Machines.MachineError, { _tag: K }> };
 const code = {
   MachinesFailure: new Machines.MachinesFailure(diagnostic),
   CodemodeError: new Code.CodemodeError({ ...message, reason: "closed" }),
-  DriverFailure: new Code.DriverFailure({ ...diagnostic, ...message }),
 } satisfies { [K in Code.CodeError["_tag"]]: Extract<Code.CodeError, { _tag: K }> };
 // #1246: the ledger store plane folded into agent; AgentFailure is the one carrier.
 const store = {

@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { fork } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Bus } from "./helpers/bus";
 import { PROCESS_SESSION_NO_REQUEST_EXIT } from "../src/process-entry";
 import { startOni } from "../src/index";
 import { testMachinesPlane } from "./helpers/self-machine";
+import { mclientBinary } from "../../../packages/machines/test/helpers/mclient";
 
 const appDir = join(import.meta.dir, "..");
 const repoRoot = resolve(appDir, "..", "..");
@@ -139,6 +140,7 @@ describe("npm package staging", () => {
       if (name.startsWith("@")) mkdirSync(join(staging, "node_modules", name.split("/")[0] ?? ""), { recursive: true });
       symlinkSync(dirname(resolved), join(staging, "node_modules", name));
     }
+    copyFileSync(await mclientBinary(), join(staging, "dist", "app", "mclient"));
 
     // Boot the bundle exactly as the daemon would: `bun dist/app/main.js start`.
     const proc = Bun.spawn([process.execPath, join(staging, "dist", "app", "main.js"), "start"], {

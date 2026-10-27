@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve, relative } from "node:path";
-import ts from "typescript";
 import { decodeJson } from "../quality-json";
 import { parseEntry } from "../quality-inventory";
 
@@ -70,7 +69,7 @@ export type Entry = {
   category: string;
   language: string;
 };
-export type Source = Entry & { text: string; hostPath?: string; hostOffset?: number };
+export type Source = Entry & { text: string };
 function entry(value: Json): Entry {
   try { return parseEntry(value); }
   catch { return fail("inventory", "", "invalid source entry"); }
@@ -109,55 +108,10 @@ export function inventoryFrom(root: string, bytes: Buffer, path: string) {
     if (sha(content(root, path)) !== sha256) fail("tamper", path, "configuration differs");
     return { path, sha256 };
   });
-  const embedded = array(inv.embedded)
-    .map(entry)
-    .map((e) => {
-      const [hostPath, symbol, extra] = e.path.split("#");
-      if (!hostPath || !symbol || extra || e.language !== "python")
-        fail("inventory", e.path, "invalid virtual source");
-      const host = files.find((f) => f.path === hostPath);
-      if (!host) fail("inventory", e.path, "virtual source host absent");
-      const ast = ts.createSourceFile(hostPath, host.text, ts.ScriptTarget.Latest, true);
-      const matches: Source[] = [];
-      function visit(node: ts.Node): void {
-        if (
-          ts.isVariableDeclaration(node) &&
-          ts.isIdentifier(node.name) &&
-          node.name.text === symbol
-        ) {
-          const init = node.initializer;
-          if (
-            !init ||
-            !ts.isTaggedTemplateExpression(init) ||
-            init.tag.getText(ast) !== "String.raw" ||
-            !ts.isNoSubstitutionTemplateLiteral(init.template)
-          )
-            fail("inventory", e.path, "virtual source is not a constant raw template");
-          const value = init.template.rawText;
-          if (
-            value === undefined ||
-            sha(value) !== e.sha256 ||
-            Buffer.byteLength(value) !== e.bytes
-          )
-            fail("tamper", e.path, "virtual source identity differs");
-          matches.push({
-            ...e,
-            text: value,
-            hostPath,
-            hostOffset: init.template.getStart(ast) + 1,
-          });
-        }
-        ts.forEachChild(node, visit);
-      }
-      visit(ast);
-      if (matches.length !== 1 || !matches[0])
-        fail("inventory", e.path, "virtual source must resolve uniquely");
-      return matches[0];
-    });
-  const all = [...files, ...historical, ...embedded];
+  const all = [...files, ...historical];
   if (!files.length || new Set(all.map((e) => e.path)).size !== all.length)
     fail("inventory", path, "empty or overlapping inventory");
-  return { inventoryHash: sha(bytes), contractHash, files, historical, embedded, configurations };
+  return { inventoryHash: sha(bytes), contractHash, files, historical, configurations };
 }
 export type Inventory = ReturnType<typeof loadInventory>;
 export function toolVersion(name: string, expected: string) {

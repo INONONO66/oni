@@ -54,7 +54,7 @@ Agent capability is no longer the bottleneck — reliability is. Oni reduces to 
 
 ## Current Status
 
-The clean-room app is the sole deployable: a single Resident chat loop behind the channel gateway (WebSocket, plus env-gated Discord/Telegram/GitHub), a role-gated tool catalog with code mode and machine attach, the async delegation kernel (notify/ask/assign over inline, process, and channel transports with durable handles and boot recovery), curated built-in memory, and the npm-installable CLI with launchd/systemd daemon management. WorkItem completion authority, Stakes, the verifier registry, and the System Governor remain design-doc contracts without a wired implementation.
+The clean-room app is the sole deployable: a single Resident chat loop behind the channel gateway (WebSocket, plus env-gated Discord/Telegram/GitHub), a role-gated tool catalog with code mode and host-side machine attachment, the async delegation kernel (notify/ask/assign over inline, process, and channel transports with durable handles and boot recovery), curated built-in memory, and the npm-installable CLI with launchd/systemd Resident service management. The Rust `mclient` is the machine peer and runs the attached code interpreter. WorkItem completion authority, Stakes, the verifier registry, and the System Governor remain design-doc contracts without a wired implementation.
 
 Component-level truth lives in [Implementation Status](docs/implementation-status.md) — design docs describe targets; that file says what actually runs.
 

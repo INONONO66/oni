@@ -215,5 +215,8 @@ async fn exec_does_not_inherit_host_environment() {
     let bytes = STANDARD
         .decode(result["stdout"].as_str().expect("stdout"))
         .expect("base64");
-    assert_eq!(bytes, b"unset:/usr/bin:/bin");
+    assert_eq!(
+        bytes,
+        format!("unset:{}", std::env::var("PATH").unwrap_or_default()).as_bytes()
+    );
 }

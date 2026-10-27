@@ -105,7 +105,8 @@ fn offered_capabilities_follow_exports_and_the_tmux_probe() {
             "agent.session",
             "screen.read",
             "computer.use",
-            "input.write"
+            "input.write",
+            "kernel.py"
         ]
     );
     assert_eq!(
@@ -123,12 +124,19 @@ fn offered_capabilities_follow_exports_and_the_tmux_probe() {
 #[tokio::test]
 async fn service_offers_only_what_is_available() {
     let bare = Fixture::without_tmux(false).await;
-    assert_eq!(bare.service.capabilities(), ["shell.exec"]);
+    let python = oni_machine_client::code::Code::available();
+    let expected = if python {
+        vec!["shell.exec", "kernel.py"]
+    } else {
+        vec!["shell.exec"]
+    };
+    assert_eq!(bare.service.capabilities(), expected);
     let exported = Fixture::without_tmux(true).await;
-    assert_eq!(
-        exported.service.capabilities(),
-        ["fs.read", "fs.write", "shell.exec"]
-    );
+    let mut expected = vec!["fs.read", "fs.write", "shell.exec"];
+    if python {
+        expected.push("kernel.py");
+    }
+    assert_eq!(exported.service.capabilities(), expected);
     let missing = settings(true, Path::new("/definitely/missing/export"));
     assert!(Service::open(&missing, Pty::new(MISSING_TMUX, None, "g".into()).await).is_err());
 }
@@ -136,10 +144,7 @@ async fn service_offers_only_what_is_available() {
 #[tokio::test]
 async fn unoffered_methods_answer_typed_refusals_even_when_granted() {
     let fixture = Fixture::without_tmux(true).await;
-    fixture.grant(
-        &["kernel.py", "screen.read", "input.write", "pty.session"],
-        &["notes"],
-    );
+    fixture.grant(&["screen.read", "input.write", "pty.session"], &["notes"]);
     let cell = json!({"cellId":"c1","code":"1 + 1","timeoutMs":1000});
     let input = json!({"captureId":"cap-1","actions":[{"type":{"text":"hi"}}]});
     let cases = [
@@ -474,10 +479,11 @@ async fn screen_methods_gate_attachment_then_capability_and_free_frames_on_teard
     let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
     let screen = Screen::new(Box::new(Frames::display(32, 16, 1.0)), 2);
     let service = Service::open_with(&settings(false, root.path()), pty, screen).expect("service");
-    assert_eq!(
-        service.capabilities(),
-        ["shell.exec", "screen.read", "computer.use"]
-    );
+    let mut expected = vec!["shell.exec", "screen.read", "computer.use"];
+    if oni_machine_client::code::Code::available() {
+        expected.push("kernel.py");
+    }
+    assert_eq!(service.capabilities(), expected);
     let hooks = service.hooks(Duration::from_secs(60));
     let call = |method: &str, params: Value| (hooks.service)(method.to_owned(), Some(params));
     let capture = json!({"target":{"kind":"display","display":1},"encoding":{"format":"png"}});
@@ -589,10 +595,11 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
     let input = Input::new(recorder.clone());
     let service =
         Service::open_computer(&settings(false, root.path()), pty, screen, input).expect("service");
-    assert_eq!(
-        service.capabilities(),
-        ["shell.exec", "screen.read", "computer.use", "input.write"]
-    );
+    let mut expected = vec!["shell.exec", "screen.read", "computer.use", "input.write"];
+    if oni_machine_client::code::Code::available() {
+        expected.push("kernel.py");
+    }
+    assert_eq!(service.capabilities(), expected);
     let hooks = service.hooks(Duration::from_secs(60));
     let call = |method: &str, params: Value| (hooks.service)(method.to_owned(), Some(params));
     let grant = |capabilities: &[&str]| {
@@ -669,10 +676,11 @@ async fn input_write_is_not_offered_without_an_input_driver() {
     let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
     let screen = Screen::new(Box::new(Frames::display(8, 8, 1.0)), 1);
     let service = Service::open_with(&settings(false, root.path()), pty, screen).expect("service");
-    assert_eq!(
-        service.capabilities(),
-        ["shell.exec", "screen.read", "computer.use"]
-    );
+    let mut expected = vec!["shell.exec", "screen.read", "computer.use"];
+    if oni_machine_client::code::Code::available() {
+        expected.push("kernel.py");
+    }
+    assert_eq!(service.capabilities(), expected);
     service.attached(&Negotiated {
         generation: NonZeroU64::MIN,
         capabilities: vec!["computer.use".into(), "input.write".into()],

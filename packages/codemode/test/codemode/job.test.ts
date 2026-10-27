@@ -1,41 +1,30 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Machine } from "@oni/protocol";
-import { attachMachineDaemon, createMachineHost } from "../../../machines/test/helpers/native";
+import { createMachineHost } from "../../../machines/test/helpers/native";
+import { attachMclient, mclientBinary, mclientEnrollment } from "../../../machines/test/helpers/mclient";
+import { eventCollector } from "../../../machines/test/helpers/events";
 import { createCodemode } from "./helpers/native";
 
 const root = mkdtempSync(join(tmpdir(), "oc-job-"));
-const tmuxSocket = `oni-job-test-${process.pid}`;
-const capabilities = [Machine.WellKnownCapability.pythonKernel, Machine.WellKnownCapability.ptySession];
+beforeAll(mclientBinary, 300_000);
 afterAll(() => {
-  Bun.spawnSync(["tmux", "-L", tmuxSocket, "kill-server"]);
   rmSync(root, { recursive: true, force: true });
 });
 
 test("a named job survives its Python handle and is read through a new handle", async () => {
   const socket = join(tmpdir(), `oc-job-${crypto.randomUUID()}.sock`);
+  const events = eventCollector();
   let mode: ReturnType<typeof createCodemode>;
   const host = await createMachineHost({
     listen: { unix: socket },
-    enrollment: (machineId) => ({
-      machineId, name: machineId, allowedCapabilities: capabilities, allowedExports: ["work"],
-      publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", enrolledAt: 1,
-    }),
-    events: { publish: () => undefined }, now: () => 2,
+    enrollment: (machineId) => mclientEnrollment(machineId),
+    events: events.sink, now: () => Date.now(),
     callTool: (call) => mode.callTool(call),
   });
   mode = createCodemode({ machines: host, self: "worker" });
-  const kernel = createCodemode();
-  const daemon = await attachMachineDaemon({
-    socketPath: socket,
-    offer: {
-      machineId: "worker", platform: `${process.platform}-${process.arch}`, daemonVersion: "test",
-      offeredCapabilities: capabilities, offeredAt: 2, exports: [{ name: "work", path: root }],
-    },
-    fsExports: new Map([["work", root]]), runner: kernel.runner, pty: { socketName: tmuxSocket },
-  });
+  const daemon = await attachMclient({ host, events, machineId: "worker", root });
   try {
     const started = await mode.cell.run(
       `m = machine('worker')\njob = m.job("printf 'finished-job\\\\n'; exit 7", ${JSON.stringify(root)})\nname = job['name']\ndel m\njob`,
@@ -69,7 +58,7 @@ test("a named job survives its Python handle and is read through a new handle", 
     expect(finished).toMatchObject({ status: "completed", value: "'worker'" });
   } finally {
     await mode.close();
-    await daemon.close();
-    host.close();
+    await daemon.stop();
+    await host.close();
   }
 }, 30_000);

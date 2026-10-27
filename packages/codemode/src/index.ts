@@ -1,10 +1,8 @@
-import { MachinesFailure, MachineRefusalError, type LeaseHandle, type LeaseClass, type CodeRunner, type MachineError, type MachineHandle, type MachineHost, type MachineInfo } from "@oni/machines";
+import { MachinesFailure, MachineRefusalError, type LeaseHandle, type LeaseClass, type MachineError, type MachineHandle, type MachineHost, type MachineInfo } from "@oni/machines";
 import type { ChannelListeners, ComputerChannel, ComputerHandle, ComputerStream, StreamListeners } from "@oni/machines";
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { listenForAbort, Machine } from "@oni/protocol";
 import { Deferred, Effect, Exit, Fiber, Scope } from "effect";
 import { z } from "zod";
-import { PythonKernel } from "./kernel";
 import { CodemodeError, type CodeError } from "./errors";
 import { decodeCodeFailure } from "./failure";
 export * from "./errors";
@@ -27,10 +25,6 @@ interface BackgroundCell {
   readonly quarantined: boolean;
 }
 const RETAINED_SETTLED_CELLS = 64;
-/** Idle tenants beyond this count lose interpreter globals on LRU retirement. */
-const RETAINED_IDLE_TENANTS = 8;
-/** Upper bound on tenant interpreters shut down at once during close. */
-const CLOSE_CONCURRENCY = 16;
 export interface CodemodeOptions {
   /** Injected cell-id entropy (#1245): required, no ambient crypto fallback. */
   readonly id: () => string;
@@ -46,8 +40,6 @@ export interface CodemodeOptions {
   readonly toolOutput?: (tenant: string, outputId: string) => Effect.Effect<{ readonly text: string; readonly bytes: number; readonly mediaType?: string } | undefined, Failure>;
   readonly tools?: (tenant: string) => Caller;
   readonly boundary?: (tenant: string) => (call: Machine.ToolCall, body: () => Effect.Effect<Machine.ToolCallResult, Failure>) => Effect.Effect<Machine.ToolCallResult, Failure>;
-  /** Process observer for host lifecycle instrumentation. */
-  readonly onInterpreterSpawn?: (tenant: string, process: ChildProcessWithoutNullStreams) => void;
 }
 const LeaseInput = z.object({ leaseId: z.string().min(1).nullish() }).strict();
 const PathLeaseInput = z.object({ machineId: Machine.MachineId, path: Machine.AbsolutePath }).merge(LeaseInput);
@@ -67,13 +59,10 @@ const PtyResizeInput = Machine.PtyResizeRequest.extend({ machineId: Machine.Mach
 const PtyCloseInput = Machine.PtyCloseRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
 const PtyListInput = z.object({ machineId: Machine.MachineId }).merge(LeaseInput);
 
-/** One app-owned scope retains background cells and tenant interpreters. */
+/** One app-owned scope retains background cells. */
 export function createCodemode(options: CodemodeOptions) {
   return Effect.gen(function* () {
     const scope = yield* Scope.Scope;
-    const kernels = new Map<string, PythonKernel>();
-    const activeTenants = new Map<string, { count: number; idle: Deferred.Deferred<void> }>();
-    const retiring = new Map<string, Deferred.Deferred<void>>();
     const handles = new Map<string, ReturnType<typeof makeHandle>>();
     const live = new Map<string, { caller: Caller; tenant: string; timeoutMs: number; signal?: AbortSignal; ownership?: RunOptions["ownership"]; boundary?: ReturnType<NonNullable<CodemodeOptions["boundary"]>> }>();
     const lifetime = new AbortController();
@@ -410,80 +399,17 @@ export function createCodemode(options: CodemodeOptions) {
         return { cellId, entry };
       }));
     }
-    function retire(tenant: string): Effect.Effect<void, Failure> {
-      return Effect.gen(function* () {
-        const pending = retiring.get(tenant);
-        if (pending) return yield* Deferred.await(pending);
-        const kernel = kernels.get(tenant);
-        if (!kernel) return;
-        const completed = yield* Deferred.make<void>();
-        retiring.set(tenant, completed);
-        yield* Effect.gen(function* () {
-          const active = activeTenants.get(tenant);
-          if (active) yield* Deferred.await(active.idle);
-          yield* kernel.close();
-        }).pipe(Effect.ensuring(Effect.sync(() => {
-          kernels.delete(tenant);
-          retiring.delete(tenant);
-          Deferred.doneUnsafe(completed, Exit.void);
-        })));
-      });
-    }
-    function trimIdle(): Effect.Effect<void, Failure> {
-      return Effect.gen(function* () {
-        while (kernels.size > RETAINED_IDLE_TENANTS) {
-          const oldest = [...kernels.keys()].find((tenant) => !activeTenants.has(tenant) && !retiring.has(tenant));
-          if (!oldest) return;
-          yield* retire(oldest);
-        }
-      });
-    }
-    function runTenant(request: Machine.CellRequest, call: (call: Machine.ToolCall) => Effect.Effect<Machine.ToolCallResult, MachineError>, signal: AbortSignal): Effect.Effect<Machine.CellResult, Failure> {
-      return Effect.gen(function* () {
-        yield* Effect.try({ try: requireOpen, catch: decodeCodeFailure("runner.run") });
-        const tenant = request.tenant ?? "default";
-        const pending = retiring.get(tenant);
-        if (pending) yield* Deferred.await(pending);
-        yield* Effect.try({ try: requireOpen, catch: decodeCodeFailure("runner.run") });
-        let kernel = kernels.get(tenant);
-        if (!kernel) { kernel = new PythonKernel((process) => options.onInterpreterSpawn?.(tenant, process)); kernels.set(tenant, kernel); }
-        else { kernels.delete(tenant); kernels.set(tenant, kernel); }
-        let active = activeTenants.get(tenant);
-        if (!active) {
-          active = { count: 0, idle: yield* Deferred.make<void>() };
-          activeTenants.set(tenant, active);
-        }
-        active.count += 1;
-        const result = yield* Effect.exit(kernel.run(request, call, signal));
-        active.count -= 1;
-        if (active.count === 0) {
-          activeTenants.delete(tenant);
-          Deferred.doneUnsafe(active.idle, Exit.void);
-          yield* trimIdle();
-        }
-        return yield* (Exit.isSuccess(result) ? Effect.succeed(result.value) : Effect.failCause(result.cause));
-      });
-    }
-    const runner: CodeRunner = {
-      runCode: (request, call, signal) => runTenant(request, call, signal).pipe(Effect.mapError((error) => new MachinesFailure({ operation: "code.run", cause: error.message || String(error) }))),
-      peekCode(cellId) {
-        for (const kernel of kernels.values()) { const output = kernel.peek(cellId); if (output !== undefined) return output; }
-        return { stdout: "", stderr: "" };
-      },
-      close: () => Effect.gen(function* () {
-        closed = true; lifetime.abort();
-        for (const lease of leases.values()) lease.release();
-        leases.clear();
-        handles.clear();
-        yield* Effect.forEach([...retiring.values()], Deferred.await, { discard: true });
-        yield* Effect.forEach([...kernels.values()], (kernel) => kernel.close(), { discard: true, concurrency: CLOSE_CONCURRENCY });
-        yield* Effect.forEach([...running], Deferred.await, { discard: true });
-        if ([...background.values()].some((entry) => entry.quarantined))
-          return yield* new MachinesFailure({ operation: "shutdown.cell_unsettled", cause: "physical termination was not witnessed" });
-        live.clear(); kernels.clear();
-      }).pipe(Effect.mapError((error) => new MachinesFailure({ operation: "code.close", cause: String(error) }))),
-    };
-    yield* Effect.addFinalizer(() => Effect.orDie(runner.close()));
+    const close = () => Effect.gen(function* () {
+      closed = true; lifetime.abort();
+      for (const lease of leases.values()) lease.release();
+      leases.clear();
+      handles.clear();
+      yield* Effect.forEach([...running], Deferred.await, { discard: true });
+      if ([...background.values()].some((entry) => entry.quarantined))
+        return yield* new MachinesFailure({ operation: "shutdown.cell_unsettled", cause: "physical termination was not witnessed" });
+      live.clear();
+    }).pipe(Effect.mapError((error) => new MachinesFailure({ operation: "code.close", cause: String(error) })));
+    yield* Effect.addFinalizer(() => Effect.orDie(close()));
     return {
       listMachines: (): MachineInfo[] => machines().list(), getMachine,
       findMachine: (query: { tag: string; requires?: Machine.CapabilityId[]; prefer?: Machine.PlacementRequest["prefer"] }) => {
@@ -491,7 +417,7 @@ export function createCodemode(options: CodemodeOptions) {
         return makeHandle(selected.machineId, selected.lease.id);
       },
       callTool: (call: Machine.ToolCall) => callTool(call).pipe(Effect.mapError((error) => new MachinesFailure({ operation: "code.tool", cause: error.message || String(error) }))),
-      runner, close: runner.close, retire,
+      close,
       cell: {
         run: (code: string, tenant: string, runOptions: RunOptions = {}): Effect.Effect<Machine.CellState, Failure> => Effect.gen(function* () {
           const target = yield* Effect.try({ try: () => machines().list().find((entry) => entry.machineId === (options.self ?? "self")), catch: decodeCodeFailure("cell.select") });

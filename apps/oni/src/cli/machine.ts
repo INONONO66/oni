@@ -1,15 +1,12 @@
-import { readFileSync } from "node:fs";
+import { createHash, X509Certificate } from "node:crypto";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { Effect } from "effect";
-import {
-  attachMachineDaemon,
-  MachinesFailure,
-  type ReconnectOptions,
-} from "@oni/machines";
-import { createCodemode } from "@oni/codemode";
+import { MachinesFailure } from "@oni/machines";
 import { Machine } from "@oni/protocol";
 import { z } from "zod";
 import { foreignFailure } from "../composition/failure";
-import { captureNow, effectScheduler } from "../composition/platform";
+import { spawnMclient, writeMclientSettings } from "../composition/mclient";
 
 /**
  * Two ways to reach a host, named explicitly: same-box over the unix socket,
@@ -33,48 +30,37 @@ const TcpConfiguration = z
   .strict();
 const Configuration = z.union([UnixConfiguration, TcpConfiguration]);
 
-/**
- * Real time and real entropy; tests inject their own through the daemon API.
- * Only TCP attachments reconnect: a network between daemon and host blips, a
- * same-box unix host that went away is a shutdown and the daemon exits with it.
- * Every attachment reports its load on the same Effect-clock scheduler (#1555).
- */
-/** Production composition of the existing daemon wire, not a second daemon implementation. */
-export function attachConfiguredMachine(configPath: string, id: () => string) {
+/** Translate the CLI's PEM-path config into the Rust client's persisted settings. */
+export function attachConfiguredMachine(configPath: string) {
   return Effect.gen(function* () {
-    const context = yield* Effect.context();
-    const scheduler: ReconnectOptions["scheduler"] = effectScheduler(context);
-    const reconnect: ReconnectOptions = { scheduler, random: Math.random };
-    const now = yield* captureNow;
-    const report = { scheduler, now };
     const contents = yield* Effect.tryPromise({ try: () => Bun.file(configPath).text(), catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.read") });
     const config = yield* Effect.try({ try: () => Configuration.parse(JSON.parse(contents)), catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.decode") });
-    const mode = yield* createCodemode({ id });
-    const common = {
-      id,
-      // #1312: injected IPC callback bound for the remote machine daemon.
-      dispatcherBound: 256,
-      offer: config.offer,
-      fsExports: new Map((config.offer.exports ?? []).map((entry) => [entry.name, entry.path])),
-      runner: mode.runner,
-      report,
-    };
-    if ("socketPath" in config) {
-      return yield* attachMachineDaemon({ ...common, socketPath: config.socketPath });
-    }
-    const identity = yield* Effect.try({
-      try: () => ({
-        hostCertificate: readFileSync(config.hostCertificate, "utf8"),
-        tlsCertificate: readFileSync(config.tlsCertificate, "utf8"),
-        tlsPrivateKey: readFileSync(config.tlsPrivateKey, "utf8"),
-      }),
-      catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.tls"),
+    const directory = join(dirname(configPath), `.mclient-${config.offer.machineId}`);
+    const path = join(directory, "client.json");
+    yield* Effect.try({
+      try: () => {
+        const unix = "socketPath" in config;
+        writeMclientSettings(path, {
+          machineId: config.offer.machineId, name: config.offer.machineId,
+          host: unix ? "localhost" : `${config.tcp.host.includes(":") ? `[${config.tcp.host}]` : config.tcp.host}:${config.tcp.port}`,
+          unix: unix ? config.socketPath : null,
+          exports: config.offer.exports ?? [], tags: [], memoryBudgetMb: 96,
+        });
+        if (unix) return;
+        const certificate = new X509Certificate(readFileSync(config.hostCertificate));
+        const pin = createHash("sha256").update(certificate.publicKey.export({ type: "spki", format: "der" })).digest("hex");
+        for (const [name, value] of [
+          ["host-pin", pin],
+          ["client-cert.pem", readFileSync(config.tlsCertificate, "utf8")],
+          ["client-key.pem", readFileSync(config.tlsPrivateKey, "utf8")],
+        ] as const) {
+          const target = join(directory, name);
+          writeFileSync(target, value, { mode: 0o600 });
+          chmodSync(target, 0o600);
+        }
+      },
+      catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.settings"),
     });
-    return yield* attachMachineDaemon({
-      ...common,
-      reconnect,
-      tcp: config.tcp,
-      ...identity,
-    });
+    return yield* spawnMclient(path);
   });
 }

@@ -1,19 +1,23 @@
 import {
-  attachMachineDaemon,
   MachineRefusalError,
-  type CodeRunner,
   type MachineError,
   type MachineHost,
 } from "@oni/machines";
 import { mkdirSync } from "node:fs";
-import { Machine, NamedError } from "@oni/protocol";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { Machine, NamedError, type ObservationSink } from "@oni/protocol";
 import { Effect, type Scope } from "effect";
 import { z } from "zod";
 import type { MachinePlane } from "../config";
+import { spawnMclient, writeMclientSettings } from "./mclient";
+
+// Promise band (#1423): the host's native observation callback signals admission.
+// The single Effect.promise entry resumes scoped startup; the callback writes no ledger.
 
 /**
  * The one typed startup refusal for the self-machine chain (#1271): listener
- * creation, in-process daemon startup, loopback attach, and the pre-publish
+ * creation, mclient startup, loopback attach, and the pre-publish
  * liveness probe all surface through this error. There is no local execution
  * fallback behind any of these failures.
  */
@@ -51,6 +55,7 @@ export function selfEnrollment(plane: MachinePlane, enrolledAt: number): Machine
 
 export interface SelfMachine {
   readonly machineId: string;
+  readonly pid: number;
   /**
    * Liveness probe run immediately before tool ports publish: one fs round
    * trip over the loopback attachment. ANY daemon reply — including a typed
@@ -58,7 +63,6 @@ export interface SelfMachine {
    * only a dead or detached connection fails boot.
    */
   readonly ready: Effect.Effect<void, SelfAttachError>;
-  readonly bindRunner: (runner: CodeRunner) => void;
 }
 
 interface SelfAttachOptions {
@@ -66,8 +70,10 @@ interface SelfAttachOptions {
   readonly plane: MachinePlane;
   /** The unix loopback endpoint of the host listener the daemon dials. */
   readonly socketPath: string;
-  readonly id: () => string;
-  readonly now: () => number;
+  readonly stateDir: string;
+  readonly binary: string;
+  readonly attachTimeoutMs: number;
+  readonly events: Required<Pick<ObservationSink, "subscribe">>;
   /** Where an unexpected post-boot close surfaces for lifecycle handling. */
   readonly onClose: (error: SelfAttachError) => void;
 }
@@ -80,9 +86,10 @@ function isDetached(error: MachineError): boolean {
 }
 
 /**
- * Boot step (c)+(d) of #1271: start the in-process daemon with the Owner's
- * self exports and capabilities, dial the host's own unix listener, and
- * complete `machine.attach`. A refused attachment is a boot failure, never a
+ * Boot step (c)+(d) of #1271: start mclient with the Owner's self exports,
+ * dial the host's unix listener, and observe a newly admitted generation.
+ * Enrollment bounds the capabilities the Rust drivers report as available.
+ * A refused attachment is a boot failure, never a
  * local fallback; an unexpected close after boot lands on `onClose`.
  */
 export function attachSelfMachine(
@@ -95,39 +102,54 @@ export function attachSelfMachine(
       yield* Effect.try({ try: () => mkdirSync(inbox, { recursive: true, mode: 0o700 }), catch: String }).pipe(
         Effect.mapError((detail) => selfAttachFailure(`self inbox creation failed: ${detail}`)),
       );
-    let runner: CodeRunner | undefined;
-    const selfRunner: CodeRunner = {
-      runCode: (request, call, signal) => runner === undefined
-        ? Effect.fail(new MachineRefusalError({ reason: "machine_not_attached", message: "self machine runner is not bound" }))
-        : runner.runCode(request, call, signal),
-      peekCode: (cellId) => runner?.peekCode(cellId) ?? { stdout: "", stderr: "" },
-      close: () => Effect.void,
-    };
-    const daemon = yield* attachMachineDaemon({
-      socketPath: options.socketPath,
-      id: options.id,
-      // #1312: injected IPC callback bound for the self machine daemon.
-      dispatcherBound: 256,
-      offer: {
-        machineId: plane.self.id,
-        daemonVersion: "in-process",
-        platform: `${process.platform}-${process.arch}`,
-        offeredAt: options.now(),
-        offeredCapabilities: [...plane.self.capabilities],
-        exports: plane.self.exports.map((entry) => ({ ...entry })),
-      },
-      fsExports: new Map(plane.self.exports.map((entry) => [entry.name, entry.path])),
-      ...(plane.self.capabilities.includes(Machine.WellKnownCapability.pythonKernel) ? { runner: selfRunner } : {}),
-    }).pipe(Effect.mapError((error) => selfAttachFailure(String(error))));
-    if (daemon.attachment.status !== "attached")
-      return yield* Effect.fail(selfAttachFailure(`machine.attach refused: ${daemon.attachment.reason}`));
+    // The persisted generation belongs to this identity, not the self role.
+    const identity = createHash("sha256").update(plane.self.id).digest("hex");
+    const path = join(options.stateDir, "self", identity, "client.json");
+    yield* Effect.try({
+      try: () => writeMclientSettings(path, {
+        machineId: plane.self.id, name: "self", host: "localhost",
+        unix: options.socketPath, exports: plane.self.exports, tags: [],
+        memoryBudgetMb: 96,
+      }),
+      catch: (cause) => selfAttachFailure(`self settings failed: ${String(cause)}`),
+    });
+    const previous = options.host.list().find((entry) => entry.machineId === plane.self.id)?.generation ?? 0;
+    // Subscribe before spawning: a fast child cannot outrun the attachment signal.
+    const admitted = Promise.withResolvers<void>();
+    let generation = previous;
+    const stopAttach = options.events.subscribe(Machine.Events.Attached, ({ machineId }) => {
+      const attachment = options.host.list().find((entry) => entry.machineId === machineId);
+      if (machineId === plane.self.id && attachment !== undefined && attachment.generation > previous)
+        generation = attachment.generation;
+    });
+    // The host publishes Attached before replying. The first report proves the
+    // client received that grant and can serve the liveness probe without a race.
+    const stopReport = options.events.subscribe(Machine.Events.Reported, ({ machineId }) => {
+      if (machineId === plane.self.id && generation > previous) admitted.resolve();
+    });
+    const unsubscribe = () => { stopAttach(); stopReport(); };
+    yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+    const child = yield* spawnMclient(path, options.binary).pipe(
+      Effect.mapError((error) => selfAttachFailure(String(error))),
+    );
+    yield* Effect.promise(() => admitted.promise).pipe(
+      Effect.raceFirst(child.closed.pipe(
+        Effect.mapError((error) => selfAttachFailure(String(error))),
+        Effect.flatMap((code) => Effect.fail(selfAttachFailure(`mclient exited before attachment: ${code}`))),
+      )),
+      Effect.timeoutOrElse({
+        duration: options.attachTimeoutMs,
+        orElse: () => Effect.fail(selfAttachFailure(`self attachment deadline exceeded: ${options.socketPath}`)),
+      }),
+      Effect.ensuring(Effect.sync(unsubscribe)),
+    );
     // The watcher fiber dies first on a graceful scope close (finalizers run
     // in reverse order), so onClose fires only for an UNEXPECTED daemon close.
     yield* Effect.forkScoped(
-      daemon.closed.pipe(
+      child.closed.pipe(
         Effect.exit,
         Effect.andThen(
-          Effect.sync(() => options.onClose(selfAttachFailure("self machine daemon closed"))),
+          Effect.sync(() => options.onClose(selfAttachFailure("self machine mclient closed"))),
         ),
       ),
     );
@@ -145,6 +167,6 @@ export function attachSelfMachine(
             : Effect.void,
         ),
       );
-    return { machineId: plane.self.id, ready, bindRunner: (next) => { runner = next; } };
+    return { machineId: plane.self.id, pid: child.pid, ready };
   });
 }

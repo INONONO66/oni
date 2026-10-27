@@ -234,14 +234,17 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
     });
   }
 
-  function manager(sessionId: string) {
+  // Draining refuses the same way the core's generation manager does once
+  // its own drain began: `GenerationUnavailable`, which the session drain
+  // reads as "defer, the committed row stays pending" rather than a defect.
+  function manager(id: SessionGeneration.Id) {
     return lock.withPermits(1)(Effect.gen(function* () {
-      if (stopping) return yield* new AgentFailure({ operation: "generation.capture", cause: "draining" });
-      let owner = managers.get(sessionId);
+      if (stopping) return yield* new GenerationUnavailable({ generation: id.generation });
+      let owner = managers.get(id.sessionId);
       if (owner === undefined) {
-        const initial = yield* bundle(sessionId, plane.read.session(sessionId).latestGenerationFor(sessionId));
+        const initial = yield* bundle(id.sessionId, plane.read.session(id.sessionId).latestGenerationFor(id.sessionId));
         owner = yield* makeSessionGenerations(initial).pipe(Scope.provide(scope));
-        managers.set(sessionId, owner);
+        managers.set(id.sessionId, owner);
       }
       return owner;
     }));
@@ -256,14 +259,14 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
       return Effect.void;
     }),
     capture: (id: SessionGeneration.Id) => Effect.gen(function* () {
-      const owner = yield* manager(id.sessionId);
+      const owner = yield* manager(id);
       const snapshot = plane.read.session(id.sessionId).generationFor(id.sessionId, id.generation);
       if (snapshot === undefined) return yield* new GenerationUnavailable({ generation: id.generation });
       return yield* owner.capture(yield* bundle(id.sessionId, snapshot));
     }),
     configure: <A>(id: SessionGeneration.Id, snapshot: SessionGeneration.Snapshot, commit: Effect.Effect<A, SessionError>) => Effect.gen(function* () {
       if (id.generation !== snapshot.generation) return yield* new AgentFailure({ operation: "generation.configure", cause: "snapshot_identity_mismatch" });
-      const owner = yield* manager(id.sessionId);
+      const owner = yield* manager(id);
       return yield* owner.configure(yield* bundle(id.sessionId, snapshot), commit);
     }),
     settle: Effect.suspend(() =>

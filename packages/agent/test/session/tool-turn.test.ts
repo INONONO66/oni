@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { canonicalJson, type PlainValue, type Tool } from "@oni/protocol";
-import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
+import { Cause, Context, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { SingleRunner } from "effect/cluster";
 import { TestClock } from "effect/testing";
@@ -19,6 +19,7 @@ import { createSessionPortsSlot, sessionTool } from "../../src/core/session/host
 import { BunTestCrypto } from "../helpers/cluster-runtime";
 import { currentInvocation } from "../../src/core/loop/invocation";
 import { deliver } from "../../src/core/session/entity-delivery";
+import { GenerationLayers } from "../../src/core/ports/ports";
 
 const call: Tool.Call = { id: "outside-1", tool: "probe", input: { n: 7 } };
 const probe = defineTool({
@@ -499,4 +500,23 @@ test("recovery seals an external turn without entering the model runner", () =>
     expect(modelCalls).toBe(0);
     expect(world.kernel.latestTurnTerminal(world.sessionId)?.effect.kind).toBe("error");
     expect(world.kernel.row(world.sessionId).state).toBe("idle");
+  }))));
+
+test("a drain whose turn start finds the generation draining defers typed: the committed row stays pending, no turn opens", () =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    // A deferred drain never reaches the model: entering the runner is the failure.
+    const world = yield* toolTurnWorld({ runner: () => Effect.die(new Error("model runner entered during a draining generation")) });
+    const row = world.kernel.row(world.sessionId);
+    yield* world.kernel.commit({
+      ...world.handle.authority, now: 1, state: row.state, expectedRevision: row.revision,
+      actions: [receivedMessageAction({
+        id: "late-prompt", sessionId: world.sessionId, kind: "prompt", content: [{ kind: "text", text: "act" }],
+        origin: { encodingVersion: 1, value: { kind: "external", inboundTreatment: "full_access" } },
+        parentActionId: null, at: 1,
+      })],
+    });
+    yield* Context.get(world.context, GenerationLayers).drain;
+    expect(yield* drain(world.handle)).toEqual({ kind: "deferred", generation: 1 });
+    expect(world.kernel.pendingMessages(world.sessionId).map((item) => item.id)).toEqual(["late-prompt"]);
+    expect(world.kernel.latestOpenTurn(world.sessionId)).toBeUndefined();
   }))));

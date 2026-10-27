@@ -29,7 +29,6 @@ export type Identity = {
 	contractHash: string;
 	paths: string[];
 	typescript: string[];
-	embedded?: { path: string; hostPath: string; text: string; sha256: string; lineOffset: number }[];
 };
 export type Measurement = { analyzed: Gate[]; findings: Finding[] };
 

@@ -29,8 +29,6 @@ const RefusalFields = z.object({
 });
 export class MachineRefusalError extends Data.TaggedError("MachineRefusalError")<z.infer<typeof RefusalFields>> {}
 const BoundaryFields = Diagnostic.extend({ message: z.string() });
-export class SpawnFailure extends Data.TaggedError("SpawnFailure")<z.infer<typeof BoundaryFields>> {}
-export class FilesystemFailure extends Data.TaggedError("FilesystemFailure")<z.infer<typeof BoundaryFields>> {}
 export class TransportFailure extends Data.TaggedError("TransportFailure")<z.infer<typeof BoundaryFields>> {}
 
-export type MachineError = MachinesFailure | MachineCellError | MachineRefusalError | SpawnFailure | FilesystemFailure | TransportFailure;
+export type MachineError = MachinesFailure | MachineCellError | MachineRefusalError | TransportFailure;

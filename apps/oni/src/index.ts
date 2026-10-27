@@ -28,7 +28,7 @@ import {
 } from "./runtime";
 import { timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { compactionOptions } from "./bundles/compaction/index";
 import { readHooksJson } from "./bundles/hooks-json/index";
 import { ownerPolicy } from "./composition/policy";
@@ -74,6 +74,7 @@ import {
   Outbound,
   traceIdFromUuid,
   type BusEvent,
+  type ObservationSink as ObservationPort,
   type Machine,
 } from "@oni/protocol";
 import {
@@ -93,6 +94,7 @@ import {
   resolveAlarmSweep,
   resolveClusterStorage,
   resolveMachineGenerationsPath,
+  resolveMclientBin,
   resolveSessionFork,
   resolveToolOutput,
   validateMachinePlane,
@@ -181,7 +183,7 @@ interface StartOptions {
 
 /**
  * The machine plane in the #1271 boot order: validate the Owner's plane,
- * start the listener set, attach the in-process self daemon over the unix
+ * start the listener set, attach the scoped Rust mclient child over the unix
  * loopback, and complete `machine.attach` — each failure is the one typed
  * startup refusal `self_attach_failed`, and nothing here ever falls back to
  * local execution. Tool ports are published only after `self.ready` passes.
@@ -192,7 +194,8 @@ async function composeMachinePlane(
   generationsPath: string,
   deps: {
     readonly enrollments: MachinePort["enrollments"];
-    readonly events: BusEvent.Sink;
+    readonly events: BusEvent.Sink & Required<Pick<ObservationPort, "subscribe">>;
+    readonly mclientBin: string;
     readonly id: () => string;
     readonly now: () => number;
     readonly callTool: (
@@ -265,8 +268,10 @@ async function composeMachinePlane(
       host,
       plane,
       socketPath: machines.listen.unix,
-      id: deps.id,
-      now: deps.now,
+      stateDir: dirname(generationsPath),
+      binary: deps.mclientBin,
+      attachTimeoutMs: 10_000,
+      events: deps.events,
       // Typed lifecycle surface (r1 M1): the host already publishes the typed
       // Detached event for the closed connection; this records the typed
       // self_attach_failed cause on the app log, never a bare console line.
@@ -726,6 +731,7 @@ export async function startOni(options: StartOptions = {}) {
     const machinery = await composeMachinePlane(runtime, machinesConfig, resolveMachineGenerationsPath(config), {
       enrollments,
       events: services.observations,
+      mclientBin: config.mclientBin ?? resolveMclientBin(),
       id: services.entropy.id,
       now: services.now,
       callTool: (call) =>
@@ -761,7 +767,7 @@ export async function startOni(options: StartOptions = {}) {
         id: services.entropy.id, selfMachineId: machinery.self.machineId,
         outputs: sessionOutputsSource(plane.read.session),
       }),
-    ); machinery.self.bindRunner(cells.runner);
+    );
 
     // Boot order (#1271): the self machine must answer over its loopback
     // attachment BEFORE any tool port exists; a dead attachment fails boot.

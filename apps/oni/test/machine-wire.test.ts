@@ -1,11 +1,11 @@
-import { expect, spyOn, test } from "bun:test";
+import { beforeAll, expect, spyOn, test } from "bun:test";
 import { Machine, Operational, parseJson, type Tool } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { bounded } from "./helpers/protected-dispatch";
-import { attachMachineDaemon } from "../../../packages/machines/test/helpers/native";
+import { attachAppMclient, mclientBinary } from "./helpers/mclient";
 import { createFileGenerationStore } from "@oni/machines";
 import { nextFrame } from "./helpers/ws";
 import { machineWire } from "../src/composition/machine-wire";
@@ -16,6 +16,7 @@ import { Bus } from "./helpers/bus";
 import { runEffect } from "./helpers/effect";
 
 const suite = residentSuite();
+beforeAll(mclientBinary, 300_000);
 
 test("the authenticated gateway returns the live host list before chat", async () => {
   const config = suite.config("machine-wire-", { wsToken: "owner-token", compactionSummarizer: false });
@@ -40,11 +41,11 @@ test("the authenticated gateway returns the live host list before chat", async (
   });
   if (config.machineGenerationsPath === undefined) throw new Error("missing generation store path");
   expect(await runEffect(createFileGenerationStore({ path: config.machineGenerationsPath }).current("self"))).toBe(1);
-  const daemon = await attachMachineDaemon({
-    socketPath: machines.listen.unix ?? "",
-    offer: { machineId: "wire-worker", daemonVersion: "test", offeredCapabilities: ["kernel.py"], offeredAt: 2, platform: "linux-arm64" },
+  const client = await attachAppMclient({
+    socketPath: machines.listen.unix ?? "", machineId: "wire-worker", root: suite.tempDir("wire-worker-"),
+    exports: [],
   });
-  suite.defer(() => daemon.close());
+  suite.defer(() => client.stop());
   const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "owner-token"]);
   const response = nextFrame(socket, (frame) => frame.requestId === "machines");
   socket.send(JSON.stringify({ type: "machine_list", requestId: "machines" }));
@@ -53,16 +54,17 @@ test("the authenticated gateway returns the live host list before chat", async (
   if (reply.type !== "machine_listed") throw new Error(reply.detail);
   expect(reply.rows.map((row) => row.machineId)).toEqual(["self", "wire-worker"]);
   expect(reply.rows.find((row) => row.machineId === "wire-worker")).toMatchObject({
-    generation: 1, peer: { kind: "daemon", contractVersion: Machine.contractVersion },
+    generation: 1, peer: { kind: "client", contractVersion: Machine.contractVersion },
   });
   socket.send(JSON.stringify({ text: "List attached machines", eventId: "list-machines" }));
   const result = await bounded(execution.promise);
   expect(result.isError).not.toBe(true);
   if (result.content === undefined) throw new Error("missing machine list result");
   const listed = parseJson(z.object({ rows: z.array(Machine.Info) }), result.content)?.rows;
-  expect(listed).toEqual(reply.rows);
+  expect(listed?.map(({ live: _live, ...row }) => row))
+    .toEqual(reply.rows.map(({ live: _live, ...row }) => row));
   expect(listed?.find((row) => row.machineId === "wire-worker")).toMatchObject({
-    generation: 1, peer: { kind: "daemon", contractVersion: Machine.contractVersion },
+    generation: 1, peer: { kind: "client", contractVersion: Machine.contractVersion },
   });
 });
 

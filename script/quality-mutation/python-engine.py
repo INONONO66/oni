@@ -300,7 +300,7 @@ class Arguments(argparse.Namespace):
 
 
 def mutation_contract(decoder: Callable[[str], dict[str, dict[str, dict[str, dict[str, object]]]]], text: str) -> dict[str, object]:
-    return decoder(text)['contract']['embeddedPython']['mutation']
+    return decoder(text)['contract']['pythonSource']['mutation']
 
 
 def operator_contract(decoder: Callable[[str], list[Operator]], text: str) -> list[Operator]:
@@ -321,7 +321,7 @@ def main() -> int:
     source = pathlib.Path(args.source).read_bytes().decode('utf-8')
     mutation = mutation_contract(json.loads, pathlib.Path(args.decision).read_text())
     digest = hashlib.sha256(json.dumps(mutation, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
-    if digest != '072579aa17fe6dd80df6fd0085a9c6bdffec66a3510edc035e30f067d4968331':
+    if digest != 'ecf981eba68b4a907c13f909c850538609829042fd682f90c2c58d0aa01f7eaa':
         raise ValueError('Frozen Python operator contract changed')
     try:
         tree = ast.parse(source)

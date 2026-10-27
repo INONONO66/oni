@@ -51,6 +51,7 @@ const ENV_KEYS = [
   "ONI_MACHINES_SELF",
   "ONI_MACHINES_SOCKET",
   "ONI_MACHINES_GENERATIONS",
+  "ONI_MCLIENT_BIN",
   "ONI_MACHINES_TCP_HOST",
   "ONI_MACHINES_TCP_PORT",
   "ONI_MACHINES_TLS_CERT",
@@ -149,6 +150,15 @@ describe("machines network listener config", () => {
     process.env.ONI_MACHINES_GENERATIONS = "/tmp/oni-generations-override.json";
     expect(loadConfig("/tmp/oni-config-home").machineGenerationsPath)
       .toBe("/tmp/oni-generations-override.json");
+  });
+
+  it("resolves the in-repository mclient release build by default", () => {
+    expect(loadConfig().mclientBin).toBe(join(import.meta.dir, "../../../clients/target/release/mclient"));
+  });
+
+  it("uses ONI_MCLIENT_BIN instead of the default mclient path", () => {
+    process.env.ONI_MCLIENT_BIN = " /opt/oni/mclient ";
+    expect(loadConfig().mclientBin).toBe("/opt/oni/mclient");
   });
 
   it("the full tuple yields the tcp endpoint with the PEM contents read at boot", () => {

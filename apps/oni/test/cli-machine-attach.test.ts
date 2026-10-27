@@ -11,7 +11,7 @@ afterAll(closeAcquiredEffects);
 
 test("an unreadable configuration file fails typed before any daemon attach", async () => {
   const outcome = await acquireEffect(
-    Effect.flip(attachConfiguredMachine(join(tmpdir(), "missing-1272-config.json"), () => "id-1")),
+    Effect.flip(attachConfiguredMachine(join(tmpdir(), "missing-1272-config.json"))),
   );
   expect(outcome).toBeInstanceOf(MachinesFailure);
   expect((outcome as MachinesFailure).operation).toBe("configuration.read");
@@ -22,7 +22,7 @@ test("a configuration that violates the schema fails typed at decode", async () 
   try {
     const path = join(dir, "config.json");
     writeFileSync(path, JSON.stringify({ socketPath: "" }));
-    const outcome = await acquireEffect(Effect.flip(attachConfiguredMachine(path, () => "id-2")));
+    const outcome = await acquireEffect(Effect.flip(attachConfiguredMachine(path)));
     expect(outcome).toBeInstanceOf(MachinesFailure);
     expect((outcome as MachinesFailure).operation).toBe("configuration.decode");
   } finally {

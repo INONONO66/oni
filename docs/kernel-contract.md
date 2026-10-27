@@ -338,16 +338,16 @@ The live policy contract is compiled-row evaluation, not general effect composit
 
 The machine endpoint is a raw WHERE surface: `MachineHost.list()` and stable
 `get(id)` handles expose confined filesystem operations, `exec(cmd, cwd)`, and
-`runCode`. Enrollment and daemon offer capabilities intersect fail-closed;
+`runCode`. Enrollment and client offer capabilities intersect fail-closed;
 `shell.exec` is distinct from filesystem capabilities and is required for
-`exec`. For each exec call the daemon re-resolves the effective export root pathname,
+`exec`. For each exec call the client re-resolves the effective export root pathname,
 checks cwd containment, and spawns by pathname. Exec does not share the fs
 branch's pinned-root invariant: replacing the export-root pathname before a
 request changes where exec actually starts (fs keeps reading the root pinned at
 attach), and a symlink swap between check and spawn is a bounded, accepted
 TOCTOU for now (follow-up #938 in `docs/SLOP.md`). This is
 not an OS shell sandbox: commands run as
-the daemon user and may exercise that user's other OS authority once started;
+the client user and may exercise that user's other OS authority once started;
 Owner grants shell execution knowingly. Codemode consumes these handles through
 one `eval` cell runner, with per-tenant interpreter state and no legacy
 machines or filesystem tools. Inside a cell a machine handle's methods are the
@@ -367,7 +367,7 @@ running in the background under a hard ceiling of ten minutes.
 output it produced — the code never runs again, and the interpreter's state is
 discarded like any other cancel. A settled background cell is handed over once:
 the `peek` or `stop` that observes the terminal state claims the id synchronously,
-so a `peek` whose daemon round trip a `stop` overtook finds it spent, and a
+so a `peek` whose client round trip a `stop` overtook finds it spent, and a
 `cell_id` from another session is as unknown as a spent one. Unread settled
 cells are retained per facade up to a bound (64); beyond it the oldest is
 dropped and its id is spent.
@@ -419,11 +419,11 @@ atomic against external writers. `ls` lists immediate entries with an optional
 `ignoreCase`, `glob` name filter, `context` lines, `limit`), reports one-based
 lines, and neither traverses symlinks. Binary content requires explicit base64
 read; `grep` refuses it.
-Remote read windows are assembled into a full value; daemon transport limits
+Remote read windows are assembled into a full value; client transport limits
 remain distinct from model rendering limits.
 
 `bash({command, timeout?, machine?})` runs local bash in process cwd or the
-daemon's raw exec in `/`; remote `/` must be an offered, allowed export.
+client's raw exec in `/`; remote `/` must be an offered, allowed export.
 Directory changes belong inside `command`, never persistent tool state.
 `timeout` (seconds) bounds local commands only; the existing raw exec boundary
 owns remote deadlines, cancellation limitations and transport byte limits. No

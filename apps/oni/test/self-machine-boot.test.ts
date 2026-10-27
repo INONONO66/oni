@@ -1,322 +1,273 @@
-import { composedHolder } from "./helpers/bundle-fixture";
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { validateMachinePlane, type OniConfig } from "../src/config";
+import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, realpathSync, writeFileSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { Effect } from "effect";
+import { createHash } from "node:crypto";
+import { Effect, Exit, Scope } from "effect";
 import * as Machines from "@oni/machines";
 import { Machine } from "@oni/protocol";
 import { startOni } from "../src/index";
 import * as Gateway from "../src/gateway";
-import { SelfAttachError } from "../src/composition/self-machine";
-import type { OniConfig } from "../src/config";
-import { acquireEffect, runEffect } from "./helpers/effect";
+import { attachSelfMachine, SelfAttachError, selfEnrollment } from "../src/composition/self-machine";
+import * as SelfMachineComposition from "../src/composition/self-machine";
+import { writeMclientSettings } from "../src/composition/mclient";
+import { acquireEffect, closeAcquiredEffects, runEffect } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
 import { testIds } from "./helpers/test-entropy";
-import { attachConfiguredMachine } from "../src/cli/machine";
 import { testSelfMachine } from "./helpers/self-machine";
-import { residentSuite } from "./helpers/resident-suite";
 import { testBus } from "../../../packages/agent/test/helpers/isolated";
-import { inboxPartBytes } from "../src/composition/media-input";
-import type { FilePorts } from "../src/bundles/tools/core/filesystem";
+import { refusingToolPort } from "./helpers/tool-port";
+import { mclientBinary, spawnAttachedMclient } from "./helpers/mclient";
 
-const suite = residentSuite();
-function fixtureConfig(machines: OniConfig["machines"]): OniConfig {
-  return suite.config("oni-self-boot-", { machines });
-}
-
+const roots: string[] = [];
 const spies: Array<{ mockRestore(): void }> = [];
-afterEach(() => {
+beforeAll(mclientBinary, 180_000);
+afterEach(async () => {
   for (const spy of spies.splice(0)) spy.mockRestore();
+  await closeAcquiredEffects();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function track<S extends { mockRestore(): void }>(spy: S): S {
-  spies.push(spy);
-  return spy;
+function directory() {
+  const root = realpathSync(mkdtempSync("/tmp/oni-self-"));
+  roots.push(root);
+  return root;
 }
 
-test("a config without a machines block refuses boot with machines_required and opens no listener (#1271 r1 M4)", async () => {
+function fixtureConfig(machines: OniConfig["machines"]): OniConfig {
+  const root = directory();
+  return {
+    catalogPath: join(root, "catalog.sqlite"), sessionsDir: join(root, "sessions"),
+    machines, machineGenerationsPath: join(root, "generations.json"),
+    host: "127.0.0.1", wsPort: 0,
+    kek: { kind: "locked", reason: "no vault key in this fixture" },
+    model: { provider: "fake", id: "resident-test", apiKey: "test-key" },
+  };
+}
+
+const selfSettings = (root: string, id: string) =>
+  join(root, "self", createHash("sha256").update(id).digest("hex"), "client.json");
+
+async function selfFixture(enrolled = true, machineId = "self", root = directory()) {
+  const events = testBus();
+  const scope = await runEffect(Scope.make());
+  const plane = validateMachinePlane({
+    self: { ...testSelfMachine(root), id: machineId }, listen: { unix: socketPath() }, enrolled: [],
+  });
+  const host = await acquireEffect(Machines.createMachineHost({
+    listen: { unix: socketPath() }, id: testIds("self-host"), now: () => 1,
+    dispatcherBound: 32, generations: Machines.createMemoryGenerationStore(),
+    enrollment: () => enrolled ? selfEnrollment(plane, 1) : undefined,
+    events, callTool: refusingToolPort, neverSupersede: [plane.self.id],
+  }));
+  const closed = Promise.withResolvers<SelfAttachError>();
+  const options = {
+    host, plane, events, stateDir: root, binary: await mclientBinary(),
+    socketPath: host.endpoints.unix ?? "", attachTimeoutMs: 5000,
+    onClose: closed.resolve,
+  };
+  return {
+    root, host, plane, options, closed,
+    attach: (overrides: Partial<typeof options> = {}) =>
+      runEffect(Scope.provide(attachSelfMachine({ ...options, ...overrides }), scope)),
+    async close() { await runEffect(Scope.close(scope, Exit.void)); events.close(); },
+  };
+}
+
+test("a config without machines refuses before opening a listener", async () => {
   const createHost = Machines.createMachineHost;
-  const hostSpy = track(
-    spyOn(Machines, "createMachineHost").mockImplementation((options) => createHost(options)),
-  );
-  const failed = startOni({ config: fixtureConfig(undefined) });
-  await expect(failed).rejects.toThrow(
-    expect.objectContaining({
-      name: "OniConfigurationError",
-      data: expect.objectContaining({ code: "machines_required" }),
-    }),
-  );
-  expect(hostSpy.mock.calls.length).toBe(0);
+  const hostSpy = spyOn(Machines, "createMachineHost").mockImplementation(createHost);
+  spies.push(hostSpy);
+  await expect(startOni({ config: fixtureConfig(undefined) })).rejects.toMatchObject({
+    name: "OniConfigurationError", data: { code: "machines_required" },
+  });
+  expect(hostSpy).not.toHaveBeenCalled();
 });
 
-test("boot reaches the attached self state before any tool port exists", async () => {
-  const seen: string[][] = [];
+test("boot admits the Rust self peer before publishing tool ports", async () => {
+  const seen: Machines.MachineInfo[][] = [];
   const original = Gateway.toolPorts;
-  track(
-    spyOn(Gateway, "toolPorts").mockImplementation((runtime, ports) => {
-      seen.push(ports.machines === undefined ? [] : ports.machines.host.list().map((m) => m.machineId));
-      return original(runtime, ports);
-    }),
-  );
+  spies.push(spyOn(Gateway, "toolPorts").mockImplementation((runtime, ports) => {
+    seen.push(ports.machines?.host.list() ?? []);
+    return original(runtime, ports);
+  }));
   const app = await startOni({
     config: fixtureConfig({ self: testSelfMachine(), listen: { unix: socketPath() }, enrolled: [] }),
   });
   try {
-    expect(seen).toEqual([["self"]]);
-  } finally {
-    await app.stop();
-  }
+    expect(seen).toMatchObject([[{ machineId: "self", peer: { kind: "client" }, generation: 1 }]]);
+  } finally { await app.stop(); }
 });
 
-test("boot creates a missing private self inbox before daemon attach and reads its file", async () => {
-  const base = mkdtempSync(join(tmpdir(), "oni-self-inbox-"));
-  const inbox = join(base, "inbox");
-  let machines: FilePorts["machines"];
-  let exports: ((machine: string) => readonly { readonly path: string }[]) | undefined;
-  const original = Gateway.toolPorts;
-  track(spyOn(Gateway, "toolPorts").mockImplementation((runtime, ports) => {
-    const result = original(runtime, ports);
-    machines = result.machines;
-    exports = ports.machines === undefined ? undefined : (machine) => ports.machines?.host.exports(machine) ?? [];
-    return result;
-  }));
-  const app = await startOni({
-    config: fixtureConfig({ self: testSelfMachine(base), listen: { unix: socketPath() }, enrolled: [], inbox }),
-  });
+test("boot creates a private inbox and self settings before serving files", async () => {
+  const fixture = await selfFixture();
+  const inbox = join(fixture.root, "inbox");
   try {
-    expect(statSync(inbox).mode & 0o777).toBe(0o700);
+    const self = await fixture.attach({ plane: {
+      ...fixture.plane, inbox,
+      self: { ...fixture.plane.self, exports: [{ name: "workspace", path: fixture.root }] },
+    } });
+    await runEffect(self.ready);
     writeFileSync(join(inbox, "ordinary.txt"), "inbox-data");
-    if (machines === undefined || exports === undefined) throw new Error("machine ports missing");
-    const bytes = inboxPartBytes({ machines }, inbox, exports);
-    expect(new TextDecoder().decode((await runEffect(bytes(`self:${join(inbox, "ordinary.txt")}`))).bytes)).toBe("inbox-data");
-  } finally {
-    await app.stop();
-    rmSync(base, { recursive: true, force: true });
-  }
+    expect(statSync(inbox).mode & 0o777).toBe(0o700);
+    expect(statSync(selfSettings(fixture.root, "self")).mode & 0o777).toBe(0o600);
+    const file = await runEffect(fixture.host.get("self").fs.read(join(inbox, "ordinary.txt")));
+    expect(new TextDecoder().decode(file.data)).toBe("inbox-data");
+  } finally { await fixture.close(); }
 });
 
 test("a listener that cannot bind fails boot with self_attach_failed", async () => {
-  const failed = startOni({
-    config: fixtureConfig({
-      self: testSelfMachine(),
-      listen: { unix: join(tmpdir(), "om-self-missing-dir", "nested", "machines.sock") },
-      enrolled: [],
-    }),
-  });
-  await expect(failed).rejects.toBeInstanceOf(SelfAttachError);
-  await expect(failed).rejects.toMatchObject({
-    data: { code: "self_attach_failed" },
-  });
-  await failed.catch((error: SelfAttachError) => {
-    expect(error.data.cause).toContain("host listener failed");
+  await expect(startOni({ config: fixtureConfig({
+    self: testSelfMachine(), listen: { unix: join(directory(), "missing", "machines.sock") }, enrolled: [],
+  }) })).rejects.toMatchObject({
+    data: { code: "self_attach_failed", cause: expect.stringContaining("host listener failed") },
   });
 });
 
-test("a refused self attachment fails boot closed instead of selecting a local path", async () => {
-  track(
-    spyOn(Machines, "attachMachineDaemon").mockImplementation(() =>
-      Effect.succeed({
-        attachment: { status: "refused", reason: "machine_not_enrolled" } as const,
-        closed: Effect.void,
-        close: () => Effect.void,
-      }),
-    ),
-  );
-  const failed = startOni({
-    config: fixtureConfig({ self: testSelfMachine(), listen: { unix: socketPath() }, enrolled: [] }),
+test("a bad socket fails with a typed bounded self attachment error", async () => {
+  const fixture = await selfFixture();
+  try {
+    await expect(fixture.attach({
+      socketPath: join(fixture.root, "missing.sock"), attachTimeoutMs: 100,
+    })).rejects.toBeInstanceOf(SelfAttachError);
+  } finally { await fixture.close(); }
+});
+
+test("an unenrolled self fails closed at the injected attachment deadline", async () => {
+  const fixture = await selfFixture(false);
+  try {
+    await expect(fixture.attach({ attachTimeoutMs: 100 })).rejects.toMatchObject({
+      data: { code: "self_attach_failed", cause: expect.stringContaining("deadline exceeded") },
+    });
+    expect(fixture.host.list()).toEqual([]);
+  } finally { await fixture.close(); }
+});
+
+test("a real mclient exiting before attachment fails typed", async () => {
+  const fixture = await selfFixture();
+  // An invalid persisted generation makes the real client exit, rather than redial.
+  const settings = selfSettings(fixture.root, "self");
+  writeMclientSettings(settings, {
+    machineId: "self", name: "self", host: "localhost", unix: fixture.options.socketPath,
+    exports: fixture.plane.self.exports, tags: [], memoryBudgetMb: 96,
   });
-  await expect(failed).rejects.toMatchObject({
-    data: { code: "self_attach_failed", cause: "machine.attach refused: machine_not_enrolled" },
+  writeFileSync(join(settings, "..", "state.json"), '{"generation":0}');
+  try {
+    await expect(fixture.attach()).rejects.toMatchObject({
+      data: { code: "self_attach_failed", cause: expect.stringContaining("exited before attachment: 2") },
+    });
+  } finally { await fixture.close(); }
+});
+
+test("changing the self machine id attaches with independent persisted generation", async () => {
+  const first = await selfFixture();
+  try {
+    const self = await first.attach();
+    await runEffect(self.ready);
+    expect(first.host.list()).toMatchObject([{ machineId: "self", generation: 1 }]);
+  } finally { await first.close(); }
+
+  const second = await selfFixture(true, "replacement", first.root);
+  try {
+    const self = await second.attach();
+    await runEffect(self.ready);
+    expect(second.host.list()).toMatchObject([{ machineId: "replacement", generation: 1 }]);
+    expect(statSync(selfSettings(first.root, "self")).isFile()).toBe(true);
+    expect(statSync(selfSettings(first.root, "replacement")).isFile()).toBe(true);
+  } finally { await second.close(); }
+});
+
+test("missing self exports fail before starting a child", async () => {
+  await expect(startOni({ config: fixtureConfig({
+    self: { capabilities: ["fs.read"], exports: [] }, listen: { unix: socketPath() }, enrolled: [],
+  }) })).rejects.toMatchObject({
+    data: { code: "self_attach_failed", cause: expect.stringContaining("machine configuration invalid") },
   });
 });
 
-test("missing self exports in an injected config fail boot with self_attach_failed", async () => {
-  const failed = startOni({
-    config: fixtureConfig({
-      self: { capabilities: ["fs.read"], exports: [] },
-      listen: { unix: socketPath() },
-      enrolled: [],
-    }),
-  });
-  await expect(failed).rejects.toBeInstanceOf(SelfAttachError);
-  await failed.catch((error: SelfAttachError) => {
-    expect(error.data.cause).toContain("machine configuration invalid");
-  });
-});
-
-test("a self daemon that dies during boot fails closed before tool ports publish", async () => {
-  const real = Machines.attachMachineDaemon;
-  // Silence the lifecycle report; the after-boot test asserts its shape.
-  track(spyOn(console, "error").mockImplementation(() => undefined));
-  track(
-    spyOn(Machines, "attachMachineDaemon").mockImplementation((options) =>
-      real(options).pipe(Effect.tap((daemon) => daemon.close())),
-    ),
-  );
-  const failed = startOni({
-    config: fixtureConfig({ self: testSelfMachine(), listen: { unix: socketPath() }, enrolled: [] }),
-  });
-  await expect(failed).rejects.toBeInstanceOf(SelfAttachError);
-  await failed.catch((error: SelfAttachError) => {
-    expect(error.data.cause).toContain("self machine disconnected during boot");
-  });
-});
-
-test("a capability-poor self still boots: a typed refusal proves liveness", async () => {
-  const app = await startOni({
-    config: fixtureConfig({
-      self: { capabilities: ["shell.exec"], exports: testSelfMachine().exports },
-      listen: { unix: socketPath() },
-      enrolled: [],
-    }),
-  });
+test("a capability-poor self boots because a typed refusal proves liveness", async () => {
+  const app = await startOni({ config: fixtureConfig({
+    self: { capabilities: ["shell.exec"], exports: testSelfMachine().exports },
+    listen: { unix: socketPath() }, enrolled: [],
+  }) });
   await app.stop();
 });
 
-test("a self daemon closing after boot detaches the handle and surfaces the typed refusal", async () => {
-  const bus = testBus();
-  // The typed lifecycle surface (r1 M1): the host's Detached event is the
-  // observable contract for a post-boot self daemon close.
-  const detached = new Promise<{ machineId: string }>((resolve, reject) => {
-    bus.observe((observation) => {
-      if (observation.name === Machine.Events.Detached.name)
-        resolve(observation.data as { machineId: string });
-    });
-    AbortSignal.timeout(15_000).addEventListener("abort", () =>
-      reject(new Error("timed out waiting for detach")),
-    );
-  });
-  const real = Machines.attachMachineDaemon;
-  let daemon: Machines.MachineDaemon | undefined;
-  track(
-    spyOn(Machines, "attachMachineDaemon").mockImplementation((options) =>
-      real(options).pipe(Effect.tap((attached) => Effect.sync(() => { daemon = attached; }))),
-    ),
-  );
-  const createHost = Machines.createMachineHost;
-  let host: Machines.MachineHost | undefined;
-  track(
-    spyOn(Machines, "createMachineHost").mockImplementation((options) =>
-      createHost(options).pipe(Effect.tap((created) => Effect.sync(() => { host = created; }))),
-    ),
-  );
-  const root = testSelfMachine();
-  const app = await startOni({
-    runtime: Gateway.gatewayRuntime({ composed: composedHolder(), observations: bus }),
-    config: fixtureConfig({ self: root, listen: { unix: socketPath() }, enrolled: [] }),
-  });
+test("unexpected child exit reaches onClose and fails the liveness probe", async () => {
+  const fixture = await selfFixture();
   try {
-    if (daemon === undefined || host === undefined) throw new Error("self plane was not captured");
-    await runEffect(daemon.close());
-    expect((await detached).machineId).toBe("self");
-    const exportPath = root.exports[0]?.path ?? "/";
-    const refusal = await runEffect(Effect.flip(host.get("self").fs.stat(exportPath)));
-    expect(refusal).toMatchObject({ _tag: "MachineRefusalError", reason: "disconnected" });
-  } finally {
-    await app.stop();
-    bus.close();
-  }
+    const self = await fixture.attach();
+    const kill = spyOn(process, "kill");
+    spies.push(kill);
+    const detached = Promise.withResolvers<void>();
+    const unsubscribe = fixture.options.events.subscribe(Machine.Events.Detached, () => detached.resolve());
+    const timeout = setTimeout(() => detached.reject(new Error("detach deadline")), 5000);
+    try {
+      process.kill(self.pid, "SIGKILL");
+      await detached.promise;
+      expect(await fixture.closed.promise).toBeInstanceOf(SelfAttachError);
+      await expect(runEffect(self.ready)).rejects.toMatchObject({
+        data: { code: "self_attach_failed", cause: expect.stringContaining("disconnected during boot") },
+      });
+      await fixture.close();
+      expect(kill.mock.calls.filter(([pid]) => pid === -self.pid)).toEqual([[-self.pid, "SIGKILL"]]);
+    } finally { clearTimeout(timeout); unsubscribe(); }
+  } finally { await fixture.close(); }
 });
 
-test("a second offer for machineId self on the real socket is refused already_attached (#1271 r1 M3)", async () => {
-  const createHost = Machines.createMachineHost;
-  let host: Machines.MachineHost | undefined;
-  track(
-    spyOn(Machines, "createMachineHost").mockImplementation((options) =>
-      createHost(options).pipe(Effect.tap((created) => Effect.sync(() => { host = created; }))),
-    ),
-  );
-  const socket = socketPath();
-  const root = testSelfMachine();
-  const app = await startOni({
-    config: fixtureConfig({ self: root, listen: { unix: socket }, enrolled: [] }),
-  });
-  try {
-    const impostor = await acquireEffect(
-      Machines.attachMachineDaemon({
-        socketPath: socket,
-        id: testIds("impostor"),
-        dispatcherBound: 8,
-        offer: {
-          machineId: "self",
-          daemonVersion: "impostor",
-          platform: `${process.platform}-${process.arch}`,
-          offeredAt: 2,
-          offeredCapabilities: ["fs.read", "fs.write", "shell.exec"],
-          exports: root.exports.map((entry) => ({ name: entry.name, path: entry.path })),
-        },
+test("a self client dying between admission and the boot probe publishes no tool ports", async () => {
+  const original = SelfMachineComposition.attachSelfMachine;
+  spies.push(spyOn(SelfMachineComposition, "attachSelfMachine").mockImplementation((options) =>
+    original(options).pipe(Effect.map((self) => ({
+      ...self,
+      ready: Effect.gen(function* () {
+        const detached = Promise.withResolvers<void>();
+        const unsubscribe = options.events.subscribe(Machine.Events.Detached, ({ machineId }) => {
+          if (machineId === self.machineId) detached.resolve();
+        });
+        try {
+          process.kill(self.pid, "SIGKILL");
+          yield* Effect.promise(() => detached.promise);
+          yield* self.ready;
+        } finally { unsubscribe(); }
       }),
-    );
-    expect(impostor.attachment).toEqual({ status: "refused", reason: "already_attached" });
-    // The incumbent in-process self daemon still serves the plane.
-    if (host === undefined) throw new Error("host was not captured");
-    const exportPath = root.exports[0]?.path ?? "/";
-    const stat = await runEffect(host.get("self").fs.stat(exportPath));
-    expect(stat).toMatchObject({ op: "stat", kind: "dir" });
-  } finally {
-    await app.stop();
-  }
+    }))),
+  ));
+  const ports = spyOn(Gateway, "toolPorts");
+  spies.push(ports);
+  await expect(startOni({ config: fixtureConfig({
+    self: testSelfMachine(), listen: { unix: socketPath() }, enrolled: [],
+  }) })).rejects.toMatchObject({
+    data: { code: "self_attach_failed", cause: expect.stringContaining("disconnected during boot") },
+  });
+  expect(ports).not.toHaveBeenCalled();
 });
 
-test("oni machine attach: a second daemon attaches alongside self and negotiates capabilities", async () => {
-  const createHost = Machines.createMachineHost;
-  let host: Machines.MachineHost | undefined;
-  track(
-    spyOn(Machines, "createMachineHost").mockImplementation((options) =>
-      createHost(options).pipe(Effect.tap((created) => Effect.sync(() => { host = created; }))),
-    ),
-  );
-  const socket = socketPath();
-  const remoteRoot = realpathSync(mkdtempSync(join(tmpdir(), "om-remote-")));
-  const self = testSelfMachine();
-  const app = await startOni({
-    config: fixtureConfig({
-      self,
-      listen: { unix: socket },
-      enrolled: [
-        {
-          machineId: "node-1",
-          name: "second",
-          allowedCapabilities: ["fs.read"],
-          allowedExports: ["data"],
-          publicKey: "ab".repeat(32),
-          enrolledAt: 1,
-        },
-      ],
-    }),
-  });
-  const configPath = join(mkdtempSync(join(tmpdir(), "om-attach-")), "machine.json");
-  writeFileSync(
-    configPath,
-    JSON.stringify({
-      socketPath: socket,
-      offer: {
-        machineId: "node-1",
-        daemonVersion: "test",
-        platform: `${process.platform}-${process.arch}`,
-        offeredAt: 1,
-        // shell.exec is offered but not enrolled: negotiation must intersect it away.
-        offeredCapabilities: ["fs.read", "shell.exec"],
-        exports: [{ name: "data", path: remoteRoot }],
-      },
-    }),
-  );
-  const daemon = await acquireEffect(attachConfiguredMachine(configPath, testIds("remote-cli")));
+test("closing the scope reaps the child without reporting an unexpected close", async () => {
+  const fixture = await selfFixture();
+  let closed = false;
+  const self = await fixture.attach({ onClose: () => { closed = true; } });
+  await fixture.close();
+  expect(() => process.kill(self.pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+  expect(closed).toBe(false);
+});
+
+test("a second real client cannot replace the protected self attachment", async () => {
+  const fixture = await selfFixture();
   try {
-    expect(daemon.attachment).toMatchObject({
-      status: "attached",
-      effectiveCapabilities: ["fs.read"],
-      effectiveExports: ["data"],
+    const self = await fixture.attach();
+    const path = join(fixture.root, "impostor", "client.json");
+    writeMclientSettings(path, {
+      machineId: "self", name: "self", host: "localhost", unix: fixture.options.socketPath,
+      exports: fixture.plane.self.exports, tags: [], memoryBudgetMb: 96,
     });
-    if (host === undefined) throw new Error("host was not captured");
-    expect(host.list().map((machine) => machine.machineId).sort()).toEqual(["node-1", "self"]);
-    // Both attachments serve requests side by side.
-    expect((await runEffect(host.get("node-1").fs.stat(remoteRoot))).kind).toBe("dir");
-    const exportPath = self.exports[0]?.path ?? "/";
-    expect((await runEffect(host.get("self").fs.stat(exportPath))).kind).toBe("dir");
-  } finally {
-    await runEffect(daemon.close());
-    await app.stop();
-  }
+    // A stale generation is terminal; it cannot displace the incumbent.
+    writeFileSync(join(fixture.root, "impostor", "state.json"), '{"generation":999}');
+    const pending = spawnAttachedMclient({
+      configPath: path, host: fixture.host, events: fixture.options.events, machineId: "self",
+    });
+    await expect(pending).rejects.toThrow("mclient exited before attachment: 3");
+    expect(fixture.host.list()[0]?.generation).toBe(1);
+    await runEffect(self.ready);
+  } finally { await fixture.close(); }
 });

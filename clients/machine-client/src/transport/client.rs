@@ -219,10 +219,14 @@ async fn read_frames(
     handler: &Handler,
 ) -> Result<(), TransportError> {
     let mut tasks = JoinSet::new();
+    // Cells await host callbacks and may outlive many ordinary requests.
+    // They cannot consume the slots those callbacks and cancellation need.
+    let mut cells = JoinSet::new();
     let mut active = 0;
     let mut waiting = VecDeque::new();
     loop {
         tokio::select! {
+            _finished = cells.join_next(), if !cells.is_empty() => {}
             _finished = tasks.join_next(), if active > 0 => {
                 active -= 1;
                 if let Some((id, method, params)) = waiting.pop_front() {
@@ -236,6 +240,14 @@ async fn read_frames(
                     Message::Response { id, raw } => {
                         if let Ok(mut table) = requests.lock() {
                             table.resolve(&id, raw);
+                        }
+                    }
+                    Message::Request { id, method, params } if method == "machine.run_code" => {
+                        if cells.len() < WAITING {
+                            spawn_request(&mut cells, id, method, params, outbound.clone(), handler.clone());
+                        } else {
+                            outbound.send(Outbound::Frame(envelope::error(&id, 4001, "IPC inbound cell limit reached")))
+                                .await.map_err(|_| TransportError::Closed)?;
                         }
                     }
                     Message::Request { id, method, params } if active < EXECUTING => {

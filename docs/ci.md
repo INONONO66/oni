@@ -37,6 +37,12 @@ The **Clients (Rust)** lane runs on full plans and when a PR changes
 linting, and testing the `clients/` workspace. The setup action runs the sole
 `bun install`; the job pins `rust-toolchain` by SHA and gates workspace coverage
 with `cargo llvm-cov --fail-under-lines 100`.
+Changes under `clients/**` also select the `machines`, `codemode`, and
+`oniApp` TypeScript test lanes because they exercise the client over the wire.
+Each of those matrix lanes installs the pinned Rust toolchain, caches the
+`clients/` workspace, builds `oni-machine-client --release --locked`, and
+exports `ONI_MCLIENT_BIN` before its tests. The local `bun run ci test --lane`
+entry point builds the same binary when none is supplied.
 
 ## CI tiers and merge queue
 
@@ -216,7 +222,7 @@ measurement: the audit lane with `ModuleNotFoundError: playwright`, the
 mutation shards with `baseline test selection is not green`.
 
 The oni app media tests encode real H.264 clips and sample their frames
-through a machine daemon, so they need ffmpeg (with libx264) and ffprobe.
+through an attached machine client, so they need ffmpeg (with libx264) and ffprobe.
 `.github/actions/ffmpeg-prerequisites` installs them from apt and fails when
 the encoder is missing; the CI `oniApp` lane, the Quality Audit `oniApp`
 coverage lane and every `quality-mutation` shard consume it.

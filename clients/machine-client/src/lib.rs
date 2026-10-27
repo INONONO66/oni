@@ -2,6 +2,7 @@ pub mod agent;
 pub mod attach;
 pub mod budget;
 pub mod cdp;
+pub mod code;
 pub mod computer;
 pub mod config;
 pub mod exec;
