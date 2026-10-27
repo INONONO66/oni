@@ -167,11 +167,9 @@ export type SessionDrainOutcome =
   | { readonly kind: "deferred"; readonly generation: number };
 
 /**
- * Runs the session's eligible pending rows to a boundary. A turn start that
- * finds the session's generation unavailable (the generation layer is
- * draining at shutdown) defers instead of dying: the delivered row is
- * already committed and stays pending for the next activation's drain, and
- * a defect here would restart the entity mid-shutdown.
+ * Runs the session's eligible pending rows to a boundary. A turn start that finds the generation
+ * unavailable (the layer is draining at shutdown) defers instead of dying: the committed row stays
+ * pending for the next activation, and a defect here would restart the entity mid-shutdown.
  */
 export function drain(handle: ActivationHandle): Effect.Effect<SessionDrainOutcome, LedgerError | SessionError> {
   const { authority, kernel, env } = handle;

@@ -256,11 +256,9 @@ async fn execute(
         // async-signal-safe syscalls, with no allocation or acquired locks.
         unsafe {
             command.as_std_mut().pre_exec(move || {
-                // SAFETY: prctl(PR_SET_PDEATHSIG, SIGKILL) takes integer
-                // arguments only; it retains no Rust pointers.
-                if unsafe { nix::libc::prctl(nix::libc::PR_SET_PDEATHSIG, nix::libc::SIGKILL) }
-                    == -1
-                {
+                // prctl(PR_SET_PDEATHSIG, SIGKILL) takes integer arguments only and retains no
+                // Rust pointers; the enclosing pre_exec block already provides the unsafe context.
+                if nix::libc::prctl(nix::libc::PR_SET_PDEATHSIG, nix::libc::SIGKILL) == -1 {
                     return Err(std::io::Error::last_os_error());
                 }
                 if nix::unistd::getppid() != parent {
