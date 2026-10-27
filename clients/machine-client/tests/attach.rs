@@ -1336,23 +1336,23 @@ fn short_config_directory_keeps_its_hook_socket_in_place() {
     assert_eq!(socket, directory.path().join("hook.sock"));
 }
 
-/// The fallback directory under `TMPDIR`: reused when it already exists,
-/// refused when a non-directory squats on its name or `TMPDIR` itself is too
-/// long. One test because `TMPDIR` is process-global.
+/// The fallback directory under the temp root: reused when it already exists,
+/// refused when a non-directory squats on its name or the root itself is too
+/// long. The root is passed explicitly: `TMPDIR` is process-global and the
+/// other tests in this binary spawn clients in parallel.
 #[test]
 fn long_config_directory_fallback_handles_its_temp_directory_states() {
     let base = tempfile::tempdir().expect("base");
     let long_dir = base.path().join("n".repeat(hook::SUN_PATH_LIMIT));
     std::fs::create_dir_all(&long_dir).expect("long directory");
-    let previous = std::env::var_os("TMPDIR");
     let tmp = tempfile::tempdir().expect("tmp");
-    std::env::set_var("TMPDIR", tmp.path());
 
-    let first = hook::socket_path(&long_dir).expect("fallback socket");
+    let first = hook::socket_path_in(&long_dir, tmp.path()).expect("fallback socket");
     let short_dir = first.parent().expect("fallback directory").to_path_buf();
     assert!(short_dir.starts_with(tmp.path()));
     std::fs::set_permissions(&short_dir, std::fs::Permissions::from_mode(0o755)).expect("loosen");
-    let again = hook::socket_path(&long_dir).expect("existing fallback directory is reused");
+    let again =
+        hook::socket_path_in(&long_dir, tmp.path()).expect("existing fallback directory is reused");
     assert_eq!(again, first);
     assert_eq!(
         std::fs::metadata(&short_dir)
@@ -1365,21 +1365,16 @@ fn long_config_directory_fallback_handles_its_temp_directory_states() {
 
     std::fs::remove_dir_all(&short_dir).expect("clear");
     std::fs::write(&short_dir, b"squatter").expect("squatter file");
-    let squatted =
-        hook::socket_path(&long_dir).expect_err("a file at the fallback directory is refused");
+    let squatted = hook::socket_path_in(&long_dir, tmp.path())
+        .expect_err("a file at the fallback directory is refused");
     assert_eq!(squatted.kind(), std::io::ErrorKind::AlreadyExists);
 
     let long_tmp = tmp.path().join("t".repeat(hook::SUN_PATH_LIMIT));
     std::fs::create_dir_all(&long_tmp).expect("long tmp");
-    std::env::set_var("TMPDIR", &long_tmp);
-    let overflow = hook::socket_path(&long_dir).expect_err("an overlong TMPDIR is refused");
+    let overflow =
+        hook::socket_path_in(&long_dir, &long_tmp).expect_err("an overlong temp root is refused");
     assert_eq!(overflow.kind(), std::io::ErrorKind::InvalidInput);
     assert!(overflow.to_string().contains("exceed sun_path"));
-
-    match previous {
-        Some(value) => std::env::set_var("TMPDIR", value),
-        None => std::env::remove_var("TMPDIR"),
-    }
 }
 
 #[tokio::test]

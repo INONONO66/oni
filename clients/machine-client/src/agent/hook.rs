@@ -105,13 +105,18 @@ pub fn bind(path: &Path) -> io::Result<UnixListener> {
 /// Resolve the path advertised to CLI hooks, using a private short directory
 /// when the config-relative socket would exceed the Unix address limit.
 pub fn socket_path(config_dir: &Path) -> io::Result<PathBuf> {
+    socket_path_in(config_dir, &std::env::temp_dir())
+}
+
+/// `socket_path` with an explicit fallback root instead of the process `TMPDIR`.
+pub fn socket_path_in(config_dir: &Path, temp_root: &Path) -> io::Result<PathBuf> {
     let canonical_socket = config_dir.join(crate::config::AGENT_HOOK_SOCKET);
     if canonical_socket.as_os_str().as_bytes().len() < SUN_PATH_LIMIT {
         return Ok(canonical_socket);
     }
     let canonical_dir = fs::canonicalize(config_dir)?;
     let digest = Sha256::digest(canonical_dir.as_os_str().as_bytes());
-    let short_dir = std::env::temp_dir().join(format!("oni-mclient-{}", hex::encode(&digest[..8])));
+    let short_dir = temp_root.join(format!("oni-mclient-{}", hex::encode(&digest[..8])));
     let short_socket = short_dir.join(crate::config::AGENT_HOOK_SOCKET);
     if short_socket.as_os_str().as_bytes().len() >= SUN_PATH_LIMIT {
         return Err(io::Error::new(
