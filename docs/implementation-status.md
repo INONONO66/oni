@@ -60,8 +60,6 @@ includes `packages/agent/test/store/session/media-replay.test.ts`,
 `packages/ui/test/timeline-attachments.test.tsx`. A live model or desktop
 run is not established by these tests.
 
-||||||| parent of 5f6c280e2 (machines/codemode/oni/docs: delete the TS machine daemon, route every machine call through mclient (#1669))
-
 ## #1669 machine client P6: Rust is the only machine peer (epic #1622)
 
 The TypeScript machine peer and its ten modules are deleted:
@@ -454,7 +452,6 @@ modules, 0 cycles), `check-dead-exports` ("none new"), `check-topology` and
 checks passed`, `check-clients-conformance.ts` 379/379 and
 `conformance/agent/sessions.ts` 322/322 lines.
 
-||||||| parent of 4b1ec560a (docs: machine client P5 computer use - stamp, implementation status, machines-and-delegation (#1662))
 ## #1626 machine client P3: transport, attach and the daemon-parity drivers (epic #1622, PR pending)
 
 On `feat/1626-machine-client-p3-transport` (2026-10-25, base `690f14487`).
