@@ -9,7 +9,7 @@ import { once } from "node:events";
 export async function startProxy(
   listen: string | { readonly port: number },
   connect: () => net.Socket,
-  dropDaemonLine?: (line: string) => boolean,
+  dropDaemonLine?: (line: string, forward: () => void) => boolean,
 ) {
   const pairs: Array<readonly [net.Socket, net.Socket]> = [];
   const server = net.createServer((inbound) => {
@@ -25,7 +25,8 @@ export async function startProxy(
           if (end < 0) break;
           const frame = pending.subarray(0, end + 1);
           pending = pending.subarray(end + 1);
-          if (!dropDaemonLine(frame.toString("utf8"))) outbound.write(frame);
+          const forward = () => { outbound.write(frame); };
+          if (!dropDaemonLine(frame.toString("utf8"), forward)) forward();
         }
       });
     }

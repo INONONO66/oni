@@ -139,6 +139,25 @@ describe("machine attach handshake", () => {
     );
   });
 
+  test("a SIGINT-ignoring real client cell returns a typed timeout after cleanup", async () => {
+    await withHost(
+      () => kernelEnrollment(enrollment),
+      async ({ host, collector }) => {
+        const client = await attachMclient({ host, events: collector, machineId: "mac-studio", root: tmpdir(), exports: [] });
+        try {
+          const result = await host.get("mac-studio").runCode({
+            cellId: "ignore-sigint",
+            code: "import signal, time\nsignal.signal(signal.SIGINT, signal.SIG_IGN)\ntime.sleep(30)",
+            timeoutMs: 1_000,
+          });
+          expect(result).toMatchObject({ status: "timed_out", cellId: "ignore-sigint" });
+        } finally {
+          await client.stop();
+        }
+      },
+    );
+  });
+
   test("rejects mismatched filesystem replies and propagates wire cancellation failures", async () => {
     const started = Promise.withResolvers<void>();
     const cancelled = Promise.withResolvers<void>();

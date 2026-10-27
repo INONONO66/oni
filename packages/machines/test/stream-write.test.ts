@@ -9,6 +9,9 @@ import { exit, fork } from "./helpers/effect";
 import { wireDaemon, wireHost } from "./helpers";
 import { mclientBinary } from "./helpers/mclient";
 import { socketPath } from "./helpers/socket-path";
+import net from "node:net";
+import { startProxy } from "./helpers/proxy";
+import { attachMclient } from "./helpers/mclient";
 
 type Host = Awaited<ReturnType<typeof wireHost>>;
 async function fixture(run: (
@@ -167,4 +170,47 @@ test("caller interruption during a blocked producer aborts the transfer and rele
     expect(counter.returned).toBe(1);
     expect(readdirSync(root)).toEqual([]);
   });
+});
+
+test("a held write acknowledgment stops the producer until the real client acknowledges the chunk", async () => {
+  const root = mkdtempSync(join(tmpdir(), "oni-stream-ack-"));
+  const host = await wireHost(socketPath());
+  const ackHeld = Promise.withResolvers<() => void>();
+  let holding = true;
+  const proxyPath = socketPath();
+  const proxy = await startProxy(proxyPath, () => net.connect(host.endpoints.unix ?? ""), (line, forward) => {
+    const frame = JSON.parse(line);
+    if (holding && frame.type === "response" && frame.result?.status === "written" && frame.result.last === false) {
+      holding = false;
+      ackHeld.resolve(forward);
+      return true;
+    }
+    return false;
+  });
+  const client = await attachMclient({
+    host, events: host.events, machineId: "m-1", root,
+    exports: [{ name: "docs", path: root }], unix: proxyPath,
+  });
+  try {
+    const part = Buffer.alloc(1_000, 0x41);
+    let pulls = 0;
+    async function* producer(): AsyncGenerator<Uint8Array, void, void> {
+      for (let index = 0; index < 4; index += 1) {
+        pulls += 1;
+        yield part;
+      }
+    }
+    const pending = host.get("m-1").fs.writeStream(join(root, "acked"), producer(), bounds(part.length * 4));
+    const release = await ackHeld.promise;
+    expect(pulls).toBe(1);
+    release();
+    expect((await pending).bytesWritten).toBe(part.length * 4);
+    expect(pulls).toBe(4);
+    expect(readFileSync(join(root, "acked")).byteLength).toBe(part.length * 4);
+  } finally {
+    await client.stop();
+    await proxy.stop();
+    await host.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -804,7 +804,7 @@ function machinesTcpFromEnv(env: Record<string, string | undefined>) {
  * self exports it implicitly, while a remote default machine must export
  * that exact root for automatic media reads. Any
  * of these configures the plane; a configured plane without self is a
- * contradiction, because boot attaches the in-process daemon unconditionally.
+ * contradiction, because boot starts the scoped Rust mclient child unconditionally.
  */
 function machinesFromEnv(
   home: string,

@@ -3,12 +3,14 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import net from "node:net";
 import { connectIpcClient } from "./ipc/helpers/native";
 import { Machine } from "@oni/protocol";
 import { createMachineHost, MachineRefusalError } from "./helpers/native";
 import { socketPath } from "./helpers/socket-path";
 import { eventCollector } from "./helpers/events";
 import { attachMclient, mclientBinary } from "./helpers/mclient";
+import { startProxy } from "./helpers/proxy";
 
 import {
   enrollment,
@@ -29,6 +31,44 @@ async function fixture(run: (root: string) => Promise<void>) {
 beforeAll(mclientBinary, 300_000);
 
 describe("real machine consumer surface", () => {
+  test("disconnect during a staged write fails typed and clears client transfer state", async () => {
+    await fixture(async (root) => {
+      writeFileSync(join(root, "target"), "original");
+      const events = eventCollector();
+      const host = await createMachineHost({
+        listen: { unix: socketPath() }, enrollment, events: events.sink, now: () => 3,
+      });
+      const discarded = Promise.withResolvers<void>();
+      const proxyPath = socketPath();
+      let proxy: Awaited<ReturnType<typeof startProxy>>;
+      proxy = await startProxy(proxyPath, () => net.connect(host.endpoints.unix ?? ""), (line) => {
+        const frame = JSON.parse(line);
+        if (frame.type !== "response" || frame.result?.status !== "written") return false;
+        discarded.resolve();
+        queueMicrotask(() => proxy.sever());
+        return true;
+      });
+      const client = await attachMclient({
+        host, events, machineId: "m-1", root, exports: [{ name: "docs", path: root }], unix: proxyPath,
+      });
+      try {
+        const detached = events.next(Machine.Events.Detached.name);
+        const reattached = events.next(Machine.Events.Reported.name);
+        const pending = host.get("m-1").fs.write(join(root, "target"), Buffer.alloc(Machine.FS_WRITE_MAX_BYTES + 1, 42));
+        await discarded.promise;
+        await expect(pending).rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "disconnected" });
+        await detached;
+        await reattached;
+        expect(readFileSync(join(root, "target"), "utf8")).toBe("original");
+        expect(readdirSync(root)).toEqual(["target"]);
+      } finally {
+        await client.stop();
+        await proxy.stop();
+        await host.close();
+      }
+    });
+  });
+
   test.each([16, Machine.FS_WRITE_MAX_BYTES + 1])("exclusive %i-byte writes refuse occupied and symlink inbox leaves", async (size) => {
     await fixture(async (root) => {
       mkdirSync(join(root, "inbox"));

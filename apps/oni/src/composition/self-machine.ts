@@ -4,6 +4,7 @@ import {
   type MachineHost,
 } from "@oni/machines";
 import { mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { Machine, NamedError, type ObservationSink } from "@oni/protocol";
 import { Effect, type Scope } from "effect";
@@ -101,7 +102,9 @@ export function attachSelfMachine(
       yield* Effect.try({ try: () => mkdirSync(inbox, { recursive: true, mode: 0o700 }), catch: String }).pipe(
         Effect.mapError((detail) => selfAttachFailure(`self inbox creation failed: ${detail}`)),
       );
-    const path = join(options.stateDir, "self", "client.json");
+    // The persisted generation belongs to this identity, not the self role.
+    const identity = createHash("sha256").update(plane.self.id).digest("hex");
+    const path = join(options.stateDir, "self", identity, "client.json");
     yield* Effect.try({
       try: () => writeMclientSettings(path, {
         machineId: plane.self.id, name: "self", host: "localhost",

@@ -183,7 +183,7 @@ interface StartOptions {
 
 /**
  * The machine plane in the #1271 boot order: validate the Owner's plane,
- * start the listener set, attach the in-process self daemon over the unix
+ * start the listener set, attach the scoped Rust mclient child over the unix
  * loopback, and complete `machine.attach` — each failure is the one typed
  * startup refusal `self_attach_failed`, and nothing here ever falls back to
  * local execution. Tool ports are published only after `self.ready` passes.

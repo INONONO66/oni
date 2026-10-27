@@ -2,12 +2,14 @@ import { validateMachinePlane, type OniConfig } from "../src/config";
 import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, realpathSync, writeFileSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { Exit, Scope } from "effect";
+import { createHash } from "node:crypto";
+import { Effect, Exit, Scope } from "effect";
 import * as Machines from "@oni/machines";
 import { Machine } from "@oni/protocol";
 import { startOni } from "../src/index";
 import * as Gateway from "../src/gateway";
 import { attachSelfMachine, SelfAttachError, selfEnrollment } from "../src/composition/self-machine";
+import * as SelfMachineComposition from "../src/composition/self-machine";
 import { writeMclientSettings } from "../src/composition/mclient";
 import { acquireEffect, closeAcquiredEffects, runEffect } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
@@ -43,12 +45,14 @@ function fixtureConfig(machines: OniConfig["machines"]): OniConfig {
   };
 }
 
-async function selfFixture(enrolled = true) {
-  const root = directory();
+const selfSettings = (root: string, id: string) =>
+  join(root, "self", createHash("sha256").update(id).digest("hex"), "client.json");
+
+async function selfFixture(enrolled = true, machineId = "self", root = directory()) {
   const events = testBus();
   const scope = await runEffect(Scope.make());
   const plane = validateMachinePlane({
-    self: testSelfMachine(root), listen: { unix: socketPath() }, enrolled: [],
+    self: { ...testSelfMachine(root), id: machineId }, listen: { unix: socketPath() }, enrolled: [],
   });
   const host = await acquireEffect(Machines.createMachineHost({
     listen: { unix: socketPath() }, id: testIds("self-host"), now: () => 1,
@@ -106,7 +110,7 @@ test("boot creates a private inbox and self settings before serving files", asyn
     await runEffect(self.ready);
     writeFileSync(join(inbox, "ordinary.txt"), "inbox-data");
     expect(statSync(inbox).mode & 0o777).toBe(0o700);
-    expect(statSync(join(fixture.root, "self", "client.json")).mode & 0o777).toBe(0o600);
+    expect(statSync(selfSettings(fixture.root, "self")).mode & 0o777).toBe(0o600);
     const file = await runEffect(fixture.host.get("self").fs.read(join(inbox, "ordinary.txt")));
     expect(new TextDecoder().decode(file.data)).toBe("inbox-data");
   } finally { await fixture.close(); }
@@ -142,17 +146,35 @@ test("an unenrolled self fails closed at the injected attachment deadline", asyn
 test("a real mclient exiting before attachment fails typed", async () => {
   const fixture = await selfFixture();
   // An invalid persisted generation makes the real client exit, rather than redial.
-  const settings = join(fixture.root, "self", "client.json");
+  const settings = selfSettings(fixture.root, "self");
   writeMclientSettings(settings, {
     machineId: "self", name: "self", host: "localhost", unix: fixture.options.socketPath,
     exports: fixture.plane.self.exports, tags: [], memoryBudgetMb: 96,
   });
-  writeFileSync(join(fixture.root, "self", "state.json"), '{"generation":0}');
+  writeFileSync(join(settings, "..", "state.json"), '{"generation":0}');
   try {
     await expect(fixture.attach()).rejects.toMatchObject({
       data: { code: "self_attach_failed", cause: expect.stringContaining("exited before attachment: 2") },
     });
   } finally { await fixture.close(); }
+});
+
+test("changing the self machine id attaches with independent persisted generation", async () => {
+  const first = await selfFixture();
+  try {
+    const self = await first.attach();
+    await runEffect(self.ready);
+    expect(first.host.list()).toMatchObject([{ machineId: "self", generation: 1 }]);
+  } finally { await first.close(); }
+
+  const second = await selfFixture(true, "replacement", first.root);
+  try {
+    const self = await second.attach();
+    await runEffect(self.ready);
+    expect(second.host.list()).toMatchObject([{ machineId: "replacement", generation: 1 }]);
+    expect(statSync(selfSettings(first.root, "self")).isFile()).toBe(true);
+    expect(statSync(selfSettings(first.root, "replacement")).isFile()).toBe(true);
+  } finally { await second.close(); }
 });
 
 test("missing self exports fail before starting a child", async () => {
@@ -191,6 +213,34 @@ test("unexpected child exit reaches onClose and fails the liveness probe", async
       expect(kill.mock.calls.filter(([pid]) => pid === -self.pid)).toEqual([[-self.pid, "SIGKILL"]]);
     } finally { clearTimeout(timeout); unsubscribe(); }
   } finally { await fixture.close(); }
+});
+
+test("a self client dying between admission and the boot probe publishes no tool ports", async () => {
+  const original = SelfMachineComposition.attachSelfMachine;
+  spies.push(spyOn(SelfMachineComposition, "attachSelfMachine").mockImplementation((options) =>
+    original(options).pipe(Effect.map((self) => ({
+      ...self,
+      ready: Effect.gen(function* () {
+        const detached = Promise.withResolvers<void>();
+        const unsubscribe = options.events.subscribe(Machine.Events.Detached, ({ machineId }) => {
+          if (machineId === self.machineId) detached.resolve();
+        });
+        try {
+          process.kill(self.pid, "SIGKILL");
+          yield* Effect.promise(() => detached.promise);
+          yield* self.ready;
+        } finally { unsubscribe(); }
+      }),
+    }))),
+  ));
+  const ports = spyOn(Gateway, "toolPorts");
+  spies.push(ports);
+  await expect(startOni({ config: fixtureConfig({
+    self: testSelfMachine(), listen: { unix: socketPath() }, enrolled: [],
+  }) })).rejects.toMatchObject({
+    data: { code: "self_attach_failed", cause: expect.stringContaining("disconnected during boot") },
+  });
+  expect(ports).not.toHaveBeenCalled();
 });
 
 test("closing the scope reaps the child without reporting an unexpected close", async () => {

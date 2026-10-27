@@ -116,6 +116,8 @@ export async function attachMclient(options: {
   readonly exports?: MclientSettings["exports"];
   readonly tags?: readonly string[];
   readonly tmuxSocket?: string;
+  /** Optional forwarding endpoint; admission still comes from the real host. */
+  readonly unix?: string;
 }): Promise<AttachedMclient> {
   const binary = await mclientBinary();
   const unix = options.host.endpoints.unix;
@@ -123,7 +125,7 @@ export async function attachMclient(options: {
   const configRoot = mkdtempSync(join(tmpdir(), "oni-mclient-test-"));
   const configPath = join(configRoot, "client.json");
   writeMclientSettings(configPath, {
-    machineId: options.machineId, name: options.machineId, host: "localhost", unix,
+    machineId: options.machineId, name: options.machineId, host: "localhost", unix: options.unix ?? unix,
     exports: options.exports ?? [{ name: "workspace", path: options.root }],
     tags: options.tags ?? [], memoryBudgetMb: 96,
     ...(options.tmuxSocket === undefined ? {} : { tmuxSocket: options.tmuxSocket }),
