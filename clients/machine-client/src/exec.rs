@@ -27,19 +27,24 @@ use tokio::sync::Notify;
 const MAX_OUTPUT: usize = 262_144;
 pub const DEFAULT_DEADLINE: Duration = Duration::from_millis(30_000);
 
-#[cfg(any(test, target_os = "linux"))]
+/// The pre-exec hook of a Linux child: arm the parent-death signal, then
+/// confirm the parent is still the process that forked us, because a parent
+/// that died in between never triggers the signal.
+#[cfg(target_os = "linux")]
 fn death_guard(
     parent: Pid,
-    set_pdeathsig: impl FnOnce() -> i32,
-    ppid: impl FnOnce() -> Pid,
-) -> std::io::Result<()> {
-    if set_pdeathsig() == -1 {
-        return Err(std::io::Error::last_os_error());
+    signal: i32,
+) -> impl FnMut() -> std::io::Result<()> + Send + Sync + 'static {
+    move || {
+        // SAFETY: prctl takes integer arguments only and retains no Rust pointers.
+        if unsafe { nix::libc::prctl(nix::libc::PR_SET_PDEATHSIG, signal) } == -1 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if nix::unistd::getppid() != parent {
+            return Err(std::io::Error::from_raw_os_error(nix::libc::ESRCH));
+        }
+        Ok(())
     }
-    if ppid() != parent {
-        return Err(std::io::Error::from_raw_os_error(nix::libc::ESRCH));
-    }
-    Ok(())
 }
 
 pub struct Exec {
@@ -267,12 +272,13 @@ async fn execute(
     {
         use std::os::unix::process::CommandExt;
         let parent = nix::unistd::getpid();
-        // SAFETY: prctl takes integer arguments only and retains no Rust pointers.
-        let arm = || unsafe { nix::libc::prctl(nix::libc::PR_SET_PDEATHSIG, nix::libc::SIGKILL) };
-        let guard = move || death_guard(parent, arm, nix::unistd::getppid);
-        // SAFETY: pre_exec runs in the forked child. The closure only invokes
+        // SAFETY: pre_exec runs in the forked child. The hook only invokes
         // async-signal-safe syscalls, with no allocation or acquired locks.
-        unsafe { command.as_std_mut().pre_exec(guard) };
+        unsafe {
+            command
+                .as_std_mut()
+                .pre_exec(death_guard(parent, nix::libc::SIGKILL))
+        };
     }
     let mut child = match command.spawn() {
         Ok(child) => child,
@@ -407,15 +413,24 @@ mod tests {
         assert_eq!(exec.groups.pids.lock().expect("groups").len(), 1);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn parent_death_guard_reports_syscall_and_parent_races() {
-        let parent = Pid::from_raw(42);
-        let syscall = death_guard(parent, || -1, || panic!("ppid must not be read"))
-            .expect_err("prctl failure");
-        assert!(syscall.raw_os_error().is_some());
-        let changed = death_guard(parent, || 0, || Pid::from_raw(43)).expect_err("parent changed");
-        assert_eq!(changed.raw_os_error(), Some(nix::libc::ESRCH));
-        death_guard(parent, || 0, || parent).expect("parent still alive");
+        // Signal 0 clears a parent-death signal this process never armed, so
+        // the hook runs in-process without side effects.
+        let parent = nix::unistd::getppid();
+        let mut invalid = death_guard(parent, -1);
+        assert_eq!(
+            invalid().expect_err("invalid signal").raw_os_error(),
+            Some(nix::libc::EINVAL)
+        );
+        let mut changed = death_guard(Pid::from_raw(i32::MAX), 0);
+        assert_eq!(
+            changed().expect_err("parent changed").raw_os_error(),
+            Some(nix::libc::ESRCH)
+        );
+        let mut alive = death_guard(parent, 0);
+        alive().expect("parent still alive");
     }
 
     #[cfg(target_os = "macos")]
@@ -449,6 +464,11 @@ mod tests {
             ("printf out; printf err >&2; exit 7", Some(7), None),
             ("kill -TERM $$", None, Some("SIG15")),
             ("kill -KILL $$", None, Some("SIGKILL")),
+            (
+                "while :; do printf 'xxxxxxxxxxxxxxxx'; done",
+                None,
+                Some("SIGKILL"),
+            ),
         ] {
             let request = ExecRequest {
                 cmd: cmd.parse().expect("command"),

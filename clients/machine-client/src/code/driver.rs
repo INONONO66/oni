@@ -185,20 +185,22 @@ impl Driver {
 
 #[cfg(test)]
 mod tests {
-    #[tokio::test]
-    async fn reap_kills_an_interpreter_that_ignores_term() {
-        use std::{process::Stdio, time::Duration};
-        use tokio::{
-            io::{AsyncBufReadExt as _, BufReader},
-            process::Command,
-        };
+    use std::{process::Stdio, time::Duration};
 
+    use tokio::{
+        io::{AsyncBufReadExt as _, BufReader},
+        process::Command,
+    };
+
+    /// An interpreter that reads stdin to EOF and then waits for a signal, so
+    /// closing its pipes alone never ends it; `prelude` runs first.
+    async fn waiting_interpreter(prelude: &str) -> (super::Driver, nix::unistd::Pid) {
         let mut command = Command::new("python3");
         command
             .args([
                 "-u",
                 "-c",
-                "import signal, sys\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nprint('ready')\nsys.stdin.buffer.read()\nsignal.pause()",
+                &format!("import signal, sys\n{prelude}print('ready')\nsys.stdin.buffer.read()\nsignal.pause()"),
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -220,8 +222,26 @@ mod tests {
             .expect("stdout")
             .expect("ready line");
         assert_eq!(ready, "ready");
+        (driver, pid)
+    }
+
+    #[tokio::test]
+    async fn reap_kills_an_interpreter_that_ignores_term() {
+        let (driver, pid) =
+            waiting_interpreter("signal.signal(signal.SIGTERM, signal.SIG_IGN)\n").await;
 
         driver.reap(Duration::from_millis(80)).await;
+        assert_eq!(
+            nix::sys::signal::kill(pid, None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+    }
+
+    #[tokio::test]
+    async fn reap_terminates_an_interpreter_that_outlives_eof() {
+        let (driver, pid) = waiting_interpreter("").await;
+
+        driver.reap(Duration::from_millis(600)).await;
         assert_eq!(
             nix::sys::signal::kill(pid, None),
             Err(nix::errno::Errno::ESRCH)
