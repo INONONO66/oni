@@ -32,7 +32,7 @@ async function signalGroup(pid: number, signal: NodeJS.Signals): Promise<void> {
     process.kill(-pid, signal);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ESRCH") return;
-    if (error instanceof Error && "code" in error && error.code === "EPERM" && process.platform === "darwin") {
+    if (error instanceof Error && "code" in error && error.code === "EPERM") {
       // Darwin reports EPERM for a group containing only reparented zombies.
       // Refuse a live survivor; a successful signal alone cannot prove cleanup.
       const probe = Bun.spawn(["ps", "-axo", "pgid=,stat="], { stdout: "pipe", stderr: "inherit" });
