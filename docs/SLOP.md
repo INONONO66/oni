@@ -267,10 +267,11 @@ This receipt does not seal the final catalog or duplicate #946/#947 work.
 | G-H8 | OPEN stage 2: schema census still constructs legacy approval/delegation factories using the catalog Proxy. Removing those dependencies would overlap protected #946 files. | `apps/oni/src/tools/core/catalog.ts` |
 | A11, A12, B12, B17, B18, E6, E8 catalog seal | Not closed by stage 1. New path tools consume the existing package-owned dispatcher; final naming/layout and exact catalog belong to stage 2. | #949 stage boundary |
 
-`apps/oni/test/locus-routing.test.ts` exercises five filesystem verbs and
-bash both locally and through a real attached Unix-socket daemon, binary reads,
+The stage-one `apps/oni/test/locus-routing.test.ts` exercised five filesystem
+verbs and bash both locally and through the then-current Unix-socket machine
+peer, binary reads,
 unique-match edit refusals, large raw cell values, recursive literal search and
-daemon capability refusal. Completion is promise settlement, with no sleep or
+machine capability refusal. Completion is promise settlement, with no sleep or
 polling. The explicit stage-one naming is retained rather than implementing the
 later naming amendment in parallel with the messaging worker.
 

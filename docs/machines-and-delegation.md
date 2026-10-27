@@ -108,30 +108,28 @@ the same raw endpoint; the plain-tool locus door belongs to #949.
 ### 2.2 Computer use (`screen.read` / `input.write`, #1274)
 
 - Wire methods `machine.screen_read` and `machine.input_write`; both gate on
-  the effective capability set like every other machine operation. The macOS
-  client adapter lives in `clients/machine-client/src/computer.rs` and
-  `src/screen/` and bounds each capture and input request.
-- Attach-time probes decide the offer: `screen.read` requires a real tiny
-  capture to succeed; `input.write` requires `cliclick` on PATH plus the
-  Accessibility (System Events) grant. A capability whose probe fails is
-  simply not offered. A mid-session failure re-probes and the capability
-  stays withdrawn (typed refusals) while the probe keeps failing.
-- `screen.read` returns `{captureId, png (base64, <= 4 MiB after bounded
-  sips -Z downscaling — never truncation), accessibilityTree?}`. The tree is
-  bounded JSON (<= 256 KiB) from a JXA System Events walk and is omitted, not
-  failed, without the permission. Regions are display-relative points
-  validated against measured display bounds (`sips` pixel dims over dpi);
-  out-of-bounds refuses `invalid_region` before any command runs.
+  the effective capability set like every other machine operation. The Rust
+  client uses `src/screen/native.rs` (xcap on macOS) for capture and
+  `src/input/native.rs` (enigo) for input; `src/computer.rs` supplies optional
+  fixture and recorder backends.
+- At attach, `screen.read` is offered when the screen backend has permission
+  and reports at least one display; `input.write` also requires a permitted
+  input backend. On macOS, Screen Recording is preflighted before listing or
+  capture, and Accessibility trust is checked before input. Later permission
+  loss yields typed refusals, not a new capability offer.
+- `screen.read` returns `{status:"ok", captureId, png}` with base64 PNG
+  bytes capped at 4 MiB; the client downscales and re-encodes to fit rather
+  than truncating. It returns no accessibility tree. Regions use display-
+  relative points, validated against the selected display before capture;
+  out-of-bounds refuses `invalid_region`.
 - `input.write` requires the `captureId` of the LATEST successful capture;
   anything else refuses `stale_capture` and executes nothing. Input execution
-  is main-display only in v1: cliclick takes global (main-display-origin)
-  coordinates, so a request anchored to a capture of any other display refuses
-  `unsupported_action` with a message naming the display instead of silently
-  mistargeting. Actions
-  (max 32: click/type/key/move/scroll) map to one `cliclick` invocation;
-  middle-click and scroll refuse `unsupported_action` on this adapter
-  (cliclick 5.1 has neither), and coordinates outside the captured display
-  refuse `invalid_region` — always before anything executes.
+  is main-display only in this legacy batch: an anchor on another display
+  refuses `unsupported_action`. The client validates the whole batch
+  (at most 32 click/type/key/move/scroll actions) before injection, translates
+  display-relative pointer positions to global desktop points, and supports
+  middle-click and scroll through the input backend. Coordinates outside
+  the captured display refuse `invalid_region` before injection.
 - There is no model-visible tool. Code mode is the only consumer:
   `m.screen(display=None, region=None)` and `m.input(actions,
   capture_id=None)` in Python cells (input defaults to the cell's last
@@ -270,11 +268,10 @@ transport dropped — fail once with typed `MachineRefusalError`
 `machine_not_attached`. The client redials with full-jitter exponential
 backoff (base 250ms, cap 30s); a successful reattach
 resets the backoff and the host's existing handles serve the replacement
-connection. A REFUSED reattach is terminal: the refusal surfaces, nothing is
-rescheduled, and the client exits nonzero until restart or
-config change. A reconnect presents the generation the host minted for the
-previous attachment (next section); a `stale_generation` or
-`unsupported_contract` refusal terminates the client.
+connection. A reconnect presents the generation the host minted for the
+previous attachment (next section). Only `stale_generation`,
+`unsupported_contract` and `peer_key_mismatch` refusals terminate the client;
+other attach refusals retry with the same backoff.
 
 ### 2.3.1 Contract admission and the attach generation (#1624)
 

@@ -68,7 +68,7 @@ The TypeScript machine peer and its ten modules are deleted:
 attachment, admission, generation CAS, capacity, handle routing and IPC;
 the Rust `mclient` owns the filesystem, exec, PTY, computer and Python
 drivers. `packages/codemode` routes cells over
-`machine.run_code/peek_code/stop_code` to the attached client; its prelude
+`machine.run_code/peek_code/cancel_code` to the attached client; its prelude
 is `clients/machine-client/src/code/driver.py`. The self machine starts a
 scoped `mclient` child rather than an in-process peer. TypeScript tests
 attach the real binary via `packages/machines/test/helpers/mclient.ts`,
@@ -823,7 +823,7 @@ Receipts: `apps/oni/test/cli-contact.test.ts` (declaration door under
 consent, the rule table, the runner over a scripted host — launch, one
 watch per turn, blocked/busy refusals, the stalled diagnostic, the
 interrupt, cleanup) and `test/cli-contact-e2e.test.ts` (a booted Resident, a
-real attached daemon on a private tmux socket, a FAKE child resolved as the
+  then-current attached machine peer on a private tmux socket, a FAKE child resolved as the
 pack's command that fires the installed hook command and appends the pack's
 fixture transcript; the sender's inbox prompt, the admitted rows through
 `childActivity.state` and the session read page, and the pane gone on stop).
@@ -889,7 +889,7 @@ child B in the same sender session; a `to.new` session child keeps the
 marked ended the moment its outcome is known and before any await that
 follows (`settle` is first-wins): the deadline door answers
 `turn_already_ended` while the arm's retire is still in flight, so a fire
-landing in that window writes no ETX. A letter the daemon refuses after a
+landing in that window writes no ETX. A letter the machine client refuses after a
 successful launch ends the turn (a refusal after the first write that
 reached the pane carries `landed`), retires the arm and retires the pane
 like a stall — the next send launches fresh instead of answering
@@ -907,7 +907,7 @@ stays one per sender session. `MachineHost` reads ONE effective root set
 for both `location()` routing and `exports(id)`: an offered root the
 enrollment does not allow is no routing candidate (a path beneath it
 resolves through the allowed root containing it, where it used to be
-forwarded to a daemon that refused it), and the listing drops a root two
+forwarded to a client that refused it), and the listing drops a root two
 allowed exports share because `location()` refuses it as ambiguous. The
 hook appender's header documents the single-user assumption behind
 `kill -0` (another uid's live holder would read as gone); no behaviour
@@ -938,8 +938,8 @@ The #1511 child-activity bundle consumes the #1527 dialect packs through
 retained-byte spool/transcript cursors, admits source-free facts and
 per-source receipts through entity Deliver, and exposes an
 authority-ordered read model; the existing watch owner reads verified remote
-locations through daemon filesystem calls and the alarm cadence, with
-fixture-backed real-daemon/entity tests but no live external-child launch
+locations through machine-client filesystem calls and the alarm cadence, with
+fixture-backed machine-client/entity tests but no live external-child launch
 claimed. r1 (2026-10-17, ruling amendment
 https://github.com/INONONO66/oni/issues/1511#issuecomment-6233905889):
 a transcript line re-read under a new file generation lands as a new
@@ -2806,39 +2806,30 @@ children. Receipts:
 ## #1555 machine capacity facts and the `machine.report` heartbeat (epic #1554, rung A)
 
 On `feat/1555-machine-report` (2026-10-15, base `35d60a491`).
-`Machine.Offer` carries an optional `resources: { cpus, memoryBytes }`; a
-daemon wired with `report` fills it from its OS when the configured offer
-leaves it absent, otherwise the configured block stands. After `attached` the
-daemon sends one `machine.report` at once and then one per `intervalMs`
-(default 5000, floor 1000) carrying `loadAvg1`, `memoryAvailableBytes` and its
-in-flight cell count; every delay runs through the injected scheduler and
-clock (the #1270 reconnect shape). The next beat is scheduled only after the
-host accepted the previous one: a refusal (`machine_not_attached` |
-`machine_mismatch`) means the host no longer holds this attachment while the
-transport stands, so `daemon.attachment` records it as `refused`
-(`disconnected` | `machine_mismatch`) and the daemon closes as it does after a
-refused reattach (the client exits nonzero); a failed call is logged
-and the cadence continues on the same connection, and a beat that settles
-after transport loss touches nothing. The host accepts a report only from the
-attaching connection for the machine it attached as, keeps the latest per
-attachment, drops it on detach, and publishes `machine.reported` (ephemeral;
-`time` is host receipt, `reportedAt` the daemon's clock). `MachineHost.list()` projects `resources?` and
+`Machine.Offer` carries optional `resources: { cpus, memoryBytes }`; Rust
+`mclient` probes available CPUs and total memory into its offer. After attach
+it runs a Tokio interval (5 seconds by default), sending `machine.report`
+immediately and on each tick with `loadAvg1`, `memoryAvailableBytes` and
+the number of in-flight inbound calls. A refused report ends that connection
+and enters the reconnect loop; a failed report call leaves the connection
+running. Only `stale_generation`, `unsupported_contract` and
+`peer_key_mismatch` are terminal attach refusals. The host accepts a report
+only from the attaching connection for the machine it attached as, keeps the
+latest per attachment, drops it on detach, and publishes `machine.reported`
+(ephemeral; `time` is host receipt, `reportedAt` the client's clock).
+`MachineHost.list()` projects `resources?` and
 `live?: { reportedAt, load, stale }` with `stale` judged by the host clock
 against `staleAfterMs` (default 15 000 = three missed default beats);
-`codemode.listMachines` exposes both for free. Without `report` wiring a daemon
-offers no probed resources and never beats. `mclient run`
-(`cli/machine.ts`) wires `report` on the same Effect-clock scheduler its TCP
-reconnect uses, with `now` from `captureNow`; the brain's `self` daemon
-(`composition/self-machine.ts`) does not report yet — it is the only machine
-that cannot go stale, and rung B treats unknown resources as last choice.
-Receipts: `packages/protocol/test/machine/machine.test.ts` (schema, wire
-registration, event), `packages/machines/test/report.test.ts` (fake
-scheduler/probe/host clock: cadence, floor, staleness flip, typed refusals,
-recorded refusal after supersede, beat cancelled by transport loss and
-restarted at zero by the reattach, failed call keeps the cadence) and
-`apps/oni/test/machine-config.test.ts`
-(the configured TCP daemon's first beat lands and `list()` shows probed
-`resources` with non-stale `live`).
+`codemode.listMachines` exposes both. The self machine runs the same Rust
+client: `composition/self-machine.ts` subscribes before spawning, observes
+`Machine.Events.Attached` with a generation greater than the previous one,
+then waits for `Machine.Events.Reported` before admitting startup (within
+`attachTimeoutMs`, configured as 10 000 ms). It also probes the admitted
+connection before publishing tool ports. Receipts:
+`clients/machine-client/src/attach.rs`,
+`apps/oni/src/composition/self-machine.ts`,
+`packages/machines/test/report.test.ts` and
+`apps/oni/test/self-machine-boot.test.ts`.
 
 ## #1545 inbound postback (L3)
 
@@ -4643,7 +4634,7 @@ instant `close()` resolves.
 
 ## #1273 persistent terminals: pty.session over tmux
 
-- #1510 (epic #1508) structural screen snapshot: `machine.pty_read` params are now the new union `Machine.PtyReadParams = PtyReadScreenRequest | PtyReadRequest`, discriminated by `source` (`PtyReadRequest`, the stream request, is byte-for-byte the #1273 type — the schema-snapshot lint forbids reshaping an existing type); `{name, source: "screen"}` answers `Machine.PtyScreenResult` — `rows` (`capture-pane -p -e`, one per pane row), `cursor {x, y}`, `occupant {pid, command} | null` (one `display-message -p` line pairing two distinct tmux facts: `pid` is `#{pane_pid}`, the pid of the pane's initial process — the shell tmux started, the pane's root — and `command` is `#{pane_current_command}`, the name of the process currently in the foreground of the pane as tmux reports it; so occupant is {pid of the pane's root process, name of the foreground command}, never the foreground process's pid; null for a dead pane or no pid; the pid is a correlation fact, never the terminal's identity) and `observedAt` from the daemon's injected clock (`PtyAdapterOptions.now`; the daemon resolves `pty.now ?? report.now` after spreading its `pty` options, so an explicit undefined `pty.now` still falls back to the heartbeat clock — #1603 r1; a daemon with neither fails the read typed `pty.screen`). On the host, `pty.screen` and `pty.resize` budget two daemon command deadlines plus the call margin (`COMMAND_TIMEOUT_MS` exported from `pty-control.ts`), since each issues two bounded control commands. The byte stream, its cursor and `waitMs` are unchanged; the host handle gains `pty.screen(name)` beside the unchanged `read`; code mode is untouched. No wait, idle or readiness rule exists in `packages/machines`. The self machine (`apps/oni/src/composition/self-machine.ts`) passes no clock yet, so its screen reads fail typed until a later lane threads one. Receipts: `packages/protocol/test/machine/machine-pty.test.ts`, `packages/machines/test/pty.test.ts` (scripted server: happy path, spaces in the process name, null occupant, malformed facts, no clock, shared refusals, 3.4 command grammar), `packages/machines/test/pty-daemon-clock.test.ts` (scripted daemon over the host: undefined `pty.now` falls back to `report.now`, explicit `pty.now` wins, resize over the two-command budget), `packages/machines/test/host-listen.test.ts` (real tmux on a private `-L` socket: rows equal the open default and the server's `pane_height`, cursor and occupant equal the server's own facts, exact clock ticks, no stream bytes consumed, session and linked window gone after close).
+- #1510 (epic #1508) structural screen snapshot: `machine.pty_read` uses the `source`-discriminated `Machine.PtyReadParams` union; `{name, source: "screen"}` answers `Machine.PtyScreenResult` with `rows`, `cursor {x, y}`, `occupant {pid, command} | null` and `observedAt`. The Rust client runs `capture-pane -p -e` and `display-message -p` for the rows and pane facts; `pid` names the pane's initial process while `command` names its current foreground command, so the two need not name the same process. `observedAt` comes from the client's system clock. The host budgets two control-command deadlines plus a call margin for screen reads and resize. The byte-stream read remains separate from the structural snapshot. Receipts: `clients/machine-client/src/pty/ops.rs`, `packages/machines/src/pty-host.ts`.
 
 On `machines/1273-pty-session` (2026-10-03, base `a004bdb0`, draft PR #1283).
 The machine protocol gains the `pty.session` capability and six wire methods
@@ -5542,7 +5533,7 @@ WebSocket/path wake still commits one fired pair and reaches revision 59.
 | Compaction | App-configured summarization and agent-owned speculative/synchronous compaction, with durable projection/range/hash/revert evidence and reconstruction from canonical actions. The summarizer is wired, not dormant. | `apps/oni/src/bundles/compaction/`, `packages/agent/src/plugins/compaction/`, `packages/agent/src/inspect/history.ts` |
 | Observation | Scoped agent bus/component observations are projections, not durable authority. Ledger facts commit before observation. The old telemetry package and bus-persistence writer are absent. | `packages/agent/src/core/observation/bus.ts`, `apps/oni/src/observation/` |
 | Machine body and raw endpoints | Stable list/get handles expose confined fs read/write/list/stat, exec and code cells over IPC. The host owns attachment, enrollment admission, generation CAS, capacity and transport; Rust `mclient` is the only peer and owns the confined drivers. Effective capabilities are the enrollment/offer intersection, with export checks at the client and captured kernel `tool.pre` at the app. Unix and pinned mutual-TLS TCP join one host registry. Dropped calls fail once as `disconnected`; reconnects retain machine identity and present the host-minted generation. Self boots a spawned `mclient` over Unix and must attach before tool ports publish. | `packages/machines/src/host.ts`, `packages/machines/src/ipc/`, `clients/machine-client/src/`, `apps/oni/src/composition/self-machine.ts` |
-| Code mode | `packages/codemode` supplies machine handles and routes `cell.run/peek/stop` to `machine.run_code/peek_code/stop_code` on the attached client. The Rust client owns the per-tenant Python processes and the prelude in `clients/machine-client/src/code/driver.py`; cancellation and detach clean up processes. The app `eval` tool waits for a bounded result or returns a running cell id, and the cell-only completion helper uses the captured host tool executor. | `packages/codemode/src/`, `clients/machine-client/src/code/`, `apps/oni/src/bundles/tools/eval/index.ts` |
+| Code mode | `packages/codemode` supplies machine handles and routes `cell.run/peek/stop` to `machine.run_code/peek_code/cancel_code` on the attached client. The Rust client owns the per-tenant Python processes and the prelude in `clients/machine-client/src/code/driver.py`; cancellation and detach clean up processes. The app `eval` tool waits for a bounded result or returns a running cell id, and the cell-only completion helper uses the captured host tool executor. | `packages/codemode/src/`, `clients/machine-client/src/code/`, `apps/oni/src/bundles/tools/eval/index.ts` |
 | Tool catalog and prompts | The catalog is sealed (#949): eleven model-door tools `read`, `write`, `edit`, `ls`, `find`, `grep`, `bash`, `eval`, `monitor`, `send_message`, `provision` plus the cell-only `completion`; snake_case names, one `op` discriminator under `operation` for eval/monitor/provision, flat `tools/<name>.ts` (`_` written `-` in file names; `lint:tools` `[tool-file-name]` pins the correspondence). There is no `approval` tool: `provision.contact_promote`/`contact_merge` carry `require_approval` policy rows resolved through the kernel request path. `lint:tools` and the catalog test pin the exact set and refuse retired names. The prompt builder accepts model tuning only; deleted-domain injection/instructions are absent. Dispatcher-only model truncation caps at 32,000 UTF-16 code units on a Unicode code-point boundary, with exact dropped/original UTF-8 byte counts; cell values stay full. | `apps/oni/src/bundles/tools/core/catalog.ts`, `apps/oni/src/bundles/prompt/`, `packages/agent/src/core/loop/tool.ts` |
 | CLI and composition | Start/onboard/Resident daemon/doctor/logs and npm staging belong to the app. The portable npm package bundles the TypeScript app and native addons but not the platform-specific Rust `mclient`: an operator installs it beside `dist/app/` or sets `ONI_MCLIENT_BIN`. Self attaches as a spawned child; remote machines use `mclient join` and `mclient run --config <settings.json>`. Reversible composition owns boot rollback and reverse-order shutdown. | `apps/oni/src/cli/`, `apps/oni/script/build-npm-package.ts`, `apps/oni/src/composition/mclient.ts` |
 

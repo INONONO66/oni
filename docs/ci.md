@@ -222,7 +222,7 @@ measurement: the audit lane with `ModuleNotFoundError: playwright`, the
 mutation shards with `baseline test selection is not green`.
 
 The oni app media tests encode real H.264 clips and sample their frames
-through a machine daemon, so they need ffmpeg (with libx264) and ffprobe.
+through an attached machine client, so they need ffmpeg (with libx264) and ffprobe.
 `.github/actions/ffmpeg-prerequisites` installs them from apt and fails when
 the encoder is missing; the CI `oniApp` lane, the Quality Audit `oniApp`
 coverage lane and every `quality-mutation` shard consume it.
