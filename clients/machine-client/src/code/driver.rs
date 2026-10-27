@@ -186,6 +186,49 @@ impl Driver {
 #[cfg(test)]
 mod tests {
     #[tokio::test]
+    async fn reap_kills_an_interpreter_that_ignores_term() {
+        use std::{process::Stdio, time::Duration};
+        use tokio::{
+            io::{AsyncBufReadExt as _, BufReader},
+            process::Command,
+        };
+
+        let mut command = Command::new("python3");
+        command
+            .args([
+                "-u",
+                "-c",
+                "import signal, sys\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nprint('ready')\nsys.stdin.buffer.read()\nsignal.pause()",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let mut child = command.spawn().expect("interpreter");
+        let pid =
+            nix::unistd::Pid::from_raw(i32::try_from(child.id().expect("pid")).expect("pid range"));
+        let stdin = child.stdin.take().expect("stdin");
+        let stdout = child.stdout.take().expect("stdout");
+        let mut driver = super::Driver {
+            child,
+            stdin,
+            lines: BufReader::new(stdout).lines(),
+        };
+        let ready = tokio::time::timeout(Duration::from_secs(5), driver.lines.next_line())
+            .await
+            .expect("interpreter ready")
+            .expect("stdout")
+            .expect("ready line");
+        assert_eq!(ready, "ready");
+
+        driver.reap(Duration::from_millis(80)).await;
+        assert_eq!(
+            nix::sys::signal::kill(pid, None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+    }
+
+    #[tokio::test]
     async fn interpreter_runs_outside_client_process_group() {
         let driver = super::Driver::spawn(&"python3".into(), None)
             .await
@@ -214,14 +257,10 @@ mod tests {
             }))
             .await
             .expect("send");
-        loop {
-            if matches!(
-                driver.next().await.expect("driver frame"),
-                super::Frame::Result { .. }
-            ) {
-                break;
-            }
-        }
+        assert!(matches!(
+            driver.next().await.expect("driver frame"),
+            super::Frame::Result { .. }
+        ));
         driver.reap(std::time::Duration::from_secs(2)).await;
         assert_eq!(
             std::fs::read_to_string(marker).expect("browser cleanup"),

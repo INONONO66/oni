@@ -139,6 +139,27 @@ async fn ninth_idle_tenant_retires_oldest_interpreter() {
 }
 
 #[tokio::test]
+async fn shutdown_reaps_a_retained_idle_interpreter() {
+    let code = Code::new();
+    let (client, _reader, _writer) = connection();
+    let answer = code
+        .run(request("idle", "import os\nos.getpid()"), client.caller())
+        .await
+        .expect("idle interpreter");
+    assert_eq!(answer["status"], "completed");
+    let pid = answer["value"]
+        .as_str()
+        .expect("pid")
+        .parse::<i32>()
+        .expect("numeric pid");
+
+    tokio::time::timeout(Duration::from_secs(5), code.shutdown())
+        .await
+        .expect("interpreter cleanup");
+    assert_eq!(kill(Pid::from_raw(pid), None), Err(Errno::ESRCH));
+}
+
+#[tokio::test]
 async fn cell_tool_call_round_trips_through_host() {
     let root = tempfile::tempdir().expect("root");
     let pty = Pty::new("/definitely/missing/tmux", None, "code".into()).await;
@@ -341,6 +362,11 @@ async fn dead_driver_and_absent_command_are_typed_failures() {
         absent.run(request("absent", "2"), client.caller()).await,
         Err(CodeError::Spawn(_))
     ));
+    // The failed spawn left the tenant registered with an empty driver slot;
+    // shutdown has nothing to reap for it and must still complete.
+    tokio::time::timeout(Duration::from_secs(5), absent.shutdown())
+        .await
+        .expect("shutdown with an unspawned tenant");
 }
 
 #[tokio::test]

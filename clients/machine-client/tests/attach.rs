@@ -1369,6 +1369,11 @@ fn long_config_directory_fallback_handles_its_temp_directory_states() {
         .expect_err("a file at the fallback directory is refused");
     assert_eq!(squatted.kind(), std::io::ErrorKind::AlreadyExists);
 
+    let blocked_root = tempfile::NamedTempFile::new_in("/tmp").expect("blocked root");
+    let blocked = hook::socket_path_in(&long_dir, blocked_root.path())
+        .expect_err("a file above the fallback directory is refused");
+    assert_eq!(blocked.raw_os_error(), Some(nix::libc::ENOTDIR));
+
     let long_tmp = tmp.path().join("t".repeat(hook::SUN_PATH_LIMIT));
     std::fs::create_dir_all(&long_tmp).expect("long tmp");
     let overflow =

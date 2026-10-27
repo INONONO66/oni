@@ -143,7 +143,7 @@ impl Code {
             cleanup.push(tokio::spawn(async move {
                 let mut guard = tenant.driver.lock().await;
                 if let Some(driver) = guard.take() {
-                    driver.reap(STOP_GRACE).await;
+                    driver.reap(STOP_GRACE).await
                 }
             }));
         }
@@ -294,17 +294,17 @@ impl Code {
                     idle.push_back(tenant_id.clone());
                 }
                 while idle.len() > 8 {
-                    if let Some(id) = idle.pop_front() {
-                        if let Some(candidate) = tenants.get(&id).cloned() {
-                            if let Ok(mut state) = candidate.driver.try_lock() {
-                                if let Some(old) = state.take() {
-                                    self.cleanup.lock().unwrap_or_else(PoisonError::into_inner)
-                                        .push(tokio::spawn(old.reap(STOP_GRACE)));
-                                }
-                                drop(state);
-                                tenants.remove(&id);
-                            }
-                        }
+                    let retired = idle.pop_front().and_then(|id| {
+                        let candidate = tenants.get(&id)?.clone();
+                        let mut state = candidate.driver.try_lock().ok()?;
+                        let old = state.take();
+                        drop(state);
+                        tenants.remove(&id);
+                        Some(old)
+                    });
+                    if let Some(Some(old)) = retired {
+                        self.cleanup.lock().unwrap_or_else(PoisonError::into_inner)
+                            .push(tokio::spawn(old.reap(STOP_GRACE)));
                     }
                 }
                 drop(guard);
