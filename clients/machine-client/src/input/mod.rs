@@ -296,21 +296,16 @@ struct Driven {
 
 pub struct Input {
     driver: Option<Mutex<Driven>>,
-    available: bool,
 }
 
 impl Input {
     pub fn absent() -> Self {
-        Self {
-            driver: None,
-            available: false,
-        }
+        Self { driver: None }
     }
 
-    /// Available only while the driver is permitted to inject.
+    /// Offer an existing driver; permission is checked before every injection.
     pub fn new(driver: impl Driver + 'static) -> Self {
         Self {
-            available: driver.permitted(),
             driver: Some(Mutex::new(Driven {
                 driver: Box::new(driver),
                 held: Vec::new(),
@@ -331,7 +326,7 @@ impl Input {
     }
 
     pub fn available(&self) -> bool {
-        self.available
+        self.driver.is_some()
     }
 
     /// Waits for an in-flight request to finish, then releases, in reverse,

@@ -289,7 +289,7 @@ fn a_withdrawn_or_absent_driver_injects_nothing() {
     rig.refused(&rig.pointer(click(&capture, 1, 1)), "permission_denied");
     let denied = Recorder::default();
     denied.deny(true);
-    assert!(!Input::new(denied).available());
+    assert!(Input::new(denied).available());
     let absent = Input::absent();
     assert!(!absent.available());
     absent.settle();

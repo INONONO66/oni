@@ -76,7 +76,7 @@ fn refusal(reason: &str) -> Value {
 }
 
 #[test]
-fn an_absent_or_unpermitted_screen_offers_nothing_and_refuses_typed() {
+fn an_absent_or_unpermitted_screen_refuses_typed() {
     let absent = Screen::absent();
     assert!(!absent.available());
     assert_eq!(list(&absent, json!({})), refusal("screen_not_available"));
@@ -85,7 +85,7 @@ fn an_absent_or_unpermitted_screen_offers_nothing_and_refuses_typed() {
     assert_eq!(absent.retained(), 0);
 
     let headless = screen(Fixture::default());
-    assert!(!headless.available());
+    assert!(headless.available());
     assert_eq!(list(&headless, json!({})), refusal("screen_not_available"));
     assert_eq!(
         capture(&headless, whole(1)),
@@ -96,7 +96,7 @@ fn an_absent_or_unpermitted_screen_offers_nothing_and_refuses_typed() {
         denied: true,
         ..Fixture::display(8, 8, 1.0)
     });
-    assert!(!denied.available());
+    assert!(denied.available());
     assert_eq!(list(&denied, json!({})), refusal("permission_denied"));
     assert_eq!(capture(&denied, whole(1)), refusal("permission_denied"));
     assert_eq!(read(&denied, json!({})), refusal("permission_denied"));
@@ -468,10 +468,11 @@ fn a_failed_or_malformed_capture_frees_its_buffers() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn the_native_backend_offers_capture_only_with_a_permitted_display() {
+fn the_native_backend_offers_before_permission_but_serves_only_when_ready() {
     let screen = Screen::platform();
+    assert!(screen.available());
     let listed = list(&screen, json!({"windows":true}));
-    if screen.available() {
+    if listed["status"] == "ok" {
         assert_eq!(listed["status"], "ok");
         let shot = capture(
             &screen,
@@ -483,5 +484,6 @@ fn the_native_backend_offers_capture_only_with_a_permitted_display() {
             listed == refusal("permission_denied") || listed == refusal("screen_not_available"),
             "{listed}"
         );
+        assert_eq!(capture(&screen, whole(1)), listed);
     }
 }

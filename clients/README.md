@@ -20,7 +20,9 @@ the shared fixtures in `packages/protocol/fixtures/machine/`.
 `mclient join <host> --host-pin <sha256> --export work=/absolute/path`
 creates `~/.oni/machine-client/client.json`, an identity and an enrollment
 receipt. The enrollment receipt contains the full supported capability set;
-the running client offers only capabilities its drivers can serve. Join installs
+the running client offers capabilities when their drivers exist, even while
+screen or input permissions are pending; requests still check the grants and
+current permissions. Join installs
 and starts `ai.oni.machine` under the user's macOS LaunchAgents directory or
 `oni-machine-client.service` under the system (root) or user (non-root) systemd
 directory. Rejoining restarts the service with the new identity and settings.

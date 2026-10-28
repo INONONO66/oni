@@ -33,7 +33,12 @@ on first boot; later capability changes use `machine_grant` or
 `mclient join` prints the enrollment receipt before attempting service
 installation and then prints config path, service status, full supported
 capability list and Screen Recording instructions. The client still probes
-available drivers before offering capabilities on attach.
+available drivers before offering capabilities on attach. A native screen
+source (or a configured headless computer block) offers `screen.read` and
+`computer.use` even before Screen Recording permission is granted, so the
+host can show them as pending for Owner approval. An existing input driver
+likewise offers `input.write`; serving capture and input still checks current
+permission and refuses with `permission_denied` until granted.
 After successful enrollment, join installs `ai.oni.machine` as a LaunchAgent
 on macOS or `oni-machine-client.service` as a root/system or non-root/user
 systemd unit on Linux. The installed job runs the current binary with

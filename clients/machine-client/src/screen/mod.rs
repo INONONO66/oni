@@ -147,7 +147,6 @@ struct Anchor {
 
 pub struct Screen {
     source: Option<Box<dyn Source>>,
-    available: bool,
     pool: Pool,
     next: AtomicU64,
     latest: Mutex<Option<Anchor>>,
@@ -157,20 +156,16 @@ impl Screen {
     pub fn absent() -> Self {
         Self {
             source: None,
-            available: false,
             pool: Pool::new(0),
             next: AtomicU64::new(0),
             latest: Mutex::new(None),
         }
     }
 
-    /// Available only when the source is permitted and reports a display.
+    /// A source is offered even when capture permission is not yet granted.
     pub fn new(source: Box<dyn Source>, captures: usize) -> Self {
-        let available =
-            source.ready().is_ok() && source.displays().is_ok_and(|displays| !displays.is_empty());
         Self {
             source: Some(source),
-            available,
             pool: Pool::new(captures),
             next: AtomicU64::new(0),
             latest: Mutex::new(None),
@@ -189,7 +184,7 @@ impl Screen {
     }
 
     pub fn available(&self) -> bool {
-        self.available
+        self.source.is_some()
     }
 
     /// Recheck capture permission at each report without listing displays.
