@@ -2,7 +2,7 @@
 
 ## #1682 npm package host/client report compatibility
 
-`apps/oni` rebuilds the workspace before staging its npm bundle. Staging
+`apps/oni` rebuilds `@oni/protocol` before staging its npm bundle. Staging
 against stale `packages/protocol/dist` previously embedded a strict host
 `Machine.Report` schema without `screen` even when source and the Rust client
 included the field. The host then rejected every new client heartbeat, leaving

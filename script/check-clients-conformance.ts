@@ -517,7 +517,7 @@ async function conformance(setup: Fixture): Promise<void> {
     const first = await attach(setup, events.next(Machine.Events.Attached));
     await within(firstReported, "first client report");
     if (process.platform === "linux") {
-      const permission = host.list()[0]?.live?.screen?.permission;
+      const permission = host.list().find((entry) => entry.machineId === MACHINE)?.live?.screen?.permission;
       check(permission === "unsupported", `Linux client screen permission is ${permission}`);
       record("Linux mclient run reports unsupported screen permission over the unix host");
     }
