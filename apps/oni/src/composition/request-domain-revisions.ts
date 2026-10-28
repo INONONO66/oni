@@ -68,7 +68,7 @@ export function createRequestDomainRevisions(deps: RequestDomainDeps) {
     const input = request.parsedInput;
     if (input !== null && typeof input === "object" && !Array.isArray(input)) {
       const machine = MachineOperation.safeParse(input.operation);
-      if (machine.success && machine.data.op === "machine_add")
+      if (machine.success && (machine.data.op === "machine_add" || machine.data.op === "machine_grant" || machine.data.op === "machine_deny"))
         return machineDomainRevisions(deps.machineEnrollments, machine.data.args.machineId);
       const automation = AutomationOperation.safeParse(input.operation);
       if (automation.success)

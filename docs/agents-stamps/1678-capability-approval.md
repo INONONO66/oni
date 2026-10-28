@@ -1,0 +1,1 @@
+#1678 on `feat/1678-capability-approval` (2026-10-28, base `43b360d2f`, PR pending): durable attach-time capability requests, Owner-approved grants and denials, and pending machine listings; receipts `packages/channels/test/store/provisioning/machine-enrollment.test.ts`, `packages/machines/test/attach.test.ts`, `apps/oni/test/machine-provision.test.ts`.

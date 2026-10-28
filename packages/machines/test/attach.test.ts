@@ -62,6 +62,41 @@ async function withHost(
 }
 
 describe("machine attach handshake", () => {
+  test("excess capabilities are recorded before attachment while effective authority stays narrowed", async () => {
+    const requested: string[][] = [];
+    const path = socketPath();
+    const host = await createMachineHost({
+      listen: { unix: path }, enrollment: () => enrollment,
+      requestCapabilities: (_offered, excess) => { requested.push([...excess]); },
+      pendingCapabilities: () => requested.at(-1) ?? [],
+      events: eventCollector().sink, now: () => 5000,
+    });
+    const peer = await connectIpcClient(path);
+    try {
+      expect(await peer.call(Machine.WireMethod.Attach, {
+        ...offer(), peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).toMatchObject({ status: "attached", effectiveCapabilities: ["fs.read"] });
+      expect(requested).toEqual([["browser.control"]]);
+      expect(host.list()).toMatchObject([{ pendingCapabilities: ["browser.control"], capabilities: ["fs.read"] }]);
+    } finally { peer.close(); await host.close(); }
+  });
+
+  test("failed durable capability recording refuses attach without publishing authority", async () => {
+    const path = socketPath();
+    const host = await createMachineHost({
+      listen: { unix: path }, enrollment: () => enrollment,
+      requestCapabilities: () => { throw new Error("write failed"); },
+      events: eventCollector().sink, now: () => 5000,
+    });
+    const peer = await connectIpcClient(path);
+    try {
+      await expect(peer.call(Machine.WireMethod.Attach, {
+        ...offer(), peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).rejects.toBeInstanceOf(IpcRemoteError);
+      expect(host.list()).toEqual([]);
+    } finally { peer.close(); await host.close(); }
+  });
+
   test.each([
     { cellId: "x" },
     { cellId: "x", timeoutMs: 1 },

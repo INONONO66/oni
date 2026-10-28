@@ -6,6 +6,7 @@
   "enrolledAt": 1,
   "tags": ["gpu"],
   "capabilities": ["fs.read"],
+  "pendingCapabilities": [],
   "os": "darwin",
   "arch": "arm64"
 }

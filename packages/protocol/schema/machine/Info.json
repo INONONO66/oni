@@ -115,6 +115,14 @@
       ],
       "type": "object"
     },
+    "pendingCapabilities": {
+      "items": {
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+        "type": "string"
+      },
+      "type": "array"
+    },
     "publicKey": {
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
@@ -154,6 +162,7 @@
     "publicKey",
     "enrolledAt",
     "capabilities",
+    "pendingCapabilities",
     "os",
     "arch"
   ],

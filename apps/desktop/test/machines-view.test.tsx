@@ -14,7 +14,7 @@ test("Machines renders gateway rows and refreshes their live reports without mut
         type: "machine_listed", requestId: "list", rows: [{
           machineId: "worker-1", name: "Worker", tags: ["pool", "build"],
           allowedCapabilities: ["kernel.py"], publicKey: "a".repeat(64), enrolledAt: 1,
-          capabilities: ["kernel.py"], os: "linux", arch: "arm64",
+          capabilities: ["kernel.py"], pendingCapabilities: [], os: "linux", arch: "arm64",
           resources: { cpus: 4, memoryBytes: 8 * 1024 ** 3 },
           live: { reportedAt: 4, stale, load: { loadAvg1: 0.25, memoryAvailableBytes: 4 * 1024 ** 3, inFlight: 2 } },
         }],
@@ -53,7 +53,7 @@ test("Machines distinguishes offline, pending, failed, empty and unreported rows
     expect(ui.host.querySelectorAll("li")).toHaveLength(0);
     await ui.render(<MachinesView transport={{ machineList: async () => ({
       type: "machine_listed", requestId: "bare", rows: [{
-        machineId: "bare", name: "Bare", tags: [], capabilities: [], allowedCapabilities: ["fs.read"],
+        machineId: "bare", name: "Bare", tags: [], capabilities: [], pendingCapabilities: [], allowedCapabilities: ["fs.read"],
         publicKey: "b".repeat(64), enrolledAt: 1, os: "linux", arch: "x64",
       }],
     }) }} />);

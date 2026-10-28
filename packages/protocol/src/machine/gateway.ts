@@ -6,6 +6,7 @@ import { AttachGeneration, CapabilityId, Enrollment, Load, Peer, Resources } fro
 export const Info = Enrollment.extend({
   tags: z.array(z.string()),
   capabilities: z.array(CapabilityId),
+  pendingCapabilities: z.array(CapabilityId),
   os: z.string(),
   arch: z.string(),
   resources: Resources.optional(),

@@ -31,6 +31,9 @@ interface MachineHostOptions {
   /** Callback dispatcher bound per listener (#1312): required, the composition chooses it. */
   readonly dispatcherBound: number;
   readonly enrollment: (id: Machine.MachineId) => Machine.Enrollment | undefined;
+  /** Product-owned durable observation of capabilities the enrollment has not granted. */
+  readonly requestCapabilities?: (offer: Machine.Offer, excess: readonly Machine.CapabilityId[]) => void;
+  readonly pendingCapabilities?: (id: Machine.MachineId) => readonly Machine.CapabilityId[];
   readonly generations: AttachGenerationStore;
   readonly events: BusEvent.Sink;
   readonly now: () => number;
@@ -379,6 +382,13 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         if (generation === undefined) {
           respond({ status: "refused", reason: "stale_generation" });
           return;
+        }
+        const excess = offer.offeredCapabilities.filter((capability) => !negotiated.enrollment.allowedCapabilities.includes(capability));
+        if (excess.length > 0) {
+          yield* Effect.try({
+            try: () => options.requestCapabilities?.(offer, excess),
+            catch: decodeMachineFailure("capability.request"),
+          });
         }
         publishAttachment(offer, source, incumbent, generation, negotiated);
         respond({ status: "attached", generation, effectiveCapabilities: [...negotiated.capabilities], effectiveExports: [...negotiated.exports] } satisfies Machine.AttachResult);
@@ -846,6 +856,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           ...structuredClone(enrollment),
           tags: [...(enrollment.tags ?? [])],
           capabilities: [...capabilities],
+          pendingCapabilities: [...(options.pendingCapabilities?.(offer.machineId) ?? [])],
           generation,
           peer: { ...offer.peer },
           os: offer.platform.split("-")[0] ?? offer.platform,

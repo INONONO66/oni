@@ -622,6 +622,32 @@
       }
     },
     {
+      "id": "provision-machine-grant-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": {
+        "op": "provision",
+        "operation": "machine_grant"
+      },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.machine_grant requires Owner consent"
+      }
+    },
+    {
+      "id": "provision-machine-deny-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": {
+        "op": "provision",
+        "operation": "machine_deny"
+      },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.machine_deny requires Owner consent"
+      }
+    },
+    {
       "id": "delegation-policy/tool.pre#1",
       "point": "tool.pre",
       "order": 910,
