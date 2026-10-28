@@ -40,10 +40,14 @@ host can show them as pending for Owner approval. An existing input driver
 likewise offers `input.write`; serving capture and input still checks current
 permission and refuses with `permission_denied` until granted. The optional
 report fact above probes readiness independently of the offer.
-After successful enrollment, join installs `ai.oni.machine` as a LaunchAgent
+After writing the enrollment receipt, join installs `ai.oni.machine` as a LaunchAgent
 on macOS or `oni-machine-client.service` as a root/system or non-root/user
 systemd unit on Linux. The installed job runs the current binary with
 `run --config <client.json>`; rejoining an unchanged unit restarts it.
+Rejoining retains the existing client certificate and private key so an
+enrolled host continues to recognize the peer. An incomplete or mismatched
+saved identity is refused before a receipt or service install; replacement
+keys require an explicit Owner enrollment update.
 `--no-service` skips installation, while `--service-dir` overrides the unit
 directory without suppressing service activation. Linux user units follow
 `XDG_CONFIG_HOME/systemd/user` when the variable is absolute, otherwise

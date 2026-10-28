@@ -199,6 +199,18 @@ describe("host listener set (#1270)", () => {
       } finally {
         await intruder.close();
       }
+      const rejoined = await connectIpcTcpClient({
+        tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate,
+      });
+      try {
+        expect(await rejoined.call(Machine.WireMethod.Attach, {
+          ...offer("pinned", "/tmp"), exports: undefined,
+          peer: { kind: "client", contractVersion: Machine.contractVersion },
+        })).toMatchObject({ status: "attached" });
+        expect(host.list().map((machine) => machine.machineId)).toEqual(["pinned"]);
+      } finally {
+        await rejoined.close();
+      }
     } finally {
       await host.close();
     }
