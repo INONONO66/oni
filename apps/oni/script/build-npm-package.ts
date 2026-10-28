@@ -24,6 +24,13 @@ import { fileURLToPath } from "node:url";
 const appDir = fileURLToPath(new URL("..", import.meta.url));
 const staging = process.argv[2] ?? join(appDir, "dist-npm");
 
+class ProtocolBuildError extends Error {
+  readonly name = "ProtocolBuildError";
+  constructor(readonly exitCode: number) {
+    super(`@oni/protocol build exited ${exitCode}`);
+  }
+}
+
 /**
  * A native addon cannot be folded into a bundle: its loader opens the prebuilt
  * binary relative to the module's own directory, which the bundle freezes as
@@ -49,6 +56,13 @@ const externalNativeAddons: BunPlugin = {
     });
   },
 };
+
+// Protocol resolves through dist; rebuild it even when this script is invoked directly.
+const protocol = Bun.spawn([
+  process.execPath, "run", "--cwd", join(appDir, "..", "..", "packages", "protocol"), "build",
+], { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
+const protocolExit = await protocol.exited;
+if (protocolExit !== 0) throw new ProtocolBuildError(protocolExit);
 
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(join(staging, "bin"), { recursive: true });
