@@ -266,8 +266,8 @@ pub async fn join(
         unix: options.unix.clone(),
         tmux_socket: None,
     };
-    config::save(&config, &directory)?;
     let public_key = config::identity(&directory, &config.machine_id)?;
+    config::save(&config, &directory)?;
     let first_use_pin = match trust {
         Some(trust) => record_pin(&config.host, &directory, trust).await?,
         None => None,

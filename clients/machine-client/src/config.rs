@@ -2,13 +2,16 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
     fs, io,
+    io::Cursor,
     net::IpAddr,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::Command,
 };
 
+use rcgen::PublicKeyData;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::transport::connection::{public_key_pin, HostTrust};
 
@@ -24,6 +27,8 @@ pub enum ConfigError {
     InvalidPin,
     #[error("invalid export")]
     InvalidExport,
+    #[error("invalid saved client identity (client-cert.pem/client-key.pem); restore the matching pair or delete both and re-enroll with Owner")]
+    InvalidIdentity,
     #[error("configuration I/O: {0}")]
     Io(#[from] io::Error),
     #[error("configuration JSON: {0}")]
@@ -294,17 +299,47 @@ pub fn load(path: &Path) -> Result<ClientConfig, ConfigError> {
 }
 
 pub fn identity(directory: &Path, name: &str) -> Result<String, ConfigError> {
+    fs::create_dir_all(directory)?;
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+    let saved_cert = fs::read(directory.join("client-cert.pem"));
+    let saved_key = fs::read(directory.join("client-key.pem"));
+    match (saved_cert, saved_key) {
+        (Ok(cert), Ok(key)) => {
+            let certificate = rustls_pemfile::certs(&mut Cursor::new(cert))
+                .next()
+                .transpose()
+                .map_err(|_| ConfigError::InvalidIdentity)?
+                .ok_or(ConfigError::InvalidIdentity)?;
+            let pin =
+                public_key_pin(certificate.as_ref()).map_err(|_| ConfigError::InvalidIdentity)?;
+            let key = rcgen::KeyPair::from_pem(
+                std::str::from_utf8(&key).map_err(|_| ConfigError::InvalidIdentity)?,
+            )
+            .map_err(|_| ConfigError::InvalidIdentity)?;
+            let key_pin: [u8; 32] = Sha256::digest(key.subject_public_key_info()).into();
+            if key_pin != pin {
+                return Err(ConfigError::InvalidIdentity);
+            }
+            return Ok(hex::encode(pin));
+        }
+        (Err(cert), Err(key))
+            if cert.kind() == io::ErrorKind::NotFound && key.kind() == io::ErrorKind::NotFound => {}
+        (Err(error), _) | (_, Err(error)) if error.kind() != io::ErrorKind::NotFound => {
+            return Err(error.into());
+        }
+        _ => return Err(ConfigError::InvalidIdentity),
+    }
     let mut params = rcgen::CertificateParams::new(vec![name.to_owned()])?;
     let current = time::OffsetDateTime::now_utc();
     params.not_before = current;
     params.not_after = current + time::Duration::days(3652);
     let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?;
     let cert = params.self_signed(&key)?;
+    write_private(&directory.join("client-cert.pem"), cert.pem().as_bytes())?;
     write_private(
         &directory.join("client-key.pem"),
         key.serialize_pem().as_bytes(),
     )?;
-    write_private(&directory.join("client-cert.pem"), cert.pem().as_bytes())?;
     let pin = public_key_pin(cert.der()).map_err(|_| ConfigError::InvalidPin)?;
     Ok(hex::encode(pin))
 }
