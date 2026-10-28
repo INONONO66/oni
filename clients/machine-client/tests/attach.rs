@@ -41,6 +41,7 @@ fn config() -> ClientConfig {
             path: "/home/me".into(),
         }],
         memory_budget_mb: 96,
+        offered_capabilities: vec![],
         unix: None,
         tmux_socket: None,
     }
@@ -73,6 +74,10 @@ fn join_options(host: &str) -> JoinOptions {
         trust_on_first_use: false,
         unix: None,
         memory_budget_mb: 96,
+        capabilities: vec![],
+        no_service: true,
+        service_dir: None,
+        no_open: true,
     }
 }
 

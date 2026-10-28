@@ -16,3 +16,17 @@ Schema with typify into its own module, and exports
 `bun run generate:machine-schema` at the repository root; the next cargo build
 picks them up. `protocol/tests/fixtures.rs` checks the generated types against
 the shared fixtures in `packages/protocol/fixtures/machine/`.
+
+`mclient join <host> --host-pin <sha256> --export work=/absolute/path`
+creates `~/.oni/machine-client/client.json`, an identity and an enrollment
+receipt. `--capability <id>` can be repeated for supported machine capabilities;
+the validated, deduplicated set is saved in the client config. Join installs
+and starts `ai.oni.machine` under the user's macOS LaunchAgents directory or
+`oni-machine-client.service` under the system (root) or user (non-root) systemd
+directory. Rejoining restarts the service with the new identity and settings.
+`--no-service` leaves service management to the operator. `--service-dir <path>`
+writes the service file under the specified directory without running the
+service manager, for inspection and testing. On macOS, join requests Screen
+Recording access after service installation and prints the result; `--no-open`
+suppresses opening System Settings when access is denied. Join ends with the
+config path, service status, capabilities and screen recording status.

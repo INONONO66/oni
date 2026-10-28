@@ -1,0 +1,1 @@
+#1678 (machine client join), feat/1678-mclient-join-selfsetup, 2026-10-28, base 43b360d2f, PR pending: mclient join installs service and reports permission/capability state; Rust CLI and service builder tests plus required gates in PR.

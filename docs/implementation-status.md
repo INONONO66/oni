@@ -28,6 +28,22 @@ the pending request. `ONI_MACHINES_ENROLLED` seeds each machine id only once
 on first boot; later capability changes use `machine_grant` or
 `machine_add`, not environment edits.
 
+## #1678 machine client join self-setup (Lane A)
+
+`mclient join` now saves a validated, deduplicated `offeredCapabilities` set
+in `client.json` and keeps the enrollment receipt in its first stdout line.
+The client still probes available drivers before offering capabilities on
+attach; previously saved configs without the field retain that behavior.
+After successful enrollment, join installs `ai.oni.machine` as a LaunchAgent
+on macOS or `oni-machine-client.service` as a root/system or non-root/user
+systemd unit on Linux. The installed job runs the current binary with
+`run --config <client.json>`; rejoining restarts it. `--no-service` skips
+installation, while `--service-dir` writes to an isolated directory without
+invoking the service manager. macOS join requests Screen Recording permission
+after installation, reports the result and can suppress opening Settings with
+`--no-open`; Linux reports unsupported. No live join against a deployed host
+was performed for this lane.
+
 ## #1671 durable delivery content and attachment transcript (PR #1672)
 
 On `core/modality-content-contract` (2026-10-26, base `10225726e`).

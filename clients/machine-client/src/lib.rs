@@ -12,5 +12,6 @@ pub mod input;
 pub mod pty;
 pub mod report;
 pub mod screen;
+pub mod service;
 pub mod stream;
 pub mod transport;

@@ -78,6 +78,11 @@ fn join_unix_persists_private_identity_and_enrollment() {
             "notes=/tmp",
             "--memory-budget-mb",
             "64",
+            "--capability",
+            "computer.use",
+            "--capability",
+            "computer.use",
+            "--no-service",
         ])
         .output()
         .expect("mclient runs");
@@ -87,13 +92,26 @@ fn join_unix_persists_private_identity_and_enrollment() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let stdout = String::from_utf8(output.stdout).expect("stdout");
     let receipt: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("enrollment JSON");
+        serde_json::from_str(stdout.lines().next().expect("enrollment JSON"))
+            .expect("enrollment JSON");
     assert!(!receipt["machineId"]
         .as_str()
         .expect("machine id")
         .is_empty());
     assert_eq!(receipt["allowedExports"], serde_json::json!(["notes"]));
+    assert_eq!(
+        receipt["allowedCapabilities"]
+            .as_array()
+            .expect("capabilities")
+            .iter()
+            .filter(|id| **id == "computer.use")
+            .count(),
+        1
+    );
+    assert!(stdout.contains("service: none (skipped)"));
+    assert!(stdout.contains("config: "));
     let client = directory.path().join(".oni/machine-client");
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(
@@ -118,6 +136,70 @@ fn join_unix_persists_private_identity_and_enrollment() {
         serde_json::from_slice(&std::fs::read(client.join("client.json")).expect("config"))
             .expect("json");
     assert_eq!(config["memoryBudgetMb"], 64);
+    assert_eq!(
+        config["offeredCapabilities"]
+            .as_array()
+            .expect("offered")
+            .iter()
+            .filter(|id| **id == "computer.use")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn join_rejects_unknown_capability_before_writing_config() {
+    let directory = tempfile::tempdir().expect("isolated home");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", directory.path())
+        .args([
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--capability",
+            "unknown.capability",
+            "--no-service",
+        ])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("invalid capability"));
+    assert!(!directory
+        .path()
+        .join(".oni/machine-client/client.json")
+        .exists());
+}
+
+#[test]
+fn join_service_dir_writes_unit_without_starting_manager() {
+    let directory = tempfile::tempdir().expect("isolated home");
+    let service = directory.path().join("services");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", directory.path())
+        .args([
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--service-dir",
+            service.to_str().expect("path"),
+            "--no-open",
+        ])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("written (dry run)"));
+    #[cfg(target_os = "macos")]
+    assert!(service.join("ai.oni.machine.plist").exists());
+    #[cfg(target_os = "linux")]
+    assert!(service.join("oni-machine-client.service").exists());
 }
 
 #[test]
