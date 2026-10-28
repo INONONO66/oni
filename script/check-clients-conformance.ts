@@ -513,7 +513,14 @@ async function conformance(setup: Fixture): Promise<void> {
   );
   const host = acquired.value;
   try {
+    const firstReported = events.next(Machine.Events.Reported);
     const first = await attach(setup, events.next(Machine.Events.Attached));
+    await within(firstReported, "first client report");
+    if (process.platform === "linux") {
+      const permission = host.list()[0]?.live?.screen?.permission;
+      check(permission === "unsupported", `Linux client screen permission is ${permission}`);
+      record("Linux mclient run reports unsupported screen permission over the unix host");
+    }
     await exercise(host, attachedInfo(host, "first attach"), setup);
     const second = await reconnect(host, setup, events, first);
     await staleGeneration(host, setup, events, second);

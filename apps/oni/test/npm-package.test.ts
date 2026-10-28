@@ -80,13 +80,14 @@ describe("npm package staging", () => {
       ONI_MODEL_ID: "pack-smoke",
       ONI_MODEL_API_KEY: "test-key",
     };
-    const argv = process.argv;
-    try {
-      process.argv = [argv[0] ?? "", argv[1] ?? "", staging];
-      await import("../script/build-npm-package");
-    } finally {
-      process.argv = argv;
-    }
+    const build = Bun.spawn([process.execPath, "run", "--cwd", appDir, "build:npm", staging], {
+      cwd: repoRoot, stdout: "pipe", stderr: "pipe",
+    });
+    const [buildCode, buildOut, buildErr] = await bounded(Promise.all([
+      build.exited, new Response(build.stdout).text(), new Response(build.stderr).text(),
+    ]), 120_000);
+    expect(buildCode).toBe(0);
+    expect(buildOut + buildErr).toContain("npm package staged at");
 
     // Manifest contract: no workspace dep may leak into the registry artifact;
     // the only dependencies are native addons, pinned exactly.
@@ -198,7 +199,7 @@ describe("npm package staging", () => {
     );
     expect(child.exitCode).toBe(PROCESS_SESSION_NO_REQUEST_EXIT);
     expect(child.stdout.toString()).toBe("");
-  }, 30_000);
+  }, 180_000);
 });
 
 async function drainListeningPort(

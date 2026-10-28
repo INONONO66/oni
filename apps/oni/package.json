@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "bun run src/cli/main.ts start",
     "start": "bun run src/cli/main.ts start",
-    "build:npm": "bun run script/build-npm-package.ts",
+    "build:npm": "bun run --cwd ../.. build && bun run script/build-npm-package.ts",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "test": "bun test",
     "lint": "bunx biome check ./src ./test",

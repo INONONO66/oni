@@ -1,5 +1,19 @@
 # Implementation Status
 
+## #1682 npm package host/client report compatibility
+
+`apps/oni` rebuilds the workspace before staging its npm bundle. Staging
+against stale `packages/protocol/dist` previously embedded a strict host
+`Machine.Report` schema without `screen` even when source and the Rust client
+included the field. The host then rejected every new client heartbeat, leaving
+the self machine waiting for its first report until the boot deadline. The
+package smoke test now invokes the public `build:npm` command and boots its
+staged bundle with the real client; Linux conformance also checks the first
+report carries `screen.permission: unsupported`. Deploy the rebuilt host bundle
+before replacing a P6 self client. On the Linux host the rebuilt bundle and
+new client booted together; `machine_list` showed `self` live with screen
+permission `unsupported`.
+
 ## #1678 screen permission in machine reports (Lane C)
 
 New clients include `screen.permission` (`granted`, `denied`, or `unsupported`)
