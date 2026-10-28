@@ -52,9 +52,11 @@ test("pending machine capabilities survive reopen and grant changes authority at
     expect(recovered.get("worker")).toMatchObject({ revision: 1, updatedAt: 130 });
     expect(recovered.pending("worker")).toEqual([]);
     recovered.request("worker", ["shell.exec"], 140, 140);
-    expect(recovered.deny("worker")).toBe(true);
+    recovered.request("worker", [], 141, 141);
     expect(recovered.pending("worker")).toEqual([]);
     expect(recovered.get("worker")?.revision).toBe(1);
+    recovered.request("worker", ["shell.exec"], 142, 142);
+    expect(recovered.deny("worker")).toBe(true);
     recovered.request("worker", ["shell.exec"], 150, 150);
     recovered.put({ ...enrollment, name: "Replaced" });
     expect(recovered.pending("worker")).toEqual([]);

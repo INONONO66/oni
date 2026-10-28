@@ -49,13 +49,14 @@ export function createMachineEnrollmentStore(client: Parameters<typeof openChann
         "SELECT machineId, enrollment, revision, removedAt, updatedAt FROM machine_enrollment WHERE machineId = ?",
       ).get(machineId)) ?? undefined;
     },
-    put(input: Machine.Enrollment): Machine.Enrollment {
+    put(input: Machine.Enrollment, updatedAt = input.enrolledAt): Machine.Enrollment {
       const enrollment = Machine.Enrollment.parse(input);
+      const time = Machine.Enrollment.shape.enrolledAt.parse(updatedAt);
       client.transaction(() => {
         client.query(`${INSERT} ON CONFLICT(machineId) DO UPDATE SET
           enrollment = excluded.enrollment, revision = machine_enrollment.revision + 1,
           removedAt = NULL, updatedAt = excluded.updatedAt`).run(
-          enrollment.machineId, JSON.stringify(enrollment), enrollment.enrolledAt,
+          enrollment.machineId, JSON.stringify(enrollment), time,
         );
         client.query("DELETE FROM machine_capability_request WHERE machineId = ?").run(enrollment.machineId);
       }).immediate();
@@ -95,7 +96,11 @@ export function createMachineEnrollmentStore(client: Parameters<typeof openChann
       const id = Machine.MachineId.parse(machineId);
       const offered = Machine.Enrollment.shape.enrolledAt.parse(offeredAt);
       const time = Machine.Enrollment.shape.enrolledAt.parse(updatedAt);
-      const requested = Capabilities.min(1).parse(capabilities);
+      const requested = Capabilities.parse(capabilities);
+      if (requested.length === 0) {
+        client.query("DELETE FROM machine_capability_request WHERE machineId = ?").run(id);
+        return;
+      }
       client.query(`INSERT INTO machine_capability_request (machineId, capabilities, offeredAt, updatedAt)
         SELECT machineId, ?, ?, ? FROM machine_enrollment WHERE machineId = ? AND removedAt IS NULL
         ON CONFLICT(machineId) DO UPDATE SET capabilities = excluded.capabilities,
@@ -113,9 +118,7 @@ export function createMachineEnrollmentStore(client: Parameters<typeof openChann
         const pending = store.pending(id);
         if (approved.some((capability) => !pending.includes(capability))) return undefined;
         const enrollment = { ...row.enrollment, allowedCapabilities: [...new Set([...row.enrollment.allowedCapabilities, ...approved])] };
-        store.put(enrollment);
-        client.query("UPDATE machine_enrollment SET updatedAt = ? WHERE machineId = ?").run(time, id);
-        client.query("DELETE FROM machine_capability_request WHERE machineId = ?").run(id);
+        store.put(enrollment, time);
         return enrollment;
       }).immediate();
     },

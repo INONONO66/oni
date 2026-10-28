@@ -363,7 +363,6 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     }
     function recordExcess(offer: Machine.Offer, enrollment: Machine.Enrollment): Effect.Effect<void, MachineError> {
       const excess = offer.offeredCapabilities.filter((capability) => !enrollment.allowedCapabilities.includes(capability));
-      if (excess.length === 0) return Effect.void;
       return Effect.try({
         try: () => options.requestCapabilities?.(offer, excess),
         catch: decodeMachineFailure("capability.request"),
@@ -379,6 +378,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           respond({ status: "refused", reason: "already_attached" } satisfies Machine.AttachResult);
           return;
         }
+        yield* recordExcess(offer, negotiated.enrollment);
         const generation = yield* generationOf(options.generations, offer, () =>
           admissionValid(offer, source, revision) === undefined);
         const state = admissionValid(offer, source, revision);
@@ -391,7 +391,6 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           respond({ status: "refused", reason: "stale_generation" });
           return;
         }
-        yield* recordExcess(offer, negotiated.enrollment);
         publishAttachment(offer, source, incumbent, generation, negotiated);
         respond({ status: "attached", generation, effectiveCapabilities: [...negotiated.capabilities], effectiveExports: [...negotiated.exports] } satisfies Machine.AttachResult);
       }).pipe(admission.withPermits(1));

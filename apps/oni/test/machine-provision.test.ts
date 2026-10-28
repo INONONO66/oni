@@ -257,6 +257,27 @@ test.each(["machine_grant", "machine_deny"] as const)(
   },
 );
 
+test("cleared capability requests refuse both grant and deny without changing enrollment", () => {
+  const plane = testPlane();
+  const enrollments = plane.stores.machineEnrollments;
+  const machines: MachinePort = {
+    enrollments, host: { list: () => [], unenroll: () => undefined },
+    selfId: "self", events: { publish: () => undefined }, now: () => 5,
+  };
+  try {
+    enrollments.put(enrollment);
+    enrollments.request(args.machineId, ["fs.read"], 2, 2);
+    enrollments.request(args.machineId, [], 3, 3);
+    expect(() => executeMachine(machines, {
+      op: "machine_grant", args: { machineId: args.machineId, capabilities: ["fs.read"] },
+    }, "owner")).toThrow(expect.objectContaining({ name: "ToolRefused", message: expect.stringContaining("does not match") }));
+    expect(() => executeMachine(machines, {
+      op: "machine_deny", args: { machineId: args.machineId },
+    }, "owner")).toThrow(expect.objectContaining({ name: "ToolRefused", message: expect.stringContaining("not found") }));
+    expect(enrollments.get(args.machineId)).toMatchObject({ revision: 0, enrollment: { allowedCapabilities: ["kernel.py"] } });
+  } finally { plane.close(); }
+});
+
 test("machine enrollment and channel declarations have independent identities", async () => {
   const plane = testPlane();
   const port = provisionPort(plane);

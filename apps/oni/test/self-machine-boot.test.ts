@@ -125,6 +125,12 @@ test("a remote attach records excess capabilities in the boot catalog before lis
     expect(host?.list().find((row) => row.machineId === "remote")).toMatchObject({
       machineId: "remote", pendingCapabilities: ["screen.read"], capabilities: ["fs.read"],
     });
+    expect(await peer.call(Machine.WireMethod.Attach, {
+      machineId: "remote", offeredCapabilities: ["fs.read"],
+      daemonVersion: "test", platform: "darwin-arm64", offeredAt: 3, generation: 1,
+      peer: { kind: "client", contractVersion: Machine.contractVersion },
+    })).toMatchObject({ status: "attached", effectiveCapabilities: ["fs.read"] });
+    expect(host?.list().find((row) => row.machineId === "remote")?.pendingCapabilities).toEqual([]);
   } finally { await peer.close(); await app.stop(); }
 });
 

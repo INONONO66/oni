@@ -97,6 +97,36 @@ describe("machine attach handshake", () => {
     } finally { peer.close(); await host.close(); }
   });
 
+  test("failed request write leaves the incumbent generation valid for resume", async () => {
+    const path = socketPath();
+    let fail = false;
+    const host = await createMachineHost({
+      listen: { unix: path }, enrollment: () => enrollment,
+      requestCapabilities: (_offered, excess) => {
+        if (fail && excess.length > 0) throw new Error("write failed");
+      },
+      events: eventCollector().sink, now: () => 5000,
+    });
+    const incumbent = await connectIpcClient(path);
+    const replacement = await connectIpcClient(path);
+    try {
+      const original = await incumbent.call(Machine.WireMethod.Attach, {
+        ...offer({ offeredCapabilities: ["fs.read"] }),
+        peer: { kind: "client", contractVersion: Machine.contractVersion },
+      });
+      expect(original).toMatchObject({ status: "attached", generation: 1 });
+      fail = true;
+      await expect(replacement.call(Machine.WireMethod.Attach, {
+        ...offer(), peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).rejects.toBeInstanceOf(IpcRemoteError);
+      expect(host.list()).toMatchObject([{ machineId: "mac-studio", generation: 1 }]);
+      expect(await incumbent.call(Machine.WireMethod.Attach, {
+        ...offer({ offeredCapabilities: ["fs.read"] }), generation: 1,
+        peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).toMatchObject({ status: "attached", generation: 1 });
+    } finally { await replacement.close(); await incumbent.close(); await host.close(); }
+  });
+
   test.each([
     { cellId: "x" },
     { cellId: "x", timeoutMs: 1 },
