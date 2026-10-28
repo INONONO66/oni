@@ -141,13 +141,13 @@ export function fakeSlackOwnerSdk(
   readonly listener: FakeSlackOwnerListener;
   /** What the surface built the listener with; `undefined` until it did. */
   readonly listenerClient: () => SlackOwnerApi | undefined;
-  readonly joins: { workspaceId: string; channelId: string; speakerId: string; credentials: { token: string; cookie: string } }[];
+  readonly joins: { workspaceId: string; channelId: string; speakerId: string; mode?: "join" | "call"; credentials: { token: string; cookie: string } }[];
   readonly setJoin: (join: SlackOwnerSdk["joinHuddle"]) => void;
 } {
   const client = new FakeSlackOwnerClient(script);
   const events = listener ?? new FakeSlackOwnerListener();
   let built: SlackOwnerApi | undefined;
-  const joins: { workspaceId: string; channelId: string; speakerId: string; credentials: { token: string; cookie: string } }[] = [];
+  const joins: { workspaceId: string; channelId: string; speakerId: string; mode?: "join" | "call"; credentials: { token: string; cookie: string } }[] = [];
   let join: SlackOwnerSdk["joinHuddle"] = async () => {
     throw new Error("unscripted huddle join");
   };
@@ -164,7 +164,7 @@ export function fakeSlackOwnerSdk(
         return events;
       },
       joinHuddle: (workspaceId, channelId, options) => {
-        joins.push({ workspaceId, channelId, speakerId: options.speakerId, credentials: options.credentials });
+        joins.push({ workspaceId, channelId, speakerId: options.speakerId, mode: options.mode, credentials: options.credentials });
         return join(workspaceId, channelId, options);
       },
     },

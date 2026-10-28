@@ -122,7 +122,8 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
     execute: async (input) => { bodyCalls += 1; return input; },
     render: (_input, result) => JSON.stringify(result),
   });
-  const send = createSendMessageTool(undefined, () => 1, { call: driver.call });
+  // Voice-driver tests exercise the call after admission; consent is covered at the tool door.
+  const send = { ...createSendMessageTool(undefined, () => 1, { call: driver.call }), approval: undefined };
   const policy = compiledPolicy(deny ? [{
     name: "deny-live-probe", kind: "tool", phase: "pre",
     match: { encodingVersion: 1, value: { op: "probe" } },
@@ -167,7 +168,7 @@ test.each([false, true])("a Slack Owner call retains its complete speaker id and
   }));
   expect(receipt.isError).toBeUndefined();
   expect(f.routeInputs).toMatchObject([{
-    surface: "slack:owner", channelId: "C1", speakerExternalId: "T1:U-owner",
+    surface: "slack:owner", channelId: "C1", speakerExternalId: "T1:U-owner", mode: "join",
   }]);
   await runEffect(Queue.offer(f.calls, { callId: "probe-slack", name: "probe", arguments: { n: 7 } }));
   await bounded(f.answered);
@@ -180,6 +181,24 @@ test.each([false, true])("a Slack Owner call retains its complete speaker id and
   expect(f.outcomes[0]?.reason).toBe("owner_left");
   expect(f.leaves()).toBe(1);
   expect(f.closes()).toBe(1);
+});
+
+test("a non-Owner contact is called with its own Slack endpoint as speaker", async () => {
+  const f = fixture(false, false, 5_000, false, undefined, new Uint8Array([1, 0]), "slack:owner");
+  f.plane.stores.persons.put({
+    id: "person:soju", displayName: "Soju", kind: "human", trustTier: "observer",
+    endpoints: [{ channel: "slack", workspace: "T1", externalId: "T1:U-soju" }],
+    revision: 0, createdBy: "owner", updatedAt: 1,
+  });
+  const receipt = await bounded(f.execute({
+    to: { kind: "contact", id: "person:soju", surface: "slack:owner", conversation: { channelId: "D1" } },
+    kind: "call",
+  }));
+  expect(receipt.isError).toBeUndefined();
+  expect(f.routeInputs).toMatchObject([{
+    surface: "slack:owner", channelId: "D1", speakerExternalId: "T1:U-soju", mode: "call",
+  }]);
+  await f.driver.endAll("shutdown");
 });
 
 test("a completed Resident turn admits a later tool in a separate gated turn", async () => {
@@ -453,23 +472,34 @@ test("call target, owner identity and port refusals precede gateway ingestion", 
     .rejects.toThrow("call_target:");
   await expect(tool.execute({ ...request, to: { ...target, as: "owner" } }, context))
     .rejects.toThrow("call_as_owner:");
+  await expect(tool.execute({ ...request, to: { ...target, as: "bot" } }, context))
+    .rejects.toThrow("call_as_owner:");
   await expect(tool.execute(request, context))
     .rejects.toThrow("call_unavailable:");
 });
 
-test("child and non-Owner calls are refused before any voice join", async () => {
+test("child, unknown and unreachable contact calls are refused before any voice join", async () => {
   const f = fixture();
   await expect(f.driver.call.start({
     contact: "person:owner", surface: "discord:bot", channelId: "voice", sessionId: "child", turnId: "turn",
   })).rejects.toThrow("call_child:");
   await expect(f.driver.call.start({
     contact: "person:missing", surface: "discord:bot", channelId: "voice", sessionId: f.sessionId, turnId: "turn",
-  })).rejects.toThrow("call_not_owner:");
+  })).rejects.toThrow("call_contact_missing:");
   await expect(f.driver.call.start({
     contact: "person:owner", surface: "slack:bot", channelId: "voice", sessionId: f.sessionId, turnId: "turn",
-  })).rejects.toThrow("call_owner_unreachable:");
+  })).rejects.toThrow("call_contact_unreachable:");
+  f.plane.stores.persons.put({
+    id: "person:soju", displayName: "Soju", kind: "human", trustTier: "observer",
+    endpoints: [{ channel: "telegram", externalId: "soju" }],
+    revision: 0, createdBy: "owner", updatedAt: 1,
+  });
+  await expect(f.driver.call.start({
+    contact: "person:soju", surface: "discord:bot", channelId: "voice", sessionId: f.sessionId, turnId: "turn",
+  })).rejects.toThrow("call_contact_unreachable:");
   f.routes.delete("discord:bot");
   await expect(f.driver.call.start({
     contact: "person:owner", surface: "discord:bot", channelId: "voice", sessionId: f.sessionId, turnId: "turn",
   })).rejects.toThrow("call_unrouted:");
+  expect(f.routeInputs).toEqual([]);
 });

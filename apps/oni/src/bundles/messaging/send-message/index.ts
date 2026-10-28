@@ -300,7 +300,11 @@ function ownerConsent(
   at: number,
 ): { readonly required: boolean; readonly domainRevisions: Readonly<Record<string, number>> } {
   const direct = { required: false, domainRevisions: {} };
-  if (input.kind === "call" || input.to.kind !== "contact" || contacts.budgets === undefined || contacts.persons === undefined) return direct;
+  if (input.kind === "call") {
+    const person = input.to.kind === "contact" ? contacts.persons?.get(input.to.id) : undefined;
+    return { required: true, domainRevisions: person === undefined ? {} : { [person.id]: person.revision } };
+  }
+  if (input.to.kind !== "contact" || contacts.budgets === undefined || contacts.persons === undefined) return direct;
   if (parseContactAddress(input.to.id) !== undefined) return direct;
   const person = contacts.persons.get(input.to.id);
   if (person?.reach !== true) return direct;
@@ -569,7 +573,7 @@ function startCall(
   if (target.kind !== "contact" || parseContactAddress(target.id) !== undefined ||
     target.surface === undefined || target.conversation?.channelId === undefined)
     throw new ToolRefused("send_message", "call_target: a person contact needs a surface and voice channel");
-  if (target.as === "owner")
+  if (target.as !== undefined)
     throw new ToolRefused("send_message", "call_as_owner: calls use the selected voice surface's account");
   if (port === undefined)
     throw new ToolRefused("send_message", "call_unavailable: live calls are not composed");
@@ -591,7 +595,7 @@ export function createSendMessageTool(
     name: "send_message",
     category: "authority",
     description:
-      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), a declared CLI agent on an attached machine (cli:<id> — the letter is typed into its terminal; the reply is a prompt pointing at the child's admitted rows), a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`), or a declared A2A peer (a2a:<id> — the letter goes to the agent as message/send; its answer, or where its task stands, is returned on the result, with `thread` for reply_to to continue the exchange). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session. A letter to a person on a channel for whom the Owner declared no social budget waits for the Owner's consent. A call joins the Owner's voice channel and talks with them live; it returns once joined.",
+      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), a declared CLI agent on an attached machine (cli:<id> — the letter is typed into its terminal; the reply is a prompt pointing at the child's admitted rows), a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`), or a declared A2A peer (a2a:<id> — the letter goes to the agent as message/send; its answer, or where its task stands, is returned on the result, with `thread` for reply_to to continue the exchange). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session. A letter to a person on a channel for whom the Owner declared no social budget waits for the Owner's consent. A call requires Owner approval, opens a huddle in to.conversation.channelId from the selected voice surface's account, and talks to the contact live; do not set to.as for calls.",
     input: SendMessageInput,
     output: SendMessageOutput,
     visibility: { model: ["resident", "child"], cell: ["resident", "child"] },

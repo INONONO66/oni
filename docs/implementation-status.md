@@ -1618,6 +1618,19 @@ and the fork's `src/platforms/slack/huddle*.test.ts`.
 
 DoD sweep PR #1661 (G4S): review r1 of the landed diff (R01-R06, L01) fixed; a Slack Owner voice join is admitted only after the current start generation authenticated and received the RTM hello, a rejected leave of a late handle reaches `stop()` as the typed join refusal, `not_in_a_huddle` without a `call_id` ends the current room, a conflict for an older room clears only that room's pending resolution, and the unconsumed SDK `off` seam is removed.
 
+Issue #1686 (`fix/1686-huddle-call-contact`, 2026-10-28): a Resident's
+`send_message` call can target a registered non-Owner Person with a matching
+platform endpoint, without a standing `reach` grant. Each call suspends for
+the Owner's approval bound to that Person's revision before the body runs;
+refusal starts no voice route. The Owner voice surface remains the seat, while
+the selected speaker is the contact's `TEAM:USER` endpoint. The Slack route
+passes `mode: "join"` for an Owner contact and `mode: "call"` for other
+contacts, opening the huddle in `to.conversation.channelId`; the fork's
+`speakerId` receives the `USER` portion. Live acceptance of a coworker
+answer remains to be established on the host. Receipts:
+`apps/oni/test/{live-voice,send-message-contacts}.test.ts`,
+`packages/channels/test/slack-voice.test.ts`.
+
 ## Telegram Owner account over TDLib (PR #1659)
 
 On `feat/g5-telegram-owner` (2026-10-25, base `47b51f61a` after #1661, no

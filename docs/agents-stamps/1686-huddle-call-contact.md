@@ -1,0 +1,1 @@
+#1686 on `fix/1686-huddle-call-contact` (2026-10-28, base `b15af9b26`, PR pending): per-call Owner-approved Slack huddles to registered contacts without standing reach; receipts `apps/oni/test/{live-voice,send-message-contacts}.test.ts`, `packages/channels/test/slack-voice.test.ts`, and `docs/implementation-status.md`.

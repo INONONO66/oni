@@ -81,7 +81,7 @@ test("a ready call passes the Owner session, maps departure once, and releases i
   await f.adapter.start("start");
   const voice = await f.adapter.joinVoice(address);
   expect(f.joins).toEqual([{
-    workspaceId: "T1", channelId: "C1", speakerId: "U-owner", credentials: credential,
+    workspaceId: "T1", channelId: "C1", speakerId: "U-owner", mode: "join", credentials: credential,
   }]);
   const events = voice.events[Symbol.asyncIterator]();
   h.emit({ type: "ready" });
@@ -93,6 +93,24 @@ test("a ready call passes the Owner session, maps departure once, and releases i
   const next = fakeHuddle();
   f.setJoin(async () => next.handle);
   await (await f.adapter.joinVoice(address)).leave();
+  await f.adapter.stop("stop");
+});
+
+test("calling a DM selects the contact's speaker while retaining the Owner seat", async () => {
+  const f = fixture("none");
+  const h = fakeHuddle();
+  f.setJoin(async () => h.handle);
+  await f.adapter.start("start");
+  const voice = await f.adapter.joinVoice({
+    ...address, channelId: "D1", speakerExternalId: "T1:U-soju", mode: "call",
+  });
+  expect(f.joins).toEqual([{
+    workspaceId: "T1", channelId: "D1", speakerId: "U-soju", mode: "call", credentials: credential,
+  }]);
+  const events = voice.events[Symbol.asyncIterator]();
+  h.emit({ type: "speaker_left", userId: "U-soju" });
+  expect((await bounded(events.next())).value).toEqual({ type: "speaker_left", externalId: "T1:U-soju" });
+  await voice.leave();
   await f.adapter.stop("stop");
 });
 
@@ -180,6 +198,18 @@ test.each([
   await f.adapter.start("start");
   await expect(f.adapter.joinVoice(address)).rejects.toMatchObject({
     _tag: "VoiceJoinRefused", reason, detail: "workspace_mismatch",
+  });
+  await f.adapter.stop("stop");
+});
+
+test("a contact who does not answer preserves the typed huddle failure detail", async () => {
+  const f = fixture("none");
+  f.setJoin(async () => { throw new SlackHuddleError("voice_join_failed", "speaker_no_answer"); });
+  await f.adapter.start("start");
+  await expect(f.adapter.joinVoice({
+    ...address, channelId: "D1", speakerExternalId: "T1:U-soju", mode: "call",
+  })).rejects.toMatchObject({
+    _tag: "VoiceJoinRefused", reason: "join_failed", detail: "speaker_no_answer",
   });
   await f.adapter.stop("stop");
 });

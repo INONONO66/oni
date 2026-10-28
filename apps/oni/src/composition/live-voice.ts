@@ -59,10 +59,8 @@ function refused(code: string, detail: string): Core.ToolRefused {
   return new Core.ToolRefused("send_message", `${code}: ${detail}`);
 }
 
-async function joinVoice(route: ProviderVoiceRoute, request: CallRequest, speaker: string, signal: AbortSignal) {
-  const result = await route({
-    surface: request.surface, channelId: request.channelId, speakerExternalId: speaker, signal,
-  }).then((voice) => ({ voice }), ThrownError.transform((failure) => ({ failure })).parse);
+async function joinVoice(route: ProviderVoiceRoute, address: Parameters<ProviderVoiceRoute>[0]) {
+  const result = await route(address).then((voice) => ({ voice }), ThrownError.transform((failure) => ({ failure })).parse);
   if ("failure" in result) {
     if (result.failure instanceof VoiceJoinRefused)
       throw refused("call_join_refused", `${result.failure.reason}: ${result.failure.detail}`);
@@ -171,12 +169,12 @@ export function createLiveVoice(input: LiveVoiceInputs): {
     if (input.role(request.sessionId) !== "resident")
       throw refused("call_child", "only the Resident can start a live call");
     const person = input.persons.get(request.contact);
-    if (person?.trustTier !== "owner")
-      throw refused("call_not_owner", "the contact is not the Owner");
+    if (person === undefined)
+      throw refused("call_contact_missing", `contact ${request.contact} does not exist`);
     const platform = request.surface.split(":")[0] ?? request.surface;
     const endpoint = person.endpoints.find((candidate) => candidate.channel === platform);
     if (endpoint === undefined)
-      throw refused("call_owner_unreachable", `the Owner has no ${platform} endpoint`);
+      throw refused("call_contact_unreachable", `the contact has no ${platform} endpoint`);
     const route = input.routes.get(request.surface);
     if (route === undefined)
       throw refused("call_unrouted", `no mounted voice route for ${request.surface}`);
@@ -218,7 +216,10 @@ export function createLiveVoice(input: LiveVoiceInputs): {
     };
 
     const drive = async (): Promise<void> => {
-      const outcome = await joinVoice(route, request, endpoint.externalId, controller.signal)
+      const outcome = await joinVoice(route, {
+        surface: request.surface, channelId: request.channelId, speakerExternalId: endpoint.externalId,
+        mode: person.trustTier === "owner" ? "join" : "call", signal: controller.signal,
+      })
         .then((voice) => {
           handle = voice;
           return runCall(input, request, voice, specs, callId, endpoint.externalId,
