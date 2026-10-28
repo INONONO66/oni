@@ -195,10 +195,129 @@ fn rejoin_preserves_enrolled_identity_and_receipt() {
 #[test]
 fn rejoin_refuses_incomplete_identity_without_rotating_key() {
     let home = tempfile::tempdir().expect("isolated home");
+    let first = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args([
+            "join",
+            "localhost",
+            "--name",
+            "macbook",
+            "--unix",
+            "/tmp/oni.sock",
+            "--no-service",
+            "--no-open",
+        ])
+        .output()
+        .expect("first join");
+    assert_eq!(first.status.code(), Some(0));
+    let directory = home.path().join(".oni/machine-client");
+    let config = std::fs::read(directory.join("client.json")).expect("saved config");
+    let key = std::fs::read(directory.join("client-key.pem")).expect("saved key");
+    std::fs::remove_file(directory.join("client-cert.pem")).expect("interrupted identity");
+    let service = home.path().join("services");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args([
+            "join",
+            "otherhost.example",
+            "--name",
+            "renamed",
+            "--unix",
+            "/tmp/oni.sock",
+            "--service-dir",
+            service.to_str().expect("service path"),
+            "--no-open",
+        ])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(output.status.code(), Some(2));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
+    let reason = error["reason"].as_str().expect("reason");
+    assert!(reason.contains("client-cert.pem"));
+    assert!(reason.contains("client-key.pem"));
+    assert!(reason.contains("re-enroll"));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        std::fs::read(directory.join("client-key.pem")).expect("saved key"),
+        key
+    );
+    assert_eq!(
+        std::fs::read(directory.join("client.json")).expect("saved config"),
+        config
+    );
+    assert!(!directory.join("client-cert.pem").exists());
+    assert!(!service.exists());
+}
+
+#[test]
+fn rejoin_refuses_mismatched_certificate_and_key_without_writes() {
+    let first = tempfile::tempdir().expect("first home");
+    let second = tempfile::tempdir().expect("second home");
+    for home in [first.path(), second.path()] {
+        let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home)
+            .args([
+                "join",
+                "localhost",
+                "--unix",
+                "/tmp/oni.sock",
+                "--no-service",
+                "--no-open",
+            ])
+            .output()
+            .expect("join");
+        assert_eq!(output.status.code(), Some(0));
+    }
+    let directory = first.path().join(".oni/machine-client");
+    let cert = std::fs::read(directory.join("client-cert.pem")).expect("first certificate");
+    let key = std::fs::read(second.path().join(".oni/machine-client/client-key.pem"))
+        .expect("second key");
+    std::fs::write(directory.join("client-key.pem"), &key).expect("mismatched key");
+    let config = std::fs::read(directory.join("client.json")).expect("first config");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", first.path())
+        .args([
+            "join",
+            "otherhost.example",
+            "--name",
+            "renamed",
+            "--unix",
+            "/tmp/oni.sock",
+            "--no-service",
+        ])
+        .output()
+        .expect("rejoin");
+    assert_eq!(output.status.code(), Some(2));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
+    assert!(error["reason"]
+        .as_str()
+        .expect("reason")
+        .contains("invalid saved client identity"));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        std::fs::read(directory.join("client.json")).expect("config"),
+        config
+    );
+    assert_eq!(
+        std::fs::read(directory.join("client-cert.pem")).expect("cert"),
+        cert
+    );
+    assert_eq!(
+        std::fs::read(directory.join("client-key.pem")).expect("key"),
+        key
+    );
+}
+
+#[test]
+fn first_join_refuses_key_write_failure_without_a_receipt() {
+    let home = tempfile::tempdir().expect("isolated home");
     let directory = home.path().join(".oni/machine-client");
     std::fs::create_dir_all(&directory).expect("client directory");
-    let key = b"previous private key";
-    std::fs::write(directory.join("client-key.pem"), key).expect("saved key");
+    std::os::unix::fs::symlink(
+        home.path().join("missing/key"),
+        directory.join("client-key.pem"),
+    )
+    .expect("dangling key path");
     let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
         .env("HOME", home.path())
         .args([
@@ -207,18 +326,19 @@ fn rejoin_refuses_incomplete_identity_without_rotating_key() {
             "--unix",
             "/tmp/oni.sock",
             "--no-service",
+            "--no-open",
         ])
         .output()
-        .expect("mclient runs");
+        .expect("join");
     assert_eq!(output.status.code(), Some(2));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
-    assert_eq!(error["reason"], "invalid saved client identity");
+    assert!(error["reason"]
+        .as_str()
+        .expect("reason")
+        .contains("configuration I/O"));
     assert!(output.stdout.is_empty());
-    assert_eq!(
-        std::fs::read(directory.join("client-key.pem")).expect("saved key"),
-        key
-    );
-    assert!(!directory.join("client-cert.pem").exists());
+    assert!(!directory.join("client.json").exists());
+    assert!(directory.join("client-cert.pem").exists());
 }
 
 #[test]

@@ -27,7 +27,7 @@ pub enum ConfigError {
     InvalidPin,
     #[error("invalid export")]
     InvalidExport,
-    #[error("invalid saved client identity")]
+    #[error("invalid saved client identity (client-cert.pem/client-key.pem); restore the matching pair or delete both and re-enroll with Owner")]
     InvalidIdentity,
     #[error("configuration I/O: {0}")]
     Io(#[from] io::Error),
@@ -299,6 +299,8 @@ pub fn load(path: &Path) -> Result<ClientConfig, ConfigError> {
 }
 
 pub fn identity(directory: &Path, name: &str) -> Result<String, ConfigError> {
+    fs::create_dir_all(directory)?;
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
     let saved_cert = fs::read(directory.join("client-cert.pem"));
     let saved_key = fs::read(directory.join("client-key.pem"));
     match (saved_cert, saved_key) {
@@ -333,11 +335,11 @@ pub fn identity(directory: &Path, name: &str) -> Result<String, ConfigError> {
     params.not_after = current + time::Duration::days(3652);
     let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?;
     let cert = params.self_signed(&key)?;
+    write_private(&directory.join("client-cert.pem"), cert.pem().as_bytes())?;
     write_private(
         &directory.join("client-key.pem"),
         key.serialize_pem().as_bytes(),
     )?;
-    write_private(&directory.join("client-cert.pem"), cert.pem().as_bytes())?;
     let pin = public_key_pin(cert.der()).map_err(|_| ConfigError::InvalidPin)?;
     Ok(hex::encode(pin))
 }
