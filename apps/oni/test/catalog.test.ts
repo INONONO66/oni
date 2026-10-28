@@ -65,6 +65,8 @@ const OPS: Record<string, readonly string[]> = {
     "automation_disable",
     "automation_list",
     "machine_add",
+    "machine_grant",
+    "machine_deny",
     "machine_remove",
     "machine_list",
     "status",
