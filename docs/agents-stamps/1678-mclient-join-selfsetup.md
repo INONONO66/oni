@@ -1,0 +1,1 @@
+#1678 (machine client join), feat/1678-mclient-join-selfsetup, 2026-10-28, base 2f61e63b7, PR #1679: mclient join installs and restarts services in the XDG user unit directory, offers screen capabilities before permission, and keeps wire conformance service-free; Rust CLI, screen, service, and conformance gates in PR #1679.

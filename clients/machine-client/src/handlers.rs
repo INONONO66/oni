@@ -261,7 +261,7 @@ impl Service {
         )
     }
 
-    /// Screen capabilities are offered only when `screen` is available.
+    /// Screen capabilities are offered when a source exists, including before permission.
     pub fn open_with(
         config: &ClientConfig,
         pty: Pty,
@@ -270,8 +270,8 @@ impl Service {
         Self::open_computer(config, pty, screen, Input::absent())
     }
 
-    /// `input.write` is offered only when both `screen` and `input` are
-    /// available: input is anchored to a capture.
+    /// `input.write` is offered when screen and input drivers exist; serving
+    /// still requires permission and a successful capture anchor.
     pub fn open_computer(
         config: &ClientConfig,
         pty: Pty,

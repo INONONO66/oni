@@ -63,6 +63,12 @@ pub struct JoinOptions {
     #[arg(long = "export")]
     pub exports: Vec<String>,
     #[arg(long)]
+    pub no_service: bool,
+    #[arg(long)]
+    pub service_dir: Option<PathBuf>,
+    #[arg(long)]
+    pub no_open: bool,
+    #[arg(long)]
     pub host_cert: Option<PathBuf>,
     #[arg(long)]
     pub host_pin: Option<String>,

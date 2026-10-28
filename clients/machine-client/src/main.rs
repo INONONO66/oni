@@ -5,7 +5,7 @@ use oni_machine_client::{
     agent::hook,
     attach::{self, AttachError},
     config::{self, JoinOptions},
-    handlers,
+    handlers, service,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -21,7 +21,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    Join(JoinOptions),
+    Join(Box<JoinOptions>),
     Run {
         #[arg(long)]
         config: Option<PathBuf>,
@@ -50,7 +50,7 @@ async fn main() -> ExitCode {
     }
     let result = match cli.command {
         Some(Command::Join(options)) => join(&options).await,
-        Some(Command::Run { config }) => attach::run_default(config.as_deref()).await,
+        Some(Command::Run { config }) => attach::run_service(config.as_deref()).await,
         Some(Command::Hook(Hook::Permission { cli })) => {
             let socket = config::agent_hook_socket();
             let outcome =
@@ -75,7 +75,20 @@ async fn main() -> ExitCode {
 
 async fn join(options: &JoinOptions) -> Result<(), AttachError> {
     let enrollment = attach::join(options, &config::root(), &handlers::SUPPORTED).await?;
+    let path = config::root().join("machine-client/client.json");
     eprint!("{}", enrollment.notice());
     println!("{}", enrollment.receipt);
+    println!("config: {}", path.display());
+    let state = service::install(options, &config::home(), &path).map_err(|error| {
+        AttachError::Io(std::io::Error::other(format!(
+            "service install failed ({error}); rerun with --no-service to skip, or fix the service manager"
+        )))
+    })?;
+    println!("service: {} ({})", state.name, state.state);
+    println!("offered capabilities: {}", handlers::SUPPORTED.join(", "));
+    println!(
+        "{}",
+        service::screen(options.no_open, &std::env::current_exe()?)?
+    );
     Ok(())
 }

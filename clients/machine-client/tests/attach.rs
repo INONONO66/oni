@@ -73,6 +73,9 @@ fn join_options(host: &str) -> JoinOptions {
         trust_on_first_use: false,
         unix: None,
         memory_budget_mb: 96,
+        no_service: true,
+        service_dir: None,
+        no_open: true,
     }
 }
 

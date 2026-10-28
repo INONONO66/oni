@@ -526,6 +526,59 @@ async fn screen_methods_gate_attachment_then_capability_and_free_frames_on_teard
     assert_eq!(hooks.pressure.retained().frame_bytes, 0);
 }
 
+#[tokio::test]
+async fn unpermitted_native_source_is_offered_but_refuses_capture() {
+    use oni_machine_client::{
+        input::{recorder::Recorder, Input},
+        screen::{fixture::Fixture as Frames, Screen},
+    };
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let source = Frames {
+        denied: true,
+        ..Frames::display(32, 16, 1.0)
+    };
+    let recorder = Recorder::default();
+    recorder.deny(true);
+    let service = Service::open_computer(
+        &settings(false, root.path()),
+        pty,
+        Screen::new(Box::new(source), 2),
+        Input::new(recorder.clone()),
+    )
+    .expect("service");
+    assert!(service.capabilities().contains(&"screen.read".to_owned()));
+    assert!(service.capabilities().contains(&"computer.use".to_owned()));
+    assert!(service.capabilities().contains(&"input.write".to_owned()));
+    service.attached(&Negotiated {
+        generation: NonZeroU64::MIN,
+        capabilities: ["screen.read", "computer.use", "input.write"]
+            .map(str::to_owned)
+            .to_vec(),
+        exports: vec![],
+    });
+    let hooks = service.hooks(Duration::from_secs(60));
+    for (method, params) in [
+        ("machine.screen.list", json!({})),
+        (
+            "machine.screen.capture",
+            json!({"target":{"kind":"display","display":1},"encoding":{"format":"png"}}),
+        ),
+        ("machine.screen_read", json!({})),
+    ] {
+        let answer = (hooks.service)(method.to_owned(), Some(params))
+            .await
+            .expect(method);
+        assert_eq!(answer, refusal("permission_denied"), "{method}");
+    }
+    let input = json!({"captureId":"cap-1","actions":[{"type":{"text":"hi"}}]});
+    let answer = (hooks.service)("machine.input_write".to_owned(), Some(input))
+        .await
+        .expect("input");
+    assert_eq!(answer, refusal("permission_denied"));
+    assert_eq!(recorder.events(), []);
+}
+
 struct Panicking;
 
 impl oni_machine_client::screen::Source for Panicking {

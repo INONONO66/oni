@@ -5,7 +5,7 @@
 New clients include `screen.permission` (`granted`, `denied`, or `unsupported`)
 on every heartbeat. The client probes `Source::ready()` without prompting or
 listing displays: success reports granted, a permission refusal reports denied,
-and no usable capture source on this client reports unsupported. A sleeping
+and no capture source on this client reports unsupported. A sleeping
 display alone does not change the permission fact. Contract v2 also accepts
 older reports without `screen`; the host keeps their `live` load and staleness
 and omits `Info.live.screen` (unknown). With a screen fact, the host copies the
@@ -27,6 +27,32 @@ the new grant applies on the next attach or reconnect. Denial clears only
 the pending request. `ONI_MACHINES_ENROLLED` seeds each machine id only once
 on first boot; later capability changes use `machine_grant` or
 `machine_add`, not environment edits.
+
+## #1678 machine client join self-setup (Lane A)
+
+`mclient join` prints the enrollment receipt before attempting service
+installation and then prints config path, service status, full supported
+capability list and Screen Recording instructions. The client offers
+capabilities for present drivers on attach. A native screen
+source (or a configured headless computer block) offers `screen.read` and
+`computer.use` even before Screen Recording permission is granted, so the
+host can show them as pending for Owner approval. An existing input driver
+likewise offers `input.write`; serving capture and input still checks current
+permission and refuses with `permission_denied` until granted. The optional
+report fact above probes readiness independently of the offer.
+After successful enrollment, join installs `ai.oni.machine` as a LaunchAgent
+on macOS or `oni-machine-client.service` as a root/system or non-root/user
+systemd unit on Linux. The installed job runs the current binary with
+`run --config <client.json>`; rejoining an unchanged unit restarts it.
+`--no-service` skips installation, while `--service-dir` overrides the unit
+directory without suppressing service activation. Linux user units follow
+`XDG_CONFIG_HOME/systemd/user` when the variable is absolute, otherwise
+`~/.config/systemd/user`; wire conformance joins use `--no-service`.
+macOS `mclient run` requests
+Screen Recording permission if preflight is false, attributing the prompt to
+the launched client; join opens Settings unless `--no-open` is set and does
+not claim to know the grant. Linux reports unsupported. No live join against
+a deployed host was performed for this lane.
 
 ## #1671 durable delivery content and attachment transcript (PR #1672)
 

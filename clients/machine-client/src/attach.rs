@@ -515,12 +515,29 @@ pub async fn run_with_probe(
 }
 
 pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
+    run_default_with_screen(path, false).await
+}
+
+pub async fn run_service(path: Option<&Path>) -> Result<(), AttachError> {
+    run_default_with_screen(path, true).await
+}
+
+async fn run_default_with_screen(
+    path: Option<&Path>,
+    request_screen: bool,
+) -> Result<(), AttachError> {
     let path = path.map_or_else(
         || config::root().join("machine-client/client.json"),
         Path::to_path_buf,
     );
     let directory = path.parent().unwrap_or(Path::new(""));
     let config = config::load(&path)?;
+    #[cfg(target_os = "macos")]
+    if request_screen {
+        crate::service::request_screen();
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = request_screen;
     let generation = std::collections::hash_map::RandomState::new()
         .build_hasher()
         .finish();
