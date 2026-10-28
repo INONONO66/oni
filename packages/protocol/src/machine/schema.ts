@@ -308,6 +308,11 @@ export const Load = z
   .strict();
 export type Load = z.infer<typeof Load>;
 
+/** Current screen-capture permission at report time, including absent sources. */
+export const ScreenPermission = z.object({
+  permission: z.enum(["granted", "denied", "unsupported"]),
+}).strict();
+
 /**
  * Daemon → host heartbeat (#1555): one per report interval after attach.
  * The host stores only the latest report per attachment and derives
@@ -318,6 +323,7 @@ export const Report = z
     machineId: MachineId,
     reportedAt: EpochMs,
     load: Load,
+    screen: ScreenPermission,
     /**
      * Open live streams at report time (#1662). Absent when none is open; a
      * peer only has streams after the host opened them, so a host that never

@@ -1,5 +1,16 @@
 # Implementation Status
 
+## #1678 screen permission in machine reports (Lane C)
+
+Every client heartbeat includes `screen.permission` (`granted`, `denied`, or
+`unsupported`). The client probes the current screen source without prompting:
+an available permitted display reports granted, a source with denied access or
+no display reports denied, and an absent source reports unsupported. The host
+copies the latest accepted fact into `machine_list`'s `Info.live.screen` beside
+the load and staleness fields; before the first report, `live` is absent. This
+gives a missing stream a visible screen-permission cause in machine listings.
+No viewer or stream metrics surface is included.
+
 ## #1678 pending machine capability approval (Lane B)
 
 The host still admits only enrollment ∩ offer. After successful attach

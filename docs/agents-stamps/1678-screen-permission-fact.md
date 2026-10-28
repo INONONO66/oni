@@ -1,0 +1,1 @@
+#1678 on `feat/1678-screen-permission-fact` (2026-10-28, base `4ff3592d8`, PR pending): required screen permission heartbeat and latest-report machine listing; receipts `clients/machine-client/src/report.rs`, `packages/machines/test/report.test.ts`, `packages/protocol/fixtures/machine/valid/Report.unsupported.json`.

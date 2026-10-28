@@ -41,6 +41,7 @@ test("enrollment removal fails in-flight calls once while another real client re
     const reported = events.next(Machine.Events.Reported.name);
     expect(await peer.call(Machine.WireMethod.Report, {
       machineId: "worker", reportedAt: 1,
+      screen: { permission: "unsupported" },
       load: { loadAvg1: 0.5, memoryAvailableBytes: 4096, inFlight: 0 },
     })).toEqual({ status: "accepted" });
     await within(reported, "worker report");

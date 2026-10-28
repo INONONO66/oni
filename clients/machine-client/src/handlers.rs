@@ -413,6 +413,7 @@ impl Service {
             }),
             pressure: self.clone(),
             session: self.clone(),
+            screen: self.screen.clone(),
             heartbeat,
         }
     }

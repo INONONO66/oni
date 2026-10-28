@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { EpochMs } from "../time.js";
-import { AttachGeneration, CapabilityId, Enrollment, Load, Peer, Resources } from "./schema.js";
+import { AttachGeneration, CapabilityId, Enrollment, Load, Peer, Resources, ScreenPermission } from "./schema.js";
 
 /** The host's attached-machine projection, shared by provision and the gateway. */
 export const Info = Enrollment.extend({
@@ -12,7 +12,7 @@ export const Info = Enrollment.extend({
   resources: Resources.optional(),
   generation: AttachGeneration.optional(),
   peer: Peer.optional(),
-  live: z.object({ reportedAt: EpochMs, load: Load, stale: z.boolean() }).strict().optional(),
+  live: z.object({ reportedAt: EpochMs, load: Load, screen: ScreenPermission, stale: z.boolean() }).strict().optional(),
 });
 export type Info = z.infer<typeof Info>;
 

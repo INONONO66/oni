@@ -71,6 +71,23 @@
           "minimum": 0,
           "type": "number"
         },
+        "screen": {
+          "additionalProperties": false,
+          "properties": {
+            "permission": {
+              "enum": [
+                "granted",
+                "denied",
+                "unsupported"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission"
+          ],
+          "type": "object"
+        },
         "stale": {
           "type": "boolean"
         }
@@ -78,6 +95,7 @@
       "required": [
         "reportedAt",
         "load",
+        "screen",
         "stale"
       ],
       "type": "object"

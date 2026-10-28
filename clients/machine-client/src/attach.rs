@@ -95,6 +95,7 @@ pub struct Hooks {
     pub service: Handler,
     pub pressure: Arc<dyn Pressure>,
     pub session: Arc<dyn Session>,
+    pub screen: Arc<crate::screen::Screen>,
     pub heartbeat: Duration,
 }
 
@@ -449,7 +450,8 @@ impl<'a, P: Probe> Attachment<'a, P> {
             .store(self.budget.restricted(), Ordering::Relaxed);
         let mut report = json!({
             "machineId": self.config.machine_id, "reportedAt": at,
-            "load": self.probe.load(in_flight)?
+            "load": self.probe.load(in_flight)?,
+            "screen": {"permission": report::screen_permission(self.hooks.screen.probe())}
         });
         report::with_streams(&mut report, streams);
         match client.call("machine.report", Some(report)).await {
