@@ -1,5 +1,18 @@
 # Implementation Status
 
+## #1678 screen permission in machine reports (Lane C)
+
+New clients include `screen.permission` (`granted`, `denied`, or `unsupported`)
+on every heartbeat. The client probes `Source::ready()` without prompting or
+listing displays: success reports granted, a permission refusal reports denied,
+and no usable capture source on this client reports unsupported. A sleeping
+display alone does not change the permission fact. Contract v2 also accepts
+older reports without `screen`; the host keeps their `live` load and staleness
+and omits `Info.live.screen` (unknown). With a screen fact, the host copies the
+latest accepted value into `machine_list`. Upgrade hosts before clients:
+an older strict host rejects the new report field. No viewer or stream metrics
+surface is included.
+
 ## #1678 pending machine capability approval (Lane B)
 
 The host still admits only enrollment ∩ offer. After successful attach
@@ -2833,7 +2846,7 @@ only from the attaching connection for the machine it attached as, keeps the
 latest per attachment, drops it on detach, and publishes `machine.reported`
 (ephemeral; `time` is host receipt, `reportedAt` the client's clock).
 `MachineHost.list()` projects `resources?` and
-`live?: { reportedAt, load, stale }` with `stale` judged by the host clock
+`live?: { reportedAt, load, screen?, stale }` with `stale` judged by the host clock
 against `staleAfterMs` (default 15 000 = three missed default beats);
 `codemode.listMachines` exposes both. The self machine runs the same Rust
 client: `composition/self-machine.ts` subscribes before spawning, observes

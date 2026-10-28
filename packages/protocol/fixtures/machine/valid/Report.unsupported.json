@@ -1,0 +1,6 @@
+{
+  "machineId": "headless",
+  "reportedAt": 1,
+  "screen": { "permission": "unsupported" },
+  "load": { "loadAvg1": 0, "memoryAvailableBytes": 1024, "inFlight": 0 }
+}

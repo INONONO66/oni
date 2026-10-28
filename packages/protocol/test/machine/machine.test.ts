@@ -24,7 +24,7 @@ describe("managed machine enrollment", () => {
   test("gateway rows preserve capacity and load, refusing invented fields", () => {
     const row = { ...enrollment, tags: ["pool"], capabilities: ["fs.read"], pendingCapabilities: ["screen.read"], os: "darwin", arch: "arm64",
       resources: { cpus: 4, memoryBytes: 8192 },
-      live: { reportedAt: 4, stale: false, load: { loadAvg1: 0.5, memoryAvailableBytes: 4096, inFlight: 1 } } };
+      live: { reportedAt: 4, stale: false, screen: { permission: "denied" as const }, load: { loadAvg1: 0.5, memoryAvailableBytes: 4096, inFlight: 1 } } };
     const reply = { type: "machine_listed", requestId: "list", rows: [row] } satisfies Machine.Response;
     expect(Machine.Response.parse(reply)).toEqual(reply);
     expect(Machine.Info.safeParse({ ...row, leases: 1 }).success).toBe(false);
@@ -133,7 +133,7 @@ describe("machine.report heartbeat (#1555)", () => {
   });
 
   test("a report round-trips, refuses a negative load average, and the event carries the same load", () => {
-    const report = { machineId: "mac-0", reportedAt: 3, load };
+    const report = { machineId: "mac-0", reportedAt: 3, load, screen: { permission: "granted" as const } };
     expect(Machine.Report.parse(report)).toEqual(report);
     expect(Machine.Report.safeParse({ ...report, load: { ...load, loadAvg1: -1 } }).success).toBe(false);
     expect(Machine.Events.Reported.name).toBe("machine.reported");

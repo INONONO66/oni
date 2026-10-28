@@ -88,6 +88,7 @@ fn hooks(pressure: Arc<dyn Pressure>) -> Hooks {
         service: handler(|method, _| async move { Ok(json!({"served": method})) }),
         pressure,
         session: Arc::new(Unobserved),
+        screen: Arc::new(oni_machine_client::screen::Screen::absent()),
         heartbeat: Duration::from_millis(1),
     }
 }
@@ -669,6 +670,10 @@ async fn unix_attach_saves_generation_heartbeats_and_offers_it_on_reconnect() {
             assert_eq!(
                 report["params"]["load"],
                 json!({"loadAvg1":0.5,"memoryAvailableBytes":1024,"inFlight":0})
+            );
+            assert_eq!(
+                report["params"]["screen"],
+                json!({"permission":"unsupported"})
             );
             let carried = oni_protocol::decode::<oni_protocol::Report>(report["params"].clone())
                 .expect("report with stream observations validates");

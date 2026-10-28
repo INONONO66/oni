@@ -3,7 +3,17 @@ use std::{fs, io, io::Write, os::unix::fs::OpenOptionsExt, path::Path};
 use nix::libc;
 use serde::Serialize;
 
-use crate::budget::Metrics;
+use crate::{budget::Metrics, screen::Fault};
+
+/// Interpret one source probe without touching the display or prompting.
+pub fn screen_permission(probe: Option<Result<(), Fault>>) -> &'static str {
+    match probe {
+        None => "unsupported",
+        Some(Ok(())) => "granted",
+        Some(Err(Fault::Permission)) => "denied",
+        Some(Err(_)) => "unsupported",
+    }
+}
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
@@ -239,6 +249,30 @@ pub fn with_streams(report: &mut serde_json::Value, mut streams: Vec<serde_json:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screen_permission_follows_the_injected_probe() {
+        use crate::screen::{fixture::Fixture, Screen};
+
+        let permitted = Screen::new(Box::new(Fixture::display(16, 16, 1.0)), 1);
+        assert_eq!(screen_permission(permitted.probe()), "granted");
+        let empty = Screen::new(Box::new(Fixture::default()), 1);
+        assert_eq!(screen_permission(empty.probe()), "granted");
+        let denied = Screen::new(
+            Box::new(Fixture {
+                denied: true,
+                ..Fixture::default()
+            }),
+            1,
+        );
+        assert_eq!(screen_permission(denied.probe()), "denied");
+        assert_eq!(
+            screen_permission(Some(Err(Fault::Failed("screen unavailable".to_owned())))),
+            "unsupported"
+        );
+        assert_eq!(screen_permission(Some(Err(Fault::Absent))), "unsupported");
+        assert_eq!(screen_permission(Screen::absent().probe()), "unsupported");
+    }
 
     #[test]
     fn meminfo_reads_named_kibibyte_field() {

@@ -1,4 +1,5 @@
 {
   "machineId": "mac-0",
-  "reportedAt": 1
+  "reportedAt": 1,
+  "screen": { "permission": "granted" }
 }

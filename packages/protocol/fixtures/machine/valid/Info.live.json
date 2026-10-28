@@ -15,6 +15,7 @@
   },
   "live": {
     "reportedAt": 1,
+    "screen": { "permission": "denied" },
     "load": {
       "loadAvg1": 0.5,
       "memoryAvailableBytes": 1024,

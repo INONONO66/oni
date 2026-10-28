@@ -1,6 +1,7 @@
 {
   "machineId": "m1",
   "reportedAt": 1700000000000,
+  "screen": { "permission": "denied" },
   "load": {
     "loadAvg1": 0.5,
     "memoryAvailableBytes": 1024,

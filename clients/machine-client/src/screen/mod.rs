@@ -192,6 +192,11 @@ impl Screen {
         self.available
     }
 
+    /// Recheck capture permission at each report without listing displays.
+    pub fn probe(&self) -> Option<Result<(), Fault>> {
+        self.source.as_deref().map(|source| source.ready())
+    }
+
     pub fn retained(&self) -> usize {
         self.pool.retained()
     }
