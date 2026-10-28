@@ -30,19 +30,20 @@ on first boot; later capability changes use `machine_grant` or
 
 ## #1678 machine client join self-setup (Lane A)
 
-`mclient join` now saves a validated, deduplicated `offeredCapabilities` set
-in `client.json` and keeps the enrollment receipt in its first stdout line.
-The client still probes available drivers before offering capabilities on
-attach; previously saved configs without the field retain that behavior.
+`mclient join` prints the enrollment receipt before attempting service
+installation and then prints config path, service status, full supported
+capability list and Screen Recording instructions. The client still probes
+available drivers before offering capabilities on attach.
 After successful enrollment, join installs `ai.oni.machine` as a LaunchAgent
 on macOS or `oni-machine-client.service` as a root/system or non-root/user
 systemd unit on Linux. The installed job runs the current binary with
-`run --config <client.json>`; rejoining restarts it. `--no-service` skips
-installation, while `--service-dir` writes to an isolated directory without
-invoking the service manager. macOS join requests Screen Recording permission
-after installation, reports the result and can suppress opening Settings with
-`--no-open`; Linux reports unsupported. No live join against a deployed host
-was performed for this lane.
+`run --config <client.json>`; rejoining an unchanged unit restarts it.
+`--no-service` skips installation, while `--service-dir` overrides the unit
+directory without suppressing service activation. macOS `mclient run` requests
+Screen Recording permission if preflight is false, attributing the prompt to
+the launched client; join opens Settings unless `--no-open` is set and does
+not claim to know the grant. Linux reports unsupported. No live join against
+a deployed host was performed for this lane.
 
 ## #1671 durable delivery content and attachment transcript (PR #1672)
 

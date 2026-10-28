@@ -1,1 +1,1 @@
-#1678 (machine client join), feat/1678-mclient-join-selfsetup, 2026-10-28, base 43b360d2f, PR #1679: mclient join installs service and reports permission/capability state; Rust CLI and service builder tests plus required gates in PR.
+#1678 (machine client join), feat/1678-mclient-join-selfsetup, 2026-10-28, base 43b360d2f, PR #1679: mclient join installs and restarts services, reports supported capabilities and directs Screen Recording setup from the launched client; Rust CLI and service tests plus gates in PR #1679.

@@ -24,8 +24,6 @@ pub enum ConfigError {
     InvalidPin,
     #[error("invalid export")]
     InvalidExport,
-    #[error("invalid capability")]
-    InvalidCapability,
     #[error("configuration I/O: {0}")]
     Io(#[from] io::Error),
     #[error("configuration JSON: {0}")]
@@ -50,8 +48,6 @@ pub struct ClientConfig {
     pub exports: Vec<Export>,
     pub tags: Vec<String>,
     pub memory_budget_mb: u64,
-    #[serde(default)]
-    pub offered_capabilities: Vec<String>,
     pub unix: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tmux_socket: Option<String>,
@@ -66,8 +62,6 @@ pub struct JoinOptions {
     pub tags: Vec<String>,
     #[arg(long = "export")]
     pub exports: Vec<String>,
-    #[arg(long = "capability")]
-    pub capabilities: Vec<String>,
     #[arg(long)]
     pub no_service: bool,
     #[arg(long)]

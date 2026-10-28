@@ -256,20 +256,6 @@ pub async fn join(
         None => config::resolve_address(&options.host)?,
     };
     let name = options.name.clone().unwrap_or_else(config::hostname);
-    let mut offered_capabilities = capabilities
-        .iter()
-        .map(|cap| (*cap).to_owned())
-        .collect::<Vec<_>>();
-    for capability in &options.capabilities {
-        oni_protocol::decode::<oni_protocol::CapabilityId>(json!(capability))
-            .map_err(|_| config::ConfigError::InvalidCapability)?;
-        if !capabilities.contains(&capability.as_str()) {
-            return Err(config::ConfigError::InvalidCapability.into());
-        }
-        if !offered_capabilities.contains(capability) {
-            offered_capabilities.push(capability.clone());
-        }
-    }
     let config = ClientConfig {
         machine_id: config::slug(&name),
         name,
@@ -277,7 +263,6 @@ pub async fn join(
         tags: options.tags.clone(),
         exports: config::parse_exports(&options.exports)?,
         memory_budget_mb: options.memory_budget_mb,
-        offered_capabilities: offered_capabilities.clone(),
         unix: options.unix.clone(),
         tmux_socket: None,
     };
@@ -292,7 +277,7 @@ pub async fn join(
     Ok(Enrollment {
         receipt: json!({
             "machineId": config.machine_id, "name": config.name, "publicKey": public_key,
-            "allowedCapabilities": offered_capabilities,
+            "allowedCapabilities": capabilities,
             "allowedExports": allowed_exports.collect::<Vec<_>>()
         }),
         first_use_pin,
@@ -530,12 +515,29 @@ pub async fn run_with_probe(
 }
 
 pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
+    run_default_with_screen(path, false).await
+}
+
+pub async fn run_service(path: Option<&Path>) -> Result<(), AttachError> {
+    run_default_with_screen(path, true).await
+}
+
+async fn run_default_with_screen(
+    path: Option<&Path>,
+    request_screen: bool,
+) -> Result<(), AttachError> {
     let path = path.map_or_else(
         || config::root().join("machine-client/client.json"),
         Path::to_path_buf,
     );
     let directory = path.parent().unwrap_or(Path::new(""));
     let config = config::load(&path)?;
+    #[cfg(target_os = "macos")]
+    if request_screen {
+        crate::service::request_screen();
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = request_screen;
     let generation = std::collections::hash_map::RandomState::new()
         .build_hasher()
         .finish();
@@ -578,21 +580,12 @@ pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
     .map_err(io::Error::other)?;
     let mut permissions = tokio::task::JoinSet::new();
     permissions.spawn(hook::serve(hook::bind(&socket)?, service.clone()));
-    let offered = service
-        .capabilities()
-        .iter()
-        .filter(|capability| {
-            config.offered_capabilities.is_empty()
-                || config.offered_capabilities.contains(capability)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
     let hooks = service.hooks(HEARTBEAT);
     let mut terminated = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupted =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let result = tokio::select! {
-        result = run(&config, directory, &offered, &hooks) => match result {
+        result = run(&config, directory, service.capabilities(), &hooks) => match result {
             Ok(never) => match never {},
             Err(error) => Err(error),
         },

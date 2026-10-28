@@ -19,14 +19,15 @@ the shared fixtures in `packages/protocol/fixtures/machine/`.
 
 `mclient join <host> --host-pin <sha256> --export work=/absolute/path`
 creates `~/.oni/machine-client/client.json`, an identity and an enrollment
-receipt. `--capability <id>` can be repeated for supported machine capabilities;
-the validated, deduplicated set is saved in the client config. Join installs
+receipt. The enrollment receipt contains the full supported capability set;
+the running client offers only capabilities its drivers can serve. Join installs
 and starts `ai.oni.machine` under the user's macOS LaunchAgents directory or
 `oni-machine-client.service` under the system (root) or user (non-root) systemd
 directory. Rejoining restarts the service with the new identity and settings.
 `--no-service` leaves service management to the operator. `--service-dir <path>`
-writes the service file under the specified directory without running the
-service manager, for inspection and testing. On macOS, join requests Screen
-Recording access after service installation and prints the result; `--no-open`
-suppresses opening System Settings when access is denied. Join ends with the
-config path, service status, capabilities and screen recording status.
+overrides the unit directory; it does not skip service activation. A non-root
+Linux user unit needs `loginctl enable-linger` to survive logout. On macOS,
+the launched client requests Screen Recording permission on its first start;
+join opens the Settings pane for inspection unless `--no-open` is passed.
+Join ends with the config path, service status, capabilities and instructions
+for Screen Recording permission (or `unsupported` on Linux).
