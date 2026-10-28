@@ -87,11 +87,14 @@ fn put(path: &Path, contents: &str) -> io::Result<bool> {
     Ok(false)
 }
 
-pub fn unit_directory(home: &Path, root: bool) -> PathBuf {
+pub fn unit_directory(home: &Path, root: bool, xdg_config_home: Option<&Path>) -> PathBuf {
     if root {
         PathBuf::from("/etc/systemd/system")
     } else {
-        home.join(".config/systemd/user")
+        xdg_config_home
+            .filter(|directory| directory.is_absolute())
+            .map_or_else(|| home.join(".config"), Path::to_path_buf)
+            .join("systemd/user")
     }
 }
 
@@ -164,10 +167,10 @@ pub fn install(options: &JoinOptions, home: &Path, config: &Path) -> io::Result<
     #[cfg(target_os = "linux")]
     {
         let root = nix::unistd::getuid().as_raw() == 0;
-        let directory = options
-            .service_dir
-            .clone()
-            .unwrap_or_else(|| unit_directory(home, root));
+        let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let directory = options.service_dir.clone().unwrap_or_else(|| {
+            unit_directory(home, root, xdg_config_home.as_deref().map(Path::new))
+        });
         let contents = unit(&binary, config, !root)?;
         fs::create_dir_all(&directory)?;
         let path = directory.join(NAME);
@@ -242,11 +245,19 @@ mod tests {
             .expect("user unit")
             .contains("WantedBy=default.target"));
         assert_eq!(
-            unit_directory(Path::new("/home/a"), true),
+            unit_directory(Path::new("/home/a"), true, Some(Path::new("/xdg"))),
             Path::new("/etc/systemd/system")
         );
         assert_eq!(
-            unit_directory(Path::new("/home/a"), false),
+            unit_directory(Path::new("/home/a"), false, None),
+            Path::new("/home/a/.config/systemd/user")
+        );
+        assert_eq!(
+            unit_directory(Path::new("/home/a"), false, Some(Path::new("/xdg"))),
+            Path::new("/xdg/systemd/user")
+        );
+        assert_eq!(
+            unit_directory(Path::new("/home/a"), false, Some(Path::new("relative"))),
             Path::new("/home/a/.config/systemd/user")
         );
         #[cfg(target_os = "linux")]

@@ -45,7 +45,10 @@ on macOS or `oni-machine-client.service` as a root/system or non-root/user
 systemd unit on Linux. The installed job runs the current binary with
 `run --config <client.json>`; rejoining an unchanged unit restarts it.
 `--no-service` skips installation, while `--service-dir` overrides the unit
-directory without suppressing service activation. macOS `mclient run` requests
+directory without suppressing service activation. Linux user units follow
+`XDG_CONFIG_HOME/systemd/user` when the variable is absolute, otherwise
+`~/.config/systemd/user`; wire conformance joins use `--no-service`.
+macOS `mclient run` requests
 Screen Recording permission if preflight is false, attributing the prompt to
 the launched client; join opens Settings unless `--no-open` is set and does
 not claim to know the grant. Linux reports unsupported. No live join against

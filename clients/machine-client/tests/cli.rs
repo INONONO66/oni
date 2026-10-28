@@ -347,6 +347,55 @@ fn join_installs_restarts_and_reports_manager_failure() {
     assert!(error.contains("kickstart"), "{error}");
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn join_uses_xdg_user_unit_before_enabling_it() {
+    if nix::unistd::getuid().as_raw() == 0 {
+        return;
+    }
+    let directory = tempfile::tempdir().expect("isolated home");
+    let home = directory.path().join("home");
+    let xdg = directory.path().join("xdg");
+    let bin = directory.path().join("bin");
+    std::fs::create_dir(&home).expect("home");
+    std::fs::create_dir(&bin).expect("fake binaries");
+    let script = bin.join("systemctl");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\n\
+         test -f \"$XDG_CONFIG_HOME/systemd/user/oni-machine-client.service\" || exit 1\n\
+         printf '%s\\n' \"$*\" >> \"$MCLIENT_SERVICE_LOG\"\n",
+    )
+    .expect("fake manager");
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).expect("executable");
+    let log = directory.path().join("manager.log");
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").expect("PATH"));
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", &xdg)
+        .env("PATH", path)
+        .env("MCLIENT_SERVICE_LOG", &log)
+        .args(["join", "localhost", "--unix", "/tmp/oni.sock"])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let unit = xdg.join("systemd/user/oni-machine-client.service");
+    assert!(unit.is_file());
+    assert!(!home
+        .join(".config/systemd/user/oni-machine-client.service")
+        .exists());
+    assert_eq!(
+        std::fs::read_to_string(log).expect("manager calls"),
+        "--user daemon-reload\n--user enable --now oni-machine-client.service\n"
+    );
+}
+
 #[test]
 fn run_without_config_reads_default_home_path() {
     let directory = tempfile::tempdir().expect("isolated home");

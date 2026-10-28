@@ -158,6 +158,7 @@ export async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
         [
           setup.binary,
           "join",
+          "--no-service",
           "--unix",
           setup.socket,
           "--name",
@@ -172,7 +173,9 @@ export async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
     "mclient join",
   );
   check(joined.code === 0, `mclient join exited ${joined.code}: ${joined.stderr}`);
-  const receipt = Machine.Enrollment.omit({ enrolledAt: true }).parse(JSON.parse(joined.stdout));
+  const receiptLine = joined.stdout.split("\n")[0];
+  check(receiptLine !== undefined, "mclient join omitted the enrollment receipt");
+  const receipt = Machine.Enrollment.omit({ enrolledAt: true }).parse(JSON.parse(receiptLine));
   record(
     `join wrote ${setup.config} and receipt for ${receipt.machineId} [${receipt.allowedCapabilities.join(", ")}]`,
   );
