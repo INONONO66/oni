@@ -863,7 +863,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           os: offer.platform.split("-")[0] ?? offer.platform,
           arch: offer.platform.split("-").slice(1).join("-"),
           ...(offer.resources === undefined ? {} : { resources: { ...offer.resources } }),
-          ...(latest === undefined ? {} : { live: { reportedAt: latest.report.reportedAt, load: { ...latest.report.load }, screen: { ...latest.report.screen }, stale: options.now() - latest.receivedAt > staleAfterMs } }),
+          ...(latest === undefined ? {} : { live: { reportedAt: latest.report.reportedAt, load: { ...latest.report.load }, ...(latest.report.screen === undefined ? {} : { screen: { ...latest.report.screen } }), stale: options.now() - latest.receivedAt > staleAfterMs } }),
         };
       }).sort((a, b) => a.machineId.localeCompare(b.machineId));
     }

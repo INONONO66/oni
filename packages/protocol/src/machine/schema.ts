@@ -323,7 +323,8 @@ export const Report = z
     machineId: MachineId,
     reportedAt: EpochMs,
     load: Load,
-    screen: ScreenPermission,
+    /** Absent from clients predating the screen fact; the host treats it as unknown. */
+    screen: ScreenPermission.optional(),
     /**
      * Open live streams at report time (#1662). Absent when none is open; a
      * peer only has streams after the host opened them, so a host that never

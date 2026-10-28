@@ -6,11 +6,12 @@ use serde::Serialize;
 use crate::{budget::Metrics, screen::Fault};
 
 /// Interpret one source probe without touching the display or prompting.
-pub fn screen_permission(probe: Option<Result<bool, Fault>>) -> &'static str {
+pub fn screen_permission(probe: Option<Result<(), Fault>>) -> &'static str {
     match probe {
         None => "unsupported",
-        Some(Ok(true)) => "granted",
-        Some(Ok(false) | Err(_)) => "denied",
+        Some(Ok(())) => "granted",
+        Some(Err(Fault::Permission)) => "denied",
+        Some(Err(_)) => "unsupported",
     }
 }
 
@@ -256,7 +257,7 @@ mod tests {
         let permitted = Screen::new(Box::new(Fixture::display(16, 16, 1.0)), 1);
         assert_eq!(screen_permission(permitted.probe()), "granted");
         let empty = Screen::new(Box::new(Fixture::default()), 1);
-        assert_eq!(screen_permission(empty.probe()), "denied");
+        assert_eq!(screen_permission(empty.probe()), "granted");
         let denied = Screen::new(
             Box::new(Fixture {
                 denied: true,
@@ -265,6 +266,11 @@ mod tests {
             1,
         );
         assert_eq!(screen_permission(denied.probe()), "denied");
+        assert_eq!(
+            screen_permission(Some(Err(Fault::Failed("screen unavailable".to_owned())))),
+            "unsupported"
+        );
+        assert_eq!(screen_permission(Some(Err(Fault::Absent))), "unsupported");
         assert_eq!(screen_permission(Screen::absent().probe()), "unsupported");
     }
 

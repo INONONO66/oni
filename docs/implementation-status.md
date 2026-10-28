@@ -2,14 +2,16 @@
 
 ## #1678 screen permission in machine reports (Lane C)
 
-Every client heartbeat includes `screen.permission` (`granted`, `denied`, or
-`unsupported`). The client probes the current screen source without prompting:
-an available permitted display reports granted, a source with denied access or
-no display reports denied, and an absent source reports unsupported. The host
-copies the latest accepted fact into `machine_list`'s `Info.live.screen` beside
-the load and staleness fields; before the first report, `live` is absent. This
-gives a missing stream a visible screen-permission cause in machine listings.
-No viewer or stream metrics surface is included.
+New clients include `screen.permission` (`granted`, `denied`, or `unsupported`)
+on every heartbeat. The client probes `Source::ready()` without prompting or
+listing displays: success reports granted, a permission refusal reports denied,
+and no usable capture source on this client reports unsupported. A sleeping
+display alone does not change the permission fact. Contract v2 also accepts
+older reports without `screen`; the host keeps their `live` load and staleness
+and omits `Info.live.screen` (unknown). With a screen fact, the host copies the
+latest accepted value into `machine_list`. Upgrade hosts before clients:
+an older strict host rejects the new report field. No viewer or stream metrics
+surface is included.
 
 ## #1678 pending machine capability approval (Lane B)
 
@@ -2844,7 +2846,7 @@ only from the attaching connection for the machine it attached as, keeps the
 latest per attachment, drops it on detach, and publishes `machine.reported`
 (ephemeral; `time` is host receipt, `reportedAt` the client's clock).
 `MachineHost.list()` projects `resources?` and
-`live?: { reportedAt, load, stale }` with `stale` judged by the host clock
+`live?: { reportedAt, load, screen?, stale }` with `stale` judged by the host clock
 against `staleAfterMs` (default 15 000 = three missed default beats);
 `codemode.listMachines` exposes both. The self machine runs the same Rust
 client: `composition/self-machine.ts` subscribes before spawning, observes

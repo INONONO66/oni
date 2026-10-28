@@ -104,8 +104,7 @@
   "required": [
     "machineId",
     "reportedAt",
-    "load",
-    "screen"
+    "load"
   ],
   "type": "object"
 }

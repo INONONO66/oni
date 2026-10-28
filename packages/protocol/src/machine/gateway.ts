@@ -12,7 +12,7 @@ export const Info = Enrollment.extend({
   resources: Resources.optional(),
   generation: AttachGeneration.optional(),
   peer: Peer.optional(),
-  live: z.object({ reportedAt: EpochMs, load: Load, screen: ScreenPermission, stale: z.boolean() }).strict().optional(),
+  live: z.object({ reportedAt: EpochMs, load: Load, screen: ScreenPermission.optional(), stale: z.boolean() }).strict().optional(),
 });
 export type Info = z.infer<typeof Info>;
 

@@ -95,7 +95,6 @@
       "required": [
         "reportedAt",
         "load",
-        "screen",
         "stale"
       ],
       "type": "object"

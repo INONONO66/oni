@@ -192,12 +192,9 @@ impl Screen {
         self.available
     }
 
-    /// Recheck permission and displays at each report, not just at attach.
-    pub fn probe(&self) -> Option<Result<bool, Fault>> {
-        self.source.as_deref().map(|source| {
-            source.ready()?;
-            source.displays().map(|displays| !displays.is_empty())
-        })
+    /// Recheck capture permission at each report without listing displays.
+    pub fn probe(&self) -> Option<Result<(), Fault>> {
+        self.source.as_deref().map(|source| source.ready())
     }
 
     pub fn retained(&self) -> usize {
