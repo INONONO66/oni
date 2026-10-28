@@ -5,7 +5,7 @@
 New clients include `screen.permission` (`granted`, `denied`, or `unsupported`)
 on every heartbeat. The client probes `Source::ready()` without prompting or
 listing displays: success reports granted, a permission refusal reports denied,
-and no usable capture source on this client reports unsupported. A sleeping
+and no capture source on this client reports unsupported. A sleeping
 display alone does not change the permission fact. Contract v2 also accepts
 older reports without `screen`; the host keeps their `live` load and staleness
 and omits `Info.live.screen` (unknown). With a screen fact, the host copies the
@@ -32,13 +32,14 @@ on first boot; later capability changes use `machine_grant` or
 
 `mclient join` prints the enrollment receipt before attempting service
 installation and then prints config path, service status, full supported
-capability list and Screen Recording instructions. The client still probes
-available drivers before offering capabilities on attach. A native screen
+capability list and Screen Recording instructions. The client offers
+capabilities for present drivers on attach. A native screen
 source (or a configured headless computer block) offers `screen.read` and
 `computer.use` even before Screen Recording permission is granted, so the
 host can show them as pending for Owner approval. An existing input driver
 likewise offers `input.write`; serving capture and input still checks current
-permission and refuses with `permission_denied` until granted.
+permission and refuses with `permission_denied` until granted. The optional
+report fact above probes readiness independently of the offer.
 After successful enrollment, join installs `ai.oni.machine` as a LaunchAgent
 on macOS or `oni-machine-client.service` as a root/system or non-root/user
 systemd unit on Linux. The installed job runs the current binary with
