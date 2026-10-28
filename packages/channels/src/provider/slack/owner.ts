@@ -47,7 +47,7 @@ function joinRefusal(error: Error): VoiceJoinRefused {
 }
 
 function safeVoiceReason(reason: string, fallback: string): string {
-  return /^[a-z][a-z0-9_]{0,63}$/.test(reason) ? reason : fallback;
+  return /^[a-z][a-z0-9_]{0,63}(?::[A-Za-z][A-Za-z0-9_.]{0,63}){0,2}$/.test(reason) ? reason : fallback;
 }
 
 /** Slack decimal timestamps are compared as decimal strings, without losing precision to Number. */

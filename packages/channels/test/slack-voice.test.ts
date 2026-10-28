@@ -214,6 +214,17 @@ test("a contact who does not answer preserves the typed huddle failure detail", 
   await f.adapter.stop("stop");
 });
 
+test("a failed browser step keeps its CDP method and step in the typed detail", async () => {
+  const f = fixture("none");
+  const detail = "cdp_result_invalid:Runtime.evaluate:popup_observation";
+  f.setJoin(async () => { throw new SlackHuddleError("voice_join_failed", detail); });
+  await f.adapter.start("start");
+  await expect(f.adapter.joinVoice(address)).rejects.toMatchObject({
+    _tag: "VoiceJoinRefused", reason: "join_failed", detail,
+  });
+  await f.adapter.stop("stop");
+});
+
 test("one pending call is busy, stop aborts it and cleans a late raw handle", async () => {
   const f = fixture();
   const entered = Promise.withResolvers<void>();
