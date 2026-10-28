@@ -40,6 +40,19 @@ export function executeMachine(
       port.host.unenroll(machineId);
       return { op: operation.op, result: { machineId } };
     }
+    case "machine_grant": {
+      if (caller !== "owner") return { op: operation.op, result: { type: "require_approval", id: machineId } };
+      const time = port.now();
+      const enrollment = port.enrollments.grant(machineId, operation.args.capabilities, time);
+      if (enrollment === undefined) throw new Core.ToolRefused("provision", `machine capability request does not match: ${machineId}`);
+      port.events.publish(Machine.Events.Enrolled, { machineId, time, enrollment });
+      return { op: operation.op, result: { enrollment } };
+    }
+    case "machine_deny": {
+      if (caller !== "owner") return { op: operation.op, result: { type: "require_approval", id: machineId } };
+      if (!port.enrollments.deny(machineId)) throw new Core.ToolRefused("provision", `machine capability request not found: ${machineId}`);
+      return { op: operation.op, result: { machineId } };
+    }
   }
 }
 
@@ -50,7 +63,7 @@ export function machineDomainRevisions(enrollments: MachinePort["enrollments"] |
 /** The saved tool invocation holds the proposed key; revisions bind consent to current authority. */
 export function executeApprovedMachine(
   port: MachinePort | undefined,
-  operation: Extract<MachineOperation, { op: "machine_add" }>,
+  operation: Extract<MachineOperation, { op: "machine_add" | "machine_grant" | "machine_deny" }>,
   context: ToolExecutionContext,
 ): MachineResult {
   if (context.domainRevisions === undefined)

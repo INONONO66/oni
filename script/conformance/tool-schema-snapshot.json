@@ -474,7 +474,7 @@
   },
   {
     "name": "provision",
-    "description": "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_remove|machine_list|status. Authority changes, machine public keys, Owner-account channel instances, their outbound grant and a channel's declared default tier require Owner consent. A contact with reach: true is one the Resident may write to cold. Session-created automations remain disabled until the Owner enables them.",
+    "description": "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_grant|machine_deny|machine_remove|machine_list|status. Authority changes, machine public keys, Owner-account channel instances, their outbound grant and a channel's declared default tier require Owner consent. A contact with reach: true is one the Resident may write to cold. Session-created automations remain disabled until the Owner enables them.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1272,6 +1272,59 @@
                     "allowedCapabilities",
                     "publicKey"
                   ],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "machine_grant"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "capabilities": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+                      }
+                    }
+                  },
+                  "required": ["machineId", "capabilities"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "machine_deny"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["machineId"],
                   "additionalProperties": false
                 }
               },

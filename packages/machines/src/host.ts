@@ -31,6 +31,9 @@ interface MachineHostOptions {
   /** Callback dispatcher bound per listener (#1312): required, the composition chooses it. */
   readonly dispatcherBound: number;
   readonly enrollment: (id: Machine.MachineId) => Machine.Enrollment | undefined;
+  /** Product-owned durable observation of capabilities the enrollment has not granted. */
+  readonly requestCapabilities?: (offer: Machine.Offer, excess: readonly Machine.CapabilityId[]) => void;
+  readonly pendingCapabilities?: (id: Machine.MachineId) => readonly Machine.CapabilityId[];
   readonly generations: AttachGenerationStore;
   readonly events: BusEvent.Sink;
   readonly now: () => number;
@@ -358,6 +361,13 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       known.add(offer.machineId);
       options.events.publish(Machine.Events.Attached, { machineId: offer.machineId, time: options.now(), effectiveCapabilities: [...negotiated.capabilities] });
     }
+    function recordExcess(offer: Machine.Offer, enrollment: Machine.Enrollment): Effect.Effect<void, MachineError> {
+      const excess = offer.offeredCapabilities.filter((capability) => !enrollment.allowedCapabilities.includes(capability));
+      return Effect.try({
+        try: () => options.requestCapabilities?.(offer, excess),
+        catch: decodeMachineFailure("capability.request"),
+      }).pipe(Effect.asVoid);
+    }
     function attach(offer: Machine.Offer, respond: (result: Machine.AttachResult) => void, source: RequestSource): Effect.Effect<void, MachineError> {
       return Effect.gen(function* () {
         const revision = revoked.get(offer.machineId);
@@ -368,6 +378,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           respond({ status: "refused", reason: "already_attached" } satisfies Machine.AttachResult);
           return;
         }
+        yield* recordExcess(offer, negotiated.enrollment);
         const generation = yield* generationOf(options.generations, offer, () =>
           admissionValid(offer, source, revision) === undefined);
         const state = admissionValid(offer, source, revision);
@@ -846,6 +857,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           ...structuredClone(enrollment),
           tags: [...(enrollment.tags ?? [])],
           capabilities: [...capabilities],
+          pendingCapabilities: [...(options.pendingCapabilities?.(offer.machineId) ?? [])],
           generation,
           peer: { ...offer.peer },
           os: offer.platform.split("-")[0] ?? offer.platform,

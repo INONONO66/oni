@@ -245,6 +245,11 @@ async function composeMachinePlane(
           const row = deps.enrollments.get(machineId);
           return row?.removedAt === null ? row.enrollment : undefined;
         },
+        requestCapabilities: (offer, excess) => {
+          if (offer.machineId !== plane.self.id)
+            deps.enrollments.request(offer.machineId, excess, offer.offeredAt, deps.now());
+        },
+        pendingCapabilities: (machineId) => machineId === plane.self.id ? [] : deps.enrollments.pending(machineId),
         events: deps.events,
         id: deps.id,
         // #1312: injected IPC callback bound — queue depth and callback fan-out

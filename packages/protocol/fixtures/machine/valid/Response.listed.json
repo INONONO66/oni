@@ -10,6 +10,7 @@
       "enrolledAt": 1,
       "tags": ["gpu"],
       "capabilities": ["fs.read"],
+      "pendingCapabilities": ["screen.read"],
       "os": "darwin",
       "arch": "arm64"
     }

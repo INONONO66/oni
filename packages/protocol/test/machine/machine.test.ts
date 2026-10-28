@@ -22,7 +22,7 @@ const offer = {
 
 describe("managed machine enrollment", () => {
   test("gateway rows preserve capacity and load, refusing invented fields", () => {
-    const row = { ...enrollment, tags: ["pool"], capabilities: ["fs.read"], os: "darwin", arch: "arm64",
+    const row = { ...enrollment, tags: ["pool"], capabilities: ["fs.read"], pendingCapabilities: ["screen.read"], os: "darwin", arch: "arm64",
       resources: { cpus: 4, memoryBytes: 8192 },
       live: { reportedAt: 4, stale: false, load: { loadAvg1: 0.5, memoryAvailableBytes: 4096, inFlight: 1 } } };
     const reply = { type: "machine_listed", requestId: "list", rows: [row] } satisfies Machine.Response;

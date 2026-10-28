@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Machine, type ToolExecutionContext } from "@oni/protocol";
 import { createProvisionTool } from "../src/bundles/provision/provision";
+import type { MachineOperation } from "../src/bundles/provision/machine-schema";
 import { executeMachine, machineDomainRevisions, type MachinePort } from "../src/bundles/provision/machines";
 import { machineWire } from "../src/composition/machine-wire";
 import { provisionPort } from "./helpers/provision-port";
@@ -223,6 +224,57 @@ test("direct session calls never grant a key and stale consent cannot overwrite 
     expect(() => executeMachine(machines, { ...add, args: { ...args, machineId: "self" } }, "owner")).toThrow("self enrollment");
     expect(() => executeMachine(machines, { op: "machine_remove", args: { machineId: "missing" } }, "owner")).toThrow("not enrolled");
     expect(() => executeMachine(undefined, add, "owner")).toThrow("not composed");
+  } finally { plane.close(); }
+});
+
+test.each(["machine_grant", "machine_deny"] as const)(
+  "machine capability request %s requires consent and checks the current enrollment revision",
+  async (op) => {
+    const plane = testPlane();
+    const enrollments = plane.stores.machineEnrollments;
+    const machines: MachinePort = {
+      enrollments, host: { list: () => [], unenroll: () => undefined },
+      selfId: "self", events: { publish: () => undefined }, now: () => 5,
+    };
+    enrollments.put(enrollment);
+    enrollments.request(args.machineId, ["fs.read"], 2, 2);
+    const tool = createProvisionTool({ ...provisionPort(plane), machines }, () => 5);
+    const operation: MachineOperation = op === "machine_grant"
+      ? { op, args: { machineId: args.machineId, capabilities: ["fs.read"] } }
+      : { op, args: { machineId: args.machineId } };
+    const dispatch = protectedDispatch(tool, { operation }, undefined, { plane });
+    try {
+      await bounded(dispatch.opened);
+      expect(enrollments.pending(args.machineId)).toEqual(["fs.read"]);
+      const response = await dispatch.answer();
+      expect(response.isError).not.toBe(true);
+      expect(enrollments.pending(args.machineId)).toEqual([]);
+      expect(enrollments.get(args.machineId)?.revision).toBe(op === "machine_grant" ? 1 : 0);
+      expect(enrollments.get(args.machineId)?.enrollment.allowedCapabilities).toEqual(
+        op === "machine_grant" ? ["kernel.py", "fs.read"] : ["kernel.py"],
+      );
+    } finally { await dispatch.close(); plane.close(); }
+  },
+);
+
+test("cleared capability requests refuse both grant and deny without changing enrollment", () => {
+  const plane = testPlane();
+  const enrollments = plane.stores.machineEnrollments;
+  const machines: MachinePort = {
+    enrollments, host: { list: () => [], unenroll: () => undefined },
+    selfId: "self", events: { publish: () => undefined }, now: () => 5,
+  };
+  try {
+    enrollments.put(enrollment);
+    enrollments.request(args.machineId, ["fs.read"], 2, 2);
+    enrollments.request(args.machineId, [], 3, 3);
+    expect(() => executeMachine(machines, {
+      op: "machine_grant", args: { machineId: args.machineId, capabilities: ["fs.read"] },
+    }, "owner")).toThrow(expect.objectContaining({ name: "ToolRefused", message: expect.stringContaining("does not match") }));
+    expect(() => executeMachine(machines, {
+      op: "machine_deny", args: { machineId: args.machineId },
+    }, "owner")).toThrow(expect.objectContaining({ name: "ToolRefused", message: expect.stringContaining("not found") }));
+    expect(enrollments.get(args.machineId)).toMatchObject({ revision: 0, enrollment: { allowedCapabilities: ["kernel.py"] } });
   } finally { plane.close(); }
 });
 

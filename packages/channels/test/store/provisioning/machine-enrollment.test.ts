@@ -28,7 +28,52 @@ test("machine enrollment roundtrips independently and updates one revision per w
     expect(store.list().map((row) => row.machineId)).toEqual(["first", "worker"]);
     expect(z.object({ name: z.string() }).array().parse(
       db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all(),
-    )).toEqual([{ name: "machine_enrollment" }]);
+    )).toEqual([{ name: "machine_enrollment" }, { name: "machine_capability_request" }]);
+  } finally { db.close(); }
+});
+
+test("pending machine capabilities survive reopen and grant changes authority atomically", () => {
+  const directory = mkdtempSync(join(tmpdir(), "machine-request-"));
+  const path = join(directory, "store.sqlite");
+  const db = new Database(path);
+  const store = createMachineEnrollmentStore(db);
+  try {
+    store.put(enrollment);
+    store.request("worker", ["fs.read", "shell.exec"], 110, 120);
+    expect(store.pending("worker")).toEqual(["fs.read", "shell.exec"]);
+  } finally { db.close(); }
+  const reopened = new Database(path);
+  try {
+    const recovered = createMachineEnrollmentStore(reopened);
+    expect(recovered.pending("worker")).toEqual(["fs.read", "shell.exec"]);
+    expect(recovered.grant("worker", ["input.write"], 130)).toBeUndefined();
+    expect(recovered.get("worker")?.revision).toBe(0);
+    expect(recovered.grant("worker", ["fs.read"], 130)?.allowedCapabilities).toEqual(["kernel.py", "fs.read"]);
+    expect(recovered.get("worker")).toMatchObject({ revision: 1, updatedAt: 130 });
+    expect(recovered.pending("worker")).toEqual([]);
+    recovered.request("worker", ["shell.exec"], 140, 140);
+    recovered.request("worker", [], 141, 141);
+    expect(recovered.pending("worker")).toEqual([]);
+    expect(recovered.get("worker")?.revision).toBe(1);
+    recovered.request("worker", ["shell.exec"], 142, 142);
+    expect(recovered.deny("worker")).toBe(true);
+    recovered.request("worker", ["shell.exec"], 150, 150);
+    recovered.put({ ...enrollment, name: "Replaced" });
+    expect(recovered.pending("worker")).toEqual([]);
+  } finally { reopened.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("removed machine cannot retain or record a pending capability request", () => {
+  const db = new Database(":memory:");
+  const store = createMachineEnrollmentStore(db);
+  try {
+    store.put(enrollment);
+    store.request("worker", ["fs.read"], 101, 101);
+    store.remove("worker", 102);
+    expect(store.pending("worker")).toEqual([]);
+    store.request("worker", ["fs.read"], 103, 103);
+    expect(store.pending("worker")).toEqual([]);
+    expect(store.grant("worker", ["fs.read"], 104)).toBeUndefined();
   } finally { db.close(); }
 });
 

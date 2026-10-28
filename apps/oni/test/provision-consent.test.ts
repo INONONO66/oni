@@ -92,6 +92,14 @@ it("consent is a require_approval policy row on authority-granting provision ops
       { op: "provision", operation: "machine_add" },
       { type: "require_approval", reason: "provision.machine_add requires Owner consent" },
     ],
+    [
+      { op: "provision", operation: "machine_grant" },
+      { type: "require_approval", reason: "provision.machine_grant requires Owner consent" },
+    ],
+    [
+      { op: "provision", operation: "machine_deny" },
+      { type: "require_approval", reason: "provision.machine_deny requires Owner consent" },
+    ],
   ]);
   expect(provisionPolicyRows.every((row) => row.kind === "tool" && row.phase === "pre")).toBe(
     true,

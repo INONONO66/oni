@@ -1,5 +1,20 @@
 # Implementation Status
 
+## #1678 pending machine capability approval (Lane B)
+
+The host still admits only enrollment ∩ offer. After successful attach
+negotiation, capabilities the peer offers beyond the enrollment are written
+to the catalog's `machine_capability_request` table before attachment is
+published; a failed write refuses attachment. `machine_listed` includes
+`pendingCapabilities` for every attached machine (empty when none is pending).
+`provision machine_grant` and `machine_deny` use the existing Owner approval
+decision and enrollment revision fence. A grant updates the enrollment's
+allowlist and revision and clears its pending request in one transaction;
+the new grant applies on the next attach or reconnect. Denial clears only
+the pending request. `ONI_MACHINES_ENROLLED` seeds each machine id only once
+on first boot; later capability changes use `machine_grant` or
+`machine_add`, not environment edits.
+
 ## #1671 durable delivery content and attachment transcript (PR #1672)
 
 On `core/modality-content-contract` (2026-10-26, base `10225726e`).

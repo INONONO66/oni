@@ -24,6 +24,13 @@ import { executeBundleDisable, executeBundleEnable } from "./bundles";
 import { executeProvisionStatus } from "./status";
 import { automationApproval, executeApprovedAutomation, executeAutomationTool } from "./automation";
 import { executeApprovedMachine, executeMachine, machineDomainRevisions } from "./machines";
+import type { MachineOperation } from "./machine-schema";
+
+function machineConsent(
+  operation: z.output<typeof ProvisionInput>["operation"],
+): operation is Extract<MachineOperation, { op: "machine_add" | "machine_grant" | "machine_deny" }> {
+  return operation.op === "machine_add" || operation.op === "machine_grant" || operation.op === "machine_deny";
+}
 function provisionExecutors(port: ProvisionPort, now: () => number) {
   return {
     contact_add: executePersonDeclare(port, now),
@@ -44,6 +51,8 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
   return async ({ operation }: z.output<typeof ProvisionInput>, context: ToolExecutionContext) => {
     switch (operation.op) {
       case "machine_add":
+      case "machine_grant":
+      case "machine_deny":
         return executeApprovedMachine(port?.machines, operation, context);
       case "machine_remove":
       case "machine_list":
@@ -98,7 +107,7 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
 export function provisionApproval(port: ProvisionPort | undefined) {
   const automation = automationApproval(port?.automations);
   return ({ operation }: z.output<typeof ProvisionInput>, context?: ToolExecutionContext, prepare = false) => {
-    if (operation.op === "machine_add")
+    if (machineConsent(operation))
       return { required: true, domainRevisions: machineDomainRevisions(port?.machines?.enrollments, operation.args.machineId) };
     if ((operation.op === "automation_add" || operation.op === "automation_enable") && context !== undefined)
       return automation(operation, context, prepare);

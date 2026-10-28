@@ -18,6 +18,7 @@ import { testSelfMachine } from "./helpers/self-machine";
 import { testBus } from "../../../packages/agent/test/helpers/isolated";
 import { refusingToolPort } from "./helpers/tool-port";
 import { mclientBinary, spawnAttachedMclient } from "./helpers/mclient";
+import { connectIpcClient } from "../../../packages/machines/test/ipc/helpers/native";
 
 const roots: string[] = [];
 const spies: Array<{ mockRestore(): void }> = [];
@@ -97,6 +98,40 @@ test("boot admits the Rust self peer before publishing tool ports", async () => 
   try {
     expect(seen).toMatchObject([[{ machineId: "self", peer: { kind: "client" }, generation: 1 }]]);
   } finally { await app.stop(); }
+});
+
+test("a remote attach records excess capabilities in the boot catalog before listing", async () => {
+  const listen = socketPath();
+  const enrollment: Machine.Enrollment = {
+    machineId: "remote", name: "Remote", allowedCapabilities: ["fs.read"],
+    publicKey: "a".repeat(64), enrolledAt: 1,
+  };
+  let host: Machines.MachineHost | undefined;
+  const original = Gateway.toolPorts;
+  spies.push(spyOn(Gateway, "toolPorts").mockImplementation((runtime, ports) => {
+    host = ports.machines?.host;
+    return original(runtime, ports);
+  }));
+  const app = await startOni({ config: fixtureConfig({
+    self: testSelfMachine(), listen: { unix: listen }, enrolled: [enrollment],
+  }) });
+  const peer = await connectIpcClient(listen);
+  try {
+    expect(await peer.call(Machine.WireMethod.Attach, {
+      machineId: "remote", offeredCapabilities: ["fs.read", "screen.read"],
+      daemonVersion: "test", platform: "darwin-arm64", offeredAt: 2,
+      peer: { kind: "client", contractVersion: Machine.contractVersion },
+    })).toMatchObject({ status: "attached", effectiveCapabilities: ["fs.read"] });
+    expect(host?.list().find((row) => row.machineId === "remote")).toMatchObject({
+      machineId: "remote", pendingCapabilities: ["screen.read"], capabilities: ["fs.read"],
+    });
+    expect(await peer.call(Machine.WireMethod.Attach, {
+      machineId: "remote", offeredCapabilities: ["fs.read"],
+      daemonVersion: "test", platform: "darwin-arm64", offeredAt: 3, generation: 1,
+      peer: { kind: "client", contractVersion: Machine.contractVersion },
+    })).toMatchObject({ status: "attached", effectiveCapabilities: ["fs.read"] });
+    expect(host?.list().find((row) => row.machineId === "remote")?.pendingCapabilities).toEqual([]);
+  } finally { await peer.close(); await app.stop(); }
 });
 
 test("boot creates a private inbox and self settings before serving files", async () => {

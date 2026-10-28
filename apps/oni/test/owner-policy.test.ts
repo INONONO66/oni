@@ -78,6 +78,8 @@ test("the shipped JSON preserves the pre-R3 app-owned policy row id and point se
     ["provision-contact-merge-consent", "tool.pre"],
     ["provision-contact-promote-consent", "tool.pre"],
     ["provision-machine-add-consent", "tool.pre"],
+    ["provision-machine-deny-consent", "tool.pre"],
+    ["provision-machine-grant-consent", "tool.pre"],
   ];
   expect([...SHIPPED_OWNER_POLICY.rowSet].sort((left, right) => left.id.localeCompare(right.id))).toEqual(
     expected.map(([id, point]) => ({ id, point })),
