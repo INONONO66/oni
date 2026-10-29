@@ -27,6 +27,7 @@ export interface PcmVoiceHandle {
 export type ProviderVoiceRoute = (input: {
   readonly surface: string;
   readonly channelId: string;
+  readonly mode?: "join" | "call";
   readonly workspaceId?: string;
   readonly speakerExternalId?: string;
   readonly signal?: AbortSignal;

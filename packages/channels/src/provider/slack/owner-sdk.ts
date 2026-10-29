@@ -44,7 +44,7 @@ export interface SlackOwnerSdk {
   joinHuddle(
     workspaceId: string,
     channelId: string,
-    options: { readonly credentials: SlackSessionCredentials; readonly speakerId: string; readonly signal?: AbortSignal },
+    options: { readonly credentials: SlackSessionCredentials; readonly speakerId: string; readonly mode?: "join" | "call"; readonly signal?: AbortSignal },
   ): Promise<SlackHuddleHandle>;
 }
 

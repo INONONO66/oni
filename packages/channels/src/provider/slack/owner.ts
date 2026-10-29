@@ -47,7 +47,7 @@ function joinRefusal(error: Error): VoiceJoinRefused {
 }
 
 function safeVoiceReason(reason: string, fallback: string): string {
-  return /^[a-z][a-z0-9_]{0,63}$/.test(reason) ? reason : fallback;
+  return /^[a-z][a-z0-9_]{0,63}(?::[A-Za-z][A-Za-z0-9_.]{0,63}){0,2}$/.test(reason) ? reason : fallback;
 }
 
 /** Slack decimal timestamps are compared as decimal strings, without losing precision to Number. */
@@ -344,7 +344,9 @@ export class SlackOwnerAdapter implements Channel.Surface {
     const userId = this.userId;
     if (team === null || userId === null || this.readyGeneration !== this.generation)
       throw voiceRefused("not_started", "owner_not_started");
-    if (input.speakerExternalId !== `${team}:${userId}`)
+    const speaker = input.speakerExternalId.split(":");
+    if (speaker.length !== 2 || speaker[0] !== team || !speaker[1] ||
+        (input.mode !== "call" && input.speakerExternalId !== `${team}:${userId}`))
       throw voiceRefused("address_incomplete", "speaker_mismatch");
     if (input.signal?.aborted)
       throw voiceRefused("aborted", "join_aborted");
@@ -361,7 +363,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
     this.joining = reservation;
     try {
       const raw = await this.sdk.joinHuddle(team, input.channelId, {
-        credentials: this.credentials, speakerId: userId, signal: controller.signal,
+        credentials: this.credentials, speakerId: speaker[1], mode: input.mode ?? "join", signal: controller.signal,
       }).catch((error: Error) => { throw joinRefusal(error); });
       if (this.generation !== generation || controller.signal.aborted) {
         await Promise.resolve().then(() => raw.leave()).catch((error: Error) => {
@@ -371,7 +373,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
         });
         throw voiceRefused(controller.signal.aborted ? "aborted" : "not_started", "join_stopped");
       }
-      const handle = this.adaptVoice(raw, team, userId);
+      const handle = this.adaptVoice(raw, team, speaker[1]);
       this.live = handle;
       return handle;
     } finally {
@@ -381,7 +383,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
     }
   }
 
-  private adaptVoice(raw: SlackHuddleHandle, team: string, userId: string): PcmVoiceHandle {
+  private adaptVoice(raw: SlackHuddleHandle, team: string, speakerId: string): PcmVoiceHandle {
     const release = () => {
       if (this.live?.pcmIn === raw.pcmIn) this.live = null;
     };
@@ -401,7 +403,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
         try {
           for await (const event of raw.events) {
             if (event.type === "disconnected" || event.type === "error" ||
-                event.type === "speaker_left" && event.userId === userId) startLeave();
+                event.type === "speaker_left" && event.userId === speakerId) startLeave();
             yield event.type === "speaker_left"
               ? { type: "speaker_left", externalId: `${team}:${event.userId}` } satisfies VoiceEvent
               : event.type === "disconnected" || event.type === "error"
