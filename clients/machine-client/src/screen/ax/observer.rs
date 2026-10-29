@@ -193,6 +193,7 @@ impl Driver for RunLoop {
             },
             token: 0,
             origin: (0, 0),
+            minimized: false,
         };
         native::bounded(deadline, || native::root(&window))
             .map_err(|_| Unsupported::NoObserver)?
