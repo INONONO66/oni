@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "observationId": {
+          "maxLength": 32,
+          "pattern": "^o\\d+$",
+          "type": "string"
+        },
+        "status": {
+          "const": "settled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "observationId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "changesInWindow": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observationId": {
+          "maxLength": 32,
+          "pattern": "^o\\d+$",
+          "type": "string"
+        },
+        "status": {
+          "const": "pending",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "observationId",
+        "changesInWindow"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "blocker": {
+          "enum": [
+            "accessibility_not_granted",
+            "no_observer"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "unsupported",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "blocker"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "destroyed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "window_not_found",
+            "epoch_changed",
+            "permission_denied",
+            "machine_not_attached"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

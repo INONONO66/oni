@@ -276,10 +276,20 @@ struct Located {
 
 /// A walked observation not yet given an id: an observe that fails after
 /// the walk (its screenshot) leaves the lineage's latest observation intact.
-struct Prepared {
+pub struct Prepared {
     located: Located,
     since: Option<(String, Vec<Element>)>,
     minted: Minted,
+}
+
+impl Prepared {
+    fn new(located: Located, since: Option<(String, Vec<Element>)>, walk: Walk) -> Self {
+        Self {
+            located,
+            since,
+            minted: mint(walk),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -319,6 +329,14 @@ impl Observations {
 
     fn locate(&self, observer: &dyn Observer, target: Target) -> Result<Located, Refusal> {
         let windows = observer.windows()?;
+        self.locate_windows(windows, target)
+    }
+
+    fn locate_windows(
+        &self,
+        windows: Vec<WindowIdentity>,
+        target: Target,
+    ) -> Result<Located, Refusal> {
         let mut state = lock(&self.state);
         state.epochs.update(&windows);
         let window = windows
@@ -382,17 +400,37 @@ impl Observations {
             max_visits: MAX_VISITS,
             budget: BUDGET,
         };
-        let minted = mint(observer.walk(&located.window, &bounds)?);
-        Ok(Prepared {
-            located,
-            since,
-            minted,
-        })
+        let walk = observer.walk(&located.window, &bounds)?;
+        Ok(Prepared::new(located, since, walk))
+    }
+
+    /// Settle samples outside the store lock, then fences the sampled
+    /// identity through the same epoch owner as ordinary observations.
+    pub fn prepare_sample(
+        &self,
+        target: Target,
+        windows: Vec<WindowIdentity>,
+        walk: Walk,
+    ) -> Result<Prepared, Refusal> {
+        let located = self.locate_windows(windows, target)?;
+        Ok(Prepared::new(located, None, walk))
+    }
+
+    pub fn destroy(&self, target: Target) {
+        let mut state = lock(&self.state);
+        for ((pid, window), seen) in &mut state.epochs.0 {
+            if (u64::from(*pid), u64::from(*window)) == (target.pid, target.window_id) {
+                seen.present = false;
+            }
+        }
+        state.snapshots.retain(|_, snapshot| {
+            (snapshot.target.pid, snapshot.target.window_id) != (target.pid, target.window_id)
+        });
     }
 
     /// Names `prepared` the lineage's latest observation and renders it,
     /// with `screenshot` when one was taken.
-    fn commit(&self, prepared: Prepared, screenshot: Option<Value>) -> Value {
+    pub fn commit(&self, prepared: Prepared, screenshot: Option<Value>) -> Value {
         let id = format!("o{}", self.ids.fetch_add(1, Ordering::Relaxed) + 1);
         let Located {
             window,

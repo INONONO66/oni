@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use crate::{
     input::{Button, Driver, Event, Input, Key, Named},
     screen::{
+        ax::fixture::ScriptedNotifications,
         ax::{
             fixture::{Element, Scripted},
             AppIdentity,
@@ -97,6 +98,8 @@ struct WindowRow {
     blank: bool,
     #[serde(rename = "minimized", default)]
     _minimized: bool,
+    #[serde(rename = "timeline", default)]
+    _timeline: Vec<serde_json::Value>,
 }
 
 /// The fixture screen and recorder input the `computer` block of the
@@ -159,6 +162,9 @@ pub fn open(path: &Path) -> Result<Option<(Screen, Input)>, ComputerError> {
     Ok(Some((
         Screen::new(Box::new(fixture), CAPTURES)
             .observing(Box::new(observer))
+            .notifying(Box::new(ScriptedNotifications {
+                layout: layout_path.clone(),
+            }))
             .launching(Box::new(crate::app::fixture::Scripted {
                 layout: layout_path,
                 recorder: recorder.clone(),

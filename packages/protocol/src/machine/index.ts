@@ -7,6 +7,7 @@ import * as Observe from "./observe.js";
 import * as App from "./app.js";
 import * as Facts from "./facts.js";
 import * as ReleaseContract from "./release.js";
+import * as Settle from "./settle.js";
 
 /**
  * Machine domain (docs/machines-and-delegation.md): attached devices as the
@@ -311,6 +312,10 @@ export namespace Machine {
   export type ScreenObserveRequest = Observe.ScreenObserveRequest;
   export const ScreenObserveResult = Observe.ScreenObserveResult;
   export type ScreenObserveResult = Observe.ScreenObserveResult;
+  export const ScreenSettleRequest = Settle.ScreenSettleRequest;
+  export type ScreenSettleRequest = Settle.ScreenSettleRequest;
+  export const ScreenSettleResult = Settle.ScreenSettleResult;
+  export type ScreenSettleResult = Settle.ScreenSettleResult;
   export const InputActionRequest = Observe.InputActionRequest;
   export type InputActionRequest = Observe.InputActionRequest;
   export const OBSERVE_MAX_ELEMENTS = Observe.OBSERVE_MAX_ELEMENTS;

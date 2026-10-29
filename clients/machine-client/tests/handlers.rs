@@ -881,6 +881,16 @@ async fn observation_methods_gate_like_screen_and_input_and_refuse_without_an_ob
     let call = |method: &str, params: Value| (hooks.service)(method.to_owned(), Some(params));
     let observe = json!({"target":{"pid":1,"windowId":2},"screenshot":false});
     let action = json!({"observationId":"o1","target":{"pid":1,"windowId":2,"epoch":0},"ref":"AXButton[0]","action":"press"});
+    let settle = json!({"target":{"pid":1,"windowId":2,"epoch":0},"quietMs":50,"timeoutMs":100});
+    assert_eq!(
+        call("machine.screen.settle", settle.clone())
+            .await
+            .expect("unattached"),
+        refusal("machine_not_attached")
+    );
+    assert!(call("machine.screen.settle", json!({"target":{}}))
+        .await
+        .is_err());
     let methods = [
         ("machine.screen.observe", observe, "observe_not_available"),
         ("machine.input.action", action, "input_not_available"),
@@ -903,6 +913,17 @@ async fn observation_methods_gate_like_screen_and_input_and_refuse_without_an_ob
             let answer = call(method, params.clone()).await.expect(method);
             assert_eq!(answer, refusal(reason), "{method}");
         }
+        let expected = if capabilities.contains(&"computer.use") {
+            json!({"status":"unsupported","blocker":"no_observer"})
+        } else {
+            refusal("permission_denied")
+        };
+        assert_eq!(
+            call("machine.screen.settle", settle.clone())
+                .await
+                .expect("settle"),
+            expected
+        );
     }
     let unnamed = json!({"observationId":"o1","target":{"pid":1,"windowId":2,"epoch":0},"ref":"AXButton[0]","action":"perform"});
     assert!(call("machine.input.action", unnamed).await.is_err());

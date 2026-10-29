@@ -254,6 +254,25 @@ Grant-dependent acceptance remains #1702. Windows adapters and
 ScreenCaptureKit remain #1700. Cleanup policy and keep records remain #1697.
 Contract details: `docs/machines-and-delegation.md` 2.2.3.
 
+## #1691 window settle (PR pending)
+
+On `feat/1691-settle` (2026-10-29, stacked base `a2a7d1092`).
+`Machine.ScreenSettleRequest|Result` and `WireMethod.ScreenSettle` add an
+epoch-bound accessibility quiet-window wait with a 200 ms default quiet
+period and a 5000 ms default deadline. Quiet time starts at observer
+readiness, not request entry. Portable observer policy reconciles new
+descendants, refuses incomplete registration coverage, excludes unrelated
+windows and blocks unresolved attribution. Final samples are fenced by
+notification revision before a settled commit; destruction tombstones the
+target's epoch and snapshots. Setup uses the request deadline; final
+sampling and teardown share a fixed 500 ms allowance inside the host's
+`timeoutMs + 1000` transport ceiling. Native sampling holds no observation
+store lock. Scripted clocks and notification tests exercise the same
+coordinator without sleeps. Captured refusals carry bounded messages;
+missing capabilities report `unsupported`, while absent attachments report
+`machine_not_attached`. Code mode exposes `computer.screen.settle`.
+Native grant-dependent behavior awaits the MacBook live acceptance.
+
 ## #1689 window-bound observation and ref-targeted actions (machine contract 3, PR pending)
 
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target

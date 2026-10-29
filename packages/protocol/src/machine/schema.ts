@@ -139,6 +139,7 @@ export const WireMethod = {
   CdpClose: "machine.cdp.close",
   /** Window-bound observation (#1689), gated by `computer.use`. */
   ScreenObserve: "machine.screen.observe",
+  ScreenSettle: "machine.screen.settle",
   InputAction: "machine.input.action",
   /** Client → host before any attach (#1696); answered with `ReleaseResult`. */
   Release: "machine.release",

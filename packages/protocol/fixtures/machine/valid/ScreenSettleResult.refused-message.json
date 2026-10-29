@@ -1,0 +1,5 @@
+{
+  "status": "refused",
+  "reason": "permission_denied",
+  "message": "input requires a captured tool.pre effect"
+}

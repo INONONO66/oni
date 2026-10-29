@@ -488,6 +488,89 @@ test("observe and action are captured like input and relay the peer's typed answ
   } finally { await f.close(); }
 });
 
+test("settle is captured with normalized defaults and returns the peer observation", async () => {
+  const captured: MachineInputCapture[] = [];
+  const f = await fixture({ captureInput: (request, forward) => { captured.push(request); return forward; } });
+  try {
+    const desk = await f.peer([COMPUTER], { [Machine.WireMethod.ScreenSettle]: () => ({ status: "settled", observationId: "o4" }) });
+    const request: Machine.ScreenSettleRequest = { target: { pid: 42, windowId: 7, epoch: 0 } };
+    expect(await run(f.machine().settle(request))).toEqual({ status: "settled", observationId: "o4" });
+    const params = { ...request, quietMs: 200, timeoutMs: 5000 };
+    expect(captured).toEqual([{ machineId: "desk", generation: 1, method: Machine.WireMethod.ScreenSettle, params }]);
+    expect(desk.received).toContainEqual({ method: Machine.WireMethod.ScreenSettle, params });
+  } finally { await f.close(); }
+});
+
+test("settle is withheld by capture refusal, grant refusal and contract-2 peers", async () => {
+  for (const captureInput of [() => Effect.succeed({ status: "refused", reason: "permission_denied" } as const), "absent"] as const) {
+    const f = await fixture({ captureInput });
+    try {
+      const peer = await f.peer([COMPUTER]);
+      const answer = await run(f.machine().settle({ target: { pid: 42, windowId: 7, epoch: 0 } }));
+      expect(Machine.ScreenSettleResult.parse(answer)).toEqual({ status: "refused", reason: "permission_denied", ...(captureInput === "absent" ? { message: "input requires a captured tool.pre effect" } : {}) });
+      expect(peer.received.filter((entry) => entry.method === Machine.WireMethod.ScreenSettle)).toEqual([]);
+    } finally { await f.close(); }
+  }
+  const older = await fixture();
+  try {
+    const peer = await older.peer([COMPUTER], {}, undefined, 2);
+    expect(await run(older.machine().settle({ target: { pid: 42, windowId: 7, epoch: 0 } }))).toEqual({ status: "unsupported", blocker: "no_observer" });
+    expect(peer.received.filter((entry) => entry.method === Machine.WireMethod.ScreenSettle)).toEqual([]);
+  } finally { await older.close(); }
+});
+
+test("settle distinguishes denied grants from an attached peer without an observer", async () => {
+  for (const [grants, offered, expected] of [
+    [[Machine.WellKnownCapability.fsRead], [COMPUTER], { status: "refused", reason: "permission_denied" }],
+    [[COMPUTER], [], { status: "unsupported", blocker: "no_observer" }],
+  ] as const) {
+    const f = await fixture({ grants: [...grants] });
+    try {
+      const peer = await f.peer(offered);
+      const answer = await run(f.machine().settle({ target: { pid: 42, windowId: 7, epoch: 0 } }));
+      expect(Machine.ScreenSettleResult.parse(answer)).toEqual(expected);
+      expect(peer.received).toEqual([]);
+    } finally { await f.close(); }
+  }
+});
+
+test("settle returns typed attachment refusal before attach and after detach", async () => {
+  const f = await fixture();
+  const request: Machine.ScreenSettleRequest = { target: { pid: 42, windowId: 7, epoch: 0 } };
+  try {
+    expect(await run(f.machine().settle(request))).toEqual({ status: "refused", reason: "machine_not_attached" });
+    const peer = await f.peer([COMPUTER]);
+    const detached = f.events.next(Machine.Events.Detached.name);
+    await peer.client.close();
+    await detached;
+    expect(await run(f.machine().settle(request))).toEqual({ status: "refused", reason: "machine_not_attached" });
+  } finally { await f.close(); }
+});
+
+test("settle preserves generation errors rather than hiding a replacement attachment", async () => {
+  let replace = (): Promise<void> => Promise.resolve();
+  const f = await fixture({ captureInput: (_request, forward) => Effect.promise(() => replace()).pipe(Effect.andThen(forward)) });
+  try {
+    await f.peer([COMPUTER]);
+    replace = async () => { await f.peer([COMPUTER], {}, 1); };
+    expect(await run(Effect.flip(f.machine().settle({ target: { pid: 42, windowId: 7, epoch: 0 } })))).toMatchObject({ _tag: "MachineRefusalError", reason: "stale_generation" });
+  } finally { await f.close(); }
+});
+
+test("a contract-2 pointer flattens captures and refuses element targets before forwarding", async () => {
+  const f = await fixture();
+  try {
+    const peer = await f.peer([COMPUTER], { [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }) }, undefined, 2);
+    expect(await run(f.machine().pointer(pointer))).toEqual({ status: "ok" });
+    expect(peer.received.filter((entry) => entry.method === Machine.WireMethod.InputPointer)).toEqual([{
+      method: Machine.WireMethod.InputPointer,
+      params: { kind: "click", captureId: "cap-1", x: 10, y: 20, button: "left", count: 1 },
+    }]);
+    expect(await run(f.machine().pointer({ ...pointer, at: { observationId: "o1", ref: "AXButton[0]" } }))).toMatchObject({ status: "refused", reason: "observe_not_available" });
+    expect(inputs(peer.received)).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
 test("a refusing capture port blocks observe and action, and no port sends neither", async () => {
   for (const captureInput of [() => Effect.succeed({ status: "refused", reason: "permission_denied", message: "tool.pre blocked" } as const), "absent"] as const) {
     const f = await fixture({ captureInput });

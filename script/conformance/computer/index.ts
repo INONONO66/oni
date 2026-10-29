@@ -187,7 +187,7 @@ function observedLayout(setup: ComputerSetup): string {
 }
 
 /** The tracked layout with its first window made observable; a new `epoch` token is a recreation. */
-function observableLayout(layout: Layout, epoch: number): string {
+function observableLayout(layout: Layout, epoch: number, timeline: readonly { readonly atMs: number; readonly kind: string }[] = []): string {
   const [window, ...rest] = layout.windows;
   check(window !== undefined, "fixture layout has no window");
   const observable = {
@@ -195,6 +195,7 @@ function observableLayout(layout: Layout, epoch: number): string {
     pid: OBSERVED_PID,
     app: { bundleId: "com.example.conformance", path: "/Applications/Conformance.app" },
     epoch,
+    timeline,
     elements: [
       { role: "AXButton", label: "Save", actions: ["AXPress"], frame: { x: 4, y: 4, width: 40, height: 16 } },
     ],
@@ -509,6 +510,33 @@ async function exerciseObservation(context: Context): Promise<void> {
     `captured observation calls ${methods.join(",")}`,
   );
   harness.record("observation refusals: superseded since stale_observation, recreated window epoch_changed for action and ref pointer; recorder unchanged, every call captured as tool.pre");
+}
+
+async function exerciseSettle(context: Context): Promise<void> {
+  const { harness, recorder, layout, setup } = context;
+  const computer = computerOf(context);
+  const [window] = layout.windows;
+  check(window !== undefined, "fixture layout has no window");
+  const target = { pid: OBSERVED_PID, windowId: window.id };
+  const baseline = await run(computer.observe({ target, screenshot: false }));
+  check(baseline.status === "ok", `settle baseline ${JSON.stringify(baseline)}`);
+  const pinned = { ...target, epoch: baseline.target.epoch };
+  const settled = await run(computer.settle({ target: pinned, quietMs: 50, timeoutMs: 100 }));
+  check(settled.status === "settled", `quiet settle ${JSON.stringify(settled)}`);
+  const since = await run(computer.observe({ target, screenshot: false, since: settled.observationId }));
+  check(since.status === "ok" && "diff" in since, `settled id as since ${JSON.stringify(since)}`);
+  writeFileSync(observedLayout(setup), observableLayout(layout, 1, [{ atMs: 40, kind: "value_changed" }, { atMs: 80, kind: "layout_changed" }]));
+  const pending = await run(computer.settle({ target: pinned, quietMs: 200, timeoutMs: 100 }));
+  check(pending.status === "pending" && pending.changesInWindow === 2, `busy settle ${JSON.stringify(pending)}`);
+  const next = await run(computer.observe({ target, screenshot: false, since: pending.observationId }));
+  check(next.status === "ok" && "diff" in next, `pending id as since ${JSON.stringify(next)}`);
+  const names = recorder.captured.slice(-4).map((call) => call.method);
+  check(names.join(",") === [
+    Machine.WireMethod.ScreenSettle, Machine.WireMethod.ScreenObserve,
+    Machine.WireMethod.ScreenSettle, Machine.WireMethod.ScreenObserve,
+  ].join(","), `settle captured calls ${names.join(",")}`);
+  writeFileSync(observedLayout(setup), observableLayout(layout, 1));
+  harness.record(`settle quiet ${settled.observationId}, busy ${pending.observationId} changes 2, both usable as since; every settle captured`);
 }
 
 function streamRequest(display: number): Omit<Machine.StreamOpenRequest, "streamId"> {
@@ -831,6 +859,7 @@ export async function exerciseComputer(
     await exerciseInput(context, anchor);
     await exerciseObservation(context);
     await exerciseBackground(context);
+    await exerciseSettle(context);
     await exerciseStream(context);
     await exerciseCdp(context);
     await exerciseOverflowAndRelease(context);

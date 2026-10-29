@@ -172,6 +172,7 @@ const methods = {
     params: Machine.ScreenObserveRequest,
     result: Machine.ScreenObserveResult,
   },
+  [Machine.WireMethod.ScreenSettle]: { params: Machine.ScreenSettleRequest, result: Machine.ScreenSettleResult },
   [Machine.WireMethod.InputAction]: { params: Machine.InputActionRequest, result: Machine.InputWriteResult },
 };
 

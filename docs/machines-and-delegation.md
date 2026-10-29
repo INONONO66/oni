@@ -335,6 +335,24 @@ without a wire call, when the attached peer offered a contract below 3.
   action and resolves to the element's centre, refusing with the same
   reasons. Windows mechanics are later work.
 
+### 2.2.3 Window settle (#1691)
+
+`computer.screen.settle({ target: { pid, windowId, epoch }, quietMs?,
+timeoutMs? })` watches accessibility notifications after arming the
+window observer and before taking its baseline observation. `quietMs`
+defaults to 200 (50–2000); `timeoutMs` defaults to 5000 (100–30000).
+Each change restarts the quiet interval. A quiet window answers
+`settled { observationId }`; reaching the deadline answers
+`pending { observationId, changesInWindow }`. Both ids are fresh
+observations and usable as the next `observe({ since })` anchor. A
+destroyed window answers `destroyed`; an unavailable observer answers
+`unsupported { blocker: accessibility_not_granted | no_observer }`.
+Window and epoch mismatches, permission denial and detach are typed
+refusals. The macOS observer listens to AX changes on a dedicated run
+loop; the headless layout's window `timeline` drives the same quiet-window
+fold. The host bounds this call at the request's `timeoutMs + 1000` and
+captures it through `tool.pre` like observation and input.
+
 ### 2.3 Network transport (#1270)
 
 The host owns a listener SET feeding one attachment registry: the unix socket

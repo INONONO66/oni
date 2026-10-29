@@ -2,14 +2,20 @@
 //! window lookup and actions only. The walk, ref resolution and every
 //! decision live in the cfg-free parent module.
 
-use std::{ffi::c_void, ptr};
+use std::{
+    cell::Cell,
+    ffi::c_void,
+    ptr,
+    time::{Duration, Instant},
+};
 
 use accessibility_sys::{
     kAXErrorSuccess, kAXPressAction, kAXValueAttribute, kAXValueTypeAXError, kAXValueTypeCGPoint,
     kAXValueTypeCGSize, kAXWindowsAttribute, AXError, AXIsProcessTrusted,
     AXUIElementCopyActionNames, AXUIElementCopyMultipleAttributeValues,
     AXUIElementCreateApplication, AXUIElementPerformAction, AXUIElementRef,
-    AXUIElementSetAttributeValue, AXValueGetType, AXValueGetTypeID, AXValueGetValue, AXValueRef,
+    AXUIElementSetAttributeValue, AXUIElementSetMessagingTimeout, AXValueGetType, AXValueGetTypeID,
+    AXValueGetValue, AXValueRef,
 };
 use core_foundation::{
     array::{CFArray, CFArrayRef},
@@ -39,6 +45,38 @@ unsafe extern "C" {
 
 const PATH_MAX: u32 = 4096;
 
+thread_local! {
+    static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+pub(super) fn bounded<T>(deadline: Instant, call: impl FnOnce() -> T) -> T {
+    struct Reset(Option<Instant>);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            DEADLINE.set(self.0);
+        }
+    }
+    let _reset = Reset(DEADLINE.replace(Some(deadline)));
+    call()
+}
+
+pub(super) fn within_deadline(element: AXUIElementRef) -> bool {
+    let Some(deadline) = DEADLINE.get() else {
+        return true;
+    };
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return false;
+    }
+    // SAFETY: callers hold the AX element alive; the positive timeout bounds one IPC call.
+    unsafe {
+        AXUIElementSetMessagingTimeout(
+            element,
+            remaining.min(Duration::from_millis(25)).as_secs_f32(),
+        ) == 0
+    }
+}
+
 #[repr(C)]
 #[derive(Default)]
 struct Pair {
@@ -49,7 +87,7 @@ struct Pair {
 pub struct Native;
 
 #[derive(Clone)]
-struct Element(CFType);
+pub(super) struct Element(CFType);
 
 /// One CF value as the cfg-free assembly reads it.
 fn raw(value: &CFType) -> Raw<Element> {
@@ -97,13 +135,21 @@ fn raw(value: &CFType) -> Raw<Element> {
 }
 
 impl Element {
-    fn raw(&self) -> AXUIElementRef {
+    pub(super) unsafe fn retain(element: AXUIElementRef) -> Self {
+        // SAFETY: the caller guarantees a live AXUIElement for this retain.
+        Self(unsafe { CFType::wrap_under_get_rule(element.cast()) })
+    }
+
+    pub(super) fn raw(&self) -> AXUIElementRef {
         self.0.as_CFTypeRef() as AXUIElementRef
     }
 
     /// `names` read in one batched call; a value the element could not
     /// supply is `Raw::Error` in its place.
     fn values(&self, names: &[&str]) -> Result<Vec<Raw<Self>>, Fault> {
+        if !within_deadline(self.raw()) {
+            return Err(Fault::Failed("accessibility deadline exceeded".to_owned()));
+        }
         let names: Vec<CFString> = names.iter().map(|name| CFString::new(name)).collect();
         let names = CFArray::from_CFTypes(&names);
         let mut values: CFArrayRef = ptr::null();
@@ -123,6 +169,9 @@ impl Element {
     }
 
     fn actions(&self) -> Result<Vec<String>, AXError> {
+        if !within_deadline(self.raw()) {
+            return Err(-25202);
+        }
         let mut names: CFArrayRef = ptr::null();
         // SAFETY: `self` holds a live AXUIElement; on success `names` is a +1 array of CFStrings.
         let error = unsafe { AXUIElementCopyActionNames(self.raw(), &mut names) };
@@ -134,7 +183,10 @@ impl Element {
         Ok(array.iter().map(|name| name.to_string()).collect())
     }
 
-    fn window_id(&self) -> Option<u32> {
+    pub(super) fn window_id(&self) -> Option<u32> {
+        if !within_deadline(self.raw()) {
+            return None;
+        }
         let mut id = 0;
         // SAFETY: `self` holds a live AXUIElement and `id` is a valid out pointer.
         let error = unsafe { _AXUIElementGetWindow(self.raw(), &mut id) };
@@ -205,7 +257,7 @@ fn identity(window: &XWindow) -> Option<WindowIdentity> {
     Some(identity)
 }
 
-fn root(window: &WindowIdentity) -> Result<Option<Element>, Fault> {
+pub(super) fn root(window: &WindowIdentity) -> Result<Option<Element>, Fault> {
     let pid = i32::try_from(window.pid).map_err(|_| Fault::WindowNotFound)?;
     // SAFETY: creating an application element has no preconditions; the result is +1.
     let application =

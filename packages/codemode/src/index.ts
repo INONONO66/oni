@@ -177,6 +177,7 @@ export function createCodemode(options: CodemodeOptions) {
           list: (request?: Machine.ScreenListRequest) => use((computer) => computer.list(request)),
           capture: (request: Machine.ScreenCaptureRequest) => use((computer) => computer.capture(request)),
           observe: (request: Machine.ScreenObserveRequest) => use((computer) => computer.observe(request)),
+          settle: (request: Machine.ScreenSettleRequest) => use((computer) => computer.settle(request)),
         },
         input: {
           pointer: (request: Machine.InputPointerRequest) => use((computer) => computer.pointer(request)),

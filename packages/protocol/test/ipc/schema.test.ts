@@ -131,6 +131,7 @@ describe("Ipc.Methods param schemas", () => {
         Machine.WireMethod.CdpChunk,
         Machine.WireMethod.CdpClose,
         Machine.WireMethod.ScreenObserve,
+        Machine.WireMethod.ScreenSettle,
         Machine.WireMethod.InputAction,
       ].sort(),
     );

@@ -21,6 +21,7 @@ const script: Record<string, Responder> = {
   [Machine.WireMethod.InputKey]: () => ({ status: "ok" }),
   [Machine.WireMethod.InputText]: () => ({ status: "ok" }),
   [Machine.WireMethod.ScreenObserve]: () => ({ status: "refused", reason: "window_not_found" }),
+  [Machine.WireMethod.ScreenSettle]: () => ({ status: "settled", observationId: "o2" }),
   [Machine.WireMethod.InputAction]: () => ({ status: "ok" }),
   [Machine.WireMethod.AppLaunch]: () => ({ status: "ok", pid: 42, windows: [{ pid: 42, windowId: 7, epoch: 0 }] }),
   [Machine.WireMethod.AppQuit]: () => ({ status: "ok", exited: true }),
@@ -78,8 +79,9 @@ test("the code-mode handle reaches screen and input under the wire op names, inp
     expect(await run(computer.input.key({ captureId: "cap-1", key: "a", action: "press" }))).toEqual({ status: "ok" });
     expect(await run(computer.input.text({ captureId: "cap-1", text: "hi" }))).toEqual({ status: "ok" });
     expect(await run(computer.screen.observe({ target: { pid: 42, windowId: 7 }, screenshot: false }))).toEqual({ status: "refused", reason: "window_not_found" });
+    expect(await run(computer.screen.settle({ target: { pid: 42, windowId: 7, epoch: 0 } }))).toEqual({ status: "settled", observationId: "o2" });
     expect(await run(computer.input.action({ observationId: "o1", target: { pid: 42, windowId: 7, epoch: 0 }, ref: "AXButton[0]", action: "press" }))).toEqual({ status: "ok" });
-    const sent = [Machine.WireMethod.InputPointer, Machine.WireMethod.InputKey, Machine.WireMethod.InputText, Machine.WireMethod.ScreenObserve, Machine.WireMethod.InputAction];
+    const sent = [Machine.WireMethod.InputPointer, Machine.WireMethod.InputKey, Machine.WireMethod.InputText, Machine.WireMethod.ScreenObserve, Machine.WireMethod.ScreenSettle, Machine.WireMethod.InputAction];
     expect(captured.map((entry) => entry.method)).toEqual(sent);
     expect(received).toEqual([Machine.WireMethod.ScreenList, Machine.WireMethod.ScreenCapture, ...sent]);
   });

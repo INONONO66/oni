@@ -5,14 +5,24 @@
 //! `app` defaults to `/fixture/<pid>` without a bundle id. Actions land as
 //! `kind: "action"` recorder lines.
 
-use std::{fs, marker::PhantomData, path::PathBuf};
+use std::{
+    fs,
+    marker::PhantomData,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::{
     target, walk, ActFault, Action, Admit, AppIdentity, Attributes, Bounds, Frame, Observer,
     Segment, Tree, Walk, WindowIdentity,
+};
+use crate::screen::observe;
+use crate::screen::settle::{
+    observer, Notification, Notifications, Sample, Subscription, Unsupported,
 };
 use crate::{computer::append, screen::Fault};
 
@@ -59,11 +69,113 @@ struct Row {
     elements: Vec<Element>,
     #[serde(default)]
     minimized: bool,
+    #[serde(default)]
+    timeline: Vec<Timeline>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Timeline {
+    at_ms: u64,
+    kind: TimelineKind,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TimelineKind {
+    ValueChanged,
+    LayoutChanged,
+    Destroyed,
 }
 
 pub struct Scripted {
     pub layout: PathBuf,
     pub recorder: PathBuf,
+}
+
+pub struct ScriptedNotifications {
+    pub layout: PathBuf,
+}
+
+struct Events {
+    queued: Vec<(Instant, Notification)>,
+    now: Instant,
+    observer: Arc<dyn Observer>,
+    pid: u32,
+    window: u32,
+}
+
+impl Subscription for Events {
+    fn now(&self) -> Instant {
+        self.now
+    }
+
+    fn receive_until(&mut self, deadline: Instant) -> Option<(Instant, Notification)> {
+        if self.queued.first().is_some_and(|(at, _)| *at <= deadline) {
+            let event = self.queued.remove(0);
+            self.now = self.now.max(event.0);
+            Some(event)
+        } else {
+            self.now = self.now.max(deadline);
+            None
+        }
+    }
+
+    fn sample(&mut self, deadline: Instant) -> Result<Sample, observe::Refusal> {
+        observer::sample(
+            self.observer.as_ref(),
+            self.pid,
+            self.window,
+            deadline,
+            || self.now,
+        )
+    }
+    fn commit_if_current(&mut self, commit: Box<dyn FnOnce() -> Value + '_>) -> Option<Value> {
+        Some(commit())
+    }
+}
+
+impl Notifications for ScriptedNotifications {
+    fn subscribe(
+        &self,
+        pid: u32,
+        window_id: u32,
+        start: Instant,
+        _deadline: Instant,
+        observer: Arc<dyn Observer>,
+    ) -> Result<Box<dyn Subscription>, Unsupported> {
+        let rows = Scripted {
+            layout: self.layout.clone(),
+            recorder: PathBuf::new(),
+        };
+        let row = rows
+            .rows()
+            .map_err(|_| Unsupported::NoObserver)?
+            .into_iter()
+            .find(|row| row.pid == Some(pid) && row.id == window_id)
+            .ok_or(Unsupported::WindowNotFound)?;
+        let mut queued: Vec<_> = row
+            .timeline
+            .into_iter()
+            .map(|event| {
+                let kind = match event.kind {
+                    TimelineKind::Destroyed => Notification::Destroyed,
+                    TimelineKind::ValueChanged | TimelineKind::LayoutChanged => {
+                        Notification::Changed
+                    }
+                };
+                (start + Duration::from_millis(event.at_ms), kind)
+            })
+            .collect();
+        queued.sort_by_key(|(at, _)| *at);
+        Ok(Box::new(Events {
+            queued,
+            now: start,
+            observer,
+            pid,
+            window: window_id,
+        }))
+    }
 }
 
 struct Rows<'a>(PhantomData<&'a Element>);
@@ -191,7 +303,6 @@ impl Observer for Scripted {
         append(&self.recorder, &line).map_err(|error| ActFault::Failed(error.to_string()))
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,3 +412,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "fixture/tests.rs"]
+mod settle_tests;

@@ -130,16 +130,16 @@ export interface MachineHandle {
   readonly computer?: ComputerHandle;
 }
 /** Computer-use wire methods (#1662) the host originates. */
-type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
+type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "ScreenSettle" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
 type LifecycleMethod = (typeof Machine.WireMethod)["AppLaunch" | "AppQuit" | "WindowClose" | "WindowPark"];
 type LifecycleParams = Machine.AppLaunchRequest | Machine.AppQuitRequest | Machine.WindowCloseRequest | Machine.WindowParkRequest;
 type LifecycleResult = Machine.AppLaunchResult | Machine.AppQuitResult | Machine.WindowCloseResult | Machine.WindowParkResult;
 type InputMethod = (typeof Machine.WireMethod)["InputPointer" | "InputKey" | "InputText"];
 type InputParams = Machine.InputPointerRequest | Machine.InputKeyRequest | Machine.InputTextRequest;
-type CapturedMethod = InputMethod | (typeof Machine.WireMethod)["ScreenObserve" | "InputAction"] | LifecycleMethod;
-type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.InputActionRequest | LifecycleParams;
+type CapturedMethod = InputMethod | (typeof Machine.WireMethod)["ScreenObserve" | "ScreenSettle" | "InputAction"] | LifecycleMethod;
+type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.ScreenSettleRequest | Machine.InputActionRequest | LifecycleParams;
 /** What a captured call answers when it was forwarded (#1689 adds observation). */
-export type CapturedResult = Machine.InputWriteResult | Machine.ScreenObserveResult | LifecycleResult;
+export type CapturedResult = Machine.InputWriteResult | Machine.ScreenObserveResult | Machine.ScreenSettleResult | LifecycleResult;
 /** The capture port's own refusal, valid in every captured answer vocabulary. */
 export interface CaptureRefusal { readonly status: "refused"; readonly reason: "permission_denied"; readonly message?: string }
 /** What the captured-input port records: the exact call the host would forward. */
@@ -193,6 +193,7 @@ export interface ComputerHandle {
   text(request: Machine.InputTextRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
   /** Window-bound observation (#1689): captured like input, answered only by contract-3 peers. */
   observe(request: Machine.ScreenObserveRequest): Effect.Effect<Machine.ScreenObserveResult, MachineError>;
+  settle(request: Machine.ScreenSettleRequest): Effect.Effect<Machine.ScreenSettleResult, MachineError>;
   action(request: Machine.InputActionRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
   readonly stream: {
     open(request: Omit<Machine.StreamOpenRequest, "streamId">, listeners: StreamListeners): Effect.Effect<ComputerStream | Extract<Machine.StreamOpenResult, { status: "refused" }>, MachineError>;
@@ -956,10 +957,10 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     function decode<S extends z.ZodType>(schema: S, raw: Ipc.Response["result"], operation: string): Effect.Effect<z.output<S>, MachineError> {
       return Effect.try({ try: () => schema.parse(raw), catch: decodeMachineFailure(operation) });
     }
-    function computerCall<M extends ComputerMethod, S extends z.ZodType>(peer: Attachment, method: M, params: Ipc.Request["params"], schema: S, timeoutMs = Machine.EXEC_TIMEOUT_MS + 1000): Effect.Effect<z.output<S>, MachineError> {
+    function computerCall<M extends ComputerMethod, S extends z.ZodType>(peer: Attachment, method: M, params: Ipc.Request["params"], schema: S, timeoutMs = Machine.EXEC_TIMEOUT_MS): Effect.Effect<z.output<S>, MachineError> {
       return Effect.suspend(() => {
         peer.server.useConnection(peer.rawId);
-        return peer.server.call(method, params, timeoutMs);
+        return peer.server.call(method, params, timeoutMs + 1000);
       }).pipe(Effect.mapError(transportFailure(`${method}.call`)), Effect.flatMap((raw) => decode(schema, raw, `${method}.response`)));
     }
     function attached(id: string, operation: string): Effect.Effect<Attachment, MachineError> {
@@ -1223,6 +1224,16 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         key: (request) => input(id, Machine.WireMethod.InputKey, Machine.InputKeyRequest, request),
         text: (request) => input(id, Machine.WireMethod.InputText, Machine.InputTextRequest, request),
         observe: (request) => observation(id, Machine.WireMethod.ScreenObserve, Machine.ScreenObserveRequest, request, Machine.ScreenObserveResult, observeRefusal, OBSERVE_NOT_AVAILABLE),
+        settle: (request) => decode(Machine.ScreenSettleRequest, request, "screen.settle.request").pipe(
+          Effect.flatMap((params) => captured(id, Machine.WireMethod.ScreenSettle, params, (grant): Machine.ScreenSettleResult => grant === "permission_denied"
+            ? { status: "refused", reason: grant }
+            : { status: "unsupported", blocker: "no_observer" }, (peer) => answersObservation(peer.offer)
+            ? computerCall(peer, Machine.WireMethod.ScreenSettle, params, Machine.ScreenSettleResult, params.timeoutMs)
+            : Effect.succeed({ status: "unsupported", blocker: "no_observer" } as const))),
+          Effect.catchTag("MachineRefusalError", (error) => error.reason === "machine_not_attached" || error.reason === "disconnected"
+            ? Effect.succeed({ status: "refused", reason: "machine_not_attached" } as const)
+            : Effect.fail(error)),
+        ),
         action: (request) => observation(id, Machine.WireMethod.InputAction, Machine.InputActionRequest, request, Machine.InputWriteResult, inputRefusal, OBSERVE_NOT_AVAILABLE),
         stream: { open: (request, listeners) => openStream(id, request, listeners) },
         cdp: { open: (request, listeners) => openChannel(id, request, listeners) },
