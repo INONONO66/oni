@@ -48,8 +48,10 @@ struct ClientFile {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Block {
-    layout: PathBuf,
-    recorder: PathBuf,
+    layout: Option<PathBuf>,
+    recorder: Option<PathBuf>,
+    #[serde(default)]
+    excluded_owners: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,6 +60,8 @@ struct Layout {
     displays: Vec<DisplayRow>,
     #[serde(default)]
     windows: Vec<WindowRow>,
+    #[serde(rename = "apps", default)]
+    _apps: Vec<crate::app::fixture::App>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +93,10 @@ struct WindowRow {
     _epoch: u64,
     #[serde(rename = "elements", default)]
     _elements: Vec<Element>,
+    #[serde(default)]
+    blank: bool,
+    #[serde(rename = "minimized", default)]
+    _minimized: bool,
 }
 
 /// The fixture screen and recorder input the `computer` block of the
@@ -101,8 +109,22 @@ pub fn open(path: &Path) -> Result<Option<(Screen, Input)>, ComputerError> {
     let Some(block) = file.computer else {
         return Ok(None);
     };
+    let (layout, recorder) = match (block.layout, block.recorder) {
+        (None, None) => {
+            return Ok(Some((
+                Screen::platform().excluding(block.excluded_owners),
+                Input::platform(),
+            )))
+        }
+        (Some(layout), Some(recorder)) => (layout, recorder),
+        _ => {
+            return Err(ComputerError::Config(
+                "layout and recorder must be specified together".into(),
+            ))
+        }
+    };
     let directory = path.parent().unwrap_or(Path::new(""));
-    let layout_path = directory.join(&block.layout);
+    let layout_path = directory.join(&layout);
     let layout = match fs::read(&layout_path) {
         Ok(layout) => layout,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -117,18 +139,31 @@ pub fn open(path: &Path) -> Result<Option<(Screen, Input)>, ComputerError> {
             "the layout has no primary display".to_owned(),
         ));
     }
+    let blank_windows = layout
+        .windows
+        .iter()
+        .filter(|window| window.blank)
+        .map(|window| window.id)
+        .collect();
     let fixture = Fixture {
         displays: layout.displays.into_iter().map(display).collect(),
         windows: layout.windows.into_iter().map(window).collect(),
+        blank_windows,
         ..Fixture::default()
     };
-    let recorder = directory.join(block.recorder);
+    let recorder = directory.join(recorder);
     let observer = Scripted {
-        layout: layout_path,
+        layout: layout_path.clone(),
         recorder: recorder.clone(),
     };
     Ok(Some((
-        Screen::new(Box::new(fixture), CAPTURES).observing(Box::new(observer)),
+        Screen::new(Box::new(fixture), CAPTURES)
+            .observing(Box::new(observer))
+            .launching(Box::new(crate::app::fixture::Scripted {
+                layout: layout_path,
+                recorder: recorder.clone(),
+            }))
+            .excluding(block.excluded_owners),
         Input::new(Recorder(recorder)),
     )))
 }
@@ -166,6 +201,17 @@ fn window(row: WindowRow) -> Window {
 pub struct Recorder(pub PathBuf);
 
 impl Driver for Recorder {
+    fn pid_delivery(&self) -> bool {
+        true
+    }
+
+    fn post_to_pid(&mut self, pid: u32, event: &Event) -> Result<(), String> {
+        let mut line = record(event);
+        line["delivery"] = json!("background");
+        line["pid"] = json!(pid);
+        append(&self.0, &line).map_err(|error| error.to_string())
+    }
+
     fn permitted(&self) -> bool {
         true
     }
@@ -187,7 +233,7 @@ pub fn append(path: &Path, line: &Value) -> io::Result<()> {
 }
 
 pub fn record(event: &Event) -> Value {
-    match event {
+    let mut line = match event {
         Event::Move {
             x,
             y,
@@ -198,7 +244,7 @@ pub fn record(event: &Event) -> Value {
             y,
             reference: Some(reference),
         } => json!({ "event": "move", "x": x, "y": y, "ref": reference }),
-        Event::Button { button, down } => {
+        Event::Button { button, down, .. } => {
             json!({ "event": "button", "button": button_name(*button), "down": down })
         }
         Event::Scroll { horizontal, delta } => {
@@ -206,7 +252,11 @@ pub fn record(event: &Event) -> Value {
         }
         Event::Key { key, down } => json!({ "event": "key", "key": key_name(*key), "down": down }),
         Event::Text(text) => json!({ "event": "text", "text": text }),
-    }
+    };
+    line["delivery"] = json!("foreground");
+    line["pid"] = Value::Null;
+    line["tag"] = json!(true);
+    line
 }
 
 fn button_name(button: Button) -> &'static str {

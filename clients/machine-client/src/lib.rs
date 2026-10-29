@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod app;
 pub mod attach;
 pub mod budget;
 pub mod cdp;

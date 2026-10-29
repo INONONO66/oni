@@ -50,8 +50,13 @@ xcap = { version = "=0.9.8", default-features = false }
 # published versions: AXUIElement walks and actions, CF value conversion.
 accessibility-sys = "=0.2.0"
 core-foundation = "=0.10.1"
+core-graphics = { version = "=0.25.0", features = ["elcapitan", "highsierra"] }
+objc2 = "=0.6.5"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSWorkspace", "NSRunningApplication", "block2"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSString", "NSURL", "NSError", "NSObject"] }
+block2 = "=0.6.2"
 
-[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 # Input injection (#1662), pinned 2026-10-25: macOS posts CGEvents behind the
 # Accessibility grant; Linux uses the pure-Rust X11 (XTEST) connection only.
 enigo = { version = "=0.6.1", default-features = false, features = ["x11rb"] }

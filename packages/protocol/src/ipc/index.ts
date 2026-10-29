@@ -155,6 +155,10 @@ const methods = {
   [Machine.WireMethod.InputPointer]: { params: Machine.InputPointerRequest, result: Machine.InputWriteResult },
   [Machine.WireMethod.InputKey]: { params: Machine.InputKeyRequest, result: Machine.InputWriteResult },
   [Machine.WireMethod.InputText]: { params: Machine.InputTextRequest, result: Machine.InputWriteResult },
+  [Machine.WireMethod.AppLaunch]: { params: Machine.AppLaunchRequest, result: Machine.AppLaunchResult },
+  [Machine.WireMethod.AppQuit]: { params: Machine.AppQuitRequest, result: Machine.AppQuitResult },
+  [Machine.WireMethod.WindowClose]: { params: Machine.WindowCloseRequest, result: Machine.WindowCloseResult },
+  [Machine.WireMethod.WindowPark]: { params: Machine.WindowParkRequest, result: Machine.WindowParkResult },
   [Machine.WireMethod.StreamOpen]: { params: Machine.StreamOpenRequest, result: Machine.StreamOpenResult },
   [Machine.WireMethod.StreamSignal]: {
     params: Machine.StreamSignalRequest,

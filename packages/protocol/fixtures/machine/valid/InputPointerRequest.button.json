@@ -6,5 +6,6 @@
     "y": 16384
   },
   "button": "right",
-  "state": "down"
+  "state": "down",
+  "delivery": "foreground"
 }

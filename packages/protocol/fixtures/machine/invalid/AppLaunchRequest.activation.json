@@ -1,0 +1,6 @@
+{
+  "app": {
+    "path": "/Test.app"
+  },
+  "activate": true
+}

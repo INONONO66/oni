@@ -77,6 +77,53 @@ fn refusal(reason: &str) -> Value {
     json!({"status":"refused","reason":reason})
 }
 
+struct DeniedAx(Fault);
+impl oni_machine_client::screen::ax::Observer for DeniedAx {
+    fn windows(&self) -> Result<Vec<oni_machine_client::screen::ax::WindowIdentity>, Fault> {
+        Err(self.0.clone())
+    }
+    fn walk(
+        &self,
+        _: &oni_machine_client::screen::ax::WindowIdentity,
+        _: &oni_machine_client::screen::ax::Bounds,
+    ) -> Result<oni_machine_client::screen::ax::Walk, Fault> {
+        Err(Fault::Permission)
+    }
+    fn act(
+        &self,
+        _: &oni_machine_client::screen::ax::WindowIdentity,
+        _: &[oni_machine_client::screen::ax::Segment],
+        _: oni_machine_client::screen::ax::Admit<'_>,
+        _: &oni_machine_client::screen::ax::Action,
+    ) -> Result<(), oni_machine_client::screen::ax::ActFault> {
+        Err(oni_machine_client::screen::ax::ActFault::Permission)
+    }
+}
+
+#[test]
+fn window_capture_uses_screen_grant_when_accessibility_is_denied() {
+    let mut source = Fixture::display(8, 8, 1.0);
+    source.windows.push(window(7, 1, 0, 0, 8, 8));
+    let granted = screen(source.clone()).observing(Box::new(DeniedAx(Fault::Permission)));
+    assert_eq!(
+        capture(
+            &granted,
+            json!({"target":{"kind":"window","windowId":"7"},"encoding":{"format":"png"}})
+        )["status"],
+        "ok"
+    );
+    let failed = screen(source).observing(Box::new(DeniedAx(Fault::Failed(
+        "source unavailable".into(),
+    ))));
+    assert_eq!(
+        capture(
+            &failed,
+            json!({"target":{"kind":"window","windowId":"7"},"encoding":{"format":"png"}})
+        )["reason"],
+        "capture_failed"
+    );
+}
+
 #[test]
 fn an_absent_or_unpermitted_screen_refuses_typed() {
     let absent = Screen::absent();
@@ -336,6 +383,7 @@ struct Gate {
     proceed: Mutex<mpsc::Receiver<()>>,
     fail: Arc<AtomicBool>,
     malformed: Arc<AtomicBool>,
+    first_window: AtomicBool,
 }
 
 impl Source for Gate {
@@ -369,7 +417,62 @@ impl Source for Gate {
     }
 
     fn capture_window(&self, window: u32, pixels: &mut Vec<u8>) -> Result<(u32, u32), Fault> {
+        let first = self.first_window.swap(false, Ordering::SeqCst);
+        self.entered.send(()).expect("test listens");
+        if first {
+            self.proceed
+                .lock()
+                .expect("gate")
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("test releases");
+        }
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(Fault::Failed("backend failed".into()));
+        }
         self.inner.capture_window(window, pixels)
+    }
+}
+
+#[test]
+fn newer_window_capture_supersedes_the_inflight_frame_before_publication() {
+    for fail_older in [false, true] {
+        let failure = Arc::new(AtomicBool::new(false));
+        let (entered, arrivals) = mpsc::channel();
+        let (proceed, gate) = mpsc::channel();
+        let mut inner = Fixture::display(16, 16, 1.0);
+        inner.windows.push(window(7, 1, 0, 0, 8, 8));
+        let screen = Screen::new(
+            Box::new(Gate {
+                inner,
+                entered,
+                proceed: Mutex::new(gate),
+                fail: failure.clone(),
+                malformed: Arc::new(AtomicBool::new(false)),
+                first_window: AtomicBool::new(true),
+            }),
+            2,
+        );
+        let request: ScreenCaptureRequest = oni_protocol::decode(
+            json!({"target":{"kind":"window","windowId":"7"},"encoding":{"format":"png"}}),
+        )
+        .expect("request");
+        std::thread::scope(|scope| {
+            let older = scope.spawn(|| screen.capture(&request));
+            arrivals
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("older entered");
+            let newer = scope.spawn(|| screen.capture(&request));
+            arrivals
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("newer entered");
+            assert_eq!(newer.join().expect("newer")["status"], "ok");
+            failure.store(fail_older, Ordering::SeqCst);
+            proceed.send(()).expect("release older");
+            assert_eq!(
+                older.join().expect("older"),
+                json!({"status":"refused","reason":"superseded"})
+            );
+        });
     }
 }
 
@@ -394,6 +497,7 @@ impl Gated {
             proceed: Mutex::new(gate),
             fail: fail.clone(),
             malformed: malformed.clone(),
+            first_window: AtomicBool::new(true),
         };
         Self {
             screen: Screen::new(Box::new(source), 1),

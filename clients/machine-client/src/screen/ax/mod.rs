@@ -37,6 +37,7 @@ pub struct WindowIdentity {
     pub app: AppIdentity,
     pub token: u64,
     pub origin: (i64, i64),
+    pub minimized: bool,
 }
 
 pub struct Bounds {
@@ -129,6 +130,9 @@ impl From<Fault> for ActFault {
 pub type Admit<'a> = &'a dyn Fn(&Attributes) -> bool;
 
 pub trait Observer: Send + Sync {
+    fn lifecycle(&self, _: &WindowIdentity, _: bool) -> Result<(), ActFault> {
+        Err(ActFault::Unsupported)
+    }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault>;
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault>;
     /// Resolves `path` once, asks `admit` about that element and performs

@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { WindowTarget } from "./target.js";
+export { WindowTarget } from "./target.js";
 import { AppIdentity, COMPUTER_MAX_DIMENSION, ObservationId, ObservedRef, SCREEN_AX_MAX_BYTES, SCREEN_PNG_MAX_BYTES } from "./schema.js";
 
 /**
@@ -24,12 +26,6 @@ const RefusalMessage = z.string().min(1).max(256);
 const Position = z.number().int().min(-COMPUTER_MAX_DIMENSION).max(COMPUTER_MAX_DIMENSION);
 const Extent = z.number().int().nonnegative().max(COMPUTER_MAX_DIMENSION);
 const Base64 = z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/);
-
-/** `pid` owns the window, `windowId` is the peer's window id; `epoch` is required on every action. */
-export const WindowTarget = z
-  .object({ pid: z.number().int().min(1), windowId: z.number().int().nonnegative(), epoch: z.number().int().nonnegative().optional() })
-  .strict();
-export type WindowTarget = z.infer<typeof WindowTarget>;
 
 /** `frame` is in window-local points; an element whose role is empty has `ref: null` and no actions. */
 export const ObservedElement = z

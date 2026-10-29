@@ -54,6 +54,14 @@
             }
           ]
         },
+        "delivery": {
+          "default": "background",
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "kind": {
           "const": "move",
           "type": "string"
@@ -61,6 +69,7 @@
       },
       "required": [
         "kind",
+        "delivery",
         "at"
       ],
       "type": "object"
@@ -131,6 +140,14 @@
           "minimum": 1,
           "type": "integer"
         },
+        "delivery": {
+          "default": "background",
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "kind": {
           "const": "click",
           "type": "string"
@@ -138,6 +155,7 @@
       },
       "required": [
         "kind",
+        "delivery",
         "at",
         "button",
         "count"
@@ -205,6 +223,14 @@
           ],
           "type": "string"
         },
+        "delivery": {
+          "default": "background",
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "kind": {
           "const": "button",
           "type": "string"
@@ -219,6 +245,7 @@
       },
       "required": [
         "kind",
+        "delivery",
         "at",
         "button",
         "state"
@@ -278,6 +305,14 @@
             }
           ]
         },
+        "delivery": {
+          "default": "background",
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "deltaX": {
           "maximum": 10000,
           "minimum": -10000,
@@ -295,6 +330,7 @@
       },
       "required": [
         "kind",
+        "delivery",
         "at",
         "deltaX",
         "deltaY"

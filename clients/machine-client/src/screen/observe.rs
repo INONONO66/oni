@@ -695,6 +695,28 @@ pub fn target(pid: u64, window_id: i64, epoch: Option<i64>) -> Target {
 }
 
 impl Screen {
+    pub fn window_target(&self, target: Target) -> Result<(WindowIdentity, u64), Refusal> {
+        let observer = self.observer.as_deref().ok_or(Refusal::NotAvailable)?;
+        let located = self.observations.locate(observer, target)?;
+        Ok((located.window, located.epoch))
+    }
+
+    pub fn windows_for_pid(&self, pid: u32) -> Result<Vec<Value>, Refusal> {
+        let observer = self.observer.as_deref().ok_or(Refusal::NotAvailable)?;
+        let windows = observer.windows()?;
+        let mut observations = lock(&self.observations.state);
+        observations.epochs.update(&windows);
+        Ok(windows
+            .into_iter()
+            .filter(|window| window.pid == pid)
+            .take(super::MAX_WINDOWS)
+            .map(|window| {
+                json!({"pid": pid, "windowId": window.window_id,
+                "epoch": observations.epochs.epoch((pid, window.window_id))})
+            })
+            .collect())
+    }
+
     pub fn observe(&self, request: &ScreenObserveRequest) -> Value {
         self.observed(request)
             .unwrap_or_else(|refusal| refusal.observed())

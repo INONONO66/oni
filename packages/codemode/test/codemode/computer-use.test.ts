@@ -22,6 +22,10 @@ const script: Record<string, Responder> = {
   [Machine.WireMethod.InputText]: () => ({ status: "ok" }),
   [Machine.WireMethod.ScreenObserve]: () => ({ status: "refused", reason: "window_not_found" }),
   [Machine.WireMethod.InputAction]: () => ({ status: "ok" }),
+  [Machine.WireMethod.AppLaunch]: () => ({ status: "ok", pid: 42, windows: [{ pid: 42, windowId: 7, epoch: 0 }] }),
+  [Machine.WireMethod.AppQuit]: () => ({ status: "ok", exited: true }),
+  [Machine.WireMethod.WindowClose]: () => ({ status: "ok", closed: true }),
+  [Machine.WireMethod.WindowPark]: () => ({ status: "ok", parked: false }),
   [Machine.WireMethod.StreamOpen]: opened("streamId"),
   [Machine.WireMethod.StreamSignal]: accepted,
   [Machine.WireMethod.StreamClose]: (params) => ({ status: "closed", streamId: (params as { streamId: string }).streamId }),
@@ -98,6 +102,20 @@ test("stream and debugging-channel handles open, signal or send, and close throu
       Machine.WireMethod.StreamOpen, Machine.WireMethod.StreamSignal, Machine.WireMethod.StreamClose,
       Machine.WireMethod.CdpOpen, Machine.WireMethod.CdpChunk, Machine.WireMethod.CdpClose,
     ]);
+  });
+});
+
+test("application and window calls retain capture and lease fencing", async () => {
+  await fixture(async ({ mode, received, captured }) => {
+    const computer = mode.native.getMachine("desk").computer;
+    const target = { pid: 42, windowId: 7, epoch: 0 };
+    expect(await run(computer.app.launch({ app: { bundleId: "org.oni.fixture" }, activate: false }))).toEqual({ status: "ok", pid: 42, windows: [target] });
+    expect(await run(computer.window.close({ target }))).toEqual({ status: "ok", closed: true });
+    expect(await run(computer.window.park({ target }))).toEqual({ status: "ok", parked: false });
+    expect(await run(computer.app.quit({ pid: 42 }))).toEqual({ status: "ok", exited: true });
+    const methods = [Machine.WireMethod.AppLaunch, Machine.WireMethod.WindowClose, Machine.WireMethod.WindowPark, Machine.WireMethod.AppQuit];
+    expect(received).toEqual(methods);
+    expect(captured.map((entry) => entry.method)).toEqual(methods);
   });
 });
 

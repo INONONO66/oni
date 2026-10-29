@@ -155,6 +155,14 @@ macro_rules! decode_fixture {
                 ScreenObserveRequest,
                 ScreenObserveResult,
                 WindowTarget,
+                AppLaunchRequest,
+                AppLaunchResult,
+                AppQuitRequest,
+                AppQuitResult,
+                WindowCloseRequest,
+                WindowCloseResult,
+                WindowParkRequest,
+                WindowParkResult,
             ]
         )
     };

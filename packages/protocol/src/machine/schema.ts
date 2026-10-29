@@ -2,6 +2,7 @@ import { z } from "zod";
 import { EpochMs } from "../time.js";
 import { PlainValueSchema } from "../json.js";
 import { sha256Hex } from "../sha256.js";
+import { WindowTarget } from "./target.js";
 
 /**
  * Capability id grammar: two-plus dot-separated lowercase segments —
@@ -122,6 +123,10 @@ export const WireMethod = {
   InputPointer: "machine.input.pointer",
   InputKey: "machine.input.key",
   InputText: "machine.input.text",
+  AppLaunch: "machine.app.launch",
+  AppQuit: "machine.app.quit",
+  WindowClose: "machine.window.close",
+  WindowPark: "machine.window.park",
   StreamOpen: "machine.stream.open",
   /** Either direction: one typed SDP/ICE/data record of an open stream. */
   StreamSignal: "machine.stream.signal",
@@ -865,6 +870,7 @@ export const InputWriteResult = z.discriminatedUnion("status", [
         "action_not_supported",
         "window_not_found",
         "observe_not_available",
+        "foreground_required",
       ]),
       /** Human-readable detail, e.g. which display a refused anchor captured. */
       message: z.string().min(1).max(256).optional(),
@@ -1310,6 +1316,10 @@ const ScreenRefusalReason = z.enum([
   ...ScreenReadResult.options[1].shape.reason.options,
   "display_not_found",
   "window_not_found",
+  "window_minimized",
+  "capture_blank",
+  "own_window",
+  "superseded",
 ]);
 const ScreenRefusal = z
   .object({ status: z.literal("refused"), reason: ScreenRefusalReason, message: RefusalMessage.optional() })
@@ -1445,6 +1455,7 @@ export type ScreenCaptureResult = z.infer<typeof ScreenCaptureResult>;
  */
 const PointerButton = z.enum(["left", "right", "middle"]);
 const PointerAt = {
+  delivery: z.enum(["background", "foreground"]).default("background"),
   at: z.union([
     z.object({ captureId: CaptureId, x: Coordinate, y: Coordinate }).strict(),
     z
@@ -1466,12 +1477,14 @@ export const InputPointerRequest = z.discriminatedUnion("kind", [
     .strict(),
   z.object({ kind: z.literal("scroll"), ...PointerAt, deltaX: ScrollDelta, deltaY: ScrollDelta }).strict(),
 ]);
-export type InputPointerRequest = z.infer<typeof InputPointerRequest>;
+export type InputPointerRequest = z.input<typeof InputPointerRequest>;
 
 /** `key` uses the peer's key vocabulary; an unknown name refuses `unsupported_action`. */
 export const InputKeyRequest = z
   .object({
     captureId: CaptureId,
+    delivery: z.enum(["background", "foreground"]).default("background"),
+    target: WindowTarget.optional(),
     key: z.string().min(1).max(64),
     action: z.enum(["press", "down", "up"]),
     modifiers: z
@@ -1485,12 +1498,17 @@ export const InputKeyRequest = z
       .optional(),
   })
   .strict();
-export type InputKeyRequest = z.infer<typeof InputKeyRequest>;
+export type InputKeyRequest = z.input<typeof InputKeyRequest>;
 
 export const InputTextRequest = z
-  .object({ captureId: CaptureId, text: z.string().min(1).max(INPUT_MAX_TEXT_CHARS) })
+  .object({
+    captureId: CaptureId,
+    text: z.string().min(1).max(INPUT_MAX_TEXT_CHARS),
+    delivery: z.enum(["background", "foreground"]).default("background"),
+    target: WindowTarget.optional(),
+  })
   .strict();
-export type InputTextRequest = z.infer<typeof InputTextRequest>;
+export type InputTextRequest = z.input<typeof InputTextRequest>;
 
 /**
  * Host → peer: start encoding `source` under a bounded frame budget. The

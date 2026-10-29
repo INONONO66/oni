@@ -12,9 +12,16 @@
 //! and re-checks the driver's permission and the anchor on every request.
 
 pub mod action;
+pub mod cg;
+pub mod delivery;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod native;
 pub mod recorder;
+pub mod tag;
 
 use std::sync::{Mutex, PoisonError};
 
@@ -30,6 +37,7 @@ use oni_protocol::{
 use serde_json::{json, Value};
 
 use crate::screen::{Display, Fault, Screen};
+use delivery::Route;
 
 /// Characters one request may type, across all of its text.
 pub const MAX_TEXT_CHARS: usize = 10_000;
@@ -91,6 +99,7 @@ pub enum Event {
     Button {
         button: Button,
         down: bool,
+        click: u32,
     },
     Scroll {
         horizontal: bool,
@@ -108,7 +117,12 @@ pub enum Event {
 pub trait Driver: Send {
     /// False when the platform does not (or no longer) permit injection.
     fn permitted(&self) -> bool;
+    fn prepare(&mut self, _: Route, _: &[Event]) -> Result<(), String> {
+        Ok(())
+    }
     fn inject(&mut self, event: &Event) -> Result<(), String>;
+    fn pid_delivery(&self) -> bool;
+    fn post_to_pid(&mut self, pid: u32, event: &Event) -> Result<(), String>;
 }
 
 const NAMED: [(&str, Named); 20] = [
@@ -303,11 +317,17 @@ impl Plan<'_> {
     }
 
     fn press(&mut self, button: Button, count: u64) {
-        for _ in 0..count {
-            self.events.push(Event::Button { button, down: true });
+        for ordinal in 1..=count {
+            let click = u32::try_from(ordinal).unwrap_or(u32::MAX);
+            self.events.push(Event::Button {
+                button,
+                down: true,
+                click,
+            });
             self.events.push(Event::Button {
                 button,
                 down: false,
+                click,
             });
         }
     }
@@ -397,7 +417,7 @@ fn chord(name: &str) -> Option<(Key, Vec<Named>)> {
 /// held across requests until released by a later request or by [`Input::settle`].
 struct Driven {
     driver: Box<dyn Driver>,
-    held: Vec<Event>,
+    held: Vec<(Route, Event)>,
 }
 
 pub struct Input {
@@ -443,20 +463,31 @@ impl Input {
         if let Some(driver) = &self.driver {
             let mut driven = driver.lock().unwrap_or_else(PoisonError::into_inner);
             let Driven { driver, held } = &mut *driven;
-            for release in held.drain(..).rev() {
-                let _ = driver.inject(&release);
+            for (route, release) in held.drain(..).rev() {
+                if let Err(error) = delivery::post(driver.as_mut(), route, &release) {
+                    eprintln!("input release failed: {error}");
+                }
             }
         }
     }
 
     pub fn pointer(&self, screen: &Screen, request: &InputPointerRequest) -> Value {
+        let foreground = match request {
+            InputPointerRequest::Move { delivery, .. } => delivery.to_string() == "foreground",
+            InputPointerRequest::Click { delivery, .. } => delivery.to_string() == "foreground",
+            InputPointerRequest::Button { delivery, .. } => delivery.to_string() == "foreground",
+            InputPointerRequest::Scroll { delivery, .. } => delivery.to_string() == "foreground",
+        };
+        if !foreground {
+            return refuse("foreground_required").value();
+        }
         let anchor = match request {
-            InputPointerRequest::Move { at } => at.into(),
+            InputPointerRequest::Move { at, .. } => at.into(),
             InputPointerRequest::Click { at, .. } => at.into(),
             InputPointerRequest::Button { at, .. } => at.into(),
             InputPointerRequest::Scroll { at, .. } => at.into(),
         };
-        self.run(screen, &anchor, false, &|plan| {
+        self.run(screen, &anchor, false, Route::Foreground, &|plan| {
             match request {
                 InputPointerRequest::Move { .. } => {}
                 InputPointerRequest::Click {
@@ -470,6 +501,7 @@ impl Input {
                     plan.events.push(Event::Button {
                         button: button(&b.to_string()),
                         down: *state == InputPointerRequestButtonState::Down,
+                        click: 1,
                     });
                 }
                 InputPointerRequest::Scroll {
@@ -481,10 +513,18 @@ impl Input {
     }
 
     pub fn key(&self, screen: &Screen, request: &InputKeyRequest) -> Value {
+        let target = request.target.as_ref().map(|target| {
+            crate::screen::observe::target(target.pid.get(), target.window_id, target.epoch)
+        });
+        let route = match route(screen, request.delivery.to_string() == "foreground", target) {
+            Ok(route) => route,
+            Err(refusal) => return refusal.value(),
+        };
         self.run(
             screen,
             &Anchor::Capture(&request.capture_id),
             false,
+            route,
             &|plan| {
                 let pressed = key(&request.key).ok_or_else(|| unknown(&request.key))?;
                 let held = request.modifiers.as_ref().map_or_else(Vec::new, |held| {
@@ -510,10 +550,18 @@ impl Input {
     }
 
     pub fn text(&self, screen: &Screen, request: &InputTextRequest) -> Value {
+        let target = request.target.as_ref().map(|target| {
+            crate::screen::observe::target(target.pid.get(), target.window_id, target.epoch)
+        });
+        let route = match route(screen, request.delivery.to_string() == "foreground", target) {
+            Ok(route) => route,
+            Err(refusal) => return refusal.value(),
+        };
         self.run(
             screen,
             &Anchor::Capture(&request.capture_id),
             false,
+            route,
             &|plan| plan.text(&request.text),
         )
     }
@@ -525,6 +573,7 @@ impl Input {
             screen,
             &Anchor::Capture(&request.capture_id),
             true,
+            Route::Foreground,
             &|plan| {
                 for action in &request.actions {
                     match action {
@@ -555,6 +604,7 @@ impl Input {
         screen: &Screen,
         anchor: &Anchor<'_>,
         main_only: bool,
+        route: Route,
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
     ) -> Value {
         let Some(driver) = &self.driver else {
@@ -562,16 +612,24 @@ impl Input {
         };
         let mut driven = driver.lock().unwrap_or_else(PoisonError::into_inner);
         let Driven { driver, held } = &mut *driven;
-        self.attempt((driver.as_mut(), held), screen, anchor, main_only, build)
-            .map_or_else(Refusal::value, |()| json!({"status":"ok"}))
+        self.attempt(
+            (driver.as_mut(), held),
+            screen,
+            anchor,
+            main_only,
+            route,
+            build,
+        )
+        .map_or_else(Refusal::value, |()| json!({"status":"ok"}))
     }
 
     fn attempt(
         &self,
-        (driver, held): (&mut dyn Driver, &mut Vec<Event>),
+        (driver, held): (&mut dyn Driver, &mut Vec<(Route, Event)>),
         screen: &Screen,
         anchor: &Anchor<'_>,
         main_only: bool,
+        route: Route,
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
     ) -> Result<(), Refusal> {
         if !driver.permitted() {
@@ -591,24 +649,34 @@ impl Input {
             typed: 0,
         };
         build(&mut plan)?;
-        inject(driver, held, &plan.events)
+        let delivery = delivery::Plan::classify(route, &plan.events, driver.pid_delivery())
+            .map_err(|_| refuse("foreground_required"))?;
+        driver
+            .prepare(delivery.route, delivery.events)
+            .map_err(|message| explain("unsupported_action", message))?;
+        inject(driver, held, delivery.route, delivery.events)
     }
 }
 
 /// Fires `events` in order, tracking what stays down in `kept` across
 /// requests; on the first failure releases, in reverse, every button and
 /// key this request pressed and has not released.
-fn inject(driver: &mut dyn Driver, kept: &mut Vec<Event>, events: &[Event]) -> Result<(), Refusal> {
-    let mut held: Vec<Event> = Vec::new();
+fn inject(
+    driver: &mut dyn Driver,
+    kept: &mut Vec<(Route, Event)>,
+    route: Route,
+    events: &[Event],
+) -> Result<(), Refusal> {
+    let mut held: Vec<(Route, Event)> = Vec::new();
     for event in events {
-        if let Err(error) = driver.inject(event) {
+        if let Err(error) = delivery::post(driver, route, event) {
             let stuck = held
                 .iter()
                 .rev()
-                .filter(|release| {
-                    let failed = driver.inject(release).is_err();
+                .filter(|(_, release)| {
+                    let failed = delivery::post(driver, route, release).is_err();
                     if !failed {
-                        track(kept, release);
+                        track(kept, route, release);
                     }
                     failed
                 })
@@ -619,19 +687,40 @@ fn inject(driver: &mut dyn Driver, kept: &mut Vec<Event>, events: &[Event]) -> R
             };
             return Err(explain("input_failed", message));
         }
-        track(&mut held, event);
-        track(kept, event);
+        track(&mut held, route, event);
+        track(kept, route, event);
     }
     Ok(())
 }
 
+fn route(
+    screen: &Screen,
+    foreground: bool,
+    target: Option<crate::screen::observe::Target>,
+) -> Result<Route, Refusal> {
+    if foreground {
+        return Ok(Route::Foreground);
+    }
+    let target = target.ok_or_else(|| refuse("foreground_required"))?;
+    let (window, _) = screen.window_target(target).map_err(|error| Refusal {
+        reason: error.reason(),
+        message: error.message(),
+    })?;
+    Ok(Route::Background(window.pid))
+}
+
 /// Folds one injected event into a held set of pending releases.
-fn track(held: &mut Vec<Event>, event: &Event) {
+fn track(held: &mut Vec<(Route, Event)>, route: Route, event: &Event) {
     let (release, down) = match event {
-        Event::Button { button, down } => (
+        Event::Button {
+            button,
+            down,
+            click,
+        } => (
             Event::Button {
                 button: *button,
                 down: false,
+                click: *click,
             },
             *down,
         ),
@@ -644,8 +733,8 @@ fn track(held: &mut Vec<Event>, event: &Event) {
         ),
         _ => return,
     };
-    held.retain(|pressed| *pressed != release);
+    held.retain(|(at, pressed)| *at != route || *pressed != release);
     if down {
-        held.push(release);
+        held.push((route, release));
     }
 }

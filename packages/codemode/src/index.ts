@@ -184,6 +184,14 @@ export function createCodemode(options: CodemodeOptions) {
           text: (request: Machine.InputTextRequest) => use((computer) => computer.text(request)),
           action: (request: Machine.InputActionRequest) => use((computer) => computer.action(request)),
         },
+        app: {
+          launch: (request: Machine.AppLaunchRequest) => use((computer) => computer.app.launch(request)),
+          quit: (request: Machine.AppQuitRequest) => use((computer) => computer.app.quit(request)),
+        },
+        window: {
+          close: (request: Machine.WindowCloseRequest) => use((computer) => computer.window.close(request)),
+          park: (request: Machine.WindowParkRequest) => use((computer) => computer.window.park(request)),
+        },
         stream: {
           open: (request: Omit<Machine.StreamOpenRequest, "streamId">, listeners: StreamListeners) =>
             use((computer) => computer.stream.open(request, listeners)).pipe(Effect.map((opened) => "status" in opened ? opened : stream(opened))),

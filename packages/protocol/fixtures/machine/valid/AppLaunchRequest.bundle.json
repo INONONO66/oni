@@ -1,0 +1,6 @@
+{
+  "app": {
+    "bundleId": "org.oni.fixture"
+  },
+  "activate": false
+}

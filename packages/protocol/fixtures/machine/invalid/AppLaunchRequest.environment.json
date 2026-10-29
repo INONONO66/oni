@@ -1,0 +1,9 @@
+{
+  "app": {
+    "bundleId": "org.test"
+  },
+  "activate": false,
+  "env": {
+    "SECRET": "hidden"
+  }
+}

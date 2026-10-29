@@ -110,7 +110,7 @@ the same raw endpoint; the plain-tool locus door belongs to #949.
 - Wire methods `machine.screen_read` and `machine.input_write`; both gate on
   the effective capability set like every other machine operation. The Rust
   client uses `src/screen/native.rs` (xcap on macOS) for capture and
-  `src/input/native.rs` (enigo) for input; `src/computer.rs` supplies optional
+  `src/input/macos.rs` (CoreGraphics) or `src/input/linux.rs` (XTEST) for input; `src/computer.rs` supplies optional
   fixture and recorder backends.
 - At attach, `screen.read` is offered when the screen backend has permission
   and reports at least one display; `input.write` also requires a permitted
@@ -228,6 +228,56 @@ offer `computer.use` is never sent the new methods.
   A live macOS run (Screen Recording and Accessibility granted, a real
   browser viewer) has not been observed; that acceptance belongs to epic
   #1622.
+
+### 2.2.3 Background delivery and window lifecycle (#1690)
+
+Pointer, key and text requests default to `delivery: "background"`. A
+pointer request always needs explicit `delivery: "foreground"`. Background
+key/text requests require a `target: { pid, windowId, epoch? }`; the client
+resolves that window and checks any supplied epoch before dispatch. The
+complete event plan is classified before its first event. A plan requiring
+the shared pointer, a missing target, or a backend without PID delivery
+refuses `foreground_required`. Ref actions (`machine.input.action`) are
+background by construction and have no delivery switch.
+
+macOS uses tagged CoreGraphics events: foreground delivery posts to HID,
+background delivery posts only to the target PID. Held-key releases retain
+the delivery route, including failure cleanup and detach. The headless
+recorder includes `delivery`, `pid` (null for foreground) and `tag` on every
+injected input event. Linux retains XTEST foreground input and refuses PID
+delivery.
+
+`machine.app.launch` takes `{ app: { bundleId } | { path, args? },
+activate: false, env?, freshInstance?, timeoutMs? }`. Its environment accepts
+only `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `XDG_SESSION_TYPE`,
+`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`, `HOME`, `PATH`, and `LANG`.
+The macOS launcher uses asynchronous NSWorkspace launch without activation,
+hiding, or permission prompts; a new application instance is requested only
+when `freshInstance` is true. The calling worker receives the completion
+through a channel, with a 10-second default deadline clamped to 1-30000 ms.
+The same deadline bounds PID-based window discovery. Success returns
+`{ status: "ok", pid, windows: [{ pid, windowId, epoch }] }`; no windows by
+the deadline is still success. Timeout and launch errors return
+`unsupported` with `blocker: "launch_timeout" | "launch_failed"` and errors
+carry the localized description. Linux launch refuses `unsupported` with
+`blocker: "platform"`.
+
+`machine.app.quit { pid }` terminates the process and returns `exited`.
+`machine.window.close/park { target: { pid, windowId, epoch } }` are
+epoch-fenced. Close presses the window's AX close button and returns
+`closed`; park sets the application hidden attribute and returns `parked`.
+All four methods enter `screenGate` and the captured `tool.pre` port.
+Code mode exposes `computer.app.launch/quit` and `computer.window.close/park`.
+The peer's own process and `computer.excludedOwners` (bundle IDs or paths)
+are excluded from lifecycle actions and window capture.
+
+Window capture retains the backing-store capture path. It refuses
+`window_minimized`, `own_window`, and `capture_blank` (at least 99 percent
+of sampled pixels share one color). A newer capture of the same window
+supersedes an in-flight capture; the older request returns `superseded`.
+The macOS `native_occlusion` test is ignored until the live grants are
+available; its receipt belongs to #1702. ScreenCaptureKit and Windows
+adapters belong to #1700; turn-end cleanup and keep records belong to #1697.
 
 ### 2.2.2 Window-bound observation and ref-targeted actions (#1689)
 

@@ -4,6 +4,7 @@
 //! [`fixture`] adapter drives the same path as the native backend.
 
 pub mod ax;
+pub mod blank;
 mod encode;
 pub mod fixture;
 #[cfg(target_os = "macos")]
@@ -86,6 +87,10 @@ pub enum Fault {
     InvalidRegion,
     DisplayNotFound,
     WindowNotFound,
+    WindowMinimized,
+    CaptureBlank,
+    OwnWindow,
+    Superseded,
     Failed(String),
 }
 
@@ -97,6 +102,10 @@ impl Fault {
             Self::InvalidRegion => "invalid_region",
             Self::DisplayNotFound => "display_not_found",
             Self::WindowNotFound => "window_not_found",
+            Self::WindowMinimized => "window_minimized",
+            Self::CaptureBlank => "capture_blank",
+            Self::OwnWindow => "own_window",
+            Self::Superseded => "superseded",
             Self::Failed(_) => "capture_failed",
         }
     }
@@ -162,6 +171,8 @@ struct Anchor {
 }
 
 pub struct Screen {
+    pub(crate) launcher: Box<dyn crate::app::Launcher>,
+    pub(crate) excluded_owners: Vec<String>,
     source: Option<Box<dyn Source>>,
     pool: Pool,
     next: AtomicU64,
@@ -173,6 +184,8 @@ pub struct Screen {
 impl Screen {
     pub fn absent() -> Self {
         Self {
+            launcher: crate::app::platform(),
+            excluded_owners: Vec::new(),
             source: None,
             pool: Pool::new(0),
             next: AtomicU64::new(0),
@@ -185,6 +198,8 @@ impl Screen {
     /// A source is offered even when capture permission is not yet granted.
     pub fn new(source: Box<dyn Source>, captures: usize) -> Self {
         Self {
+            launcher: crate::app::platform(),
+            excluded_owners: Vec::new(),
             source: Some(source),
             pool: Pool::new(captures),
             next: AtomicU64::new(0),
@@ -198,6 +213,25 @@ impl Screen {
     pub fn observing(mut self, observer: Box<dyn ax::Observer>) -> Self {
         self.observer = Some(observer);
         self
+    }
+
+    pub fn launching(mut self, launcher: Box<dyn crate::app::Launcher>) -> Self {
+        self.launcher = launcher;
+        self
+    }
+
+    pub fn excluding(mut self, owners: Vec<String>) -> Self {
+        self.excluded_owners = owners;
+        self
+    }
+
+    pub(crate) fn lifecycle(
+        &self,
+        window: &ax::WindowIdentity,
+        park: bool,
+    ) -> Result<(), ax::ActFault> {
+        let observer = self.observer.as_deref().ok_or(ax::ActFault::Unsupported)?;
+        observer.lifecycle(window, park)
     }
 
     #[cfg(target_os = "macos")]
@@ -386,35 +420,84 @@ impl Screen {
         encoding: &Encoding,
         render: impl FnOnce(Shot<'_>) -> Value,
     ) -> Result<Value, Fault> {
-        let source = self.source()?;
-        let all = source.displays()?;
-        let displays = shown(&all)?;
-        let mut lease = self
-            .pool
-            .acquire()
-            .ok_or_else(|| Fault::Failed("frame pool saturated".to_owned()))?;
-        let slot = &mut lease.slot;
-        let (display, anchor, size) = raw(source, displays, target, &mut slot.pixels)?;
-        let fitted = encode::fit(
-            &slot.pixels,
-            size,
-            encoding,
-            &mut slot.scratch,
-            &mut slot.encoded,
-        )?;
-        let seq = self.next.fetch_add(1, Ordering::Relaxed) + 1;
-        let id = format!("cap-{seq}");
-        self.anchor(seq, &id, anchor);
-        let value = render(Shot {
-            id,
-            display,
-            width: fitted.width,
-            height: fitted.height,
-            downscaled: fitted.downscaled,
-            data: &slot.encoded,
-        });
-        lease.keep();
-        Ok(value)
+        let ticket = match target {
+            Target::Window(id) => {
+                let id = id.parse().map_err(|_| Fault::WindowNotFound)?;
+                self.capture_guard(id)?;
+                Some(self.pool.begin(id))
+            }
+            Target::Display(..) => None,
+        };
+        let attempt = || {
+            let source = self.source()?;
+            let all = source.displays()?;
+            let displays = shown(&all)?;
+            let mut lease = self
+                .pool
+                .acquire()
+                .ok_or_else(|| Fault::Failed("frame pool saturated".to_owned()))?;
+            let slot = &mut lease.slot;
+            let (display, anchor, size) = raw(source, displays, target, &mut slot.pixels)?;
+            if ticket.is_some() && blank::blank(&slot.pixels) {
+                return Err(Fault::CaptureBlank);
+            }
+            let fitted = encode::fit(
+                &slot.pixels,
+                size,
+                encoding,
+                &mut slot.scratch,
+                &mut slot.encoded,
+            )?;
+            let seq = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+            let id = format!("cap-{seq}");
+            let value = render(Shot {
+                id: id.clone(),
+                display,
+                width: fitted.width,
+                height: fitted.height,
+                downscaled: fitted.downscaled,
+                data: &slot.encoded,
+            });
+            let publish = || {
+                self.anchor(seq, &id, anchor);
+                value
+            };
+            let result = match &ticket {
+                Some(ticket) => ticket.publish(publish).ok_or(Fault::Superseded),
+                None => Ok(publish()),
+            };
+            if result.is_ok() {
+                lease.keep();
+            }
+            result
+        };
+        let result = attempt();
+        if result.is_err() && ticket.as_ref().is_some_and(|ticket| !ticket.current()) {
+            return Err(Fault::Superseded);
+        }
+        result
+    }
+
+    fn capture_guard(&self, id: u32) -> Result<(), Fault> {
+        let Some(observer) = &self.observer else {
+            return Ok(());
+        };
+        let windows = match observer.windows() {
+            Ok(windows) => windows,
+            Err(Fault::Permission) => return Ok(()),
+            Err(fault) => return Err(fault),
+        };
+        let window = windows
+            .into_iter()
+            .find(|window| window.window_id == id)
+            .ok_or(Fault::WindowNotFound)?;
+        if crate::app::excluded(window.owner_pid, &window.app, &self.excluded_owners) {
+            return Err(Fault::OwnWindow);
+        }
+        if window.minimized {
+            return Err(Fault::WindowMinimized);
+        }
+        Ok(())
     }
 }
 

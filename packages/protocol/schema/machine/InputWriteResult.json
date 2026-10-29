@@ -38,7 +38,8 @@
             "ref_not_found",
             "action_not_supported",
             "window_not_found",
-            "observe_not_available"
+            "observe_not_available",
+            "foreground_required"
           ],
           "type": "string"
         },

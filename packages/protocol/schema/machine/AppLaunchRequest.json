@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "activate": {
+      "const": false,
+      "type": "boolean"
+    },
+    "app": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "bundleId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "bundleId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "args": {
+              "items": {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              "maxItems": 256,
+              "type": "array"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "env": {
+      "additionalProperties": {
+        "maxLength": 4096,
+        "type": "string"
+      },
+      "propertyNames": {
+        "enum": [
+          "DISPLAY",
+          "XAUTHORITY",
+          "WAYLAND_DISPLAY",
+          "XDG_SESSION_TYPE",
+          "DBUS_SESSION_BUS_ADDRESS",
+          "XDG_RUNTIME_DIR",
+          "HOME",
+          "PATH",
+          "LANG"
+        ],
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "freshInstance": {
+      "type": "boolean"
+    },
+    "timeoutMs": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "app",
+    "activate"
+  ],
+  "type": "object"
+}

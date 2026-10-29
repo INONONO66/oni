@@ -666,15 +666,15 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
         [
             (
                 "machine.input.pointer",
-                json!({"kind":"click","at":{"captureId":capture,"x":31,"y":15},"button":"left","count":1}),
+                json!({"delivery":"foreground","kind":"click","at":{"captureId":capture,"x":31,"y":15},"button":"left","count":1}),
             ),
             (
                 "machine.input.key",
-                json!({"captureId":capture,"key":"Enter","action":"press"}),
+                json!({"delivery":"foreground","captureId":capture,"key":"Enter","action":"press"}),
             ),
             (
                 "machine.input.text",
-                json!({"captureId":capture,"text":"hi"}),
+                json!({"delivery":"foreground","captureId":capture,"text":"hi"}),
             ),
             (
                 "machine.input_write",
@@ -704,7 +704,7 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
     }
     let injected = recorder.events().len();
     assert_eq!(injected, 7);
-    let out = json!({"kind":"move","at":{"captureId":anchor,"x":32,"y":0}});
+    let out = json!({"delivery":"foreground","kind":"move","at":{"captureId":anchor,"x":32,"y":0}});
     let answer = call("machine.input.pointer", out).await.expect("pointer");
     assert_eq!(answer, refusal("invalid_region"));
 
@@ -740,7 +740,7 @@ async fn input_write_is_not_offered_without_an_input_driver() {
         exports: vec![],
     });
     let hooks = service.hooks(Duration::from_secs(60));
-    let text = json!({"captureId":"cap-1","text":"x"});
+    let text = json!({"delivery":"foreground","captureId":"cap-1","text":"x"});
     let answer = (hooks.service)("machine.input.text".to_owned(), Some(text)).await;
     assert_eq!(answer, Ok(refusal("input_not_available")));
     let write = json!({"captureId":"cap-1","actions":[{"type":{"text":"x"}}]});
@@ -756,6 +756,12 @@ async fn a_panicking_input_driver_fails_the_call_without_taking_the_client_down(
     };
     struct Panics;
     impl Driver for Panics {
+        fn pid_delivery(&self) -> bool {
+            true
+        }
+        fn post_to_pid(&mut self, _: u32, event: &Event) -> Result<(), String> {
+            self.inject(event)
+        }
         fn permitted(&self) -> bool {
             true
         }
@@ -784,7 +790,7 @@ async fn a_panicking_input_driver_fails_the_call_without_taking_the_client_down(
         .await
         .expect("capture");
     let anchor = shot["captureId"].as_str().expect("capture id").to_owned();
-    let text = json!({"captureId":anchor,"text":"x"});
+    let text = json!({"delivery":"foreground","captureId":anchor,"text":"x"});
     let failed = (hooks.service)("machine.input.text".to_owned(), Some(text.clone())).await;
     assert!(failed.expect_err("worker panic").contains("panic"));
     let again = (hooks.service)("machine.input.text".to_owned(), Some(text)).await;
@@ -827,7 +833,8 @@ async fn held_input_is_released_on_detach_and_on_a_withdrawn_grant() {
             .await
             .expect("capture");
         let anchor = shot["captureId"].as_str().expect("capture id").to_owned();
-        let down = json!({"captureId":anchor,"key":"Shift","action":"down"});
+        let down =
+            json!({"delivery":"foreground","captureId":anchor,"key":"Shift","action":"down"});
         let answer = call("machine.input.key", down).await.expect("key");
         assert_eq!(answer, json!({"status":"ok"}));
     };

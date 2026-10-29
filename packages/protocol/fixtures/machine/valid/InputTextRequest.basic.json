@@ -1,4 +1,5 @@
 {
   "captureId": "cap-1",
-  "text": "hello world"
+  "text": "hello world",
+  "delivery": "foreground"
 }

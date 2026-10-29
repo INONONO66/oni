@@ -5,5 +5,6 @@
     "ref": "AXScrollArea[0]"
   },
   "deltaX": 0,
-  "deltaY": 3
+  "deltaY": 3,
+  "delivery": "foreground"
 }

@@ -57,6 +57,8 @@ struct Row {
     epoch: u64,
     #[serde(default)]
     elements: Vec<Element>,
+    #[serde(default)]
+    minimized: bool,
 }
 
 pub struct Scripted {
@@ -120,6 +122,17 @@ fn supports(element: &Element, action: &Action) -> bool {
 }
 
 impl Observer for Scripted {
+    fn lifecycle(&self, window: &WindowIdentity, park: bool) -> Result<(), ActFault> {
+        self.row(window).map_err(|_| ActFault::NotFound)?;
+        append(
+            &self.recorder,
+            &json!({
+                "kind": if park { "window_park" } else { "window_close" },
+                "pid": window.pid, "windowId": window.window_id
+            }),
+        )
+        .map_err(|error| ActFault::Failed(error.to_string()))
+    }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         Ok(self
             .rows()?
@@ -134,6 +147,7 @@ impl Observer for Scripted {
                     app: row.app.unwrap_or_else(|| fixture_app(pid)),
                     token: row.epoch,
                     origin: (row.x, row.y),
+                    minimized: row.minimized,
                 })
             })
             .collect())
@@ -191,6 +205,7 @@ mod tests {
             app: fixture_app(7),
             token: 0,
             origin: (0, 0),
+            minimized: false,
         }
     }
 

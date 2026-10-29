@@ -13,7 +13,7 @@ export function answersObservation(offer: Machine.Offer): boolean {
  * element form `undefined` because that peer cannot observe.
  */
 export function legacyPointer(request: Machine.InputPointerRequest): Ipc.Request["params"] | undefined {
-  const { at, ...gesture } = request;
+  const { at, delivery: _delivery, ...gesture } = request;
   return "captureId" in at ? { ...gesture, ...at } : undefined;
 }
 
