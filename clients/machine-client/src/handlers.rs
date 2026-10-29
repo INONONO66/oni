@@ -1264,12 +1264,82 @@ impl Service {
 mod private_tests {
     use super::*;
     use crate::{
-        screen::{ax::fixture::Scripted, fixture::Fixture},
+        screen::{
+            ax::{self, fixture::Scripted},
+            fixture::Fixture,
+            Fault,
+        },
         transport::{
             client::Client,
             framing::{self, Framed},
         },
     };
+
+    struct PanicWindows;
+
+    impl ax::Observer for PanicWindows {
+        fn windows(&self) -> Result<Vec<ax::WindowIdentity>, Fault> {
+            panic!("observer crashed while listing windows")
+        }
+
+        fn walk(&self, _: &ax::WindowIdentity, _: &ax::Bounds) -> Result<ax::Walk, Fault> {
+            Err(Fault::Absent)
+        }
+
+        fn focused(
+            &self,
+            _: &ax::WindowIdentity,
+        ) -> Result<Option<crate::screen::private::Focused>, Fault> {
+            Err(Fault::Absent)
+        }
+
+        fn act(
+            &self,
+            _: &ax::WindowIdentity,
+            _: &[ax::Segment],
+            _: ax::Admit<'_>,
+            _: &ax::Action,
+        ) -> Result<(), ax::ActFault> {
+            Err(ax::ActFault::Unsupported)
+        }
+    }
+
+    async fn service_with_observer(observer: Box<dyn ax::Observer>) -> Arc<Service> {
+        let config = ClientConfig {
+            machine_id: "laptop".into(),
+            name: "Laptop".into(),
+            host: "127.0.0.1:7643".into(),
+            tags: vec![],
+            exports: vec![],
+            memory_budget_mb: 96,
+            unix: None,
+            tmux_socket: None,
+        };
+        let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
+        let screen = Screen::new(Box::new(Fixture::display(32, 16, 1.0)), 1).observing(observer);
+        let service = Service::open_with(&config, pty, screen).expect("service");
+        let (client, _host) = tokio::io::duplex(4096);
+        let client = Client::from_stream(client, handler(|_, _| async { Ok(Value::Null) }));
+        service.connected(client.caller());
+        service
+    }
+
+    #[tokio::test]
+    async fn private_edge_observer_failure_does_not_publish() {
+        let directory = tempfile::tempdir().expect("directory");
+        let service = service_with_observer(Box::new(Scripted {
+            layout: directory.path().join("missing.json"),
+            recorder: directory.path().join("recorder.jsonl"),
+        }))
+        .await;
+        service.publish_private_edges().await;
+    }
+
+    #[tokio::test]
+    async fn private_edge_worker_panic_does_not_publish() {
+        let service = service_with_observer(Box::new(PanicWindows)).await;
+        service.publish_private_edges().await;
+    }
 
     #[tokio::test]
     async fn publishes_private_window_entry_and_exit_with_exact_target() {

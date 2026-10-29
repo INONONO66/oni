@@ -147,6 +147,15 @@ struct Source {
 }
 
 impl Observer for Source {
+    fn focused(
+        &self,
+        _: &WindowIdentity,
+    ) -> Result<Option<crate::screen::private::Focused>, Fault> {
+        Ok(Some(crate::screen::private::Focused {
+            role: "AXButton".into(),
+            secure: false,
+        }))
+    }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         self.fault
             .clone()

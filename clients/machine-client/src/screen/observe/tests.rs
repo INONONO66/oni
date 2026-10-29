@@ -258,6 +258,101 @@ fn capture_guard_defers_to_capture_permission_when_observation_is_denied() {
 }
 
 #[test]
+fn window_capture_without_an_observer_uses_the_capture_source() {
+    let source = crate::screen::fixture::Fixture {
+        windows: vec![crate::screen::Window {
+            id: 9,
+            display: 1,
+            title: "Editor".into(),
+            owner: "fixture".into(),
+            pid: Some(7),
+            app: None,
+            x: 0,
+            y: 0,
+            width: 16,
+            height: 16,
+        }],
+        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    let encoding = crate::screen::encode::Encoding {
+        format: crate::screen::encode::Format::Png,
+        quality: 0,
+        max_bytes: crate::screen::MAX_BYTES,
+        max_dimension: crate::screen::MAX_DIMENSION,
+    };
+    assert_eq!(
+        screen.shoot(
+            &crate::screen::Target::Window("9".into()),
+            &encoding,
+            |_| json!("captured")
+        ),
+        Ok(json!("captured"))
+    );
+}
+
+#[test]
+fn window_capture_guard_propagates_observer_failure() {
+    let fake = Fake::new(tree());
+    *fake.windows.lock().expect("lock") = Err(Fault::Failed("observer unavailable".into()));
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
+        1,
+    )
+    .observing(Box::new(fake));
+    let encoding = crate::screen::encode::Encoding {
+        format: crate::screen::encode::Format::Png,
+        quality: 0,
+        max_bytes: crate::screen::MAX_BYTES,
+        max_dimension: crate::screen::MAX_DIMENSION,
+    };
+    assert_eq!(
+        screen.shoot(
+            &crate::screen::Target::Window("9".into()),
+            &encoding,
+            |_| json!("captured")
+        ),
+        Err(Fault::Failed("observer unavailable".into()))
+    );
+}
+
+#[test]
+fn display_capture_and_stream_propagate_mask_observer_failure() {
+    let fake = Fake::new(tree());
+    *fake.windows.lock().expect("lock") = Err(Fault::Failed("observer unavailable".into()));
+    let source = crate::screen::fixture::Fixture {
+        windows: vec![crate::screen::Window {
+            id: 9,
+            display: 1,
+            title: "Editor".into(),
+            owner: "fixture".into(),
+            pid: Some(7),
+            app: None,
+            x: 0,
+            y: 0,
+            width: 16,
+            height: 16,
+        }],
+        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+        "target":{"kind":"display","display":1},"encoding":{"format":"png"}
+    }))
+    .expect("capture");
+    let result = screen.capture(&request);
+    assert_eq!(result["reason"], "capture_failed");
+    assert_eq!(result["message"], "observer unavailable");
+
+    let source = serde_json::from_value(json!({"kind":"display","display":1})).expect("source");
+    let mut frame = Vec::new();
+    assert_eq!(
+        screen.frame_private(&source, 32, &mut frame),
+        Err(Fault::Failed("observer unavailable".into()))
+    );
+}
+
+#[test]
 fn ordinary_stream_frame_is_returned_unmasked() {
     let fake = Fake::new(tree());
     let screen = Screen::new(
@@ -448,6 +543,29 @@ fn ordinary_observation_includes_a_window_screenshot() {
     assert!(result["screenshot"]["data"]
         .as_str()
         .is_some_and(|data| !data.is_empty()));
+}
+
+#[test]
+fn observation_screenshot_capture_failure_does_not_mint_an_observation() {
+    let fake = Fake::new(tree());
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
+        1,
+    )
+    .observing(Box::new(fake));
+    let request: ScreenObserveRequest = oni_protocol::decode(json!({
+        "target":{"pid":7,"windowId":9},"screenshot":true
+    }))
+    .expect("request");
+    let refused = screen.observe(&request);
+    assert_eq!(refused["status"], "refused");
+    assert_eq!(refused["reason"], "window_not_found");
+
+    let request: ScreenObserveRequest = oni_protocol::decode(json!({
+        "target":{"pid":7,"windowId":9},"screenshot":false
+    }))
+    .expect("request");
+    assert_eq!(screen.observe(&request)["observationId"], "o1");
 }
 
 fn window(token: u64) -> WindowIdentity {

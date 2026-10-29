@@ -642,7 +642,7 @@ mod private_tests {
     use crate::screen::{ax::fixture::Scripted, fixture::Fixture, Window};
 
     #[tokio::test]
-    async fn refreshed_focus_publishes_private_entry_and_exit() {
+    async fn refreshed_focus_publishes_private_entry_and_exit_despite_uplink_failure() {
         let directory = tempfile::tempdir().expect("directory");
         let layout = directory.path().join("layout.json");
         let row = |secure| {
@@ -719,5 +719,17 @@ mod private_tests {
         let (result, ()) = tokio::join!(refresh, receive);
         result.expect("refresh exit");
         assert!(!pump.private);
+
+        std::fs::write(&layout, row(true).to_string()).expect("private focus");
+        let refresh = pump.refresh_focus(start + Duration::from_millis(750));
+        let refuse = async {
+            let call = calls.recv().await.expect("entry after exit");
+            assert_eq!(call.method, "machine.event.private");
+            assert_eq!(call.params["state"], "entered");
+            drop(call);
+        };
+        let (result, ()) = tokio::join!(refresh, refuse);
+        result.expect("refresh completes after uplink failure");
+        assert!(pump.private);
     }
 }
