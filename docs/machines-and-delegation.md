@@ -472,11 +472,11 @@ allowedExports}` on stdout for the Owner's `provision machine_add`, and
 clears any saved generation. `machineId` is the slug of `--name` (default:
 the hostname). `allowedCapabilities` always lists all four supported
 capabilities so a later attach can offer whatever is available then.
-`mclient run [--config path]` loads that file and attaches forever; the
-process ends only on a terminal condition. Failures print one JSON line
-`{"reason": ...}` on stderr and exit 3 for a terminal refusal
-(`stale_generation`, `unsupported_contract`, `peer_key_mismatch`, or a host
-pin mismatch on connect), 4 for the memory budget, 2 for anything else.
+`mclient run [--config path]` keeps the service available through attach
+failures; `--once` makes one attempt and exits nonzero on refusal. A
+memory-budget exit remains code 4. `mclient retry` signals the service PID
+from `state.json` with SIGUSR1, or answers `service_unavailable` when absent
+or dead; it never starts another service.
 
 **Release pin and update.** The host serves `GET /machine-client/release`
 from its bundled `dist/clients/release.json` and answers `machine.release`
@@ -508,12 +508,20 @@ and the attempt is recorded as a refusal.
 is saved to `state.json` and presented on every later offer; a first offer
 omits the `generation` key entirely, because the Offer schema allows absence,
 never `null`. An unreachable host, a timed-out attach call, or a
-non-terminal refusal (for example `machine_not_enrolled`) is a loss, not a
-failure: the client sleeps a full-jitter backoff (250 ms doubling per
-attempt, capped at 30 s) and redials. A connection that closes after a
-successful attach resets the backoff. A terminal refusal exits 3 and nothing
-is rescheduled, which is how the host's `stale_generation` fence ends a
-displaced client.
+remote refusal is classified as `authentication`, `configuration`,
+`host_unreachable`, `remote_unavailable`, `timeout`, or neutral `superseded`.
+Network and remote failures retry with an exponentially growing 2–300 s
+ceiling and a delay in its upper half; 30 s attached resets the schedule.
+Authentication and configuration park for 5 min before re-probing. A wake
+or explicit retry cancels the pending delay; wake gives a 30 s window of
+flat 2 s retries, suspend cancels it, and a changed interface list triggers
+an immediate attempt. Host ping is sent every 5 s only when the offer
+advertises `capabilities: ["ping"]`; a silent opted peer is detached after
+15 s (`ping_timeout`). Existing clients without that offer keep report
+cadence, because their unknown-method error is not a typed refusal.
+The client reconnects after 15 s without a host frame. Each heartbeat
+includes optional `transport: { lastFailure, attempts }`, projected into
+`machine_list`, while failures are appended to `metrics.jsonl`.
 
 **Offered capabilities.** `fs.read` and `fs.write` are offered only when the
 config has at least one export, `pty.session` only when `tmux` answers its

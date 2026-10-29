@@ -150,6 +150,39 @@
                   },
                   "stale": {
                     "type": "boolean"
+                  },
+                  "transport": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attempts": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "lastFailure": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "authentication",
+                              "configuration",
+                              "host_unreachable",
+                              "remote_unavailable",
+                              "timeout",
+                              "superseded"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "lastFailure",
+                      "attempts"
+                    ],
+                    "type": "object"
                   }
                 },
                 "required": [

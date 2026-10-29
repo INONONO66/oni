@@ -94,6 +94,7 @@ describe("Ipc.Methods param schemas", () => {
       [
         Machine.WireMethod.Attach,
         Machine.WireMethod.Report,
+        Machine.WireMethod.Ping,
         Machine.WireMethod.RunCode,
         Machine.WireMethod.CancelCode,
         Machine.WireMethod.PeekCode,
@@ -149,6 +150,14 @@ describe("Ipc.Methods param schemas", () => {
   test("machine.attach params/result are the Machine offer contracts", () => {
     expect(Ipc.Methods[Machine.WireMethod.Attach].params).toBe(Machine.Offer);
     expect(Ipc.Methods[Machine.WireMethod.Attach].result).toBe(Machine.AttachResult);
+  });
+
+  test("ping rejects nonempty params and non-alive results", () => {
+    const ping = Ipc.Methods[Machine.WireMethod.Ping];
+    expect(ping.params.safeParse({}).success).toBe(true);
+    expect(ping.params.safeParse({ unexpected: true }).success).toBe(false);
+    expect(ping.result.safeParse({ status: "alive" }).success).toBe(true);
+    expect(ping.result.safeParse({ status: "missing" }).success).toBe(false);
   });
 
   test("machine.run_code params reject a cell request without a timeout", () => {

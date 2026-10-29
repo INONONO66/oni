@@ -3,7 +3,7 @@ import { EpochMs } from "../time.js";
 import { PlainValueSchema } from "../json.js";
 import { sha256Hex } from "../sha256.js";
 import { WindowTarget } from "./target.js";
-import { HumanInput, HumanInputUnavailable, Session } from "./facts.js";
+import { HumanInput, HumanInputUnavailable, Session, TransportFacts } from "./facts.js";
 
 /**
  * Capability id grammar: two-plus dot-separated lowercase segments —
@@ -95,6 +95,7 @@ export const WireMethod = {
   /** Daemon → host heartbeat (#1555); answered with `ReportResult`. */
   Report: "machine.report",
   EventHumanInput: "machine.event.human_input",
+  Ping: "machine.ping",
   RunCode: "machine.run_code",
   CancelCode: "machine.cancel_code",
   PeekCode: "machine.peek_code",
@@ -251,6 +252,7 @@ export const Offer = z
   .object({
     machineId: MachineId,
     offeredCapabilities: z.array(CapabilityId).superRefine(uniqueCapabilities),
+    capabilities: z.array(z.string().min(1)).superRefine(uniqueCapabilities).optional(),
     resources: Resources.optional(),
     /**
      * Real absolute roots used to translate consumer paths into confined wire
@@ -341,6 +343,7 @@ export const Report = z
     humanInput: HumanInput.optional(),
     humanInputUnavailable: HumanInputUnavailable.optional(),
     session: Session.optional(),
+    transport: TransportFacts.optional(),
     /**
      * Open live streams at report time (#1662). Absent when none is open; a
      * peer only has streams after the host opened them, so a host that never

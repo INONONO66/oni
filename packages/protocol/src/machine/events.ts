@@ -26,7 +26,7 @@ export const Events = {
     { visibility: "llm_reason" },
   ),
   Detached: BusEvent.define("machine.detached", EventBase.extend({
-    reason: z.enum(["connection_closed", "host_closed", "enrollment_removed", "enrollment_replaced", "superseded_by_reattach", "superseded"]),
+    reason: z.enum(["connection_closed", "host_closed", "enrollment_removed", "enrollment_replaced", "superseded_by_reattach", "superseded", "ping_timeout"]),
   }), {
     visibility: "llm_reason",
   }),

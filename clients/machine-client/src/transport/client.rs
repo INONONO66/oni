@@ -9,7 +9,7 @@ use std::{
 use serde_json::Value;
 use tokio::{
     io::{split, AsyncRead, AsyncWrite},
-    sync::mpsc,
+    sync::{mpsc, watch},
     task::{JoinHandle, JoinSet},
     time::timeout,
 };
@@ -22,6 +22,7 @@ use super::{
 
 const EXECUTING: usize = 16;
 const WAITING: usize = 64;
+const CONTROLS: usize = 8;
 const WRITER_CAPACITY: usize = 256;
 enum Outbound {
     Frame(Value),
@@ -99,6 +100,7 @@ pub struct Client {
     requests: Arc<Mutex<RequestTable>>,
     reader: JoinHandle<Result<(), TransportError>>,
     writer: JoinHandle<Result<(), framing::FrameError>>,
+    last_frame: watch::Receiver<tokio::time::Instant>,
 }
 
 impl Client {
@@ -118,17 +120,20 @@ impl Client {
             Ok(())
         });
         let requests = Arc::new(Mutex::new(RequestTable::default()));
+        let (frames_seen, last_frame) = watch::channel(tokio::time::Instant::now());
         let reader = tokio::spawn(read_loop(
             Framed::new(reader),
             outbound.clone(),
             requests.clone(),
             handler,
+            frames_seen,
         ));
         Self {
             outbound,
             requests,
             reader,
             writer,
+            last_frame,
         }
     }
 
@@ -177,6 +182,14 @@ impl Client {
         self.outbound.capacity()
     }
 
+    pub fn last_frame(&self) -> tokio::time::Instant {
+        *self.last_frame.borrow()
+    }
+
+    pub fn frames(&self) -> watch::Receiver<tokio::time::Instant> {
+        self.last_frame.clone()
+    }
+
     pub async fn closed(&mut self) -> Result<(), TransportError> {
         let result = (&mut self.reader)
             .await
@@ -203,8 +216,9 @@ async fn read_loop(
     outbound: mpsc::Sender<Outbound>,
     requests: Arc<Mutex<RequestTable>>,
     handler: Handler,
+    frames_seen: watch::Sender<tokio::time::Instant>,
 ) -> Result<(), TransportError> {
-    let result = read_frames(&mut reader, &outbound, &requests, &handler).await;
+    let result = read_frames(&mut reader, &outbound, &requests, &handler, &frames_seen).await;
     let _closed = outbound.send(Outbound::Close).await;
     if let Ok(mut table) = requests.lock() {
         *table = RequestTable::default();
@@ -217,16 +231,19 @@ async fn read_frames(
     outbound: &mpsc::Sender<Outbound>,
     requests: &Arc<Mutex<RequestTable>>,
     handler: &Handler,
+    frames_seen: &watch::Sender<tokio::time::Instant>,
 ) -> Result<(), TransportError> {
     let mut tasks = JoinSet::new();
     // Cells await host callbacks and may outlive many ordinary requests.
     // They cannot consume the slots those callbacks and cancellation need.
     let mut cells = JoinSet::new();
+    let mut controls = JoinSet::new();
     let mut active = 0;
     let mut waiting = VecDeque::new();
     loop {
         tokio::select! {
             _finished = cells.join_next(), if !cells.is_empty() => {}
+            _finished = controls.join_next(), if !controls.is_empty() => {}
             _finished = tasks.join_next(), if active > 0 => {
                 active -= 1;
                 if let Some((id, method, params)) = waiting.pop_front() {
@@ -236,10 +253,22 @@ async fn read_frames(
             }
             frame = reader.next() => {
                 let Some(frame) = frame? else { return Err(TransportError::Closed) };
+                frames_seen.send_replace(tokio::time::Instant::now());
                 match envelope::classify(frame)? {
                     Message::Response { id, raw } => {
                         if let Ok(mut table) = requests.lock() {
                             table.resolve(&id, raw);
+                        }
+                    }
+                    Message::Request { id, method, params } if method == "machine.ping" => {
+                        if !params.as_ref().is_some_and(|value| value.as_object().is_some_and(serde_json::Map::is_empty)) {
+                            outbound.send(Outbound::Frame(envelope::error(&id, 1000, "invalid machine.ping params")))
+                                .await.map_err(|_| TransportError::Closed)?;
+                        } else if controls.len() < CONTROLS {
+                            spawn_request(&mut controls, id, method, params, outbound.clone(), handler.clone());
+                        } else {
+                            outbound.send(Outbound::Frame(envelope::error(&id, 4001, "IPC inbound control limit reached")))
+                                .await.map_err(|_| TransportError::Closed)?;
                         }
                     }
                     Message::Request { id, method, params } if method == "machine.run_code" => {
@@ -294,4 +323,96 @@ where
     Fut: Future<Output = Result<Value, String>> + Send + 'static,
 {
     Arc::new(move |method, params| Box::pin(callback(method, params)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn frames_update_last_frame_and_invalid_ping_is_rejected() {
+        let (stream, mut host) = tokio::io::duplex(4096);
+        let client = Client::from_stream(stream, handler(|_, _| async { Ok(json!({})) }));
+        let initial = client.last_frame();
+        let mut frames = client.frames();
+        framing::write_frame(
+            &mut host,
+            &json!({
+                "v":2,"type":"request","id":"bad","method":"machine.ping","params":{"extra":true}
+            }),
+        )
+        .await
+        .expect("request written");
+        frames.changed().await.expect("frame observed");
+        assert!(client.last_frame() >= initial);
+        let (reader, mut writer) = tokio::io::split(host);
+        let mut replies = Framed::new(reader);
+        let answer = replies.next().await.expect("answer").expect("frame");
+        assert_eq!(answer["error"]["code"], 1000);
+        framing::write_frame(
+            &mut writer,
+            &json!({"v":2,"type":"request","id":"valid","method":"machine.ping","params":{}}),
+        )
+        .await
+        .expect("valid request written");
+        let answer = replies
+            .next()
+            .await
+            .expect("valid answer")
+            .expect("valid frame");
+        assert_eq!(answer["result"], json!({}));
+    }
+
+    #[tokio::test]
+    async fn pending_controls_refuse_the_ninth_ping() {
+        let (stream, mut host) = tokio::io::duplex(4096);
+        let (started, mut pending) = mpsc::unbounded_channel();
+        let (release, released) = watch::channel(false);
+        let client = Client::from_stream(
+            stream,
+            handler(move |_, _| {
+                let started = started.clone();
+                let mut released = released.clone();
+                async move {
+                    started.send(()).expect("control started");
+                    released
+                        .wait_for(|ready| *ready)
+                        .await
+                        .expect("control released");
+                    Ok(json!({}))
+                }
+            }),
+        );
+        for index in 0..CONTROLS {
+            framing::write_frame(
+                &mut host,
+                &json!({
+                    "v":2,"type":"request","id":format!("held-{index}"),
+                    "method":"machine.ping","params":{}
+                }),
+            )
+            .await
+            .expect("control written");
+            pending.recv().await.expect("control started");
+        }
+        framing::write_frame(
+            &mut host,
+            &json!({
+                "v":2,"type":"request","id":"overflow","method":"machine.ping","params":{}
+            }),
+        )
+        .await
+        .expect("overflow written");
+        let mut frames = Framed::new(host);
+        let answer = frames.next().await.expect("answer").expect("frame");
+        assert_eq!(answer["id"], "overflow");
+        assert_eq!(answer["error"]["code"], 4001);
+        release.send(true).expect("controls still subscribed");
+        for _ in 0..CONTROLS {
+            let answer = frames.next().await.expect("answer").expect("frame");
+            assert_eq!(answer["result"], json!({}));
+        }
+        drop(client);
+    }
 }

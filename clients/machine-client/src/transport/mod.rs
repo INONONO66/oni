@@ -1,5 +1,10 @@
+pub mod classes;
 pub mod client;
 pub mod connection;
 pub mod envelope;
+pub mod events;
 pub mod framing;
 pub mod request_table;
+pub mod retry;
+#[cfg(target_os = "macos")]
+pub mod wake;

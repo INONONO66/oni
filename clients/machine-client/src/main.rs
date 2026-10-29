@@ -34,6 +34,8 @@ enum Command {
         config: Option<PathBuf>,
         #[arg(long)]
         allow_unpinned: bool,
+        #[arg(long)]
+        once: bool,
     },
     Update {
         #[arg(long, conflicts_with = "file")]
@@ -46,6 +48,10 @@ enum Command {
         release: PathBuf,
         #[arg(long)]
         host_contract: Option<u64>,
+    },
+    Retry {
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
     #[command(subcommand)]
     Hook(Hook),
@@ -71,12 +77,14 @@ async fn main() -> ExitCode {
         Some(Command::Run {
             config,
             allow_unpinned,
-        }) => run(config, allow_unpinned).await,
+            once,
+        }) => run(config, allow_unpinned, once).await,
         Some(Command::Update { from, file }) => update(from, file).await,
         Some(Command::Probe {
             release,
             host_contract,
         }) => probe(&release, host_contract),
+        Some(Command::Retry { config }) => retry(config.as_deref()),
         Some(Command::Hook(Hook::Permission { cli })) => {
             let socket = config::agent_hook_socket();
             let outcome =
@@ -126,11 +134,15 @@ fn now_ms() -> u64 {
         })
 }
 
-async fn run(path: Option<PathBuf>, allow_unpinned: bool) -> Result<(), AttachError> {
+async fn run(path: Option<PathBuf>, allow_unpinned: bool, once: bool) -> Result<(), AttachError> {
     let file = path.unwrap_or_else(|| config::root().join("machine-client/client.json"));
     let pin = release::load_pin(file.parent().unwrap_or(&file))?;
     release::admit(pin.as_ref(), VERSION, allow_unpinned)?;
-    attach::run_service(Some(&file)).await
+    if once {
+        attach::run_service_once(Some(&file)).await
+    } else {
+        attach::run_service(Some(&file)).await
+    }
 }
 
 fn probe(path: &Path, host: Option<u64>) -> Result<(), AttachError> {
@@ -233,6 +245,19 @@ async fn update(from: Option<String>, file: Option<PathBuf>) -> Result<(), Attac
         serde_json::json!({"status": "switched", "version": release.version})
     );
     Ok(())
+}
+
+fn retry(config_path: Option<&Path>) -> Result<(), AttachError> {
+    use nix::{
+        sys::signal::{kill, Signal},
+        unistd::Pid,
+    };
+    let directory = config_path
+        .and_then(Path::parent)
+        .map_or_else(config::agent_registry_directory, Path::to_path_buf);
+    let pid = attach::service_pid(&directory)?.ok_or(AttachError::ServiceUnavailable)?;
+    let pid = i32::try_from(pid).map_err(|_| AttachError::ServiceUnavailable)?;
+    kill(Pid::from_raw(pid), Signal::SIGUSR1).map_err(|_| AttachError::ServiceUnavailable)
 }
 
 async fn join(options: &JoinOptions) -> Result<(), AttachError> {

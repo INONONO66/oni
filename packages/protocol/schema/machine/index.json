@@ -302,6 +302,10 @@
       "name": "PeekResult"
     },
     {
+      "file": "PingResult.json",
+      "name": "PingResult"
+    },
+    {
       "file": "PlacementOutcome.json",
       "name": "PlacementOutcome"
     },
@@ -512,6 +516,14 @@
     {
       "file": "ToolCallResult.json",
       "name": "ToolCallResult"
+    },
+    {
+      "file": "TransportFacts.json",
+      "name": "TransportFacts"
+    },
+    {
+      "file": "TransportFailureClass.json",
+      "name": "TransportFailureClass"
     },
     {
       "file": "WindowCloseRequest.json",

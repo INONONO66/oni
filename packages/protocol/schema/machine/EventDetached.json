@@ -13,7 +13,8 @@
         "enrollment_removed",
         "enrollment_replaced",
         "superseded_by_reattach",
-        "superseded"
+        "superseded",
+        "ping_timeout"
       ],
       "type": "string"
     },

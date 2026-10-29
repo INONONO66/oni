@@ -34,7 +34,13 @@ export function mclientBinary(): Promise<string> {
     });
     const code = await build.exited;
     if (code !== 0) throw new Error(`mclient build exited ${code}`);
-    return join(CLIENTS, "target", "release", "mclient");
+    const binary = join(CLIENTS, "target", "release", "mclient");
+    // Cargo re-links the uplifted binary on every build, even a no-op one,
+    // so its first exec pays the code-signature check; pay it here rather
+    // than inside a bounded test window.
+    const warm = Bun.spawn([binary, "--version"], { stdin: "ignore", stdout: "ignore", stderr: "inherit" });
+    if ((await warm.exited) !== 0) throw new Error("mclient did not start after its build");
+    return binary;
   })();
   return built;
 }

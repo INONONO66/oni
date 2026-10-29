@@ -8,10 +8,125 @@ import { eventCollector } from "./helpers/events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Queue } from "effect";
+import { run } from "./ipc/helpers/effects";
 
 beforeAll(mclientBinary, 300_000);
 
 describe("machine.report heartbeat", () => {
+  test("ping request reaches an opted client and its reply keeps the attachment", async () => {
+    const events = eventCollector();
+    const ticks = await run(Queue.unbounded<void>());
+    let now = 0;
+    const host = await createMachineHost({
+      listen: { unix: socketPath() }, enrollment: (id) => id === "w-1" ? mclientEnrollment(id) : undefined,
+      events: events.sink, now: () => now, pingTick: Queue.take(ticks),
+    });
+    const ping = Promise.withResolvers<string>();
+    const peer = await connectIpcClient(host.endpoints.unix ?? "", {
+      onRequest: (method, _params, respond) => {
+        ping.resolve(method);
+        respond({ status: "alive" });
+      },
+    });
+    try {
+      expect(await peer.call(Machine.WireMethod.Attach, {
+        machineId: "w-1", daemonVersion: "new-client", platform: "linux-arm64",
+        offeredCapabilities: [], offeredAt: 1, capabilities: ["ping"],
+        peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).toMatchObject({ status: "attached" });
+      await run(Queue.offer(ticks, undefined));
+      expect(await ping.promise).toBe(Machine.WireMethod.Ping);
+      now = 5_000;
+      expect(host.list()).toHaveLength(1);
+    } finally {
+      await peer.close();
+      await host.close();
+    }
+  });
+
+  test("a slow valid ping reply keeps its own deadline despite later probe ticks", async () => {
+    const events = eventCollector();
+    const ticks = await run(Queue.unbounded<void>());
+    let now = 0;
+    const host = await createMachineHost({
+      listen: { unix: socketPath() }, enrollment: (id) => id === "w-1" ? mclientEnrollment(id) : undefined,
+      events: events.sink, now: () => now, pingTick: Queue.take(ticks),
+    });
+    const first = Promise.withResolvers<(result: { status: "alive" }) => void>();
+    const second = Promise.withResolvers<void>();
+    let count = 0;
+    const peer = await connectIpcClient(host.endpoints.unix ?? "", {
+      onRequest: (method, _params, respond) => {
+        if (method !== Machine.WireMethod.Ping) return;
+        count++;
+        if (count === 1) first.resolve(respond);
+        else { respond({ status: "alive" }); second.resolve(); }
+      },
+    });
+    try {
+      expect(await peer.call(Machine.WireMethod.Attach, {
+        machineId: "w-1", daemonVersion: "new-client", platform: "linux-arm64",
+        offeredCapabilities: [], offeredAt: 1, capabilities: ["ping"],
+        peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).toMatchObject({ status: "attached" });
+      now = 5_000;
+      await run(Queue.offer(ticks, undefined));
+      const respond = await first.promise;
+      now = 10_000;
+      await run(Queue.offer(ticks, undefined));
+      expect(count).toBe(1);
+      now = 11_000;
+      respond({ status: "alive" });
+      expect(await peer.call(Machine.WireMethod.Report, {
+        machineId: "w-1", reportedAt: 11_000,
+        load: { loadAvg1: 0, memoryAvailableBytes: 0, inFlight: 0 },
+      })).toEqual({ status: "accepted" });
+      now = 15_000;
+      await run(Queue.offer(ticks, undefined));
+      await second.promise;
+      expect(host.list()).toHaveLength(1);
+    } finally {
+      await peer.close();
+      await host.close();
+    }
+  });
+
+  test("ping is opt-in and a silent opted peer detaches after fifteen seconds", async () => {
+    const events = eventCollector();
+    const ticks = await run(Queue.unbounded<void>());
+    let now = 0;
+    const host = await createMachineHost({
+      listen: { unix: socketPath() }, enrollment: (id) => id === "w-1" ? mclientEnrollment(id) : undefined,
+      events: events.sink, now: () => now, pingTick: Queue.take(ticks),
+    });
+    const peer = await connectIpcClient(host.endpoints.unix ?? "");
+    try {
+      expect(await peer.call(Machine.WireMethod.Attach, {
+        machineId: "w-1", daemonVersion: "old-client", platform: "linux-arm64",
+        offeredCapabilities: [], offeredAt: 1,
+        peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).toMatchObject({ status: "attached" });
+      await run(Queue.offer(ticks, undefined));
+      expect(host.list()).toHaveLength(1);
+      const superseded = events.next(Machine.Events.Detached.name);
+      expect(await peer.call(Machine.WireMethod.Attach, {
+        machineId: "w-1", daemonVersion: "new-client", platform: "linux-arm64",
+        offeredCapabilities: [], offeredAt: 2, capabilities: ["ping"],
+        peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).toMatchObject({ status: "attached" });
+      expect(await superseded).toMatchObject({ payload: { reason: "superseded" } });
+      const detached = events.next(Machine.Events.Detached.name);
+      now = 15_001;
+      await run(Queue.offer(ticks, undefined));
+      expect(await detached).toMatchObject({ payload: { reason: "ping_timeout" } });
+      expect(host.list()).toEqual([]);
+    } finally {
+      await peer.close();
+      await host.close();
+    }
+  });
+
   test("the real client reports load and the host judges staleness on its own clock", async () => {
     const root = mkdtempSync(join(tmpdir(), "oni-report-"));
     const events = eventCollector();
@@ -65,6 +180,10 @@ describe("machine.report heartbeat", () => {
       expect(host.list()[0]?.live).toBeUndefined();
       expect(await report("w-1")).toEqual({ status: "accepted" });
       expect(host.list()[0]?.live).toEqual({ reportedAt: 1, load, screen, stale: false });
+      expect(await peer.call(Machine.WireMethod.Report, {
+        machineId: "w-1", reportedAt: 2, load, transport: { lastFailure: "timeout", attempts: 3 },
+      })).toEqual({ status: "accepted" });
+      expect(host.list()[0]?.live?.transport).toEqual({ lastFailure: "timeout", attempts: 3 });
     } finally {
       await peer.close();
       await host.close();

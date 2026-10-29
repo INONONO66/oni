@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "enum": [
+    "authentication",
+    "configuration",
+    "host_unreachable",
+    "remote_unavailable",
+    "timeout",
+    "superseded"
+  ],
+  "type": "string"
+}

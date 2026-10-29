@@ -1,0 +1,9 @@
+{
+  "machineId": "mac-0",
+  "offeredCapabilities": [],
+  "capabilities": ["ping"],
+  "daemonVersion": "0.1.0",
+  "platform": "darwin-arm64",
+  "offeredAt": 1,
+  "peer": { "kind": "client", "contractVersion": 2 }
+}

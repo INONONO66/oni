@@ -10,6 +10,7 @@ import { MachinesFailure, MachineCellError, MachineRefusalError, TransportFailur
 import { decodeMachineFailure } from "./failure";
 import { answersObservation, legacyPointer, OBSERVE_NOT_AVAILABLE, observeRefusal } from "./observe";
 import { onAbort } from "./interrupt-on";
+import { PingLiveness } from "./ping-liveness";
 import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
 import type { AttachGenerationStore } from "./generation-store";
@@ -61,6 +62,7 @@ interface MachineHostOptions {
    * heartbeats at the daemon's default cadence.
    */
   readonly staleAfterMs?: number;
+  readonly pingTick?: Effect.Effect<void>;
   readonly capacity?: readonly Machine.CapacityRow[];
   readonly release?: () => Machine.Release | undefined;
   readonly scheduler?: LeaseScheduler;
@@ -79,6 +81,8 @@ interface MachineHostOptions {
 }
 /** Default `staleAfterMs`: three missed default-cadence heartbeats. */
 const REPORT_STALE_AFTER_MS = 15_000;
+const PING_INTERVAL_MS = 5_000;
+const PING_TIMEOUT_MS = 15_000;
 const AGENT_SESSION_CAPABILITY = "agent.session";
 const AGENT_PERMISSION_DEADLINE_MS = 30_000;
 /** Rust mclient gives a timed-out interpreter 2 s after SIGINT before killing it. */
@@ -240,7 +244,7 @@ export interface MachineHost {
   close(): Effect.Effect<void, MachineError>;
 }
 /** The per-connection transport surface every machine operation routes through. */
-type HostListener = Pick<IpcServer, "call" | "useConnection" | "isConnected" | "peerFingerprintOf" | "disconnect">;
+type HostListener = Pick<IpcServer, "call" | "callConnection" | "useConnection" | "isConnected" | "peerFingerprintOf" | "disconnect">;
 interface Attachment {
   readonly enrollment: Machine.Enrollment;
   readonly offer: Machine.Offer;
@@ -306,6 +310,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     let closed = false;
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
     const reports = new Map<string, { readonly report: Machine.Report; readonly receivedAt: number }>();
+    const pings = new PingLiveness();
     const staleAfterMs = options.staleAfterMs ?? REPORT_STALE_AFTER_MS;
     const capacity = createCapacity({ ...options, rows, list });
     function detach(key: string, reason: DetachReason): void {
@@ -317,6 +322,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       permissions.delete(key);
       inFlight.delete(key);
       reports.delete(key);
+      pings.detach(key);
       endRelays(key);
       capacity.detach(attachment.offer.machineId, reason === "superseded" ? "stale_generation" : "disconnected");
       if (connectionByMachine.get(attachment.offer.machineId) === key) connectionByMachine.delete(attachment.offer.machineId);
@@ -380,6 +386,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       if (incumbent !== undefined) supersede(incumbent, source);
       supersede(source.key, source);
       attachments.set(source.key, { enrollment: negotiated.enrollment, offer, generation, capabilities: negotiated.capabilities, ...source });
+      if (offer.capabilities?.includes("ping")) pings.attach(source.key, options.now());
       connectionByMachine.set(offer.machineId, source.key);
       known.add(offer.machineId);
       options.events.publish(Machine.Events.Attached, { machineId: offer.machineId, time: options.now(), effectiveCapabilities: [...negotiated.capabilities] });
@@ -457,6 +464,24 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           : { status: "available", release });
       })],
     ]);
+    function ping(peer: Attachment): Effect.Effect<void> {
+      return Effect.gen(function* () {
+        if (attachments.get(peer.key) !== peer) return;
+        if (pings.expired(peer.key, options.now())) {
+          detach(peer.key, "ping_timeout");
+          peer.server.disconnect(peer.rawId);
+          return;
+        }
+        if (!pings.begin(peer.key)) return;
+        yield* Effect.gen(function* () {
+          const answer = yield* peer.server.callConnection(peer.rawId, Machine.WireMethod.Ping, {}, PING_TIMEOUT_MS).pipe(
+            Effect.flatMap((raw) => Effect.try({ try: () => Machine.PingResult.parse(raw), catch: decodeMachineFailure("ping.decode") })),
+            Effect.option,
+          );
+          pings.finish(peer.key, options.now(), answer._tag === "Some" && attachments.get(peer.key) === peer);
+        }).pipe(Effect.ensuring(Effect.sync(() => pings.finish(peer.key, options.now(), false))));
+      });
+    }
     function dispatchRequest(method: string, params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, source: RequestSource): Effect.Effect<void, MachinesFailure> {
       return Effect.gen(function* () {
         const direct = directRequests.get(method);
@@ -514,6 +539,16 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       servers.push(server);
       tcpBound = { host: server.host, port: server.port };
     }
+    yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        while (true) {
+          yield* (options.pingTick ?? Effect.sleep(PING_INTERVAL_MS));
+          for (const peer of attachments.values()) {
+            if (peer.offer.capabilities?.includes("ping")) yield* Effect.forkScoped(ping(peer));
+          }
+        }
+      }),
+    );
 
     function connection(id: string): Attachment {
       const key = connectionByMachine.get(id);

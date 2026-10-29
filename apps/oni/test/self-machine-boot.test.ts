@@ -17,7 +17,7 @@ import { testIds } from "./helpers/test-entropy";
 import { testSelfMachine } from "./helpers/self-machine";
 import { testBus } from "../../../packages/agent/test/helpers/isolated";
 import { refusingToolPort } from "./helpers/tool-port";
-import { mclientBinary, spawnAttachedMclient } from "./helpers/mclient";
+import { mclientBinary } from "./helpers/mclient";
 import { connectIpcClient } from "../../../packages/machines/test/ipc/helpers/native";
 
 const roots: string[] = [];
@@ -302,12 +302,16 @@ test("a second real client cannot replace the protected self attachment", async 
       machineId: "self", name: "self", host: "localhost", unix: fixture.options.socketPath,
       exports: fixture.plane.self.exports, tags: [], memoryBudgetMb: 96,
     });
-    // A stale generation is terminal; it cannot displace the incumbent.
+    // A one-shot stale generation is refused without displacing the incumbent.
     writeFileSync(join(fixture.root, "impostor", "state.json"), '{"generation":999}');
-    const pending = spawnAttachedMclient({
-      configPath: path, host: fixture.host, events: fixture.options.events, machineId: "self",
+    const impostor = Bun.spawn([await mclientBinary(), "run", "--once", "--config", path], {
+      stdin: "ignore", stdout: "ignore", stderr: "pipe",
     });
-    await expect(pending).rejects.toThrow("mclient exited before attachment: 3");
+    const [exitCode, stderr] = await Promise.all([
+      impostor.exited, new Response(impostor.stderr).text(),
+    ]);
+    expect(exitCode).toBe(3);
+    expect(JSON.parse(stderr)).toMatchObject({ reason: "superseded" });
     expect(fixture.host.list()[0]?.generation).toBe(1);
     await runEffect(self.ready);
   } finally { await fixture.close(); }

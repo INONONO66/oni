@@ -421,6 +421,9 @@ impl Service {
     }
 
     async fn serve(&self, method: &str, params: Value) -> Result<Value, String> {
+        if method == "machine.ping" {
+            return Ok(json!({"status":"alive"}));
+        }
         let Ok(method) = serde_json::from_value(Value::String(method.to_owned())) else {
             return Err(invalid(method));
         };

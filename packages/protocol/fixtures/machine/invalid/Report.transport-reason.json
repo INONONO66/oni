@@ -1,0 +1,6 @@
+{
+  "machineId": "mac-0",
+  "reportedAt": 1,
+  "load": { "loadAvg1": 0.5, "memoryAvailableBytes": 1024, "inFlight": 0 },
+  "transport": { "lastFailure": "error", "attempts": 2 }
+}

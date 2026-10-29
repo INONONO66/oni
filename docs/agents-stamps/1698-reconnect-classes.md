@@ -1,0 +1,1 @@
+#1698 (#1688) on `feat/1698-reconnect-classes` (2026-10-29, base `712f621d4`, PR #TBD): classified reconnect retries, explicit retry, gated ping liveness and transport facts; receipts `clients/machine-client/tests/attach.rs`, `packages/machines/test/report.test.ts`, `docs/implementation-status.md`.

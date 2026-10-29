@@ -23,3 +23,16 @@ export const HumanInputNotification = z.object({
   source: z.enum(["pointer", "keyboard"]),
 }).strict();
 export type HumanInputNotification = z.infer<typeof HumanInputNotification>;
+
+export const TransportFailureClass = z.enum([
+  "authentication", "configuration", "host_unreachable", "remote_unavailable", "timeout", "superseded",
+]);
+
+export const TransportFacts = z.object({
+  lastFailure: TransportFailureClass.nullable(),
+  attempts: z.number().int().nonnegative(),
+}).strict();
+export type TransportFacts = z.infer<typeof TransportFacts>;
+
+export const PingResult = z.object({ status: z.literal("alive") }).strict();
+export type PingResult = z.infer<typeof PingResult>;

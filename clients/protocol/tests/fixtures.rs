@@ -96,6 +96,7 @@ macro_rules! decode_fixture {
                 PeekCode,
                 PeekRefused,
                 PeekResult,
+                PingResult,
                 PlacementOutcome,
                 PlacementRequest,
                 PtyCloseRequest,
@@ -131,6 +132,8 @@ macro_rules! decode_fixture {
                 Session,
                 ToolCall,
                 ToolCallResult,
+                TransportFacts,
+                TransportFailureClass,
                 WireMethod,
                 // Computer use (#1662).
                 CdpChunk,

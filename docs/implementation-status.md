@@ -62,6 +62,20 @@ driving fake host releases through deploy, rollback, shutdown and host exit
 yet exercised on a live host: a real `oni supervise` swapping two npm
 releases.
 
+||||||| parent of 547281633 (feat(clients): reconnect failure classes with typed re-probe and explicit retry (#1698))
+
+## #1698 machine client reconnect classes
+
+The client classifies attach failures and uses an upper-half jittered
+2–300 s exponential retry schedule. Authentication and configuration
+park with a 5 min re-probe; a wake, network change or `mclient retry`
+interrupts the delay. An offered `ping` opts a peer into host-side 5 s
+probes and 15 s detach; peers without it retain report-cadence liveness.
+The client reconnects after 15 s without a host frame. `Report.transport`
+and `machine_list.live.transport` carry the last class and attempt count;
+`metrics.jsonl` records failure observations. The additive fields remain
+on contract v2. Fixture tests and live sleep/WAN acceptance are distinct;
+the latter is not established by this implementation.
 ## #1682 npm package host/client report compatibility
 
 `apps/oni` rebuilds `@oni/protocol` before staging its npm bundle. Staging
@@ -692,13 +706,10 @@ through the tailnet status peer list, else `host_unresolved`; port default
 export validation, the 0700 directory and 0600 files, and the ten-year
 self-signed EC P-256 client identity. `attach.rs` owns the loop: the Offer
 with `peer.kind = "client"` (the `generation` key omitted on a first
-attach, never `null`), the saved generation in `state.json`, a 5 s heartbeat
-that appends `metrics.jsonl` and sends `machine.report`, full-jitter
-reconnect (250 ms doubling, 30 s cap, reset after a connection that was
-attached), and the exit codes: 3 for `stale_generation`,
-`unsupported_contract`, `peer_key_mismatch` or a connect-time pin mismatch,
-4 for the memory budget, 2 otherwise, each with one `{"reason"}` line on
-stderr. `budget.rs` and `report.rs` own the RSS/load probes and the
+attach, never `null`), the saved generation in `state.json`, and a 5 s
+heartbeat that appends `metrics.jsonl` and sends `machine.report`.
+The reconnect policy is described in #1698 above. `budget.rs` and
+`report.rs` own the RSS/load probes and the
 over/under counters: shed and restrict on the first beat over budget
 (`machine.exec` refused `exec_not_available`, `fs_stream` `begin` refused
 `too_large`), lift after two beats under, exit 4 on the third consecutive
