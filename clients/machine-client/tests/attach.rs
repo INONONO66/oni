@@ -609,6 +609,71 @@ async fn tls_client(host: &FakeHost, pin: [u8; 32]) -> (tempfile::TempDir, Clien
 }
 
 #[tokio::test]
+async fn release_query_uses_unix_and_pinned_tls_without_attaching() {
+    for tls in [false, true] {
+        let mut host = if tls {
+            FakeHost::tls().await
+        } else {
+            FakeHost::unix().await
+        };
+        let (directory, settings) = if tls {
+            tls_client(&host, host_pin(&host.certificate)).await
+        } else {
+            let directory = tempfile::tempdir().expect("client directory");
+            let settings = unix_settings(&host, directory.path()).await;
+            (directory, settings)
+        };
+        let document = json!({"version":"1.0.0","contractVersion":2,"artifacts":{}});
+        let exchange = async {
+            let request = expect(&mut host, "machine.release").await;
+            host.send(reply(
+                &request,
+                json!({"status":"available","release":document}),
+            ))
+            .await;
+        };
+        let (result, ()) = tokio::join!(attach::release(&settings, directory.path()), exchange);
+        assert_eq!(result.expect("release"), Some(document));
+        assert!(!directory.path().join("state.json").exists());
+    }
+}
+
+#[tokio::test]
+async fn release_query_refusals_do_not_save_a_generation() {
+    for response in [
+        json!({"status":"refused","reason":"release_unavailable"}),
+        json!({"status":"available","release":{"version":"incomplete"}}),
+    ] {
+        let mut host = FakeHost::unix().await;
+        let directory = tempfile::tempdir().expect("client directory");
+        let settings = unix_settings(&host, directory.path()).await;
+        let exchange = async {
+            let request = expect(&mut host, "machine.release").await;
+            host.send(reply(&request, response.clone())).await;
+        };
+        let (result, ()) = tokio::join!(attach::release(&settings, directory.path()), exchange);
+        if response["status"] == "refused" {
+            assert_eq!(result.expect("refused release"), None);
+        } else {
+            assert!(matches!(result, Err(AttachError::Decode(_))));
+        }
+        assert!(!directory.path().join("state.json").exists());
+    }
+    let host = FakeHost::tls().await;
+    let (directory, settings) = tls_client(&host, [7; 32]).await;
+    assert!(matches!(
+        attach::release(&settings, directory.path()).await,
+        Err(AttachError::Transport(TransportError::HostKeyMismatch))
+    ));
+    assert!(!directory.path().join("state.json").exists());
+    std::fs::remove_file(directory.path().join("host-pin")).expect("remove pin");
+    assert!(matches!(
+        attach::release(&settings, directory.path()).await,
+        Err(AttachError::Io(_))
+    ));
+}
+
+#[tokio::test]
 async fn tls_attach_uses_recorded_pin_and_refuses_mismatch() {
     for host in [FakeHost::tls().await, FakeHost::tls12().await] {
         let mut host = host;
@@ -1100,7 +1165,12 @@ async fn sigterm_detaches_and_removes_a_blocked_staged_transfer() {
     exported(&host, root.path(), directory.path());
     let path = directory.path().join("client.json");
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
-        .args(["run", "--config", path.to_str().expect("utf8 path")])
+        .args([
+            "run",
+            "--allow-unpinned",
+            "--config",
+            path.to_str().expect("utf8 path"),
+        ])
         .kill_on_drop(true)
         .spawn()
         .expect("mclient process");
@@ -1156,7 +1226,12 @@ async fn named_tmux_socket_keeps_client_sessions_off_the_default_server() {
     config::save(&settings, directory.path()).expect("private settings");
     let path = directory.path().join("client.json");
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
-        .args(["run", "--config", path.to_str().expect("utf8 path")])
+        .args([
+            "run",
+            "--allow-unpinned",
+            "--config",
+            path.to_str().expect("utf8 path"),
+        ])
         .env("TERM", "xterm")
         .kill_on_drop(true)
         .spawn()

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { fork } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Bus } from "./helpers/bus";
@@ -51,6 +51,49 @@ describe("health endpoint", () => {
     // Liveness only: any extra field on this unauthenticated surface is disclosure.
     expect(await response.json()).toEqual({ ok: true });
   });
+
+  test("GET /machine-client/release serves the bundled release record or refuses", async () => {
+    const directory = tempDir("oni-release-");
+    const releasePath = join(directory, "release.json");
+    const app = await startOni({
+      config: {
+        catalogPath: join(directory, "catalog.sqlite"),
+        sessionsDir: join(directory, "sessions"),
+        machineGenerationsPath: join(directory, "machines", "generations.json"),
+        mclientRelease: releasePath,
+        host: "127.0.0.1",
+        wsPort: 0,
+        kek: { kind: "locked", reason: "no vault key in this fixture" },
+        machines: testMachinesPlane(),
+        model: { provider: "fake", id: "release-test", apiKey: "test-key" },
+      },
+    });
+    stopApp = () => app.stop();
+    const url = `http://127.0.0.1:${app.port}/machine-client/release`;
+    const absent = await fetch(url);
+    expect(absent.status).toBe(404);
+    expect(await absent.json()).toEqual({ reason: "release_unavailable" });
+    writeFileSync(releasePath, JSON.stringify({ version: "1" }));
+    expect((await fetch(url)).status).toBe(404);
+    writeFileSync(releasePath, '{"version":');
+    const malformed = await fetch(url);
+    expect(malformed.status).toBe(404);
+    expect(await malformed.json()).toEqual({ reason: "release_unavailable" });
+    const release = {
+      version: "0.1.0",
+      contractVersion: 2,
+      artifacts: { "linux-x86_64": { name: "mclient-linux-x86_64.tar.gz", bytes: 1, sha256: "0".repeat(64), url: "a.tgz" } },
+    };
+    writeFileSync(releasePath, JSON.stringify(release));
+    const relative = await fetch(url);
+    expect(relative.status).toBe(404);
+    expect(await relative.json()).toEqual({ reason: "release_unavailable" });
+    release.artifacts["linux-x86_64"].url = "https://example.test/a.tgz";
+    writeFileSync(releasePath, JSON.stringify(release));
+    const served = await fetch(url);
+    expect(served.status).toBe(200);
+    expect(await served.json()).toEqual(release);
+  });
 });
 
 describe("npm package staging", () => {
@@ -80,8 +123,19 @@ describe("npm package staging", () => {
       ONI_MODEL_ID: "pack-smoke",
       ONI_MODEL_API_KEY: "test-key",
     };
+    const release = join(tempDir("oni-pack-release-"), "release.json");
+    const packaged = Bun.spawnSync([
+      process.execPath, "run", join(repoRoot, "script", "build-clients-release.ts"),
+      "--release", release, `linux-x86_64=${await mclientBinary()}`,
+    ], { cwd: repoRoot, stderr: "pipe" });
+    expect(packaged.stderr.toString()).toBe("");
+    const refused = Bun.spawnSync([process.execPath, "run", "--cwd", appDir, "build:npm", staging], {
+      cwd: repoRoot, env: { ...process.env, ONI_MCLIENT_RELEASE: join(home, "absent.json") }, stderr: "pipe",
+    });
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.stderr.toString()).toContain("ClientReleaseMissingError");
     const build = Bun.spawn([process.execPath, "run", "--cwd", appDir, "build:npm", staging], {
-      cwd: repoRoot, stdout: "pipe", stderr: "pipe",
+      cwd: repoRoot, env: { ...process.env, ONI_MCLIENT_RELEASE: release }, stdout: "pipe", stderr: "pipe",
     });
     const [buildCode, buildOut, buildErr] = await bounded(Promise.all([
       build.exited, new Response(build.stdout).text(), new Response(build.stderr).text(),
@@ -110,6 +164,7 @@ describe("npm package staging", () => {
     // W5.2: no migration plane ships; the schema is embedded in the bundle.
     expect(existsSync(join(staging, "migration"))).toBe(false);
     expect(existsSync(join(staging, "dist", "app", "process-entry.js"))).toBe(true);
+    expect(readFileSync(join(staging, "dist", "clients", "release.json"), "utf-8")).toBe(readFileSync(release, "utf-8"));
     const host = join(staging, "dist", "app", "huddle-host.js");
     const huddle = fork(host, [], {
       cwd: staging, execPath: process.execPath, stdio: ["ignore", "ignore", "pipe", "ipc"],

@@ -57,6 +57,8 @@ pub enum AttachError {
     MemoryBudget,
     #[error(transparent)]
     Computer(#[from] crate::computer::ComputerError),
+    #[error(transparent)]
+    Update(#[from] crate::release::UpdateError),
 }
 
 impl AttachError {
@@ -71,6 +73,10 @@ impl AttachError {
     pub fn reason(&self) -> String {
         match self {
             Self::Transport(TransportError::HostKeyMismatch) => "peer_key_mismatch".to_owned(),
+            Self::Update(crate::release::UpdateError::Unpinned { .. }) => {
+                "unpinned_binary".to_owned()
+            }
+            Self::Update(_) => "update_failed".to_owned(),
             _ => self.to_string(),
         }
     }
@@ -241,6 +247,28 @@ async fn record_pin(
     let pin = hex::encode(pin);
     config::write_private(&directory.join("host-pin"), pin.as_bytes())?;
     Ok(first_use.then_some(pin))
+}
+
+/// Asks the host for the client release it pins; `machine.release` is answered
+/// before any attach, so no enrollment identity or generation is touched.
+pub async fn release(
+    config: &ClientConfig,
+    directory: &Path,
+) -> Result<Option<serde_json::Value>, AttachError> {
+    let client = match &config.unix {
+        Some(path) => Client::connect_unix(path, refuse_inbound()).await?,
+        None => {
+            let pin = fs::read_to_string(directory.join("host-pin"))?;
+            let trust = HostTrust::Pin(config::parse_pin(&pin)?);
+            connect_tls(&config.host, directory, trust, refuse_inbound())
+                .await??
+                .0
+        }
+    };
+    let response = client.call("machine.release", None).await?;
+    let result = oni_protocol::decode::<oni_protocol::ReleaseResult>(response.unwrap_or_default())?;
+    let document = serde_json::to_value(result)?;
+    Ok((document["status"] == "available").then(|| document["release"].clone()))
 }
 
 pub async fn join(
@@ -605,10 +633,9 @@ async fn run_default_with_screen(
     path: Option<&Path>,
     request_screen: bool,
 ) -> Result<(), AttachError> {
-    let path = path.map_or_else(
-        || config::root().join("machine-client/client.json"),
-        Path::to_path_buf,
-    );
+    let path = path
+        .map(Path::to_path_buf)
+        .unwrap_or(config::root().join("machine-client/client.json"));
     let directory = path.parent().unwrap_or(Path::new(""));
     let config = config::load(&path)?;
     #[cfg(target_os = "macos")]

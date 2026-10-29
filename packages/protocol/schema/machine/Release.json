@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "artifacts": {
+      "additionalProperties": false,
+      "properties": {
+        "darwin-universal": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "url": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "bytes",
+            "sha256",
+            "url"
+          ],
+          "type": "object"
+        },
+        "linux-arm64": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "url": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "bytes",
+            "sha256",
+            "url"
+          ],
+          "type": "object"
+        },
+        "linux-x86_64": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "url": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "bytes",
+            "sha256",
+            "url"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "contractVersion": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "version": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "contractVersion",
+    "artifacts"
+  ],
+  "type": "object"
+}

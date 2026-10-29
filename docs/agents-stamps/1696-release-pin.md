@@ -1,0 +1,1 @@
+#1696 (epic #1688) on `feat/1696-release-pin` (2026-10-29, base `712f621d4`, PR #1711): per-platform client release archives and verified staged updates with atomic current switch; receipts in `clients/machine-client/src/release.rs`, `apps/oni/test/npm-package.test.ts`, and `docs/implementation-status.md`.

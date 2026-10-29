@@ -216,12 +216,27 @@ pub fn rss_bytes() -> io::Result<u64> {
 }
 
 pub fn append_metrics(path: &Path, metrics: &Metrics) -> io::Result<()> {
+    append_line(
+        path,
+        &serde_json::to_string(metrics).map_err(io::Error::other)?,
+    )
+}
+
+/// Appends one line, keeping the newest 1000.
+pub fn append_line(path: &Path, line: &str) -> io::Result<()> {
+    let lock = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(path.with_extension("jsonl.lock"))?;
+    lock.lock()?;
     let mut lines = match fs::read_to_string(path) {
         Ok(existing) => existing.lines().map(str::to_owned).collect::<Vec<_>>(),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
         Err(error) => return Err(error),
     };
-    lines.push(serde_json::to_string(metrics).map_err(io::Error::other)?);
+    lines.push(line.to_owned());
     let start = lines.len().saturating_sub(1000);
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -249,6 +264,28 @@ pub fn with_streams(report: &mut serde_json::Value, mut streams: Vec<serde_json:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn simultaneous_writers_keep_both_metrics_lines() {
+        let directory = tempfile::tempdir().expect("metrics directory");
+        let path = directory.path().join("metrics.jsonl");
+        let start = std::sync::Arc::new(std::sync::Barrier::new(3));
+        std::thread::scope(|scope| {
+            for line in ["first", "second"] {
+                let start = start.clone();
+                let path = &path;
+                scope.spawn(move || {
+                    start.wait();
+                    append_line(path, line).expect("append metrics");
+                });
+            }
+            start.wait();
+        });
+        let lines = fs::read_to_string(path).expect("both metrics lines");
+        assert_eq!(lines.lines().count(), 2);
+        assert!(lines.lines().any(|line| line == "first"));
+        assert!(lines.lines().any(|line| line == "second"));
+    }
 
     #[test]
     fn screen_permission_follows_the_injected_probe() {

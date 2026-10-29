@@ -131,7 +131,7 @@ export async function attachMclient(options: {
     ...(options.tmuxSocket === undefined ? {} : { tmuxSocket: options.tmuxSocket }),
   });
   const pending = admission({ list: options.host.list, events: options.events, machineId: options.machineId });
-  const child = Bun.spawn([binary, "run", "--config", configPath], {
+  const child = Bun.spawn([binary, "run", "--allow-unpinned", "--config", configPath], {
     stdin: "ignore", stdout: "inherit", stderr: "inherit", detached: true,
   });
   const exited = child.exited.finally(() => signalGroup(child.pid, "SIGKILL"));

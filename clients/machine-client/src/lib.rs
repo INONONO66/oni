@@ -11,6 +11,7 @@ pub mod fs;
 pub mod handlers;
 pub mod input;
 pub mod pty;
+pub mod release;
 pub mod report;
 pub mod screen;
 pub mod service;

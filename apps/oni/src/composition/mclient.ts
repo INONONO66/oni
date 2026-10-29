@@ -55,7 +55,7 @@ export function spawnMclient(
   return Effect.acquireRelease(
     Effect.try({
       try: () => {
-        const child = Bun.spawn([binary, "run", "--config", configPath], {
+        const child = Bun.spawn([binary, "run", "--config", configPath, "--allow-unpinned"], {
           stdin: "ignore", stdout: "inherit", stderr: "inherit", detached: true,
         });
         const exited = child.exited.finally(() => signalGroup(child.pid, "SIGKILL"));

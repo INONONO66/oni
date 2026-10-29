@@ -183,7 +183,7 @@ export async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
 }
 
 export function start(setup: Fixture): ClientProcess {
-  const client: ClientProcess = Bun.spawn([setup.binary, "run", "--config", setup.config], {
+  const client: ClientProcess = Bun.spawn([setup.binary, "run", "--allow-unpinned", "--config", setup.config], {
     env: setup.env,
     stdin: "ignore",
     stdout: "pipe",

@@ -1,5 +1,6 @@
 use std::{
     io::Write,
+    os::unix::fs::PermissionsExt,
     process::{Command, Output, Stdio},
 };
 
@@ -8,6 +9,434 @@ fn mclient(args: &[&str]) -> Output {
         .args(args)
         .output()
         .expect("mclient runs")
+}
+
+fn release_fixture(home: &std::path::Path) -> std::path::PathBuf {
+    use sha2::{Digest, Sha256};
+    let package = home.join("package");
+    std::fs::create_dir(&package).expect("archive staging");
+    std::fs::copy(env!("CARGO_BIN_EXE_mclient"), package.join("mclient")).expect("binary");
+    let archive = home.join("archive.tgz");
+    assert!(Command::new("tar")
+        .args([
+            "-czf",
+            archive.to_str().expect("archive"),
+            "-C",
+            package.to_str().expect("package"),
+            "mclient"
+        ])
+        .status()
+        .expect("tar")
+        .success());
+    let bytes = std::fs::read(&archive).expect("archive bytes");
+    let platform = if cfg!(target_os = "macos") {
+        "darwin-universal"
+    } else if cfg!(target_arch = "aarch64") {
+        "linux-arm64"
+    } else {
+        "linux-x86_64"
+    };
+    let release = serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "contractVersion": oni_protocol::CONTRACT_VERSION,
+        "artifacts": { platform: {
+            "name": "archive.tgz",
+            "bytes": bytes.len(),
+            "sha256": hex::encode(Sha256::digest(&bytes)),
+            "url": "archive.tgz"
+        }}
+    });
+    let path = home.join("release.json");
+    std::fs::write(&path, release.to_string()).expect("release");
+    path
+}
+
+fn update_fixture(home: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    use std::os::unix::fs::symlink;
+    let release = release_fixture(home);
+    let root = home.join(".oni");
+    std::fs::create_dir_all(root.join("machine-client")).expect("client");
+    std::fs::create_dir_all(root.join("bin")).expect("bin");
+    let old = home.join("old-client");
+    std::fs::write(&old, "#!/bin/sh\nprintf '{\"version\":\"old\"}\\n'\n").expect("old");
+    std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o755)).expect("old executable");
+    symlink(&old, root.join("bin/current")).expect("current");
+    std::fs::write(
+        root.join("machine-client/pin.json"),
+        r#"{"pinnedVersion":"old","pinned":true}"#,
+    )
+    .expect("pin");
+    (release, old)
+}
+
+fn update_manager(home: &std::path::Path) -> (String, std::path::PathBuf) {
+    let bin = home.join("manager");
+    std::fs::create_dir(&bin).expect("manager directory");
+    let command = bin.join(if cfg!(target_os = "macos") {
+        "launchctl"
+    } else {
+        "systemctl"
+    });
+    std::fs::write(&command, "#!/bin/sh\nif [ -f \"$MCLIENT_FAIL_ONCE\" ]; then\n  rm \"$MCLIENT_FAIL_ONCE\"\n  exit 1\nfi\n\"$HOME/.oni/bin/current\" --version --json >> \"$MCLIENT_SERVICE_LOG\"\n").expect("manager");
+    std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755))
+        .expect("manager executable");
+    (
+        format!("{}:{}", bin.display(), std::env::var("PATH").expect("PATH")),
+        home.join("manager.log"),
+    )
+}
+
+#[test]
+fn successful_update_restarts_and_records_the_selected_binary() {
+    let home = tempfile::tempdir().expect("home");
+    let (release, _) = update_fixture(home.path());
+    let (path, log) = update_manager(home.path());
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("PATH", path)
+        .env("MCLIENT_SERVICE_LOG", &log)
+        .env("MCLIENT_FAIL_ONCE", home.path().join("absent-marker"))
+        .args(["update", "--file", release.to_str().expect("release")])
+        .current_dir("/")
+        .output()
+        .expect("update");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("switched result");
+    assert_eq!(result["status"], "switched");
+    let version: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&log).expect("manager restarted binary"))
+            .expect("new binary version");
+    assert_eq!(version["version"], env!("CARGO_PKG_VERSION"));
+    let root = home.path().join(".oni");
+    let pin: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("machine-client/pin.json")).expect("pin"))
+            .expect("pin json");
+    assert_eq!(pin["pinnedVersion"], env!("CARGO_PKG_VERSION"));
+    let receipt: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join("machine-client/metrics.jsonl")).expect("receipt"),
+    )
+    .expect("receipt json");
+    assert_eq!(receipt["status"], "switched");
+}
+
+#[test]
+fn failed_restart_recovers_previous_service_and_records_refusal() {
+    let home = tempfile::tempdir().expect("home");
+    let (release, old) = update_fixture(home.path());
+    let (path, log) = update_manager(home.path());
+    let marker = home.path().join("fail-once");
+    std::fs::write(&marker, "").expect("fail first restart");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("PATH", path)
+        .env("MCLIENT_SERVICE_LOG", &log)
+        .env("MCLIENT_FAIL_ONCE", &marker)
+        .args(["update", "--file", release.to_str().expect("release")])
+        .output()
+        .expect("update");
+    assert_eq!(output.status.code(), Some(2));
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr).expect("refusal");
+    assert_eq!(refusal["reason"], "update_failed");
+    assert_eq!(refusal["class"], "io");
+    let root = home.path().join(".oni");
+    assert_eq!(
+        std::fs::read_link(root.join("bin/current")).expect("restored link"),
+        old
+    );
+    let version: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&log).expect("old client ran"))
+            .expect("recovered service");
+    assert_eq!(version["version"], "old");
+    let receipt: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join("machine-client/metrics.jsonl")).expect("receipt"),
+    )
+    .expect("receipt json");
+    assert_eq!(receipt["status"], "refused");
+}
+
+#[test]
+fn failed_restart_without_previous_selection_removes_new_link() {
+    let home = tempfile::tempdir().expect("home");
+    let (release, _) = update_fixture(home.path());
+    let current = home.path().join(".oni/bin/current");
+    std::fs::remove_file(&current).expect("no prior binary");
+    let (path, log) = update_manager(home.path());
+    let marker = home.path().join("fail-once");
+    std::fs::write(&marker, "").expect("fail first restart");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("PATH", path)
+        .env("MCLIENT_SERVICE_LOG", &log)
+        .env("MCLIENT_FAIL_ONCE", marker)
+        .args(["update", "--file", release.to_str().expect("release")])
+        .output()
+        .expect("update");
+    assert_eq!(output.status.code(), Some(2));
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr).expect("refusal");
+    assert_eq!(refusal["class"], "io");
+    assert!(!current.exists());
+    assert!(!log.exists());
+}
+
+#[test]
+fn failed_restart_and_rollback_report_both_errors() {
+    let home = tempfile::tempdir().expect("home");
+    let (release, _) = update_fixture(home.path());
+    let (path, log) = update_manager(home.path());
+    let manager = home.path().join(if cfg!(target_os = "macos") {
+        "manager/launchctl"
+    } else {
+        "manager/systemctl"
+    });
+    std::fs::write(
+        manager,
+        "#!/bin/sh\nrm \"$HOME/.oni/bin/current\"\nrmdir \"$HOME/.oni/bin\"\nprintf blocked > \"$HOME/.oni/bin\"\nexit 1\n",
+    )
+    .expect("manager sabotages rollback");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("PATH", path)
+        .env("MCLIENT_SERVICE_LOG", log)
+        .args(["update", "--file", release.to_str().expect("release")])
+        .output()
+        .expect("update");
+    assert_eq!(output.status.code(), Some(2));
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr).expect("refusal");
+    assert_eq!(refusal["class"], "io");
+    assert!(refusal["detail"]
+        .as_str()
+        .expect("detail")
+        .contains("recovery failed:"));
+}
+
+#[test]
+fn blocked_receipt_prevents_switch_and_restart() {
+    let home = tempfile::tempdir().expect("home");
+    let (release, old) = update_fixture(home.path());
+    let root = home.path().join(".oni");
+    std::fs::create_dir(root.join("machine-client/metrics.jsonl")).expect("blocked receipt");
+    let (path, log) = update_manager(home.path());
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("PATH", path)
+        .env("MCLIENT_SERVICE_LOG", &log)
+        .args(["update", "--file", release.to_str().expect("release")])
+        .output()
+        .expect("update");
+    assert_eq!(output.status.code(), Some(2));
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr).expect("refusal");
+    assert_eq!(refusal["reason"], "update_failed");
+    assert_eq!(
+        std::fs::read_link(root.join("bin/current")).expect("original link"),
+        old
+    );
+    assert!(!log.exists());
+}
+
+#[test]
+fn receipt_failure_after_restart_restores_previous_service() {
+    let home = tempfile::tempdir().expect("home");
+    let (release, old) = update_fixture(home.path());
+    let (path, log) = update_manager(home.path());
+    let manager = home.path().join(if cfg!(target_os = "macos") {
+        "manager/launchctl"
+    } else {
+        "manager/systemctl"
+    });
+    std::fs::write(
+        manager,
+        "#!/bin/sh\n\"$HOME/.oni/bin/current\" --version --json >> \"$MCLIENT_SERVICE_LOG\"\nif [ -f \"$MCLIENT_BLOCK_RECEIPT\" ]; then\n  rm \"$MCLIENT_BLOCK_RECEIPT\"\n  rm \"$HOME/.oni/machine-client/metrics.jsonl\"\n  mkdir \"$HOME/.oni/machine-client/metrics.jsonl\"\nfi\n",
+    )
+    .expect("manager");
+    let marker = home.path().join("block-after-restart");
+    std::fs::write(&marker, "").expect("receipt failure marker");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("PATH", path)
+        .env("MCLIENT_SERVICE_LOG", &log)
+        .env("MCLIENT_BLOCK_RECEIPT", &marker)
+        .args(["update", "--file", release.to_str().expect("release")])
+        .output()
+        .expect("update");
+    assert_eq!(output.status.code(), Some(2));
+    let refusal: serde_json::Value = serde_json::from_slice(&output.stderr).expect("refusal");
+    assert_eq!(refusal["reason"], "update_failed");
+    assert_eq!(refusal["class"], "io");
+    let root = home.path().join(".oni");
+    assert_eq!(
+        std::fs::read_link(root.join("bin/current")).expect("restored link"),
+        old
+    );
+    let records = std::fs::read_to_string(log).expect("restarted versions");
+    let versions = records
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).expect("version")["version"].clone()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(versions, [env!("CARGO_PKG_VERSION"), "old"]);
+}
+
+#[tokio::test]
+async fn failed_join_service_install_restores_previous_host_pin_and_client() {
+    let home = tempfile::tempdir().expect("home");
+    let (release, old) = update_fixture(home.path());
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&release).expect("release")).expect("document");
+    let platform = if cfg!(target_os = "macos") {
+        "darwin-universal"
+    } else if cfg!(target_arch = "aarch64") {
+        "linux-arm64"
+    } else {
+        "linux-x86_64"
+    };
+    document["artifacts"][platform]["url"] = serde_json::json!(format!(
+        "file://{}",
+        home.path().join("archive.tgz").display()
+    ));
+    let socket = home.path().join("host.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).expect("release host");
+    let (path, log) = update_manager(home.path());
+    if cfg!(target_os = "macos") {
+        std::fs::write(
+            home.path().join("manager/launchctl"),
+            "#!/bin/sh\nif [ \"$1\" = print ]; then exit 1; fi\nif [ -f \"$MCLIENT_FAIL_ONCE\" ]; then rm \"$MCLIENT_FAIL_ONCE\"; exit 1; fi\n\"$HOME/.oni/bin/current\" --version --json >> \"$MCLIENT_SERVICE_LOG\"\n",
+        )
+        .expect("manager refuses bootstrap");
+    }
+    let marker = home.path().join("fail-once");
+    std::fs::write(&marker, "").expect("manager failure");
+    let service_dir = home.path().join("services");
+    let child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("PATH", path)
+        .env("MCLIENT_SERVICE_LOG", &log)
+        .env("MCLIENT_FAIL_ONCE", &marker)
+        .args([
+            "join",
+            "localhost",
+            "--unix",
+            socket.to_str().expect("socket"),
+            "--service-dir",
+            service_dir.to_str().expect("service path"),
+            "--no-open",
+        ])
+        .current_dir("/")
+        .output();
+    let exchange = async {
+        use oni_machine_client::transport::framing::{write_frame, Framed};
+        use tokio::io::AsyncWriteExt;
+        let (stream, _) = listener.accept().await.expect("release connection");
+        let (reader, mut writer) = tokio::io::split(stream);
+        let request = Framed::new(reader)
+            .next()
+            .await
+            .expect("release frame")
+            .expect("release request");
+        assert_eq!(request["method"], "machine.release");
+        write_frame(
+            &mut writer,
+            &serde_json::json!({
+                "v": 2, "type": "response", "id": request["id"],
+                "result": {"status": "available", "release": document}
+            }),
+        )
+        .await
+        .expect("release reply");
+        writer.flush().await.expect("flush response");
+    };
+    let (output, ()) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::join!(child, exchange)
+    })
+    .await
+    .expect("join release handshake");
+    let output = output.expect("join process");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("service install failed"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let root = home.path().join(".oni");
+    assert_eq!(
+        std::fs::read_link(root.join("bin/current")).expect("old current"),
+        old
+    );
+    let pin: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join("machine-client/pin.json")).expect("old pin"),
+    )
+    .expect("pin json");
+    assert_eq!(pin["pinnedVersion"], "old");
+    let running: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(log).expect("original client restarted"))
+            .expect("version");
+    assert_eq!(running["version"], "old");
+}
+
+#[test]
+fn probe_checks_release_contract_without_connecting() {
+    let home = tempfile::tempdir().expect("home");
+    let release = release_fixture(home.path());
+    let path = release.to_str().expect("release path");
+    let accepted = mclient(&["probe", "--release", path, "--host-contract", "3"]);
+    assert_eq!(accepted.status.code(), Some(0));
+    let response: serde_json::Value = serde_json::from_slice(&accepted.stdout).expect("probe");
+    assert_eq!(response["status"], "compatible");
+    let refused = mclient(&["probe", "--release", path, "--host-contract", "2"]);
+    assert_eq!(refused.status.code(), Some(2));
+    let error: serde_json::Value = serde_json::from_slice(&refused.stderr).expect("refusal");
+    assert_eq!(error["class"], "probe_failed");
+}
+
+#[test]
+fn update_refusals_preserve_selection_and_record_class() {
+    let home = tempfile::tempdir().expect("home");
+    let (release, old) = update_fixture(home.path());
+    let source = release.to_str().expect("release");
+    let run = |path: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(["update", "--file", path])
+            .output()
+            .expect("update")
+    };
+    let missing = run(&home.path().join("missing.json").to_string_lossy());
+    assert_eq!(missing.status.code(), Some(2));
+    let error: serde_json::Value = serde_json::from_slice(&missing.stderr).expect("refusal");
+    assert_eq!(error["class"], "release_unavailable");
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&release).expect("release")).expect("json");
+    document["artifacts"][if cfg!(target_os = "macos") {
+        "darwin-universal"
+    } else if cfg!(target_arch = "aarch64") {
+        "linux-arm64"
+    } else {
+        "linux-x86_64"
+    }]["sha256"] = serde_json::json!("0".repeat(64));
+    std::fs::write(&release, document.to_string()).expect("corrupt digest");
+    let mismatch = run(source);
+    assert_eq!(mismatch.status.code(), Some(2));
+    let error: serde_json::Value = serde_json::from_slice(&mismatch.stderr).expect("refusal");
+    assert_eq!(error["class"], "checksum_mismatch");
+    assert_eq!(
+        std::fs::read_link(home.path().join(".oni/bin/current")).expect("current"),
+        old
+    );
+    let receipts = std::fs::read_to_string(home.path().join(".oni/machine-client/metrics.jsonl"))
+        .expect("receipts");
+    let entries = receipts
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("json"))
+        .collect::<Vec<_>>();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["class"], "release_unavailable");
+    assert_eq!(entries[1]["class"], "checksum_mismatch");
 }
 
 #[test]
@@ -23,6 +452,47 @@ fn version_prints_client_and_contract_version() {
         )
     );
     assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn version_json_reports_machine_consumed_identity() {
+    let output = mclient(&["--version", "--json"]);
+    assert_eq!(output.status.code(), Some(0));
+    let identity: serde_json::Value = serde_json::from_slice(&output.stdout).expect("identity");
+    assert_eq!(identity["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(identity["contractVersion"], oni_protocol::CONTRACT_VERSION);
+}
+
+#[test]
+fn run_requires_a_saved_pin_before_opening_a_connection() {
+    let directory = tempfile::tempdir().expect("isolated config");
+    let file = directory.path().join("client.json");
+    let output = mclient(&["run", "--config", file.to_str().expect("path")]);
+    assert_eq!(output.status.code(), Some(2));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("refusal");
+    assert_eq!(error["reason"], "unpinned_binary");
+    assert_eq!(error["class"], "unpinned_binary");
+}
+
+#[test]
+fn run_admits_a_saved_offline_pin_before_loading_config() {
+    let directory = tempfile::tempdir().expect("isolated config");
+    std::fs::write(
+        directory.path().join("pin.json"),
+        format!(
+            r#"{{"pinnedVersion":"{}","pinned":false}}"#,
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .expect("offline pin");
+    let file = directory.path().join("client.json");
+    let output = mclient(&["run", "--config", file.to_str().expect("path")]);
+    assert_eq!(output.status.code(), Some(2));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("refusal");
+    assert!(error["reason"]
+        .as_str()
+        .expect("reason")
+        .contains("configuration I/O"));
 }
 
 #[test]
@@ -43,7 +513,12 @@ fn join_requires_explicit_pin_or_tofu_for_network_host() {
 fn run_reports_missing_config() {
     let directory = tempfile::tempdir().expect("temporary config directory");
     let path = directory.path().join("absent.json");
-    let output = mclient(&["run", "--config", path.to_str().expect("path")]);
+    let output = mclient(&[
+        "run",
+        "--allow-unpinned",
+        "--config",
+        path.to_str().expect("path"),
+    ]);
     assert_eq!(output.status.code(), Some(2));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
     assert!(error["reason"]
@@ -59,7 +534,7 @@ fn no_arguments_reports_usage_and_exits_two() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("utf-8 stderr"),
-        "usage: mclient --version | join <host> | run\n"
+        "usage: mclient --version | join <host> | run | update | probe\n"
     );
     assert!(output.stdout.is_empty());
 }
@@ -115,10 +590,15 @@ fn join_unix_persists_private_identity_and_enrollment() {
     )));
     assert!(stdout.contains("offered capabilities: fs.read, fs.write, shell.exec"));
     #[cfg(target_os = "linux")]
-    assert!(stdout.ends_with("screen recording: unsupported\n"));
+    assert!(stdout.contains("screen recording: unsupported\n"));
     #[cfg(target_os = "macos")]
     assert!(stdout.contains("screen recording: the service requests it on first start"));
     let client = directory.path().join(".oni/machine-client");
+    let pin: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(client.join("pin.json")).expect("persisted pin"))
+            .expect("pin json");
+    assert_eq!(pin["pinnedVersion"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(pin["pinned"], false);
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(
         std::fs::metadata(&client)
@@ -390,7 +870,7 @@ fn join_installs_restarts_and_reports_manager_failure() {
         serde_json::from_str::<serde_json::Value>(stdout.lines().next().expect("receipt")).is_ok()
     );
     let lines = stdout.lines().skip(1).collect::<Vec<_>>();
-    assert_eq!(lines.len(), 4);
+    assert_eq!(lines.len(), 5);
     assert_eq!(
         lines[0],
         format!(
@@ -419,8 +899,14 @@ fn join_installs_restarts_and_reports_manager_failure() {
             oni_machine_client::handlers::SUPPORTED.join(", ")
         )
     );
+    let pin: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join(".oni/machine-client/pin.json")).expect("pin"),
+    )
+    .expect("pin json");
+    assert_eq!(pin["pinnedVersion"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(pin["pinned"], false);
     #[cfg(target_os = "linux")]
-    assert!(stdout.ends_with("screen recording: unsupported\n"));
+    assert_eq!(lines[3], "screen recording: unsupported");
     #[cfg(target_os = "macos")]
     assert!(stdout.contains("screen recording: the service requests it on first start"));
     #[cfg(target_os = "macos")]
@@ -428,7 +914,13 @@ fn join_installs_restarts_and_reports_manager_failure() {
     #[cfg(target_os = "linux")]
     let unit = service.join("oni-machine-client.service");
     let contents = std::fs::read_to_string(&unit).expect("service file");
-    assert!(contents.contains(env!("CARGO_BIN_EXE_mclient")));
+    assert!(contents.contains(
+        &directory
+            .path()
+            .join(".oni/bin/current")
+            .display()
+            .to_string()
+    ));
     assert!(contents.contains(
         &directory
             .path()
@@ -536,7 +1028,7 @@ fn join_installs_restarts_and_reports_manager_failure() {
     .is_ok());
     let error = String::from_utf8_lossy(&failed.stderr);
     assert!(error.contains("service install failed"), "{error}");
-    assert!(error.contains("rerun with --no-service"), "{error}");
+    assert!(error.contains("recovery:"), "{error}");
     assert!(error.contains(manager), "{error}");
     #[cfg(target_os = "linux")]
     assert!(error.contains("restart"), "{error}");
@@ -598,7 +1090,7 @@ fn run_without_config_reads_default_home_path() {
     let directory = tempfile::tempdir().expect("isolated home");
     let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
         .env("HOME", directory.path())
-        .arg("run")
+        .args(["run", "--allow-unpinned"])
         .output()
         .expect("mclient runs");
     assert_eq!(output.status.code(), Some(2));
@@ -618,7 +1110,12 @@ fn run_without_recorded_host_pin_exits_two() {
         r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null}"#,
     )
     .expect("config");
-    let output = mclient(&["run", "--config", path.to_str().expect("path")]);
+    let output = mclient(&[
+        "run",
+        "--allow-unpinned",
+        "--config",
+        path.to_str().expect("path"),
+    ]);
     assert_eq!(output.status.code(), Some(2));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
     assert!(error["reason"].as_str().expect("reason").starts_with("I/O"));

@@ -140,6 +140,8 @@ export const WireMethod = {
   /** Window-bound observation (#1689), gated by `computer.use`. */
   ScreenObserve: "machine.screen.observe",
   InputAction: "machine.input.action",
+  /** Client → host before any attach (#1696); answered with `ReleaseResult`. */
+  Release: "machine.release",
 } as const;
 
 /** Shared by Enrollment/Offer arrays and the machine.attached event payload. */
