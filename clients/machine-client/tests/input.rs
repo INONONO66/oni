@@ -2,9 +2,11 @@ use std::sync::{Arc, Mutex};
 
 use oni_machine_client::{
     input::{
+        delivery::Route,
         key,
         recorder::Recorder,
         Button::{Left, Middle, Right},
+        Driver,
         Event::{self, Button, Key, Move, Scroll, Text},
         Input, Key as K, Named,
     },
@@ -96,6 +98,42 @@ fn rig() -> Rig {
     }
 }
 
+struct RejectBeforePost(Recorder);
+impl Driver for RejectBeforePost {
+    fn permitted(&self) -> bool {
+        true
+    }
+    fn pid_delivery(&self) -> bool {
+        true
+    }
+    fn prepare(&mut self, _: Route, _: &[Event]) -> Result<(), String> {
+        Err("key absent from active keyboard layout".into())
+    }
+    fn inject(&mut self, event: &Event) -> Result<(), String> {
+        self.0.inject(event)
+    }
+    fn post_to_pid(&mut self, pid: u32, event: &Event) -> Result<(), String> {
+        self.0.post_to_pid(pid, event)
+    }
+}
+
+#[test]
+fn unsupported_modified_key_refuses_before_any_modifier_is_posted() {
+    let rig = rig();
+    let capture = rig.capture(1);
+    let recorder = Recorder::default();
+    let input = Input::new(RejectBeforePost(recorder.clone()));
+    let request: InputKeyRequest = decode(json!({
+        "delivery":"foreground","captureId":capture,"key":"x","action":"press",
+        "modifiers":{"shift":true}
+    }));
+    assert_eq!(
+        input.key(&rig.screen, &request)["reason"],
+        "unsupported_action"
+    );
+    assert!(recorder.events().is_empty());
+}
+
 fn decode<T: oni_protocol::WireRoot>(value: Value) -> T {
     oni_protocol::decode(value).expect("valid request")
 }
@@ -111,18 +149,21 @@ impl Rig {
         }
     }
 
-    fn pointer(&self, request: Value) -> Value {
+    fn pointer(&self, mut request: Value) -> Value {
+        request["delivery"] = json!("foreground");
         let request: InputPointerRequest = decode(request);
         self.input.pointer(&self.screen, &request)
     }
 
-    fn key(&self, request: Value) -> Value {
+    fn key(&self, mut request: Value) -> Value {
+        request["delivery"] = json!("foreground");
         let request: InputKeyRequest = decode(request);
         self.input.key(&self.screen, &request)
     }
 
     fn text(&self, capture: &str, text: &str) -> Value {
-        let request: InputTextRequest = decode(json!({"captureId":capture,"text":text}));
+        let request: InputTextRequest =
+            decode(json!({"captureId":capture,"text":text,"delivery":"foreground"}));
         self.input.text(&self.screen, &request)
     }
 
@@ -181,9 +222,10 @@ fn pointer_actions_translate_display_points_to_global_points() {
     assert_eq!(rig.pointer(still), ok());
     let hover = json!({"kind":"move","at":{"captureId":capture,"x":2,"y":3}});
     assert_eq!(rig.pointer(hover), ok());
-    let right = |down| Button {
+    let right = |down, click| Button {
         button: Right,
         down,
+        click,
     };
     assert_eq!(
         rig.recorder.events(),
@@ -193,10 +235,10 @@ fn pointer_actions_translate_display_points_to_global_points() {
                 y: 16,
                 reference: None
             },
-            right(true),
-            right(false),
-            right(true),
-            right(false),
+            right(true, 1),
+            right(false, 1),
+            right(true, 2),
+            right(false, 2),
             Move {
                 x: 179,
                 y: 49,
@@ -204,7 +246,8 @@ fn pointer_actions_translate_display_points_to_global_points() {
             },
             Button {
                 button: Middle,
-                down: true
+                down: true,
+                click: 1,
             },
             Move {
                 x: 100,
@@ -213,7 +256,8 @@ fn pointer_actions_translate_display_points_to_global_points() {
             },
             Button {
                 button: Left,
-                down: false
+                down: false,
+                click: 1,
             },
             Move {
                 x: 101,
@@ -298,7 +342,7 @@ fn a_vanished_or_unreadable_screen_refuses_before_any_injection() {
     let headless = Input::new(recorder.clone());
     let answer = headless.text(
         &Screen::absent(),
-        &decode(json!({"captureId":capture,"text":"x"})),
+        &decode(json!({"delivery":"foreground","captureId":capture,"text":"x"})),
     );
     assert_eq!(answer["reason"], "input_not_available");
     assert_eq!(recorder.events(), []);
@@ -320,7 +364,7 @@ fn a_withdrawn_or_absent_driver_injects_nothing() {
     rig.input.settle();
     let answer = absent.key(
         &rig.screen,
-        &decode(json!({"captureId":capture,"key":"a","action":"press"})),
+        &decode(json!({"delivery":"foreground","captureId":capture,"key":"a","action":"press"})),
     );
     assert_eq!(
         answer,
@@ -452,7 +496,11 @@ fn a_legacy_batch_runs_on_the_main_display_only() {
         y: 14,
         reference: None,
     };
-    let button = |button, down| Button { button, down };
+    let button = |button, down| Button {
+        button,
+        down,
+        click: 1,
+    };
     assert_eq!(
         rig.recorder.events(),
         [
@@ -531,11 +579,13 @@ fn a_driver_failure_releases_what_the_request_pressed() {
             },
             Button {
                 button: Left,
-                down: true
+                down: true,
+                click: 1,
             },
             Button {
                 button: Left,
-                down: false
+                down: false,
+                click: 1,
             },
         ]
     );
@@ -554,11 +604,11 @@ fn the_platform_driver_is_absent_without_a_display_server() {
 fn the_platform_driver_reflects_the_accessibility_grant() {
     use oni_machine_client::input::Driver;
     let platform = Input::platform();
-    let mapped = oni_machine_client::input::native::Native(fake::Fake::default());
+    let mapped = oni_machine_client::input::native::Native::default();
     assert_eq!(platform.available(), mapped.permitted());
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 mod fake {
     use std::sync::{Arc, Mutex};
 
@@ -626,7 +676,7 @@ mod fake {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 #[test]
 fn the_native_driver_maps_every_event_onto_enigo() {
     use enigo::{Axis, Coordinate, Direction};
@@ -635,6 +685,11 @@ fn the_native_driver_maps_every_event_onto_enigo() {
 
     let fake = Fake::default();
     let mut driver = native::Native(fake.clone());
+    assert!(!driver.pid_delivery());
+    assert_eq!(
+        driver.post_to_pid(42, &Text("x".into())),
+        Err("pid delivery is unavailable".into())
+    );
     let events = [
         Move {
             x: -5,
@@ -644,14 +699,17 @@ fn the_native_driver_maps_every_event_onto_enigo() {
         Button {
             button: Left,
             down: true,
+            click: 1,
         },
         Button {
             button: Right,
             down: false,
+            click: 1,
         },
         Button {
             button: Middle,
             down: true,
+            click: 1,
         },
         Scroll {
             horizontal: true,
@@ -700,7 +758,7 @@ fn the_native_driver_maps_every_event_onto_enigo() {
     assert!(refusing.permitted());
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 #[test]
 fn every_named_key_maps_onto_a_distinct_enigo_key() {
     use oni_machine_client::input::native;
@@ -746,7 +804,11 @@ fn held_keys_and_buttons_survive_requests_until_settled() {
         key: K::Named(Named::Shift),
         down,
     };
-    let left = |down| Button { button: Left, down };
+    let left = |down| Button {
+        button: Left,
+        down,
+        click: 1,
+    };
     let down = json!({"captureId":capture,"key":"Shift","action":"down"});
     assert_eq!(rig.key(down), ok());
     let press = json!({"kind":"button","at":{"captureId":capture,"x":1,"y":1},"button":"left","state":"down"});
@@ -777,4 +839,12 @@ fn held_keys_and_buttons_survive_requests_until_settled() {
         rig.recorder.events()[before - 2..],
         [shift(true), shift(false)]
     );
+    assert_eq!(
+        rig.key(json!({"captureId":capture,"key":"Shift","action":"down"})),
+        ok()
+    );
+    let before_failure = rig.recorder.events().len();
+    rig.recorder.fail(&[0]);
+    rig.input.settle();
+    assert_eq!(rig.recorder.events().len(), before_failure);
 }

@@ -4,6 +4,7 @@ import { Events as MachineEvents } from "./events.js";
 import * as Gateway from "./gateway.js";
 import * as Contract from "./contract.js";
 import * as Observe from "./observe.js";
+import * as App from "./app.js";
 
 /**
  * Machine domain (docs/machines-and-delegation.md): attached devices as the
@@ -11,6 +12,22 @@ import * as Observe from "./observe.js";
  * `machines` package; enrollment storage lives in the ledger.
  */
 export namespace Machine {
+  export const AppLaunchRequest = App.AppLaunchRequest;
+  export type AppLaunchRequest = App.AppLaunchRequest;
+  export const AppLaunchResult = App.AppLaunchResult;
+  export type AppLaunchResult = App.AppLaunchResult;
+  export const AppQuitRequest = App.AppQuitRequest;
+  export type AppQuitRequest = App.AppQuitRequest;
+  export const AppQuitResult = App.AppQuitResult;
+  export type AppQuitResult = App.AppQuitResult;
+  export const WindowCloseRequest = App.WindowCloseRequest;
+  export type WindowCloseRequest = App.WindowCloseRequest;
+  export const WindowCloseResult = App.WindowCloseResult;
+  export type WindowCloseResult = App.WindowCloseResult;
+  export const WindowParkRequest = App.WindowParkRequest;
+  export type WindowParkRequest = App.WindowParkRequest;
+  export const WindowParkResult = App.WindowParkResult;
+  export type WindowParkResult = App.WindowParkResult;
   export const contractVersion = Contract.contractVersion;
   export const supportedContractVersions = Contract.supportedContractVersions;
   export const Info = Gateway.Info;

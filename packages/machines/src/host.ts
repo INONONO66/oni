@@ -129,13 +129,16 @@ export interface MachineHandle {
   readonly computer?: ComputerHandle;
 }
 /** Computer-use wire methods (#1662) the host originates. */
-type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"];
+type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
+type LifecycleMethod = (typeof Machine.WireMethod)["AppLaunch" | "AppQuit" | "WindowClose" | "WindowPark"];
+type LifecycleParams = Machine.AppLaunchRequest | Machine.AppQuitRequest | Machine.WindowCloseRequest | Machine.WindowParkRequest;
+type LifecycleResult = Machine.AppLaunchResult | Machine.AppQuitResult | Machine.WindowCloseResult | Machine.WindowParkResult;
 type InputMethod = (typeof Machine.WireMethod)["InputPointer" | "InputKey" | "InputText"];
 type InputParams = Machine.InputPointerRequest | Machine.InputKeyRequest | Machine.InputTextRequest;
-type CapturedMethod = InputMethod | (typeof Machine.WireMethod)["ScreenObserve" | "InputAction"];
-type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.InputActionRequest;
+type CapturedMethod = InputMethod | (typeof Machine.WireMethod)["ScreenObserve" | "InputAction"] | LifecycleMethod;
+type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.InputActionRequest | LifecycleParams;
 /** What a captured call answers when it was forwarded (#1689 adds observation). */
-export type CapturedResult = Machine.InputWriteResult | Machine.ScreenObserveResult;
+export type CapturedResult = Machine.InputWriteResult | Machine.ScreenObserveResult | LifecycleResult;
 /** The capture port's own refusal, valid in every captured answer vocabulary. */
 export interface CaptureRefusal { readonly status: "refused"; readonly reason: "permission_denied"; readonly message?: string }
 /** What the captured-input port records: the exact call the host would forward. */
@@ -174,6 +177,14 @@ export interface ComputerChannel {
 }
 type ComputerCapture = Exclude<Machine.ScreenCaptureResult, { status: "ok" }> | (Omit<Extract<Machine.ScreenCaptureResult, { status: "ok" }>, "data"> & { readonly data: Buffer });
 export interface ComputerHandle {
+  readonly app: {
+    launch(request: Machine.AppLaunchRequest): Effect.Effect<Machine.AppLaunchResult, MachineError>;
+    quit(request: Machine.AppQuitRequest): Effect.Effect<Machine.AppQuitResult, MachineError>;
+  };
+  readonly window: {
+    close(request: Machine.WindowCloseRequest): Effect.Effect<Machine.WindowCloseResult, MachineError>;
+    park(request: Machine.WindowParkRequest): Effect.Effect<Machine.WindowParkResult, MachineError>;
+  };
   list(request?: Machine.ScreenListRequest): Effect.Effect<Machine.ScreenListResult, MachineError>;
   capture(request: Machine.ScreenCaptureRequest): Effect.Effect<ComputerCapture, MachineError>;
   pointer(request: Machine.InputPointerRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
@@ -922,10 +933,10 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     function decode<S extends z.ZodType>(schema: S, raw: Ipc.Response["result"], operation: string): Effect.Effect<z.output<S>, MachineError> {
       return Effect.try({ try: () => schema.parse(raw), catch: decodeMachineFailure(operation) });
     }
-    function computerCall<M extends ComputerMethod, S extends z.ZodType>(peer: Attachment, method: M, params: Ipc.Request["params"], schema: S): Effect.Effect<z.output<S>, MachineError> {
+    function computerCall<M extends ComputerMethod, S extends z.ZodType>(peer: Attachment, method: M, params: Ipc.Request["params"], schema: S, timeoutMs = Machine.EXEC_TIMEOUT_MS + 1000): Effect.Effect<z.output<S>, MachineError> {
       return Effect.suspend(() => {
         peer.server.useConnection(peer.rawId);
-        return peer.server.call(method, params, Machine.EXEC_TIMEOUT_MS + 1000);
+        return peer.server.call(method, params, timeoutMs);
       }).pipe(Effect.mapError(transportFailure(`${method}.call`)), Effect.flatMap((raw) => decode(schema, raw, `${method}.response`)));
     }
     function attached(id: string, operation: string): Effect.Effect<Attachment, MachineError> {
@@ -955,15 +966,21 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       const peer = key === undefined ? undefined : attachments.get(key);
       return options.captureInput({ machineId: id, generation: peer?.generation ?? null, method, params }, forwardCaptured(id, peer, method, refuse, send));
     }
-    function input<M extends InputMethod>(id: string, method: M, schema: z.ZodType<InputParams>, request: InputParams): Effect.Effect<Machine.InputWriteResult, MachineError> {
+    function input<M extends InputMethod>(id: string, method: M, schema: z.ZodType<Machine.InputKeyRequest | Machine.InputTextRequest>, request: Machine.InputKeyRequest | Machine.InputTextRequest): Effect.Effect<Machine.InputWriteResult, MachineError> {
       return Effect.try({ try: () => schema.parse(request), catch: decodeMachineFailure(`${method}.request`) }).pipe(
-        Effect.flatMap((params) => captured(id, method, params, inputRefusal, (peer) => computerCall(peer, method, params, Machine.InputWriteResult))),
+        Effect.flatMap((params) => captured(id, method, params, inputRefusal, (peer) => {
+          if (answersObservation(peer.offer)) return computerCall(peer, method, params, Machine.InputWriteResult);
+          if (params.delivery !== "foreground") return Effect.succeed({ status: "refused", reason: "foreground_required" } as const);
+          const { delivery: _delivery, target: _target, ...legacy } = params;
+          return computerCall(peer, method, legacy, Machine.InputWriteResult);
+        })),
       );
     }
     /** A contract-2 peer reads the flat capture form and answers no element form. */
     function pointer(id: string, request: Machine.InputPointerRequest): Effect.Effect<Machine.InputWriteResult, MachineError> {
       const method = Machine.WireMethod.InputPointer;
       return decode(Machine.InputPointerRequest, request, `${method}.request`).pipe(Effect.flatMap((params) => captured(id, method, params, inputRefusal, (peer) => {
+        if (!answersObservation(peer.offer) && params.delivery !== "foreground") return Effect.succeed({ status: "refused", reason: "foreground_required" } as const);
         const legacy = answersObservation(peer.offer) ? params : legacyPointer(params);
         return legacy === undefined ? Effect.succeed(OBSERVE_NOT_AVAILABLE) : computerCall(peer, method, legacy, Machine.InputWriteResult);
       })));
@@ -978,6 +995,15 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         const grant = computerGrant(id, peer);
         return grant === "granted" ? peer : grant;
       }));
+    }
+
+    function lifecycle<P extends LifecycleParams, R extends LifecycleResult>(id: string, method: LifecycleMethod, schema: z.ZodType<P>, request: P, answer: z.ZodType<R>): Effect.Effect<R | CaptureRefusal | Extract<LifecycleResult, { status: "refused" }>, MachineError> {
+      const refused = (grant: "permission_denied" | "not_available") => ({ status: "refused", reason: grant === "permission_denied" ? grant : "machine_not_attached" }) as const;
+      return decode(schema, request, `${method}.request`).pipe(Effect.flatMap((params) => captured<R | Extract<LifecycleResult, { status: "refused" }>>(id, method, params, refused, (peer) => {
+        if (!answersObservation(peer.offer)) return Effect.succeed({ status: "refused", reason: "unsupported", blocker: "platform" } as const);
+        const timeout = "app" in params ? Math.min(30_000, Math.max(1, params.timeoutMs ?? 10_000)) + 1000 : 3000;
+        return computerCall(peer, method, params, answer, timeout);
+      })));
     }
     /** One sequence step shared by both relay kinds: repeat of the last accepted seq is idempotent. */
     function advance(relay: Relay, seq: number): "fresh" | "repeat" | "gap" {
@@ -1144,6 +1170,14 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     }
     function computerHandle(id: string): ComputerHandle {
       return {
+        app: {
+          launch: (request) => lifecycle(id, Machine.WireMethod.AppLaunch, Machine.AppLaunchRequest, request, Machine.AppLaunchResult),
+          quit: (request) => lifecycle(id, Machine.WireMethod.AppQuit, Machine.AppQuitRequest, request, Machine.AppQuitResult),
+        },
+        window: {
+          close: (request) => lifecycle(id, Machine.WireMethod.WindowClose, Machine.WindowCloseRequest, request, Machine.WindowCloseResult),
+          park: (request) => lifecycle(id, Machine.WireMethod.WindowPark, Machine.WindowParkRequest, request, Machine.WindowParkResult),
+        },
         list: (request = {}) => Effect.gen(function* () {
           const params = yield* decode(Machine.ScreenListRequest, request, "screen.list.request");
           const peer = yield* screenGate(id, "screen.list.connection");

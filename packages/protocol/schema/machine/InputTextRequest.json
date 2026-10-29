@@ -7,6 +7,39 @@
       "minLength": 1,
       "type": "string"
     },
+    "delivery": {
+      "default": "background",
+      "enum": [
+        "background",
+        "foreground"
+      ],
+      "type": "string"
+    },
+    "target": {
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pid": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "windowId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pid",
+        "windowId"
+      ],
+      "type": "object"
+    },
     "text": {
       "maxLength": 10000,
       "minLength": 1,
@@ -15,7 +48,8 @@
   },
   "required": [
     "captureId",
-    "text"
+    "text",
+    "delivery"
   ],
   "type": "object"
 }

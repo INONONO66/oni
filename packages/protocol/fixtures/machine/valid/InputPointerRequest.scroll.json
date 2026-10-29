@@ -6,5 +6,6 @@
     "y": 10
   },
   "deltaX": 0,
-  "deltaY": -10000
+  "deltaY": -10000,
+  "delivery": "foreground"
 }

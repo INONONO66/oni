@@ -124,6 +124,7 @@ fn window_at(window_id: u32, token: u64) -> WindowIdentity {
         },
         token,
         origin: (100, 50),
+        minimized: false,
     }
 }
 
@@ -219,6 +220,7 @@ fn refusals_map_faults_and_render_both_wire_reasons() {
         (Refusal::EpochChanged, "epoch_changed", "epoch_changed"),
         (Refusal::Stale, "stale_observation", "stale_observation"),
         (Refusal::RefNotFound, "observe_failed", "ref_not_found"),
+        (Refusal::OffScreen, "observe_failed", "invalid_region"),
         (
             Refusal::Unsupported,
             "observe_failed",

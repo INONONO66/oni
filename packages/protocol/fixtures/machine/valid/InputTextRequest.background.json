@@ -1,0 +1,10 @@
+{
+  "captureId": "cap-1",
+  "text": "hello",
+  "delivery": "background",
+  "target": {
+    "pid": 42,
+    "windowId": 9,
+    "epoch": 0
+  }
+}

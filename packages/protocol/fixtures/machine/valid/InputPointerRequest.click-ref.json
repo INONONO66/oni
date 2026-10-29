@@ -5,5 +5,6 @@
     "ref": "AXGroup[0]/AXButton[1]"
   },
   "button": "left",
-  "count": 1
+  "count": 1,
+  "delivery": "foreground"
 }

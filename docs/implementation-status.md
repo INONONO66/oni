@@ -164,6 +164,34 @@ The npm artifact remains platform-independent and does not contain
 location before booting. The Resident service command `oni daemon` is
 separate from the machine client.
 
+## #1690 background delivery and window lifecycle (machine contract 3, PR pending)
+
+On `feat/1690-background-delivery` (2026-10-29, stacked base `a2a7d1092`).
+The protocol adds default-background pointer/key/text delivery, optional
+key/text window targets, capture refusal reasons, and launch/quit/close/park
+methods. `clients/machine-client/src/input/delivery.rs` classifies whole
+plans before dispatch; the macOS adapter posts tagged events to HID or one
+PID, while Linux retains foreground XTEST. Failure and detach cleanup keep
+the original input route.
+
+`src/app/` implements bounded completion and PID window discovery, a
+headless launcher, and asynchronous NSWorkspace launch without activation
+or hiding. Window lifecycle reuses the #1689 epoch table and AX observer.
+`src/screen/{blank,pool}.rs` adds blank-frame detection and same-window
+capture supersession; window capture refuses minimized and excluded owners.
+`computer.excludedOwners` accepts bundle IDs and paths.
+
+The host and codemode expose `computer.app.launch/quit` and
+`computer.window.close/park`, all through the captured operation port.
+Headless conformance asserts PID-targeted recorder rows, background pointer
+refusal, and lifecycle receipts. The macOS ignored `native_occlusion` test
+builds a fixture with two overlapping windows and verifies that the covered
+window's own pattern is captured.
+
+Grant-dependent acceptance remains #1702. Windows adapters and
+ScreenCaptureKit remain #1700. Cleanup policy and keep records remain #1697.
+Contract details: `docs/machines-and-delegation.md` 2.2.3.
+
 ## #1689 window-bound observation and ref-targeted actions (machine contract 3, PR pending)
 
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target

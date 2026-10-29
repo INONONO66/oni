@@ -10,6 +10,7 @@ pub struct Fixture {
     pub windows: Vec<Window>,
     pub denied: bool,
     pub failure: Option<String>,
+    pub blank_windows: Vec<u32>,
 }
 
 impl Fixture {
@@ -87,6 +88,10 @@ impl Source for Fixture {
     fn capture_window(&self, window: u32, out: &mut Vec<u8>) -> Result<(u32, u32), Fault> {
         let found = self.windows.iter().find(|candidate| candidate.id == window);
         let found = found.ok_or(Fault::WindowNotFound)?;
-        self.frame(found.width.max(1), found.height.max(1), window, out)
+        let size = self.frame(found.width.max(1), found.height.max(1), window, out)?;
+        if self.blank_windows.contains(&window) {
+            out.fill(0);
+        }
+        Ok(size)
     }
 }

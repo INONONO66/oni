@@ -428,6 +428,48 @@ impl Service {
     /// The `agent.*` methods; anything else falls through to the P3 machine methods.
     async fn agent_dispatch(&self, method: WireMethod, params: Value) -> Result<Value, String> {
         match method {
+            WireMethod::MachineAppLaunch => {
+                let request: oni_protocol::AppLaunchRequest = decode(params)?;
+                let screen = self.screen.clone();
+                self.capture(COMPUTER_USE, "permission_denied", move || {
+                    crate::app::launch(&screen, &request)
+                })
+                .await
+            }
+            WireMethod::MachineAppQuit => {
+                let request: oni_protocol::AppQuitRequest = decode(params)?;
+                let screen = self.screen.clone();
+                self.capture(COMPUTER_USE, "permission_denied", move || {
+                    crate::app::quit(&screen, request.pid.get() as u32)
+                })
+                .await
+            }
+            WireMethod::MachineWindowClose => {
+                let request: oni_protocol::WindowCloseRequest = decode(params)?;
+                let target = crate::screen::observe::target(
+                    request.target.pid.get(),
+                    request.target.window_id,
+                    Some(request.target.epoch),
+                );
+                let screen = self.screen.clone();
+                self.capture(COMPUTER_USE, "permission_denied", move || {
+                    crate::app::window(&screen, target, false)
+                })
+                .await
+            }
+            WireMethod::MachineWindowPark => {
+                let request: oni_protocol::WindowParkRequest = decode(params)?;
+                let target = crate::screen::observe::target(
+                    request.target.pid.get(),
+                    request.target.window_id,
+                    Some(request.target.epoch),
+                );
+                let screen = self.screen.clone();
+                self.capture(COMPUTER_USE, "permission_denied", move || {
+                    crate::app::window(&screen, target, true)
+                })
+                .await
+            }
             WireMethod::AgentSessionList => self.agent_list(decode(params)?).await,
             WireMethod::AgentSessionOpen => self.agent_open(decode(params)?).await,
             WireMethod::AgentSessionTail => self.agent_tail(decode(params)?).await,

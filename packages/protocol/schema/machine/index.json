@@ -70,6 +70,22 @@
       "name": "AppIdentity"
     },
     {
+      "file": "AppLaunchRequest.json",
+      "name": "AppLaunchRequest"
+    },
+    {
+      "file": "AppLaunchResult.json",
+      "name": "AppLaunchResult"
+    },
+    {
+      "file": "AppQuitRequest.json",
+      "name": "AppQuitRequest"
+    },
+    {
+      "file": "AppQuitResult.json",
+      "name": "AppQuitResult"
+    },
+    {
       "file": "AttachResult.json",
       "name": "AttachResult"
     },
@@ -456,6 +472,22 @@
     {
       "file": "ToolCallResult.json",
       "name": "ToolCallResult"
+    },
+    {
+      "file": "WindowCloseRequest.json",
+      "name": "WindowCloseRequest"
+    },
+    {
+      "file": "WindowCloseResult.json",
+      "name": "WindowCloseResult"
+    },
+    {
+      "file": "WindowParkRequest.json",
+      "name": "WindowParkRequest"
+    },
+    {
+      "file": "WindowParkResult.json",
+      "name": "WindowParkResult"
     },
     {
       "file": "WindowTarget.json",

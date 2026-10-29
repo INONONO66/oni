@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { type Ipc, Machine } from "@oni/protocol";
 import { Effect } from "effect";
-import type { ChannelListeners, MachineInputCapture, RelayEnd, StreamListeners } from "../src";
+import { z } from "zod";
+import type { ChannelListeners, ComputerHandle, MachineError, MachineInputCapture, RelayEnd, StreamListeners } from "../src";
 import { createMachineHost } from "./helpers/native";
 import { eventCollector } from "./helpers/events";
 import { socketPath } from "./helpers/socket-path";
@@ -17,7 +18,7 @@ const offerOf = (capabilities: readonly string[], generation?: number, contractV
   peer: { kind: "client", contractVersion }, offeredCapabilities: [...capabilities],
   ...(generation === undefined ? {} : { generation }),
 });
-const pointer: Machine.InputPointerRequest = { kind: "click", at: { captureId: "cap-1", x: 10, y: 20 }, button: "left", count: 1 };
+const pointer: Machine.InputPointerRequest = { delivery: "foreground", kind: "click", at: { captureId: "cap-1", x: 10, y: 20 }, button: "left", count: 1 };
 const streamRequest = {
   source: { kind: "display", display: 1 },
   video: { maxFps: 30, keyframeIntervalMs: 2000, maxBitrateBps: 1_000_000, maxDimension: 1280, maxFrameBytes: 65_536 },
@@ -177,8 +178,8 @@ test("typed input forwards only through the capture port and passes refusals thr
     expect(await run(computer.text({ captureId: "cap-1", text: "hello" }))).toEqual({ status: "ok" });
     expect(captured).toEqual([
       { machineId: "desk", generation: 1, method: Machine.WireMethod.InputPointer, params: pointer },
-      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputKey, params: { captureId: "old", key: "Return", action: "press", modifiers: { meta: true } } },
-      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputText, params: { captureId: "cap-1", text: "hello" } },
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputKey, params: { delivery: "background", captureId: "old", key: "Return", action: "press", modifiers: { meta: true } } },
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputText, params: { delivery: "background", captureId: "cap-1", text: "hello" } },
     ]);
     expect(inputs(desk.received).map((entry) => entry.method)).toEqual([Machine.WireMethod.InputPointer, Machine.WireMethod.InputKey, Machine.WireMethod.InputText]);
   } finally { await f.close(); }
@@ -414,8 +415,8 @@ test("refused and disconnected input is still captured as tool.pre before it is 
     await detached;
     expect(await run(Effect.flip(computer.text({ captureId: "cap-1", text: "hi" })))).toMatchObject({ _tag: "MachineRefusalError", reason: "disconnected" });
     expect(captured).toEqual([
-      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputText, params: { captureId: "cap-1", text: "hi" } },
-      { machineId: "desk", generation: null, method: Machine.WireMethod.InputText, params: { captureId: "cap-1", text: "hi" } },
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputText, params: { delivery: "background", captureId: "cap-1", text: "hi" } },
+      { machineId: "desk", generation: null, method: Machine.WireMethod.InputText, params: { delivery: "background", captureId: "cap-1", text: "hi" } },
     ]);
     expect(inputs(desk.received)).toEqual([]);
   } finally { await f.close(); }
@@ -522,7 +523,7 @@ test("observe and action refuse a withheld grant, a missing display and a contra
     expect(await run(older.machine().observe(observeRequest))).toEqual(unavailable);
     expect(await run(older.machine().action(actionRequest))).toEqual(unavailable);
     expect(observations(desk.received)).toEqual([]);
-    expect(await run(older.machine().pointer({ kind: "click", at: { observationId: "o1", ref: "AXButton[0]" }, button: "left", count: 1 }))).toEqual(unavailable);
+    expect(await run(older.machine().pointer({ delivery: "foreground", kind: "click", at: { observationId: "o1", ref: "AXButton[0]" }, button: "left", count: 1 }))).toEqual(unavailable);
     expect(inputs(desk.received)).toEqual([]);
     expect(await run(older.machine().pointer(pointer))).toEqual({ status: "ok" });
     expect(inputs(desk.received)).toEqual([{ method: Machine.WireMethod.InputPointer, params: { kind: "click", captureId: "cap-1", x: 10, y: 20, button: "left", count: 1 } }]);
@@ -539,5 +540,68 @@ test("malformed observe and action requests fail before capture", async () => {
     expect(await run(Effect.flip(f.machine().observe(badObserve)))).toMatchObject({ _tag: "MachinesFailure" });
     expect(await run(Effect.flip(f.machine().action(badAction)))).toMatchObject({ _tag: "MachinesFailure" });
     expect(captured).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("lifecycle methods are captured and refuse absent grants and old peers", async () => {
+  const target = { pid: 42, windowId: 7, epoch: 0 };
+  type Answer = Machine.AppLaunchResult | Machine.AppQuitResult | Machine.WindowCloseResult | Machine.WindowParkResult;
+  const operations: { method: MachineInputCapture["method"]; call: (computer: ComputerHandle) => Effect.Effect<Answer, MachineError>; answer: Answer }[] = [
+    { method: Machine.WireMethod.AppLaunch, call: (c: ComputerHandle) => c.app.launch({ app: { bundleId: "org.oni.fixture" }, activate: false }), answer: { status: "ok", pid: 42, windows: [target] } },
+    { method: Machine.WireMethod.AppQuit, call: (c: ComputerHandle) => c.app.quit({ pid: 42 }), answer: { status: "ok", exited: true } },
+    { method: Machine.WireMethod.WindowClose, call: (c: ComputerHandle) => c.window.close({ target }), answer: { status: "ok", closed: true } },
+    { method: Machine.WireMethod.WindowPark, call: (c: ComputerHandle) => c.window.park({ target }), answer: { status: "ok", parked: false } },
+  ];
+  for (const scenario of ["ok", "absent", "denied", "old"] as const) {
+    const captured: MachineInputCapture[] = [];
+    const f = await fixture({ captureInput: (request, forward) => { captured.push(request); return forward; } });
+    try {
+      const responses = Object.fromEntries(operations.map((op) => [op.method, () => op.answer]));
+      const peer = await f.peer(scenario === "absent" ? [] : [COMPUTER], responses, undefined, scenario === "old" ? 2 : 3);
+      if (scenario === "denied") f.grants.allowed = [];
+      for (const operation of operations) {
+        const expected: Answer = scenario === "ok" ? operation.answer : {
+          status: "refused",
+          reason: scenario === "absent" ? "machine_not_attached" : scenario === "denied" ? "permission_denied" : "unsupported",
+          ...(scenario === "old" ? { blocker: "platform" } : {}),
+        };
+        const result: Answer = await run(operation.call(f.machine()));
+        expect(result).toEqual(expected);
+      }
+      expect(captured.map((entry) => entry.method)).toEqual(operations.map((op) => op.method));
+      expect(peer.received.map((entry) => entry.method)).toEqual(scenario === "ok" ? operations.map((op) => op.method) : []);
+    } finally { await f.close(); }
+  }
+});
+
+test("contract two input never upgrades background requests to global input", async () => {
+  const captured: MachineInputCapture[] = [];
+  const f = await fixture({ captureInput: (request, forward) => { captured.push(request); return forward; } });
+  try {
+    const peer = await f.peer([COMPUTER], {
+      [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }),
+      [Machine.WireMethod.InputKey]: () => ({ status: "ok" }),
+      [Machine.WireMethod.InputText]: () => ({ status: "ok" }),
+    }, undefined, 2);
+    expect(await run(f.machine().pointer({ ...pointer, delivery: "background" }))).toEqual({ status: "refused", reason: "foreground_required" });
+    expect(await run(f.machine().key({ captureId: "cap-1", key: "a", action: "press" }))).toEqual({ status: "refused", reason: "foreground_required" });
+    expect(await run(f.machine().pointer(pointer))).toEqual({ status: "ok" });
+    expect(await run(f.machine().text({ delivery: "foreground", captureId: "cap-1", text: "x" }))).toEqual({ status: "ok" });
+    const target = { pid: 42, windowId: 7, epoch: 0 };
+    const key = { delivery: "foreground", captureId: "cap-1", key: "a", action: "press", target } as const;
+    const text = { delivery: "foreground", captureId: "cap-1", text: "targeted", target } as const;
+    expect(await run(f.machine().key(key))).toEqual({ status: "ok" });
+    expect(await run(f.machine().text(text))).toEqual({ status: "ok" });
+    expect(captured.slice(-2).map((entry) => entry.params)).toEqual([key, text]);
+    const oldKey = z.strictObject({ captureId: z.string(), key: z.string(), action: z.string() });
+    const oldText = z.strictObject({ captureId: z.string(), text: z.string() });
+    expect(oldKey.safeParse(peer.received.at(-2)?.params).success).toBe(true);
+    expect(oldText.safeParse(peer.received.at(-1)?.params).success).toBe(true);
+    expect(peer.received).toEqual([
+      { method: Machine.WireMethod.InputPointer, params: { kind: "click", captureId: "cap-1", x: 10, y: 20, button: "left", count: 1 } },
+      { method: Machine.WireMethod.InputText, params: { captureId: "cap-1", text: "x" } },
+      { method: Machine.WireMethod.InputKey, params: { captureId: "cap-1", key: "a", action: "press" } },
+      { method: Machine.WireMethod.InputText, params: { captureId: "cap-1", text: "targeted" } },
+    ]);
   } finally { await f.close(); }
 });

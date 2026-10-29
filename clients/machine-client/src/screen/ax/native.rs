@@ -184,7 +184,7 @@ fn bundle_identifier(root: &str) -> Option<String> {
 
 fn identity(window: &XWindow) -> Option<WindowIdentity> {
     let pid = window.pid().ok()?;
-    Some(WindowIdentity {
+    let mut identity = WindowIdentity {
         pid,
         window_id: window.id().ok()?,
         owner_pid: pid,
@@ -192,7 +192,17 @@ fn identity(window: &XWindow) -> Option<WindowIdentity> {
         app: app(pid)?,
         token: 0,
         origin: (window.x().ok()?.into(), window.y().ok()?.into()),
-    })
+        minimized: false,
+    };
+    identity.minimized = root(&identity)
+        .ok()
+        .flatten()
+        .and_then(|root| match root.values(&["AXMinimized"]).ok()?.pop()? {
+            Raw::Flag(flag) => Some(flag),
+            _ => None,
+        })
+        .unwrap_or(false);
+    Some(identity)
 }
 
 fn root(window: &WindowIdentity) -> Result<Option<Element>, Fault> {
@@ -242,6 +252,36 @@ fn opened(window: &WindowIdentity) -> Result<(Vec<Element>, (f64, f64)), Fault> 
 }
 
 impl Observer for Native {
+    fn lifecycle(&self, window: &WindowIdentity, park: bool) -> Result<(), ActFault> {
+        if !trusted() {
+            return Err(ActFault::Permission);
+        }
+        let root = root(window)
+            .map_err(ActFault::from)?
+            .ok_or(ActFault::NotFound)?;
+        if park {
+            // SAFETY: the PID fits pid_t and the created application is retained until the setter returns.
+            let application = unsafe {
+                CFType::wrap_under_create_rule(AXUIElementCreateApplication(
+                    i32::try_from(window.pid).map_err(|_| ActFault::NotFound)?,
+                ) as CFTypeRef)
+            };
+            let name = CFString::new("AXHidden");
+            // SAFETY: application, attribute and boolean are live CF values of the required types.
+            return performed(unsafe {
+                AXUIElementSetAttributeValue(
+                    application.as_CFTypeRef() as AXUIElementRef,
+                    name.as_concrete_TypeRef(),
+                    CFBoolean::true_value().as_CFTypeRef(),
+                )
+            });
+        }
+        let close = items(root.values(&["AXCloseButton"])?.pop())?
+            .into_iter()
+            .next()
+            .ok_or(ActFault::Unsupported)?;
+        performed(perform(&close, &Action::Press))
+    }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         if !trusted() {
             return Err(Fault::Permission);

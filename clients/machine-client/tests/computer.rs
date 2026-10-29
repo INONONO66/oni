@@ -65,29 +65,31 @@ fn fixture_block_serves_frames_and_records_input() {
     );
     let capture = frame["captureId"].as_str().expect("capture id").to_owned();
     let pointer: InputPointerRequest = oni_protocol::decode(
-        json!({ "kind": "click", "at":{"captureId": capture, "x": 4, "y": 5}, "button": "right", "count": 1 }),
+        json!({ "delivery": "foreground", "kind": "click", "at":{"captureId": capture, "x": 4, "y": 5}, "button": "right", "count": 1 }),
     )
     .expect("pointer request");
     assert_eq!(input.pointer(&screen, &pointer)["status"], "ok");
     let key: InputKeyRequest = oni_protocol::decode(
-        json!({ "captureId": capture, "key": "F5", "action": "press", "modifiers": { "shift": true } }),
+        json!({ "delivery": "foreground", "captureId": capture, "key": "F5", "action": "press", "modifiers": { "shift": true } }),
     )
     .expect("key request");
     assert_eq!(input.key(&screen, &key)["status"], "ok");
-    let text: InputTextRequest =
-        oni_protocol::decode(json!({ "captureId": capture, "text": "hi" })).expect("text request");
+    let text: InputTextRequest = oni_protocol::decode(
+        json!({ "delivery": "foreground", "captureId": capture, "text": "hi" }),
+    )
+    .expect("text request");
     assert_eq!(input.text(&screen, &text)["status"], "ok");
     assert_eq!(
         lines(&directory.path().join("input.jsonl")),
         vec![
-            json!({ "event": "move", "x": 324, "y": 5 }),
-            json!({ "event": "button", "button": "right", "down": true }),
-            json!({ "event": "button", "button": "right", "down": false }),
-            json!({ "event": "key", "key": "Shift", "down": true }),
-            json!({ "event": "key", "key": "F5", "down": true }),
-            json!({ "event": "key", "key": "F5", "down": false }),
-            json!({ "event": "key", "key": "Shift", "down": false }),
-            json!({ "event": "text", "text": "hi" }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "move", "x": 324, "y": 5 }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "button", "button": "right", "down": true }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "button", "button": "right", "down": false }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "key", "key": "Shift", "down": true }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "key", "key": "F5", "down": true }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "key", "key": "F5", "down": false }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "key", "key": "Shift", "down": false }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "text", "text": "hi" }),
         ]
     );
 }
@@ -140,14 +142,16 @@ fn recorder_names_every_event_and_refuses_an_unwritable_file() {
     assert_eq!(
         computer::record(&Event::Button {
             button: Button::Left,
-            down: true
+            down: true,
+            click: 1,
         })["button"],
         "left"
     );
     assert_eq!(
         computer::record(&Event::Button {
             button: Button::Middle,
-            down: false
+            down: false,
+            click: 1,
         })["button"],
         "middle"
     );
@@ -156,7 +160,7 @@ fn recorder_names_every_event_and_refuses_an_unwritable_file() {
             horizontal: true,
             delta: -3
         }),
-        json!({ "event": "scroll", "horizontal": true, "delta": -3 })
+        json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "scroll", "horizontal": true, "delta": -3 })
     );
     assert_eq!(
         computer::record(&Event::Key {
@@ -272,7 +276,7 @@ fn fixture_windows_observe_diff_and_act_by_ref() {
         ]
     );
     let click = |observation: &Value| {
-        let request: InputPointerRequest = oni_protocol::decode(json!({ "kind": "click",
+        let request: InputPointerRequest = oni_protocol::decode(json!({ "delivery": "foreground", "kind": "click",
             "at": { "observationId": observation, "ref": "AXButton[0]" }, "button": "left", "count": 1 }))
         .expect("pointer request");
         input.pointer(&screen, &request)
@@ -285,9 +289,9 @@ fn fixture_windows_observe_diff_and_act_by_ref() {
     assert_eq!(
         lines(&directory.path().join("input.jsonl"))[3..],
         [
-            json!({ "event": "move", "x": 32, "y": 29, "ref": "AXButton[0]" }),
-            json!({ "event": "button", "button": "left", "down": true }),
-            json!({ "event": "button", "button": "left", "down": false }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "move", "x": 32, "y": 29, "ref": "AXButton[0]" }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "button", "button": "left", "down": true }),
+            json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "button", "button": "left", "down": false }),
         ]
     );
     let mut layout: Value = serde_json::from_str(

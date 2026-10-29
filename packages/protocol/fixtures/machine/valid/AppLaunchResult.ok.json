@@ -1,0 +1,11 @@
+{
+  "status": "ok",
+  "pid": 42,
+  "windows": [
+    {
+      "pid": 42,
+      "windowId": 9,
+      "epoch": 0
+    }
+  ]
+}

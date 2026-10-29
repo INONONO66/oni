@@ -82,7 +82,11 @@
             "read_failed",
             "probe_timeout",
             "display_not_found",
-            "window_not_found"
+            "window_not_found",
+            "window_minimized",
+            "capture_blank",
+            "own_window",
+            "superseded"
           ],
           "type": "string"
         },

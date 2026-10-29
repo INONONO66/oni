@@ -64,20 +64,23 @@ const WindowRow = z
 const Layout = z.object({ displays: z.array(DisplayRow), windows: z.array(WindowRow) }).strict();
 type Layout = z.infer<typeof Layout>;
 
+const Injection = { delivery: z.enum(["background", "foreground"]), pid: z.number().int().nullable(), tag: z.literal(true) };
+const foreground = { delivery: "foreground", pid: null, tag: true } as const;
 const RecordedEvent = z.discriminatedUnion("event", [
-  z.object({ event: z.literal("move"), x: z.number().int(), y: z.number().int(), ref: z.string().optional() }).strict(),
+  z.object({ ...Injection, event: z.literal("move"), x: z.number().int(), y: z.number().int(), ref: z.string().optional() }).strict(),
   z
     .object({
+      ...Injection,
       event: z.literal("button"),
       button: z.enum(["left", "right", "middle"]),
       down: z.boolean(),
     })
     .strict(),
   z
-    .object({ event: z.literal("scroll"), horizontal: z.boolean(), delta: z.number().int() })
+    .object({ ...Injection, event: z.literal("scroll"), horizontal: z.boolean(), delta: z.number().int() })
     .strict(),
-  z.object({ event: z.literal("key"), key: z.string(), down: z.boolean() }).strict(),
-  z.object({ event: z.literal("text"), text: z.string() }).strict(),
+  z.object({ ...Injection, event: z.literal("key"), key: z.string(), down: z.boolean() }).strict(),
+  z.object({ ...Injection, event: z.literal("text"), text: z.string() }).strict(),
 ]);
 type RecordedEvent = z.infer<typeof RecordedEvent>;
 const ActionLine = z
@@ -91,7 +94,12 @@ const ActionLine = z
     name: z.string().optional(),
   })
   .strict();
-const RecorderLine = z.union([RecordedEvent, ActionLine]);
+const LifecycleLine = z.union([
+  z.object({ kind: z.literal("app_launch"), pid: z.number().int(), activate: z.literal(false), freshInstance: z.boolean() }).strict(),
+  z.object({ kind: z.literal("app_quit"), pid: z.number().int() }).strict(),
+  z.object({ kind: z.enum(["window_close", "window_park"]), pid: z.number().int(), windowId: z.number().int() }).strict(),
+]);
+const RecorderLine = z.union([RecordedEvent, ActionLine, LifecycleLine]);
 type RecorderLine = z.infer<typeof RecorderLine>;
 const OBSERVED_PID = 4242;
 const BUTTON = "AXButton[0]";
@@ -191,7 +199,7 @@ function observableLayout(layout: Layout, epoch: number): string {
       { role: "AXButton", label: "Save", actions: ["AXPress"], frame: { x: 4, y: 4, width: 40, height: 16 } },
     ],
   };
-  return JSON.stringify({ ...layout, windows: [observable, ...rest] });
+  return JSON.stringify({ ...layout, windows: [observable, ...rest], apps: [{ bundleId: observable.app.bundleId, path: observable.app.path, pid: OBSERVED_PID, windows: [window.id] }] });
 }
 
 function recorded(path: string): RecorderLine[] {
@@ -338,25 +346,25 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
   check(primary !== undefined, "fixture layout has no display");
   const before = recorded(setup.recorder).length;
   const click = await run(
-    computer.pointer({ kind: "click", at: { captureId, x: 40, y: 30 }, button: "left", count: 1 }),
+    computer.pointer({ delivery: "foreground", kind: "click", at: { captureId, x: 40, y: 30 }, button: "left", count: 1 }),
   );
   check(click.status === "ok", `pointer click answered ${JSON.stringify(click)}`);
   const key = await run(
-    computer.key({ captureId, key: "Enter", action: "press", modifiers: { shift: true } }),
+    computer.key({ delivery: "foreground", captureId, key: "Enter", action: "press", modifiers: { shift: true } }),
   );
   check(key.status === "ok", `key press answered ${JSON.stringify(key)}`);
-  const text = await run(computer.text({ captureId, text: "conformance ok" }));
+  const text = await run(computer.text({ delivery: "foreground", captureId, text: "conformance ok" }));
   check(text.status === "ok", `text answered ${JSON.stringify(text)}`);
   const events = recorded(setup.recorder).slice(before);
   const expected: RecordedEvent[] = [
-    { event: "move", x: primary.x + 40, y: primary.y + 30 },
-    { event: "button", button: "left", down: true },
-    { event: "button", button: "left", down: false },
-    { event: "key", key: "Shift", down: true },
-    { event: "key", key: "Enter", down: true },
-    { event: "key", key: "Enter", down: false },
-    { event: "key", key: "Shift", down: false },
-    { event: "text", text: "conformance ok" },
+    { ...foreground, event: "move", x: primary.x + 40, y: primary.y + 30 },
+    { ...foreground, event: "button", button: "left", down: true },
+    { ...foreground, event: "button", button: "left", down: false },
+    { ...foreground, event: "key", key: "Shift", down: true },
+    { ...foreground, event: "key", key: "Enter", down: true },
+    { ...foreground, event: "key", key: "Enter", down: false },
+    { ...foreground, event: "key", key: "Shift", down: false },
+    { ...foreground, event: "text", text: "conformance ok" },
   ];
   check(
     JSON.stringify(events) === JSON.stringify(expected),
@@ -376,7 +384,7 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
     `input pointer/key/text captured as tool.pre [${methods.join(", ")}] and recorded ${events.length} events by the built client into its recorder file`,
   );
   recorder.allow = false;
-  const denied = await run(computer.pointer({ kind: "move", at: { captureId, x: 1, y: 1 } }));
+  const denied = await run(computer.pointer({ delivery: "foreground", kind: "move", at: { captureId, x: 1, y: 1 } }));
   recorder.allow = true;
   check(
     denied.status === "refused" && denied.reason === "permission_denied",
@@ -388,7 +396,7 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
     "denied input reached the recorder",
   );
   harness.grant(false);
-  const revoked = await run(computer.pointer({ kind: "move", at: { captureId, x: 1, y: 1 } }));
+  const revoked = await run(computer.pointer({ delivery: "foreground", kind: "move", at: { captureId, x: 1, y: 1 } }));
   const revokedList = await run(computer.list());
   const revokedStream = await run(
     computer.stream.open(streamRequest(primary.id), {
@@ -432,7 +440,7 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
     }),
   );
   check(fresh.status === "ok", "re-granted capture refused");
-  const stale = await run(computer.pointer({ kind: "move", at: { captureId, x: 1, y: 1 } }));
+  const stale = await run(computer.pointer({ delivery: "foreground", kind: "move", at: { captureId, x: 1, y: 1 } }));
   check(
     stale.status === "refused" && stale.reason === "stale_capture",
     `stale anchor answered ${JSON.stringify(stale)}`,
@@ -468,14 +476,14 @@ async function exerciseObservation(context: Context): Promise<void> {
   const pressed = await run(computer.action(press));
   check(pressed.status === "ok", `press answered ${JSON.stringify(pressed)}`);
   const at = { observationId: diff.observationId, ref: BUTTON };
-  const clicked = await run(computer.pointer({ kind: "click", at, button: "left", count: 1 }));
+  const clicked = await run(computer.pointer({ delivery: "foreground", kind: "click", at, button: "left", count: 1 }));
   check(clicked.status === "ok", `ref click answered ${JSON.stringify(clicked)}`);
   const lines = recorded(setup.recorder).slice(before);
   const expected: RecorderLine[] = [
     { kind: "action", pid: OBSERVED_PID, windowId: window.id, ref: BUTTON, action: "press" },
-    { event: "move", x: window.x + 24, y: window.y + 12, ref: BUTTON },
-    { event: "button", button: "left", down: true },
-    { event: "button", button: "left", down: false },
+    { ...foreground, event: "move", x: window.x + 24, y: window.y + 12, ref: BUTTON },
+    { ...foreground, event: "button", button: "left", down: true },
+    { ...foreground, event: "button", button: "left", down: false },
   ];
   check(JSON.stringify(lines) === JSON.stringify(expected), `action recorder ${JSON.stringify(lines)}`);
   harness.record(
@@ -489,7 +497,7 @@ async function exerciseObservation(context: Context): Promise<void> {
     recreated.status === "refused" && recreated.reason === "epoch_changed",
     `press after recreation answered ${JSON.stringify(recreated)}`,
   );
-  const moved = await run(computer.pointer({ kind: "move", at }));
+  const moved = await run(computer.pointer({ delivery: "foreground", kind: "move", at }));
   check(moved.status === "refused" && moved.reason === "epoch_changed", `ref move after recreation answered ${JSON.stringify(moved)}`);
   check(recorded(setup.recorder).length === before + expected.length, "a refused action reached the recorder");
   const methods = recorder.captured.slice(-7).map((entry) => entry.method);
@@ -822,6 +830,7 @@ export async function exerciseComputer(
     const anchor = await exerciseScreen(context);
     await exerciseInput(context, anchor);
     await exerciseObservation(context);
+    await exerciseBackground(context);
     await exerciseStream(context);
     await exerciseCdp(context);
     await exerciseOverflowAndRelease(context);
@@ -829,4 +838,36 @@ export async function exerciseComputer(
     tap.stop();
     devtools.stop();
   }
+}
+
+async function exerciseBackground(context: Context): Promise<void> {
+  const { harness, setup } = context;
+  const computer = computerOf(context);
+  const before = recorded(setup.recorder).length;
+  const opened = await run(computer.app.launch({ app: { bundleId: "com.example.conformance" }, activate: false }));
+  check(opened.status === "ok" && opened.pid === OBSERVED_PID, `launch ${JSON.stringify(opened)}`);
+  const [target] = opened.windows;
+  check(target !== undefined && target.epoch === 1, `launch windows ${JSON.stringify(opened.windows)}`);
+  const shot = await run(computer.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } }));
+  check(shot.status === "ok", `background capture ${JSON.stringify(shot)}`);
+  const pointer = await run(computer.pointer({ delivery: "background", kind: "move", at: { captureId: shot.captureId, x: 1, y: 1 } }));
+  check(pointer.status === "refused" && pointer.reason === "foreground_required", `background pointer ${JSON.stringify(pointer)}`);
+  const typed = await run(computer.text({ captureId: shot.captureId, text: "background", target }));
+  check(typed.status === "ok", `background text ${JSON.stringify(typed)}`);
+  const closed = await run(computer.window.close({ target }));
+  check(closed.status === "ok" && closed.closed, `window close ${JSON.stringify(closed)}`);
+  const parked = await run(computer.window.park({ target }));
+  check(parked.status === "ok" && parked.parked, `window park ${JSON.stringify(parked)}`);
+  const quit = await run(computer.app.quit({ pid: opened.pid }));
+  check(quit.status === "ok" && quit.exited, `app quit ${JSON.stringify(quit)}`);
+  const expected: RecorderLine[] = [
+    { kind: "app_launch", pid: OBSERVED_PID, activate: false, freshInstance: false },
+    { delivery: "background", pid: OBSERVED_PID, tag: true, event: "text", text: "background" },
+    { kind: "window_close", pid: OBSERVED_PID, windowId: target.windowId },
+    { kind: "window_park", pid: OBSERVED_PID, windowId: target.windowId },
+    { kind: "app_quit", pid: OBSERVED_PID },
+  ];
+  const actual = recorded(setup.recorder).slice(before);
+  check(JSON.stringify(actual) === JSON.stringify(expected), `background recorder ${JSON.stringify(actual)}`);
+  harness.record("background: launch without activation, pid text tagged, pointer foreground_required, close/park/quit recorder receipts");
 }

@@ -108,6 +108,7 @@ fn generate(name: &str, mut schema: Value, path: &Path) -> String {
         .unwrap_or_else(|error| panic!("{name}: typify refused the schema: {error}"))
         .unwrap_or_else(|| panic!("{name}: typify produced no root type"));
     let mut module = syn::parse2::<syn::File>(space.to_stream()).expect("generated Rust module");
+    derive_enum_defaults(&mut module);
     for item in &mut module.items {
         match item {
             syn::Item::Struct(item) => preserve_presence(&mut item.fields),
@@ -120,6 +121,55 @@ fn generate(name: &str, mut schema: Value, path: &Path) -> String {
         }
     }
     prettyplease::unparse(&module)
+}
+
+fn derive_enum_defaults(module: &mut syn::File) {
+    let defaults: Vec<_> = module
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| {
+            let syn::Item::Impl(item) = item else {
+                return None;
+            };
+            let (_, trait_path, _) = item.trait_.as_ref()?;
+            if trait_path.segments.last()?.ident != "Default" {
+                return None;
+            }
+            let syn::Type::Path(ty) = &*item.self_ty else {
+                return None;
+            };
+            let [syn::ImplItem::Fn(method)] = item.items.as_slice() else {
+                return None;
+            };
+            let [syn::Stmt::Expr(syn::Expr::Path(value), None)] = method.block.stmts.as_slice()
+            else {
+                return None;
+            };
+            Some((
+                index,
+                ty.path.segments.last()?.ident.clone(),
+                value.path.segments.last()?.ident.clone(),
+            ))
+        })
+        .collect();
+    for (_, name, variant) in &defaults {
+        for item in &mut module.items {
+            if let syn::Item::Enum(item) = item {
+                if item.ident == *name {
+                    item.attrs.push(parse_quote!(#[derive(Default)]));
+                    for value in &mut item.variants {
+                        if value.ident == *variant {
+                            value.attrs.push(parse_quote!(#[default]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (index, _, _) in defaults.into_iter().rev() {
+        module.items.remove(index);
+    }
 }
 
 /// Patterns are immutable build inputs. Number shapes retain the JSON number

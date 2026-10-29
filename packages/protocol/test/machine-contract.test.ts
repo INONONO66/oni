@@ -90,6 +90,11 @@ describe("machine wire contract fixtures", () => {
 });
 
 describe("machine JSON Schema export", () => {
+  test("input parsing defaults every delivery to background", () => {
+    expect(Machine.InputPointerRequest.parse({ kind: "move", at: { captureId: "cap-1", x: 0, y: 0 } }).delivery).toBe("background");
+    expect(Machine.InputKeyRequest.parse({ captureId: "cap-1", key: "a", action: "press" }).delivery).toBe("background");
+    expect(Machine.InputTextRequest.parse({ captureId: "cap-1", text: "hello" }).delivery).toBe("background");
+  });
   test("index.json lists exactly the schema files on disk", async () => {
     const index = SchemaIndex.parse(await Bun.file(join(schemaDir, "index.json")).json());
     const onDisk = readdirSync(schemaDir)

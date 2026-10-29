@@ -1,0 +1,12 @@
+{
+  "app": {
+    "path": "/Applications/Fixture.app",
+    "args": ["--test"]
+  },
+  "activate": false,
+  "env": {
+    "LANG": "en_US.UTF-8"
+  },
+  "freshInstance": true,
+  "timeoutMs": 10000
+}

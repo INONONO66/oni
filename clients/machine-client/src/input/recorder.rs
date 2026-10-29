@@ -15,9 +15,16 @@ pub struct Recorder {
     denied: Arc<AtomicBool>,
     failing: Arc<Mutex<Vec<usize>>>,
     attempts: Arc<Mutex<usize>>,
+    routes: Arc<Mutex<Vec<Option<u32>>>>,
 }
 
 impl Recorder {
+    pub fn routes(&self) -> Vec<Option<u32>> {
+        self.routes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
     /// Every event injected so far, in order.
     pub fn events(&self) -> Vec<Event> {
         self.events
@@ -40,6 +47,18 @@ impl Recorder {
 }
 
 impl Driver for Recorder {
+    fn pid_delivery(&self) -> bool {
+        true
+    }
+
+    fn post_to_pid(&mut self, pid: u32, event: &Event) -> Result<(), String> {
+        self.inject(event)?;
+        let mut routes = self.routes.lock().unwrap_or_else(PoisonError::into_inner);
+        routes.pop();
+        routes.push(Some(pid));
+        Ok(())
+    }
+
     fn permitted(&self) -> bool {
         !self.denied.load(Ordering::SeqCst)
     }
@@ -56,6 +75,10 @@ impl Driver for Recorder {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(event.clone());
+        self.routes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(None);
         Ok(())
     }
 }
