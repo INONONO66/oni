@@ -101,8 +101,31 @@ test("a call to a contact without standing reach waits for per-call Owner approv
     expect(starts).toEqual(["person:soju"]);
   } finally {
     await approved.close();
-    plane.close();
   }
+  // The answer binds to the Person row as it stood: an edit in between is stale consent, and no huddle starts.
+  const edited = protectedDispatch(tool, input, undefined, { plane });
+  try {
+    await bounded(edited.opened);
+    plane.stores.persons.put({
+      id: "person:soju", displayName: "Soju (edited)", kind: "human", trustTier: "observer",
+      endpoints: [{ channel: "slack", workspace: "T1", externalId: "T1:U-soju" }],
+      revision: 1, createdBy: "owner", updatedAt: 2,
+    });
+    await expect(edited.answer()).rejects.toMatchObject({ _tag: "ExecutionApprovalError", code: "stale_approval" });
+    expect(starts).toEqual(["person:soju"]);
+  } finally {
+    await edited.close();
+  }
+  // The Owner's own Person and a contact the store does not hold never wait; the route refuses the latter itself.
+  if (tool.approval === undefined) throw new Error("send_message declares no approval hook");
+  plane.stores.persons.put({
+    id: "person:owner", displayName: "Owner", kind: "human", trustTier: "owner",
+    endpoints: [{ channel: "slack", workspace: "T1", externalId: "T1:U-owner" }],
+    revision: 0, createdBy: "owner", updatedAt: 1,
+  });
+  for (const id of ["person:owner", "person:nobody"])
+    expect(tool.approval({ ...input, to: { ...input.to, id } }, context)).toEqual({ required: false, domainRevisions: {} });
+  plane.close();
 });
 
 test("contact addresses parse per kind; channel ids and unknown kinds are no connector address, and no cli id is a literal (#1512)", () => {

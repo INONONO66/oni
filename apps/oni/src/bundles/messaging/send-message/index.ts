@@ -293,6 +293,11 @@ export interface CallPort {
  * the Person row as it stood: an edit of the row in between is stale consent.
  * Without the budgets and persons ports nothing is gated here — the gateway's
  * own gate still rules.
+ *
+ * #1686: a call to a registered Person other than the Owner suspends the same
+ * way on every call, bound to that Person's revision. A call to the Owner's own
+ * Person (joining the Owner's huddle) and a call to a contact the store does
+ * not hold run directly: the voice route refuses an unknown contact itself.
  */
 function ownerConsent(
   input: SendMessageInput,
@@ -302,7 +307,8 @@ function ownerConsent(
   const direct = { required: false, domainRevisions: {} };
   if (input.kind === "call") {
     const person = input.to.kind === "contact" ? contacts.persons?.get(input.to.id) : undefined;
-    return { required: true, domainRevisions: person === undefined ? {} : { [person.id]: person.revision } };
+    if (person === undefined || person.trustTier === "owner") return direct;
+    return { required: true, domainRevisions: { [person.id]: person.revision } };
   }
   if (input.to.kind !== "contact" || contacts.budgets === undefined || contacts.persons === undefined) return direct;
   if (parseContactAddress(input.to.id) !== undefined) return direct;
