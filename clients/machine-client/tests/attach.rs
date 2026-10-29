@@ -1290,7 +1290,7 @@ async fn memory_budget_exit_passes_through_default_runner() {
                 .await;
         }
     };
-    let run = attach::run_default(Some(&path));
+    let run = attach::run_default(&path);
     tokio::pin!(run);
     let outcome = tokio::select! {
         outcome = &mut run => outcome,
@@ -1765,7 +1765,7 @@ async fn run_default_attaches_with_a_long_config_directory() {
     settings.exports.clear();
     config::save(&settings, &directory).expect("save without unrelated exports");
     let path = directory.join("client.json");
-    let run = attach::run_default(Some(&path));
+    let run = attach::run_default(&path);
     tokio::pin!(run);
     let exchange = async {
         let request = expect(&mut host, "machine.attach").await;
@@ -1892,7 +1892,7 @@ async fn run_default_offers_the_available_capabilities_of_its_config() {
         .await;
         offered
     };
-    let (outcome, offered) = tokio::join!(attach::run_service_once(Some(&path)), exchange);
+    let (outcome, offered) = tokio::join!(attach::run_service_once(&path), exchange);
     assert!(
         matches!(
             outcome,
@@ -1924,9 +1924,9 @@ async fn run_default_offers_the_available_capabilities_of_its_config() {
     assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
 
     std::fs::remove_dir(root.path()).expect("remove export");
-    let missing = attach::run_default(Some(&path)).await;
+    let missing = attach::run_default(&path).await;
     assert!(matches!(missing, Err(AttachError::Io(_))), "{missing:?}");
-    let absent = attach::run_default(Some(&directory.path().join("absent.json"))).await;
+    let absent = attach::run_default(&directory.path().join("absent.json")).await;
     assert!(matches!(absent, Err(AttachError::Config(_))), "{absent:?}");
 }
 
@@ -2124,7 +2124,7 @@ async fn run_default_refuses_a_malformed_cdp_manifest() {
     unix_settings(&host, directory.path()).await;
     std::fs::write(directory.path().join("cdp.json"), b"{\"ports\":[0]}").expect("manifest");
     let path = directory.path().join("client.json");
-    let outcome = attach::run_default(Some(&path)).await;
+    let outcome = attach::run_default(&path).await;
     assert!(matches!(outcome, Err(AttachError::Io(_))), "{outcome:?}");
 }
 
@@ -2181,7 +2181,7 @@ async fn service_timer_reprobes_after_config_is_repaired() {
     settings.exports.clear();
     let path = directory.path().join("client.json");
     std::fs::write(&path, b"{").expect("invalid config");
-    let run = attach::run_service(Some(&path));
+    let run = attach::run_service(&path);
     let exchange = async {
         tokio::time::sleep(Duration::from_secs(1)).await;
         config::save(&settings, directory.path()).expect("repair config");

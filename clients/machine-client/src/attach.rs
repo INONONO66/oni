@@ -760,22 +760,18 @@ async fn await_next(
     Ok(next)
 }
 
-pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
+pub async fn run_default(path: &Path) -> Result<(), AttachError> {
     run_default_with_screen(path, false, false).await
 }
 
-pub async fn run_service(path: Option<&Path>) -> Result<(), AttachError> {
-    let config_path = path.map_or_else(
-        || config::root().join("machine-client/client.json"),
-        Path::to_path_buf,
-    );
+pub async fn run_service(config_path: &Path) -> Result<(), AttachError> {
     let directory = config_path.parent().unwrap_or(Path::new(""));
     let mut retry_signal =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1())?;
     let mut terminated = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     save_service_pid(directory, Some(std::process::id()))?;
     let result = loop {
-        match run_default_with_screen(Some(&config_path), true, false).await {
+        match run_default_with_screen(config_path, true, false).await {
             Err(error) if service_reprobe(&error) => {
                 let class = classes::classify(&error);
                 eprintln!("{}", json!({"class": class, "nextStep": class.next_step()}));
@@ -814,20 +810,17 @@ fn once_result(
     }
 }
 
-pub async fn run_service_once(path: Option<&Path>) -> Result<(), AttachError> {
+pub async fn run_service_once(path: &Path) -> Result<(), AttachError> {
     run_default_with_screen(path, false, true).await
 }
 
 async fn run_default_with_screen(
-    path: Option<&Path>,
+    path: &Path,
     request_screen: bool,
     once: bool,
 ) -> Result<(), AttachError> {
-    let path = path
-        .map(Path::to_path_buf)
-        .unwrap_or(config::root().join("machine-client/client.json"));
     let directory = path.parent().unwrap_or(Path::new(""));
-    let config = config::load(&path)?;
+    let config = config::load(path)?;
     #[cfg(target_os = "macos")]
     if request_screen {
         crate::service::request_screen();
@@ -859,7 +852,7 @@ async fn run_default_with_screen(
     let manifest =
         crate::cdp::manifest::Manifest::load(&directory.join(crate::cdp::manifest::FILE))
             .map_err(io::Error::other)?;
-    let (screen, input) = crate::computer::open(&path)?.unwrap_or_else(|| {
+    let (screen, input) = crate::computer::open(path)?.unwrap_or_else(|| {
         (
             crate::screen::Screen::platform(),
             crate::input::Input::platform(),

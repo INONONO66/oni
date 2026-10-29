@@ -139,9 +139,9 @@ async fn run(path: Option<PathBuf>, allow_unpinned: bool, once: bool) -> Result<
     let pin = release::load_pin(file.parent().unwrap_or(&file))?;
     release::admit(pin.as_ref(), VERSION, allow_unpinned)?;
     if once {
-        attach::run_service_once(Some(&file)).await
+        attach::run_service_once(&file).await
     } else {
-        attach::run_service(Some(&file)).await
+        attach::run_service(&file).await
     }
 }
 
