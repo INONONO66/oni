@@ -437,3 +437,39 @@ test("real Chat sends once, retains in-flight work across tab closure and stops 
   expect((node("textarea") as HTMLTextAreaElement).disabled).toBe(false);
   expect((node("textarea") as HTMLTextAreaElement).value).toBe("retained-draft");
 });
+
+test("a host drain frame becomes the composer notice until the host cancels it (#1699)", async () => {
+  const received = signal<ServerWebSocket<undefined>>();
+  const server = serveChat((socket) => received.resolve(socket));
+  cleanups.push(() => server.stop(true));
+  const id = newSessionTab();
+  setDraft(id, "drain-sentinel");
+  await mount({ url: `ws://127.0.0.1:${server.port}` });
+  await act(async () => {
+    node('[data-ui="Composer.Send"]').click();
+    await received.promise;
+  });
+  const socket = await received.promise;
+  const painted = (wanted: (text: string) => boolean) =>
+    new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (!wanted(host.textContent ?? "")) return;
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(host, { subtree: true, childList: true, characterData: true });
+    });
+  const notice = "Host restarting to 0.2.0";
+  await act(async () => {
+    const shown = painted((text) => text.includes(notice));
+    socket.send(JSON.stringify({ type: "draining", targetVersion: "0.2.0", graceMs: 5_000 }));
+    await shown;
+  });
+  expect(host.textContent).toContain(notice);
+  await act(async () => {
+    const cleared = painted((text) => !text.includes(notice));
+    socket.send(JSON.stringify({ type: "drain_cancelled" }));
+    await cleared;
+  });
+  expect(host.textContent).not.toContain(notice);
+});

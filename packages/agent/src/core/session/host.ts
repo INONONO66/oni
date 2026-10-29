@@ -29,6 +29,7 @@ import { forkSession, ForkRefused, type ForkInput } from "./fork";
 import { createSessionRequests, requestAuthorityKernel } from "./request";
 import { assembleSessionRuntime, type SessionHostRuntime, type SessionRuntimeOptions } from "./runtime";
 import { createSessionEntityRunTool } from "./tool-turn";
+import { acquireOwnerLock, inheritOwnerLock, type OwnerLock, OwnerLockHeld } from "./owner-lock";
 
 const ENTITY_REAPER_INTERVAL_MS = 5_000;
 
@@ -106,6 +107,9 @@ export { Ledger };
 /** Internal host service, deliberately absent from the Core barrel. */
 export class LedgerStores extends Context.Service<LedgerStores, LedgerPlane>()("@oni/agent/core/LedgerStores") {}
 
+/** The catalog owner lock this ledger holds; `fd` is absent for an in-memory catalog. */
+export class LedgerOwner extends Context.Service<LedgerOwner, { readonly fd: number | undefined }>()("@oni/agent/core/LedgerOwner") {}
+
 /** Application command port: entity activation, transport and mailbox ownership stay in Core. */
 export const sessionClient = Effect.map(SessionEntity.client, (client) => (sessionId: string) => {
   const session = client(sessionId);
@@ -172,7 +176,7 @@ export function createSessionPortsSlot() {
 }
 
 export class OpenRefused extends Data.TaggedError("OpenRefused")<{
-  readonly code: "catalog" | "sessions";
+  readonly code: "catalog" | "sessions" | "owner";
   readonly path: string;
   readonly cause: Error;
   readonly message: string;
@@ -190,8 +194,13 @@ function refused<E>(code: OpenRefused["code"], path: string, cause: E): OpenRefu
 export interface LedgerConfig extends LedgerStoreConfig {
   /** Audit only; the fence authorizes. */
   readonly owner: string;
+  /**
+   * A process child adopts its parent's lock through the descriptor it
+   * inherited; every other opener of a file catalog acquires the lock.
+   */
+  readonly ownership?: { readonly inherited: number };
   readonly cluster: {
-    /** `:memory:` isolates a process. */
+    /** `:memory:` keeps the runner tables in-process (a process child); ownership is unaffected. */
     readonly storagePath: string;
     readonly entityIdleMs: number;
   };
@@ -427,7 +436,7 @@ function ledgerLayer(config: LedgerStoreConfig): Layer.Layer<Ledger | LedgerStor
 /** One Scope, released in reverse; sharding config is explicit, `SHARDING_*` env ignored. */
 export function openLedger(
   config: LedgerConfig,
-): Layer.Layer<Ledger | ClusterServices, OpenRefused, Crypto.Crypto> {
+): Layer.Layer<Ledger | LedgerOwner | ClusterServices, OpenRefused, Crypto.Crypto> {
   const runner = SingleRunner.layer({
     runnerStorage: "sql",
     shardingConfig: {
@@ -451,10 +460,23 @@ export function openLedger(
       };
     }),
   );
+  const catalogPath = config.catalog?.path;
+  const take = (path: string): OwnerLock =>
+    config.ownership === undefined ? acquireOwnerLock(path, config.owner) : inheritOwnerLock(path, config.ownership.inherited);
+  const owned = catalogPath === undefined || catalogPath === ":memory:"
+    ? Layer.succeed(LedgerOwner, { fd: undefined })
+    : Layer.effect(LedgerOwner, Effect.map(Effect.acquireRelease(
+        Effect.try({
+          try: () => take(catalogPath),
+          catch: (cause) => cause instanceof OwnerLockHeld ? refused("owner", cause.path, cause) : refused("catalog", catalogPath, cause),
+        }),
+        (lock) => Effect.sync(lock.release),
+      ), (lock) => ({ fd: lock.fd })));
   return createSessionEntityLayer(config.drain).pipe(
     Layer.provide(env),
     Layer.provideMerge(runner),
     Layer.provideMerge(ledgerLayer(config)),
+    Layer.provideMerge(owned),
   );
 }
 

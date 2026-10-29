@@ -177,6 +177,8 @@ export interface SessionLivePlane {
   get(sessionId: string): LiveTurnEntry | undefined;
   /** Sessions with a turn currently running in this process (shutdown join set). */
   ids(): readonly string[];
+  /** Called after every turn leaves the plane; the drain gate waits on it rather than polling. */
+  subscribe(listener: () => void): () => void;
   /** Publishes the turn's live surfaces for the runner's lifetime; nested turns keep the outermost entry. */
   wrapRunner(sessionId: string, runner: SessionRunner): SessionRunner;
 }
@@ -210,9 +212,16 @@ export function interruptFailureCause(error: InterruptFailure): string {
 
 export function createSessionLivePlane(): SessionLivePlane {
   const entries = new Map<string, LiveTurnEntry>();
+  const listeners = new Set<() => void>();
   return {
     get: (sessionId) => entries.get(sessionId),
     ids: () => [...entries.keys()],
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     wrapRunner: (sessionId, runner) => (input) =>
       Effect.suspend(() => {
         let holds = 0;
@@ -251,6 +260,7 @@ export function createSessionLivePlane(): SessionLivePlane {
           Effect.ensuring(
             Effect.sync(() => {
               if (entries.get(sessionId) === entry) entries.delete(sessionId);
+              for (const listener of listeners) listener();
             }),
           ),
         );

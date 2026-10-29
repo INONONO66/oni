@@ -19,6 +19,7 @@ class ProcessSessionError extends Error {
   }
 }
 
+const CHILD_OWNER_FD = 3;
 const Doorbell = z.object({ sessionIds: z.array(z.string().min(1)) }).strict();
 /** The entity `Deliver` payload the child mapped (apps/oni/src/composition/message-session.ts). */
 const DeliverPayload = z
@@ -54,7 +55,9 @@ const ProcessOutput = z.union([
 /** A process is only a transport for the same durable session runner. */
 export function createProcessSessionTransport(options: {
   readonly command: readonly string[];
-  readonly child: Omit<ProcessSessionRequest, "sessionId">;
+  readonly child: Omit<ProcessSessionRequest, "sessionId" | "ownerFd">;
+  /** The parent's held catalog owner lock; each child inherits it as fd 3 for its whole lifetime. */
+  readonly ownerFd?: number | undefined;
   readonly committed: (sessionIds: readonly string[]) => void;
   readonly answer: (answer: SessionTransition.Answer) => Promise<SessionTransition.Resolution>;
   readonly deliver: (input: ProcessDelivery) => Promise<Delivery.Row>;
@@ -137,14 +140,13 @@ export function createProcessSessionTransport(options: {
     wake(sessionId: string): Promise<void> {
       const existing = children.get(sessionId);
       if (existing !== undefined) return existing.done;
+      const inherited = options.ownerFd;
       const child = Bun.spawn([...options.command], {
-        stdin: "pipe",
-        stdout: "pipe",
-        stderr: "inherit",
+        stdio: inherited === undefined ? ["pipe", "pipe", "inherit"] : ["pipe", "pipe", "inherit", inherited],
       });
       const controller = new AbortController();
       void child.exited.then(() => controller.abort());
-      child.stdin.write(`${JSON.stringify({ ...options.child, sessionId })}\n`);
+      child.stdin.write(`${JSON.stringify({ ...options.child, sessionId, ...(inherited === undefined ? {} : { ownerFd: CHILD_OWNER_FD }) })}\n`);
       const done = (async () => {
         const reader = child.stdout.getReader();
         const decoder = new TextDecoder();

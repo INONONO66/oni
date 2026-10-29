@@ -50,6 +50,7 @@ export const ProcessSessionRequest = z
     sessionId: z.string().min(1),
     catalogPath: z.string().min(1),
     sessionsDir: z.string().min(1),
+    ownerFd: z.number().int().nonnegative().optional(),
     entityIdleMs: z.number().int().positive(),
     model: Model.Ref,
     apiKey: z.string().min(1),
@@ -293,6 +294,7 @@ export async function runProcessEntry(io: {
       sessionsDir: request.sessionsDir,
       // Never the shared catalog: the parent's SingleRunner owns its cluster_* tables.
       clusterStoragePath: ":memory:",
+      ...(request.ownerFd === undefined ? {} : { ownership: { inherited: request.ownerFd } }),
       composed,
       media: replies.media,
       // stdout is the parent's JSON-lines wire (`io.log`): every Effect log goes to the

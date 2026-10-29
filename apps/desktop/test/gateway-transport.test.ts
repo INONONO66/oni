@@ -988,3 +988,37 @@ describe("session reads over the gateway socket", () => {
     expect((await second).message).toBe("gateway socket closed unexpectedly");
   });
 });
+
+test("host drain frames set and clear the transport's drain state (#1699)", async () => {
+  const opened = Promise.withResolvers<ServerWebSocket<undefined>>();
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (request, self) => (self.upgrade(request) ? undefined : new Response("expected websocket", { status: 400 })),
+    websocket: { open: (ws) => opened.resolve(ws), message: () => undefined },
+  });
+  servers.push(server);
+  const transport = createGatewayChatTransport({ id: testId, url: `ws://127.0.0.1:${server.port}` });
+  let changed = Promise.withResolvers<void>();
+  const unsubscribe = transport.subscribeHostDrain(() => changed.resolve());
+  const next = async (frame: Gateway.HostDrain) => {
+    changed = Promise.withResolvers<void>();
+    peer.send(JSON.stringify(frame));
+    await changed.promise;
+  };
+  // The machine list opens the socket; the peer never answers it.
+  const listing = transport.machineList().then(() => "answered", (error: Error) => error.message);
+  const peer = await opened.promise;
+  expect(transport.hostDrain()).toBeUndefined();
+  await next({ type: "draining", targetVersion: "0.2.0", graceMs: 5_000 });
+  expect(transport.hostDrain()).toEqual({ type: "draining", targetVersion: "0.2.0", graceMs: 5_000 });
+  await next({ type: "drain_cancelled" });
+  expect(transport.hostDrain()).toBeUndefined();
+  await next({ type: "draining", targetVersion: "0.3.0", graceMs: 1_000 });
+  changed = Promise.withResolvers<void>();
+  peer.close();
+  await changed.promise;
+  expect(transport.hostDrain()).toBeUndefined();
+  expect(await listing).toBe("gateway socket closed unexpectedly");
+  unsubscribe();
+});

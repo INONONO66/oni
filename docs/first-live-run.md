@@ -39,6 +39,25 @@ what it records becomes the first live evidence. Shipped state is in
   daemon's memory between delivery and turn: a restart in between leaves
   only the `[attached …]` line, which still names the inbox file.
 
+## Deploy a new release
+
+`oni daemon install` writes a unit that runs `oni supervise`; re-run it once
+over an older install so the supervisor owns the host. Then, for each
+release:
+
+- `oni deploy oni-<version>.tgz [--grace-ms <0..300000>]` — stages the
+  tarball under `~/.oni/releases/`, drains the running host (default 60 s),
+  snapshots the catalog and sessions, starts the new release on the same port
+  and verifies it. It prints `{"ok":true,"instanceId":…}` and exits 0, or
+  prints `{"ok":false,"class":…,"step":…}` and exits 1 after restoring and
+  restarting the previous release.
+- `oni deploy --reload` (or `systemctl --user reload oni`) re-deploys the
+  newest staged release.
+- `ONI_WS_TOKEN` must be set: the drain and status endpoints refuse a
+  tokenless host, and the deploy then answers `drain_refused`.
+- Copy the platform's `mclient` beside the new release's `dist/app/` before
+  deploying, or keep `ONI_MCLIENT_BIN` in `~/.oni/env`.
+
 ## 1. Declare
 
 One row per platform and identity. The credential is asked for at the

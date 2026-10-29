@@ -157,6 +157,11 @@ export class WebSocketHandler {
     return { value: "accepted", externalMessageId: messageId };
   }
 
+  broadcast(frame: { readonly type: string }): void {
+    const line = JSON.stringify(frame);
+    for (const connection of this.connections.values()) connection.send(line);
+  }
+
   get ws() {
     const self = this;
     return {

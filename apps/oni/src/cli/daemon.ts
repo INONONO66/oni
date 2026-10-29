@@ -16,7 +16,7 @@ export interface DaemonTarget {
   readonly uid: number;
   /** Absolute bun executable, resolved at install time (`process.execPath`). */
   readonly bunPath: string;
-  /** Absolute CLI entry the service runs: `<bun> <entry> start`. */
+  /** Absolute CLI entry the service runs: `<bun> <entry> supervise`. */
   readonly entryPath: string;
 }
 
@@ -87,7 +87,7 @@ export function renderLaunchdPlist(target: DaemonTarget): string {
 \t<array>
 \t\t<string>${escapeXml(target.bunPath)}</string>
 \t\t<string>${escapeXml(target.entryPath)}</string>
-\t\t<string>start</string>
+\t\t<string>supervise</string>
 \t</array>
 \t<key>RunAtLoad</key>
 \t<true/>
@@ -113,7 +113,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart="${bun}" "${entry}" start
+ExecStart="${bun}" "${entry}" supervise
+ExecReload="${bun}" "${entry}" deploy --reload
 Restart=on-failure
 RestartSec=5s
 

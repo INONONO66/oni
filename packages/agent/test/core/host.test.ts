@@ -1,12 +1,12 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SQLiteError } from "bun:sqlite";
 import { Context, Deferred, Effect, Exit, Fiber, Layer, Option, Scope } from "effect";
 import { TestClock } from "effect/testing";
 import { SessionEntity } from "../../src/core/session/entity";
-import { LedgerStores, type LedgerConfig, OpenRefused, openLedger, openLedgerPlane } from "../../src/core/session/host";
+import { LedgerOwner, LedgerStores, type LedgerConfig, OpenRefused, openLedger, openLedgerPlane } from "../../src/core/session/host";
 import { createSession } from "../../src/core/session/create";
 import { createSessionRequests } from "../../src/core/session/request";
 import * as SessionFile from "../../src/core/store/session-file";
@@ -644,4 +644,38 @@ test("opening failures are typed OpenRefused and release what was already acquir
   expect(sessionsRefusal.cause).toBeInstanceOf(Error);
   expect(existsSync(catalogPath)).toBe(true);
   expect(sessionFileClosed(catalogPath)).toBe(true);
+});
+
+test("a file ledger holds the catalog owner lock for its scope and a second open refuses typed", async () => {
+  const { catalogPath, sessionsDir } = home("owner-lock");
+  const base = config({ owner: "oni:ledger", catalog: { path: catalogPath }, sessions: { dir: sessionsDir } });
+  const layer = openLedger({ ...base, cluster: { ...base.cluster, storagePath: catalogPath } }).pipe(Layer.provide(bunCrypto));
+  const outcome = await runAgent(Effect.scoped(Effect.gen(function* () {
+    const built = yield* Layer.build(layer);
+    const holder = JSON.parse(readFileSync(`${catalogPath}.owner`, "utf8")).owner;
+    const second = yield* Effect.flip(Layer.build(layer));
+    return { holder, fd: Context.get(built, LedgerOwner).fd, second };
+  })));
+  expect(outcome.holder).toBe("oni:ledger");
+  expect(outcome.fd).toBeNumber();
+  expect(outcome.second).toBeInstanceOf(OpenRefused);
+  expect(outcome.second).toMatchObject({ code: "owner", path: `${catalogPath}.owner` });
+  await runAgent(Effect.scoped(Layer.build(layer)));
+});
+
+test("an isolated runner opens an owned catalog only through the holder's inherited descriptor", async () => {
+  const { catalogPath, sessionsDir } = home("owner-lock-child");
+  const hostConfig = config({ owner: "oni:host", catalog: { path: catalogPath }, sessions: { dir: sessionsDir } });
+  const host = openLedger({ ...hostConfig, cluster: { ...hostConfig.cluster, storagePath: catalogPath } }).pipe(Layer.provide(bunCrypto));
+  const child = (ownership?: LedgerConfig["ownership"]) =>
+    openLedger(config({ owner: "oni:child", catalog: { path: catalogPath }, sessions: { dir: sessionsDir }, ...(ownership === undefined ? {} : { ownership }) }))
+      .pipe(Layer.provide(bunCrypto));
+  const outcome = await runAgent(Effect.scoped(Effect.gen(function* () {
+    const fd = Context.get(yield* Layer.build(host), LedgerOwner).fd ?? -1;
+    const isolated = yield* Effect.flip(Layer.build(child()));
+    yield* Layer.build(child({ inherited: fd }));
+    return { isolated, holder: JSON.parse(readFileSync(`${catalogPath}.owner`, "utf8")).owner };
+  })));
+  expect(outcome.isolated).toMatchObject({ code: "owner", path: `${catalogPath}.owner` });
+  expect(outcome.holder).toBe("oni:host");
 });
