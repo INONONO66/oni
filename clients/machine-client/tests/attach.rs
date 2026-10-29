@@ -1551,7 +1551,14 @@ async fn human_edge_arrives_while_uplink_reply_is_held() {
                         kind: Kind::Keyboard,
                         tagged: false,
                     });
-                    let edge = expect(&mut host, "machine.event.human_input").await;
+                    let edge = loop {
+                        let next = host.incoming.recv().await.expect("frame");
+                        if next["method"] == "machine.event.human_input" {
+                            break next;
+                        }
+                        assert_eq!(next["method"], "machine.report", "{next}");
+                        host.send(reply(&next, json!({"status":"accepted"}))).await;
+                    };
                     assert_eq!(edge["params"]["source"], "keyboard");
                     host.send(reply(&frame, json!({"status":"accepted"}))).await;
                     break;
