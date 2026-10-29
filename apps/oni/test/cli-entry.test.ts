@@ -12,6 +12,8 @@ import { Clock, Effect } from "effect";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCliDeps, main } from "../src/cli/main";
+import { loadConfig } from "../src/config";
+import type { SupervisorProcess } from "../src/cli/supervise";
 import { CliError } from "../src/cli/errors";
 import { replaceEnvironment } from "./helpers/environment";
 import { measuredEntry } from "./helpers/measured-entry";
@@ -476,6 +478,36 @@ describe("real CLI entry", () => {
     } finally {
       followController.abort();
       followControllers.delete(followController);
+      restore();
+    }
+  });
+
+  test("supervise loads the home environment before passing the resolved process", async () => {
+    const home = tempHome();
+    mkdirSync(join(home, ".oni"), { recursive: true });
+    writeFileSync(join(home, ".oni", "env"), "ONI_WS_TOKEN=supervisor-test-token\n");
+    const restore = replaceEnvironment(appEnv(home));
+    let received: SupervisorProcess | undefined;
+    try {
+      expect(process.env.ONI_WS_TOKEN).toBeUndefined();
+      const deps = createCliDeps(home, {
+        supervise: async (process_) => {
+          received = process_;
+          return 23;
+        },
+      });
+
+      const result = await deps.supervise();
+
+      expect(received).toEqual({
+        home,
+        bunPath: process.execPath,
+        selfEntry: entry,
+        config: loadConfig(home),
+      });
+      expect(process.env.ONI_WS_TOKEN).toBe("supervisor-test-token");
+      expect(result).toBe(23);
+    } finally {
       restore();
     }
   });

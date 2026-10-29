@@ -146,6 +146,7 @@ export interface CliRuntimeOptions {
   readonly clock?: Clock.Clock;
   /** Captures follow output when a caller needs a lossless readiness signal. */
   readonly followOutput?: (chunk: string) => void;
+  readonly supervise?: typeof supervise;
 }
 
 export function createCliDeps(home: string = homedir(), options: CliRuntimeOptions = {}): CliDeps {
@@ -379,7 +380,7 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     messagingFacts,
     supervise: () => {
       applyEnvFile(envPath);
-      return supervise({ home, bunPath: process.execPath, selfEntry: target.entryPath, config: loadConfig(home) });
+      return (options.supervise ?? supervise)({ home, bunPath: process.execPath, selfEntry: target.entryPath, config: loadConfig(home) });
     },
     deploy: deployClient(home, process.execPath, { stdout: (line) => console.log(line), stderr: (line) => console.error(line) }),
   };
