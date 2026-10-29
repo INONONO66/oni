@@ -207,6 +207,11 @@ export const executorContext = Effect.serviceOption(ExecutorContext).pipe(
   Effect.map((native) => Option.getOrElse(native, currentExecutor)),
 );
 
+/** The executor in scope, from the Effect context or the invocation store; `undefined` outside any invocation. */
+export const optionalExecutor: Effect.Effect<Executor | undefined> = Effect.serviceOption(ExecutorContext).pipe(
+  Effect.map((native) => Option.getOrElse(native, (): Executor | undefined => activeInvocation.getStore()?.executor)),
+);
+
 export class ExecutorContextError extends Error {
   readonly code = "executor_context_missing";
   constructor() {

@@ -17,7 +17,7 @@ const offer = {
   daemonVersion: "0.1.0",
   platform: "darwin-arm64",
   offeredAt: 2,
-  peer: { kind: "daemon", contractVersion: 2 },
+  peer: { kind: "daemon", contractVersion: 3 },
 } satisfies Machine.Offer;
 
 describe("managed machine enrollment", () => {

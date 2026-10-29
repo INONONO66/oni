@@ -12,12 +12,12 @@ const COMPUTER = Machine.WellKnownCapability.computerUse;
 type Responder = (params: Ipc.Request["params"]) => Ipc.Response["result"] | undefined;
 type Capture = NonNullable<Parameters<typeof createMachineHost>[0]["captureInput"]>;
 
-const offerOf = (capabilities: readonly string[], generation?: number) => ({
+const offerOf = (capabilities: readonly string[], generation?: number, contractVersion = 3) => ({
   machineId: "desk", daemonVersion: "test", platform: "darwin-arm64", offeredAt: 0,
-  peer: { kind: "client", contractVersion: 2 }, offeredCapabilities: [...capabilities],
+  peer: { kind: "client", contractVersion }, offeredCapabilities: [...capabilities],
   ...(generation === undefined ? {} : { generation }),
 });
-const pointer: Machine.InputPointerRequest = { kind: "click", captureId: "cap-1", x: 10, y: 20, button: "left", count: 1 };
+const pointer: Machine.InputPointerRequest = { kind: "click", at: { captureId: "cap-1", x: 10, y: 20 }, button: "left", count: 1 };
 const streamRequest = {
   source: { kind: "display", display: 1 },
   video: { maxFps: 30, keyframeIntervalMs: 2000, maxBitrateBps: 1_000_000, maxDimension: 1280, maxFrameBytes: 65_536 },
@@ -37,7 +37,7 @@ async function fixture(options: { grants?: string[]; captureInput?: Capture | "a
     ...(options.captureInput === "absent" ? {} : { captureInput: options.captureInput ?? ((_request, forward) => forward) }),
   });
   const peers: Array<Awaited<ReturnType<typeof connectIpcClient>>> = [];
-  async function peer(capabilities: readonly string[], script: Partial<Record<string, Responder>> = {}, generation?: number) {
+  async function peer(capabilities: readonly string[], script: Partial<Record<string, Responder>> = {}, generation?: number, contractVersion?: number) {
     const received: Array<{ method: string; params: Ipc.Request["params"] }> = [];
     const closed = Promise.withResolvers<void>();
     const client = await connectIpcClient(host.endpoints.unix ?? "", {
@@ -50,7 +50,7 @@ async function fixture(options: { grants?: string[]; captureInput?: Capture | "a
     });
     peers.push(client);
     const attached = events.next(Machine.Events.Attached.name);
-    await client.call(Machine.WireMethod.Attach, offerOf(capabilities, generation));
+    await client.call(Machine.WireMethod.Attach, offerOf(capabilities, generation, contractVersion));
     await attached;
     return { client, received, closed: closed.promise };
   }
@@ -83,7 +83,18 @@ function channelListeners() {
 const opened = (field: "streamId" | "channelId"): Responder => (params) =>
   ({ status: "opened", [field]: (params as Record<string, string>)[field] ?? "", expiresAt: 5000 });
 const accepted: Responder = (params) => ({ status: "accepted", seq: (params as { seq: number }).seq });
-const inputs = (received: ReadonlyArray<{ method: string }>) => received.filter((entry) => entry.method.startsWith("machine.input."));
+const observeRequest: Machine.ScreenObserveRequest = { target: { pid: 42, windowId: 7 }, screenshot: false };
+const actionRequest: Machine.InputActionRequest = { observationId: "o1", target: { pid: 42, windowId: 7, epoch: 0 }, ref: "AXButton[0]", action: "press" };
+const observed: Machine.ScreenObserveResult = {
+  status: "ok", observationId: "o1", lineage: "w42-7-0", target: { pid: 42, windowId: 7, epoch: 0 },
+  window: { pid: 42, windowId: 7, epoch: 0, title: "Notes", app: { bundleId: null, path: "/Applications/Notes.app" } }, complete: true, private: false, elements: [],
+};
+const observationScript = {
+  [Machine.WireMethod.ScreenObserve]: () => observed,
+  [Machine.WireMethod.InputAction]: () => ({ status: "refused", reason: "epoch_changed" }),
+};
+const observations = <E extends { readonly method: string }>(received: readonly E[]) => received.filter((entry) => entry.method === Machine.WireMethod.ScreenObserve || entry.method === Machine.WireMethod.InputAction);
+const inputs = <E extends { readonly method: string }>(received: readonly E[]) => received.filter((entry) => entry.method.startsWith("machine.input."));
 
 test("an offer alone never grants computer use: the enrollment must grant it too", async () => {
   const f = await fixture({ grants: [Machine.WellKnownCapability.fsRead] });
@@ -307,7 +318,10 @@ test("stream bounds: concurrency, signal count, expiry, peer close and a mismatc
     echo = "forged";
     expect(await run(Effect.flip(computer.stream.open(streamRequest, streamListeners().listeners)))).toMatchObject({ _tag: "MachineRefusalError", reason: "invalid_response" });
     echo = undefined;
-    expect(await run(computer.stream.open(streamRequest, streamListeners().listeners))).toMatchObject({ streamId: expect.stringMatching(/^relay-/), expiresAt: 5000 });
+    const relayed = await run(computer.stream.open(streamRequest, streamListeners().listeners));
+    if (!("signal" in relayed)) throw new Error(`relayed open refused: ${JSON.stringify(relayed)}`);
+    expect(relayed.streamId).toMatch(/^relay-/);
+    expect(relayed.expiresAt).toBe(5000);
   } finally { await f.close(); }
 });
 
@@ -451,5 +465,79 @@ test("a grant withdrawn after open retires existing streams and channels in both
       { streamId: streamOut.streamId, reason: "requested" },
       { channelId: channelOut.channelId, reason: "requested" },
     ]);
+  } finally { await f.close(); }
+});
+
+test("observe and action are captured like input and relay the peer's typed answers", async () => {
+  const captured: MachineInputCapture[] = [];
+  const f = await fixture({ captureInput: (request, forward) => { captured.push(request); return forward; } });
+  try {
+    const desk = await f.peer([COMPUTER], observationScript);
+    const computer = f.machine();
+    expect(await run(computer.observe(observeRequest))).toEqual(observed);
+    expect(await run(computer.action(actionRequest))).toEqual({ status: "refused", reason: "epoch_changed" });
+    expect(captured).toEqual([
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.ScreenObserve, params: observeRequest },
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputAction, params: actionRequest },
+    ]);
+    expect(observations(desk.received)).toEqual([
+      { method: Machine.WireMethod.ScreenObserve, params: observeRequest },
+      { method: Machine.WireMethod.InputAction, params: actionRequest },
+    ]);
+  } finally { await f.close(); }
+});
+
+test("a refusing capture port blocks observe and action, and no port sends neither", async () => {
+  for (const captureInput of [() => Effect.succeed({ status: "refused", reason: "permission_denied", message: "tool.pre blocked" } as const), "absent"] as const) {
+    const f = await fixture({ captureInput });
+    try {
+      const desk = await f.peer([COMPUTER], observationScript);
+      const message = captureInput === "absent" ? "input requires a captured tool.pre effect" : "tool.pre blocked";
+      expect(await run(f.machine().observe(observeRequest))).toEqual({ status: "refused", reason: "permission_denied", message });
+      expect(await run(f.machine().action(actionRequest))).toEqual({ status: "refused", reason: "permission_denied", message });
+      expect(observations(desk.received)).toEqual([]);
+    } finally { await f.close(); }
+  }
+});
+
+test("observe and action refuse a withheld grant, a missing display and a contract-2 peer before sending", async () => {
+  const denied = await fixture({ grants: [Machine.WellKnownCapability.fsRead] });
+  try {
+    const desk = await denied.peer([COMPUTER], observationScript);
+    expect(await run(denied.machine().observe(observeRequest))).toEqual({ status: "refused", reason: "permission_denied" });
+    expect(await run(denied.machine().action(actionRequest))).toEqual({ status: "refused", reason: "permission_denied" });
+    expect(observations(desk.received)).toEqual([]);
+  } finally { await denied.close(); }
+  const headless = await fixture();
+  try {
+    const desk = await headless.peer([], observationScript);
+    expect(await run(headless.machine().observe(observeRequest))).toEqual({ status: "refused", reason: "observe_not_available" });
+    expect(await run(headless.machine().action(actionRequest))).toEqual({ status: "refused", reason: "input_not_available" });
+    expect(observations(desk.received)).toEqual([]);
+  } finally { await headless.close(); }
+  const older = await fixture();
+  try {
+    const desk = await older.peer([COMPUTER], { ...observationScript, [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }) }, undefined, 2);
+    const unavailable = { status: "refused", reason: "observe_not_available", message: "the attached client predates contract 3" } as const;
+    expect(await run(older.machine().observe(observeRequest))).toEqual(unavailable);
+    expect(await run(older.machine().action(actionRequest))).toEqual(unavailable);
+    expect(observations(desk.received)).toEqual([]);
+    expect(await run(older.machine().pointer({ kind: "click", at: { observationId: "o1", ref: "AXButton[0]" }, button: "left", count: 1 }))).toEqual(unavailable);
+    expect(inputs(desk.received)).toEqual([]);
+    expect(await run(older.machine().pointer(pointer))).toEqual({ status: "ok" });
+    expect(inputs(desk.received)).toEqual([{ method: Machine.WireMethod.InputPointer, params: { kind: "click", captureId: "cap-1", x: 10, y: 20, button: "left", count: 1 } }]);
+  } finally { await older.close(); }
+});
+
+test("malformed observe and action requests fail before capture", async () => {
+  const captured: MachineInputCapture[] = [];
+  const f = await fixture({ captureInput: (request, forward) => { captured.push(request); return forward; } });
+  try {
+    await f.peer([COMPUTER], observationScript);
+    const badObserve = { ...observeRequest, target: { pid: 0, windowId: 7 } };
+    const badAction = { ...actionRequest, ref: "no-index" };
+    expect(await run(Effect.flip(f.machine().observe(badObserve)))).toMatchObject({ _tag: "MachinesFailure" });
+    expect(await run(Effect.flip(f.machine().action(badAction)))).toMatchObject({ _tag: "MachinesFailure" });
+    expect(captured).toEqual([]);
   } finally { await f.close(); }
 });

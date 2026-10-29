@@ -11,6 +11,7 @@
 //! the caller's: this module is defense in depth behind the host's own gate,
 //! and re-checks the driver's permission and the anchor on every request.
 
+pub mod action;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod native;
 pub mod recorder;
@@ -19,9 +20,12 @@ use std::sync::{Mutex, PoisonError};
 
 use oni_protocol::{
     input_key_request::InputKeyRequestAction,
-    input_pointer_request::InputPointerRequestButtonState,
-    input_write_request::InputWriteRequestActionsItem, InputKeyRequest, InputPointerRequest,
-    InputTextRequest, InputWriteRequest,
+    input_pointer_request::{
+        InputPointerRequestButtonAt, InputPointerRequestButtonState, InputPointerRequestClickAt,
+        InputPointerRequestMoveAt, InputPointerRequestScrollAt,
+    },
+    input_write_request::InputWriteRequestActionsItem,
+    InputKeyRequest, InputPointerRequest, InputTextRequest, InputWriteRequest,
 };
 use serde_json::{json, Value};
 
@@ -74,13 +78,28 @@ pub enum Key {
     Char(char),
 }
 
-/// One injected event. `Move` is in global desktop points.
+/// One injected event. `Move` is in global desktop points; `reference` is
+/// the observed ref a pointer anchor resolved to that point, recorded with
+/// it and never consulted by a backend.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
-    Move { x: i32, y: i32 },
-    Button { button: Button, down: bool },
-    Scroll { horizontal: bool, delta: i32 },
-    Key { key: Key, down: bool },
+    Move {
+        x: i32,
+        y: i32,
+        reference: Option<String>,
+    },
+    Button {
+        button: Button,
+        down: bool,
+    },
+    Scroll {
+        horizontal: bool,
+        delta: i32,
+    },
+    Key {
+        key: Key,
+        down: bool,
+    },
     Text(String),
 }
 
@@ -182,6 +201,89 @@ fn offset(at: i64, extent: u32, origin: i32) -> Result<i32, Refusal> {
         .ok_or_else(|| refuse("invalid_region"))
 }
 
+/// What a request is anchored to: a capture (its display), a point on a
+/// capture's display, or a ref of an observation (its element's centre on
+/// a fresh walk). A pointer anchor's global point is the request's first move.
+enum Anchor<'a> {
+    Capture(&'a str),
+    Point {
+        capture: &'a str,
+        x: i64,
+        y: i64,
+    },
+    Ref {
+        observation: &'a str,
+        reference: &'a str,
+    },
+}
+
+macro_rules! pointer_anchor {
+    ($($at:ident),+) => {$(
+        impl<'a> From<&'a $at> for Anchor<'a> {
+            fn from(at: &'a $at) -> Self {
+                match at {
+                    $at::Variant0 { capture_id, x, y } => Anchor::Point {
+                        capture: capture_id.as_str(),
+                        x: *x,
+                        y: *y,
+                    },
+                    $at::Variant1 { observation_id, ref_ } => Anchor::Ref {
+                        observation: observation_id.as_str(),
+                        reference: ref_.as_str(),
+                    },
+                }
+            }
+        }
+    )+};
+}
+
+pointer_anchor!(
+    InputPointerRequestMoveAt,
+    InputPointerRequestClickAt,
+    InputPointerRequestButtonAt,
+    InputPointerRequestScrollAt
+);
+
+fn anchored(screen: &Screen, capture: &str) -> Result<Display, Refusal> {
+    match screen.anchored(capture) {
+        Ok(Some(display)) => Ok(display),
+        Ok(None) => Err(refuse("stale_capture")),
+        Err(Fault::Absent) => Err(refuse("input_not_available")),
+        Err(Fault::Permission) => Err(refuse("permission_denied")),
+        Err(fault) => Err(explain("input_failed", format!("{fault:?}"))),
+    }
+}
+
+/// The anchor's display and, for a pointer anchor, its global point.
+fn resolve(screen: &Screen, anchor: &Anchor<'_>) -> Result<(Display, Option<Event>), Refusal> {
+    match *anchor {
+        Anchor::Capture(capture) => Ok((anchored(screen, capture)?, None)),
+        Anchor::Point { capture, x, y } => {
+            let display = anchored(screen, capture)?;
+            let aim = Event::Move {
+                x: offset(x, display.width, display.x)?,
+                y: offset(y, display.height, display.y)?,
+                reference: None,
+            };
+            Ok((display, Some(aim)))
+        }
+        Anchor::Ref {
+            observation,
+            reference,
+        } => {
+            let (display, x, y) =
+                screen
+                    .point(observation, reference)
+                    .map_err(|refusal| Refusal {
+                        reason: refusal.reason(),
+                        message: refusal.message(),
+                    })?;
+            let reference = Some(reference.to_owned());
+            Ok((display, Some(Event::Move { x, y, reference })))
+        }
+    }
+}
+
 struct Plan<'a> {
     display: &'a Display,
     events: Vec<Event>,
@@ -192,7 +294,11 @@ impl Plan<'_> {
     fn point(&mut self, x: i64, y: i64) -> Result<(), Refusal> {
         let x = offset(x, self.display.width, self.display.x)?;
         let y = offset(y, self.display.height, self.display.y)?;
-        self.events.push(Event::Move { x, y });
+        self.events.push(Event::Move {
+            x,
+            y,
+            reference: None,
+        });
         Ok(())
     }
 
@@ -344,20 +450,13 @@ impl Input {
     }
 
     pub fn pointer(&self, screen: &Screen, request: &InputPointerRequest) -> Value {
-        let (capture, x, y) = match request {
-            InputPointerRequest::Move { capture_id, x, y } => (capture_id.as_str(), x, y),
-            InputPointerRequest::Click {
-                capture_id, x, y, ..
-            } => (capture_id.as_str(), x, y),
-            InputPointerRequest::Button {
-                capture_id, x, y, ..
-            } => (capture_id.as_str(), x, y),
-            InputPointerRequest::Scroll {
-                capture_id, x, y, ..
-            } => (capture_id.as_str(), x, y),
+        let anchor = match request {
+            InputPointerRequest::Move { at } => at.into(),
+            InputPointerRequest::Click { at, .. } => at.into(),
+            InputPointerRequest::Button { at, .. } => at.into(),
+            InputPointerRequest::Scroll { at, .. } => at.into(),
         };
-        self.run(screen, capture, false, &|plan| {
-            plan.point(*x, *y)?;
+        self.run(screen, &anchor, false, &|plan| {
             match request {
                 InputPointerRequest::Move { .. } => {}
                 InputPointerRequest::Click {
@@ -382,58 +481,71 @@ impl Input {
     }
 
     pub fn key(&self, screen: &Screen, request: &InputKeyRequest) -> Value {
-        self.run(screen, &request.capture_id, false, &|plan| {
-            let pressed = key(&request.key).ok_or_else(|| unknown(&request.key))?;
-            let held = request.modifiers.as_ref().map_or_else(Vec::new, |held| {
-                [
-                    (held.shift, Named::Shift),
-                    (held.control, Named::Control),
-                    (held.alt, Named::Alt),
-                    (held.meta, Named::Meta),
-                ]
-                .into_iter()
-                .filter_map(|(on, named)| on.unwrap_or(false).then_some(named))
-                .collect()
-            });
-            let (down, up) = match request.action {
-                InputKeyRequestAction::Press => (true, true),
-                InputKeyRequestAction::Down => (true, false),
-                InputKeyRequestAction::Up => (false, true),
-            };
-            plan.chord(pressed, &held, down, up);
-            Ok(())
-        })
+        self.run(
+            screen,
+            &Anchor::Capture(&request.capture_id),
+            false,
+            &|plan| {
+                let pressed = key(&request.key).ok_or_else(|| unknown(&request.key))?;
+                let held = request.modifiers.as_ref().map_or_else(Vec::new, |held| {
+                    [
+                        (held.shift, Named::Shift),
+                        (held.control, Named::Control),
+                        (held.alt, Named::Alt),
+                        (held.meta, Named::Meta),
+                    ]
+                    .into_iter()
+                    .filter_map(|(on, named)| on.unwrap_or(false).then_some(named))
+                    .collect()
+                });
+                let (down, up) = match request.action {
+                    InputKeyRequestAction::Press => (true, true),
+                    InputKeyRequestAction::Down => (true, false),
+                    InputKeyRequestAction::Up => (false, true),
+                };
+                plan.chord(pressed, &held, down, up);
+                Ok(())
+            },
+        )
     }
 
     pub fn text(&self, screen: &Screen, request: &InputTextRequest) -> Value {
-        self.run(screen, &request.capture_id, false, &|plan| {
-            plan.text(&request.text)
-        })
+        self.run(
+            screen,
+            &Anchor::Capture(&request.capture_id),
+            false,
+            &|plan| plan.text(&request.text),
+        )
     }
 
     /// The legacy batch: main display only, as its contract states; every
     /// action is planned before the first one runs.
     pub fn write(&self, screen: &Screen, request: &InputWriteRequest) -> Value {
-        self.run(screen, &request.capture_id, true, &|plan| {
-            for action in &request.actions {
-                match action {
-                    InputWriteRequestActionsItem::Click { button: b, x, y } => {
-                        plan.point(*x, *y)?;
-                        plan.press(b.map_or(Button::Left, |b| button(&b.to_string())), 1);
-                    }
-                    InputWriteRequestActionsItem::Type { text } => plan.text(text)?,
-                    InputWriteRequestActionsItem::Key { name } => {
-                        let (pressed, held) = chord(name).ok_or_else(|| unknown(name))?;
-                        plan.chord(pressed, &held, true, true);
-                    }
-                    InputWriteRequestActionsItem::Move { x, y } => plan.point(*x, *y)?,
-                    InputWriteRequestActionsItem::Scroll { delta_x, delta_y } => {
-                        plan.scroll(delta_x.unwrap_or(0), delta_y.unwrap_or(0))?;
+        self.run(
+            screen,
+            &Anchor::Capture(&request.capture_id),
+            true,
+            &|plan| {
+                for action in &request.actions {
+                    match action {
+                        InputWriteRequestActionsItem::Click { button: b, x, y } => {
+                            plan.point(*x, *y)?;
+                            plan.press(b.map_or(Button::Left, |b| button(&b.to_string())), 1);
+                        }
+                        InputWriteRequestActionsItem::Type { text } => plan.text(text)?,
+                        InputWriteRequestActionsItem::Key { name } => {
+                            let (pressed, held) = chord(name).ok_or_else(|| unknown(name))?;
+                            plan.chord(pressed, &held, true, true);
+                        }
+                        InputWriteRequestActionsItem::Move { x, y } => plan.point(*x, *y)?,
+                        InputWriteRequestActionsItem::Scroll { delta_x, delta_y } => {
+                            plan.scroll(delta_x.unwrap_or(0), delta_y.unwrap_or(0))?;
+                        }
                     }
                 }
-            }
-            Ok(())
-        })
+                Ok(())
+            },
+        )
     }
 
     /// Permission, anchor and the whole plan are checked under the driver
@@ -441,7 +553,7 @@ impl Input {
     fn run(
         &self,
         screen: &Screen,
-        capture: &str,
+        anchor: &Anchor<'_>,
         main_only: bool,
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
     ) -> Value {
@@ -450,7 +562,7 @@ impl Input {
         };
         let mut driven = driver.lock().unwrap_or_else(PoisonError::into_inner);
         let Driven { driver, held } = &mut *driven;
-        self.attempt((driver.as_mut(), held), screen, capture, main_only, build)
+        self.attempt((driver.as_mut(), held), screen, anchor, main_only, build)
             .map_or_else(Refusal::value, |()| json!({"status":"ok"}))
     }
 
@@ -458,29 +570,24 @@ impl Input {
         &self,
         (driver, held): (&mut dyn Driver, &mut Vec<Event>),
         screen: &Screen,
-        capture: &str,
+        anchor: &Anchor<'_>,
         main_only: bool,
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
     ) -> Result<(), Refusal> {
         if !driver.permitted() {
             return Err(refuse("permission_denied"));
         }
-        let display = match screen.anchored(capture) {
-            Ok(Some(display)) => display,
-            Ok(None) => return Err(refuse("stale_capture")),
-            Err(Fault::Absent) => return Err(refuse("input_not_available")),
-            Err(Fault::Permission) => return Err(refuse("permission_denied")),
-            Err(fault) => return Err(explain("input_failed", format!("{fault:?}"))),
-        };
+        let (display, aim) = resolve(screen, anchor)?;
         if main_only && !display.primary {
             return Err(explain(
                 "unsupported_action",
-                format!("capture {capture} is not of the main display; input_write is main-display only"),
+                "the capture is not of the main display; input_write is main-display only"
+                    .to_owned(),
             ));
         }
         let mut plan = Plan {
             display: &display,
-            events: Vec::new(),
+            events: aim.into_iter().collect(),
             typed: 0,
         };
         build(&mut plan)?;

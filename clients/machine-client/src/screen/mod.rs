@@ -3,10 +3,12 @@
 //! PNG/JPEG byte cap and the frame pool are shared, so the headless
 //! [`fixture`] adapter drives the same path as the native backend.
 
+pub mod ax;
 mod encode;
 pub mod fixture;
 #[cfg(target_os = "macos")]
 pub mod native;
+pub mod observe;
 mod pool;
 
 use std::{
@@ -26,6 +28,7 @@ use serde_json::{json, Value};
 
 use crate::attach::now_ms;
 use encode::{Encoding, Format};
+use observe::Observations;
 use pool::Pool;
 
 pub const MAX_BYTES: usize = 4_194_304;
@@ -49,6 +52,16 @@ pub struct Display {
     pub primary: bool,
 }
 
+impl Display {
+    /// Whether the global point `(x, y)` lies on this display.
+    pub fn holds(&self, x: i32, y: i32) -> bool {
+        let inside = |at: i32, origin: i32, extent: u32| {
+            (i64::from(origin)..i64::from(origin) + i64::from(extent)).contains(&i64::from(at))
+        };
+        inside(x, self.x, self.width) && inside(y, self.y, self.height)
+    }
+}
+
 /// A window with global bounds in points on the display `display` (a
 /// [`Display::id`]).
 #[derive(Clone, Debug, PartialEq)]
@@ -57,6 +70,9 @@ pub struct Window {
     pub display: u32,
     pub title: String,
     pub owner: String,
+    /// The owning process, which an observation target names.
+    pub pid: Option<u32>,
+    pub app: Option<ax::AppIdentity>,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -150,6 +166,8 @@ pub struct Screen {
     pool: Pool,
     next: AtomicU64,
     latest: Mutex<Option<Anchor>>,
+    observer: Option<Box<dyn ax::Observer>>,
+    observations: Observations,
 }
 
 impl Screen {
@@ -159,6 +177,8 @@ impl Screen {
             pool: Pool::new(0),
             next: AtomicU64::new(0),
             latest: Mutex::new(None),
+            observer: None,
+            observations: Observations::default(),
         }
     }
 
@@ -169,12 +189,20 @@ impl Screen {
             pool: Pool::new(captures),
             next: AtomicU64::new(0),
             latest: Mutex::new(None),
+            observer: None,
+            observations: Observations::default(),
         }
+    }
+
+    /// Serves `machine.screen.observe` and `machine.input.action` through `observer`.
+    pub fn observing(mut self, observer: Box<dyn ax::Observer>) -> Self {
+        self.observer = Some(observer);
+        self
     }
 
     #[cfg(target_os = "macos")]
     pub fn platform() -> Self {
-        Self::new(Box::new(native::Native), CAPTURES)
+        Self::new(Box::new(native::Native), CAPTURES).observing(Box::new(ax::native::Native))
     }
 
     /// No native backend off macOS: the screen is absent.
@@ -232,9 +260,11 @@ impl Screen {
             .map(|anchor| anchor.display.clone()))
     }
 
-    /// Drops the anchor: no capture taken before this call admits input.
+    /// Drops the anchor and every observation: no capture or observation
+    /// taken before this call admits input.
     pub fn forget(&self) {
         *self.latest() = None;
+        self.observations.forget();
     }
 
     pub fn list(&self, request: &ScreenListRequest) -> Value {
@@ -462,7 +492,7 @@ fn display_row(index: usize, display: &Display) -> Value {
 fn window_row(window: &Window, index: usize, display: &Display) -> Value {
     let offset =
         |at: i32, origin: i32| (i64::from(at) - i64::from(origin)).clamp(-COORDINATE, COORDINATE);
-    json!({
+    let mut row = json!({
         "windowId":window.id.to_string(),"display":index + 1,
         "title":window.title.chars().take(MAX_TEXT).collect::<String>(),
         "owner":window.owner.chars().take(MAX_TEXT).collect::<String>(),
@@ -470,7 +500,14 @@ fn window_row(window: &Window, index: usize, display: &Display) -> Value {
             "x":offset(window.x, display.x),"y":offset(window.y, display.y),
             "width":window.width.min(MAX_DIMENSION),"height":window.height.min(MAX_DIMENSION)
         }
-    })
+    });
+    if let Some(pid) = window.pid {
+        row["pid"] = json!(pid);
+    }
+    if let Some(app) = &window.app {
+        row["app"] = json!(app);
+    }
+    row
 }
 
 /// The region's point ranges, refused unless inside the display.

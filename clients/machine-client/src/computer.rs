@@ -17,7 +17,14 @@ use serde_json::{json, Value};
 
 use crate::{
     input::{Button, Driver, Event, Input, Key, Named},
-    screen::{fixture::Fixture, Display, Screen, Window, CAPTURES},
+    screen::{
+        ax::{
+            fixture::{Element, Scripted},
+            AppIdentity,
+        },
+        fixture::Fixture,
+        Display, Screen, Window, CAPTURES,
+    },
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -76,6 +83,12 @@ struct WindowRow {
     y: i32,
     width: u32,
     height: u32,
+    pid: Option<u32>,
+    app: Option<AppIdentity>,
+    #[serde(rename = "epoch", default)]
+    _epoch: u64,
+    #[serde(rename = "elements", default)]
+    _elements: Vec<Element>,
 }
 
 /// The fixture screen and recorder input the `computer` block of the
@@ -109,9 +122,14 @@ pub fn open(path: &Path) -> Result<Option<(Screen, Input)>, ComputerError> {
         windows: layout.windows.into_iter().map(window).collect(),
         ..Fixture::default()
     };
+    let recorder = directory.join(block.recorder);
+    let observer = Scripted {
+        layout: layout_path,
+        recorder: recorder.clone(),
+    };
     Ok(Some((
-        Screen::new(Box::new(fixture), CAPTURES),
-        Input::new(Recorder(directory.join(block.recorder))),
+        Screen::new(Box::new(fixture), CAPTURES).observing(Box::new(observer)),
+        Input::new(Recorder(recorder)),
     )))
 }
 
@@ -133,6 +151,8 @@ fn window(row: WindowRow) -> Window {
         display: row.display,
         title: row.title,
         owner: row.owner,
+        pid: row.pid,
+        app: row.app,
         x: row.x,
         y: row.y,
         width: row.width,
@@ -151,20 +171,33 @@ impl Driver for Recorder {
     }
 
     fn inject(&mut self, event: &Event) -> Result<(), String> {
-        let mut line = record(event).to_string();
-        line.push('\n');
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.0)
-            .and_then(|mut file| file.write_all(line.as_bytes()))
-            .map_err(|error| error.to_string())
+        append(&self.0, &record(event)).map_err(|error| error.to_string())
     }
+}
+
+/// Appends `line` and a newline to the recorder file at `path`.
+pub fn append(path: &Path, line: &Value) -> io::Result<()> {
+    let mut text = line.to_string();
+    text.push('\n');
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(text.as_bytes()))
 }
 
 pub fn record(event: &Event) -> Value {
     match event {
-        Event::Move { x, y } => json!({ "event": "move", "x": x, "y": y }),
+        Event::Move {
+            x,
+            y,
+            reference: None,
+        } => json!({ "event": "move", "x": x, "y": y }),
+        Event::Move {
+            x,
+            y,
+            reference: Some(reference),
+        } => json!({ "event": "move", "x": x, "y": y, "ref": reference }),
         Event::Button { button, down } => {
             json!({ "event": "button", "button": button_name(*button), "down": down })
         }

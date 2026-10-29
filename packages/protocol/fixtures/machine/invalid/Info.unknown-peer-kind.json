@@ -11,6 +11,6 @@
   "generation": 1,
   "peer": {
     "kind": "browser",
-    "contractVersion": 2
+    "contractVersion": 3
   }
 }

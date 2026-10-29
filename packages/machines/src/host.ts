@@ -8,6 +8,7 @@ import { type BusEvent, type Ipc, Machine } from "@oni/protocol";
 import { Deferred, Effect, Exit, Fiber, Semaphore, type Scope } from "effect";
 import { MachinesFailure, MachineCellError, MachineRefusalError, TransportFailure, type MachineError } from "./errors";
 import { decodeMachineFailure } from "./failure";
+import { answersObservation, legacyPointer, OBSERVE_NOT_AVAILABLE, observeRefusal } from "./observe";
 import { onAbort } from "./interrupt-on";
 import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
@@ -70,10 +71,10 @@ interface MachineHostOptions {
    * and grant before it sends. Absent, every typed input refuses
    * `permission_denied`; the host carries no input policy of its own.
    */
-  readonly captureInput?: (
+  readonly captureInput?: <R extends CapturedResult>(
     request: MachineInputCapture,
-    forward: Effect.Effect<Machine.InputWriteResult, MachineError>,
-  ) => Effect.Effect<Machine.InputWriteResult, MachineError>;
+    forward: Effect.Effect<R, MachineError>,
+  ) => Effect.Effect<R | CaptureRefusal, MachineError>;
 }
 /** Default `staleAfterMs`: three missed default-cadence heartbeats. */
 const REPORT_STALE_AFTER_MS = 15_000;
@@ -128,16 +129,22 @@ export interface MachineHandle {
   readonly computer?: ComputerHandle;
 }
 /** Computer-use wire methods (#1662) the host originates. */
-type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "InputPointer" | "InputKey" | "InputText" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"];
+type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"];
 type InputMethod = (typeof Machine.WireMethod)["InputPointer" | "InputKey" | "InputText"];
 type InputParams = Machine.InputPointerRequest | Machine.InputKeyRequest | Machine.InputTextRequest;
+type CapturedMethod = InputMethod | (typeof Machine.WireMethod)["ScreenObserve" | "InputAction"];
+type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.InputActionRequest;
+/** What a captured call answers when it was forwarded (#1689 adds observation). */
+export type CapturedResult = Machine.InputWriteResult | Machine.ScreenObserveResult;
+/** The capture port's own refusal, valid in every captured answer vocabulary. */
+export interface CaptureRefusal { readonly status: "refused"; readonly reason: "permission_denied"; readonly message?: string }
 /** What the captured-input port records: the exact call the host would forward. */
 export interface MachineInputCapture {
   readonly machineId: Machine.MachineId;
   /** The attachment generation when the call was captured; null when no peer was attached. */
   readonly generation: number | null;
-  readonly method: InputMethod;
-  readonly params: InputParams;
+  readonly method: CapturedMethod;
+  readonly params: CapturedParams;
 }
 /** Why a stream or channel ended: the peer's or host's close reason, or the attachment went away. */
 export type RelayEnd = Machine.StreamCloseRequest["reason"] | Machine.CdpCloseRequest["reason"] | "detached" | "revoked";
@@ -172,6 +179,9 @@ export interface ComputerHandle {
   pointer(request: Machine.InputPointerRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
   key(request: Machine.InputKeyRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
   text(request: Machine.InputTextRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
+  /** Window-bound observation (#1689): captured like input, answered only by contract-3 peers. */
+  observe(request: Machine.ScreenObserveRequest): Effect.Effect<Machine.ScreenObserveResult, MachineError>;
+  action(request: Machine.InputActionRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
   readonly stream: {
     open(request: Omit<Machine.StreamOpenRequest, "streamId">, listeners: StreamListeners): Effect.Effect<ComputerStream | Extract<Machine.StreamOpenResult, { status: "refused" }>, MachineError>;
   };
@@ -930,23 +940,38 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
      * only while `peer` (the attachment at capture time, if any) is still THE
      * attachment of `id` and the grant still holds.
      */
-    function forwardInput(id: string, peer: Attachment | undefined, method: InputMethod, params: InputParams): Effect.Effect<Machine.InputWriteResult, MachineError> {
+    function forwardCaptured<R extends CapturedResult>(id: string, peer: Attachment | undefined, method: CapturedMethod, refuse: (grant: "permission_denied" | "not_available") => R, send: (peer: Attachment) => Effect.Effect<R, MachineError>): Effect.Effect<R, MachineError> {
       return Effect.gen(function* () {
         const current = yield* attached(id, `${method}.connection`);
         if (current !== peer) return yield* new MachineRefusalError({ reason: "stale_generation", message: `attachment changed before ${method}: ${id}` });
         const grant = computerGrant(id, peer);
-        if (grant !== "granted") return inputRefusal(grant);
-        return yield* computerCall(peer, method, params, Machine.InputWriteResult);
+        if (grant !== "granted") return refuse(grant);
+        return yield* send(peer);
       });
     }
+    function captured<R extends CapturedResult>(id: string, method: CapturedMethod, params: CapturedParams, refuse: (grant: "permission_denied" | "not_available") => R, send: (peer: Attachment) => Effect.Effect<R, MachineError>): Effect.Effect<R | CaptureRefusal, MachineError> {
+      if (options.captureInput === undefined) return Effect.succeed({ status: "refused", reason: "permission_denied", message: "input requires a captured tool.pre effect" } as const);
+      const key = connectionByMachine.get(id);
+      const peer = key === undefined ? undefined : attachments.get(key);
+      return options.captureInput({ machineId: id, generation: peer?.generation ?? null, method, params }, forwardCaptured(id, peer, method, refuse, send));
+    }
     function input<M extends InputMethod>(id: string, method: M, schema: z.ZodType<InputParams>, request: InputParams): Effect.Effect<Machine.InputWriteResult, MachineError> {
-      return Effect.gen(function* () {
-        const params = yield* Effect.try({ try: () => schema.parse(request), catch: decodeMachineFailure(`${method}.request`) });
-        if (options.captureInput === undefined) return { status: "refused", reason: "permission_denied", message: "input requires a captured tool.pre effect" } as const;
-        const key = connectionByMachine.get(id);
-        const peer = key === undefined ? undefined : attachments.get(key);
-        return yield* options.captureInput({ machineId: id, generation: peer?.generation ?? null, method, params }, forwardInput(id, peer, method, params));
-      });
+      return Effect.try({ try: () => schema.parse(request), catch: decodeMachineFailure(`${method}.request`) }).pipe(
+        Effect.flatMap((params) => captured(id, method, params, inputRefusal, (peer) => computerCall(peer, method, params, Machine.InputWriteResult))),
+      );
+    }
+    /** A contract-2 peer reads the flat capture form and answers no element form. */
+    function pointer(id: string, request: Machine.InputPointerRequest): Effect.Effect<Machine.InputWriteResult, MachineError> {
+      const method = Machine.WireMethod.InputPointer;
+      return decode(Machine.InputPointerRequest, request, `${method}.request`).pipe(Effect.flatMap((params) => captured(id, method, params, inputRefusal, (peer) => {
+        const legacy = answersObservation(peer.offer) ? params : legacyPointer(params);
+        return legacy === undefined ? Effect.succeed(OBSERVE_NOT_AVAILABLE) : computerCall(peer, method, legacy, Machine.InputWriteResult);
+      })));
+    }
+    function observation<P extends Machine.ScreenObserveRequest | Machine.InputActionRequest, R extends CapturedResult>(id: string, method: (typeof Machine.WireMethod)["ScreenObserve" | "InputAction"], schema: z.ZodType<P>, request: P, answer: z.ZodType<R>, refuse: (grant: "permission_denied" | "not_available") => R, unavailable: R): Effect.Effect<R | CaptureRefusal, MachineError> {
+      return decode(schema, request, `${method}.request`).pipe(Effect.flatMap((params) => captured(id, method, params, refuse, (peer) => (answersObservation(peer.offer)
+        ? computerCall(peer, method, params, answer)
+        : Effect.succeed(unavailable)))));
     }
     function screenGate(id: string, operation: string): Effect.Effect<Attachment | "permission_denied" | "not_available", MachineError> {
       return attached(id, operation).pipe(Effect.map((peer) => {
@@ -1137,9 +1162,11 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
             ? { status: "refused", reason: "capture_failed", message: `capture exceeds ${Machine.SCREEN_PNG_MAX_BYTES} bytes` } as const
             : { ...result, data };
         }),
-        pointer: (request) => input(id, Machine.WireMethod.InputPointer, Machine.InputPointerRequest, request),
+        pointer: (request) => pointer(id, request),
         key: (request) => input(id, Machine.WireMethod.InputKey, Machine.InputKeyRequest, request),
         text: (request) => input(id, Machine.WireMethod.InputText, Machine.InputTextRequest, request),
+        observe: (request) => observation(id, Machine.WireMethod.ScreenObserve, Machine.ScreenObserveRequest, request, Machine.ScreenObserveResult, observeRefusal, OBSERVE_NOT_AVAILABLE),
+        action: (request) => observation(id, Machine.WireMethod.InputAction, Machine.InputActionRequest, request, Machine.InputWriteResult, inputRefusal, OBSERVE_NOT_AVAILABLE),
         stream: { open: (request, listeners) => openStream(id, request, listeners) },
         cdp: { open: (request, listeners) => openChannel(id, request, listeners) },
       };

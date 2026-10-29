@@ -19,13 +19,13 @@ use oni_protocol::{
     AgentSessionOpenRequest, AgentSessionOpenResult, AgentSessionSendRequest,
     AgentSessionSendResult, AgentSessionStopRequest, AgentSessionStopResult,
     AgentSessionTailRequest, AgentSessionTailResult, CancelCode, CellRequest, ExecRequest,
-    FsRequest, FsStreamRequest, InputWriteRequest, PeekCode, PtyCloseRequest, PtyListRequest,
-    PtyOpenRequest, PtyReadRequest, PtyReadScreenRequest, PtyResizeRequest, PtyWriteRequest,
-    ScreenReadRequest, WireMethod, WireRoot,
+    FsRequest, FsStreamRequest, InputActionRequest, InputWriteRequest, PeekCode, PtyCloseRequest,
+    PtyListRequest, PtyOpenRequest, PtyReadRequest, PtyReadScreenRequest, PtyResizeRequest,
+    PtyWriteRequest, ScreenReadRequest, WireMethod, WireRoot,
 };
 use oni_protocol::{CdpChunk, CdpCloseRequest, CdpOpenRequest};
 use oni_protocol::{InputKeyRequest, InputPointerRequest, InputTextRequest};
-use oni_protocol::{ScreenCaptureRequest, ScreenListRequest};
+use oni_protocol::{ScreenCaptureRequest, ScreenListRequest, ScreenObserveRequest};
 use oni_protocol::{StreamCloseRequest, StreamOpenRequest, StreamSignalRequest};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -45,7 +45,7 @@ use crate::{
     config::ClientConfig,
     exec::{Exec, DEFAULT_DEADLINE},
     fs::{FsDriver, FsError},
-    input::Input,
+    input::{action, Input},
     pty::ops::Pty,
     screen::Screen,
     transport::{
@@ -894,9 +894,14 @@ impl Pressure for Service {
 
 impl Service {
     /// Screen methods answer `machine_not_attached` before an attach and
-    /// `screen_not_available` unless `capability` is offered and granted;
-    /// the capture itself runs off the async workers.
-    async fn capture<F>(&self, capability: &str, body: F) -> Result<Value, String>
+    /// `unavailable` unless `capability` is offered and granted; the
+    /// capture itself runs off the async workers.
+    async fn capture<F>(
+        &self,
+        capability: &str,
+        unavailable: &str,
+        body: F,
+    ) -> Result<Value, String>
     where
         F: FnOnce() -> Value + Send + 'static,
     {
@@ -904,7 +909,7 @@ impl Service {
             return Ok(refused("machine_not_attached"));
         }
         if !self.has(capability) {
-            return Ok(refused("screen_not_available"));
+            return Ok(refused(unavailable));
         }
         tokio::task::spawn_blocking(body)
             .await
@@ -960,11 +965,13 @@ impl Service {
         match method {
             WireMethod::MachineScreenList
             | WireMethod::MachineScreenCapture
-            | WireMethod::MachineScreenRead => self.serve_screen(method, params).await,
+            | WireMethod::MachineScreenRead
+            | WireMethod::MachineScreenObserve => self.serve_screen(method, params).await,
             WireMethod::MachineInputPointer
             | WireMethod::MachineInputKey
             | WireMethod::MachineInputText
-            | WireMethod::MachineInputWrite => self.serve_input(method, params).await,
+            | WireMethod::MachineInputWrite
+            | WireMethod::MachineInputAction => self.serve_input(method, params).await,
             WireMethod::MachineCdpOpen
             | WireMethod::MachineCdpChunk
             | WireMethod::MachineCdpClose => self.serve_cdp(method, params).await,
@@ -977,17 +984,24 @@ impl Service {
 
     async fn serve_screen(&self, method: WireMethod, params: Value) -> Result<Value, String> {
         let screen = self.screen.clone();
+        let unavailable = "screen_not_available";
         if method == WireMethod::MachineScreenList {
             let request: ScreenListRequest = decode(params)?;
-            self.capture(COMPUTER_USE, move || screen.list(&request))
+            self.capture(COMPUTER_USE, unavailable, move || screen.list(&request))
                 .await
         } else if method == WireMethod::MachineScreenCapture {
             let request: ScreenCaptureRequest = decode(params)?;
-            self.capture(COMPUTER_USE, move || screen.capture(&request))
+            self.capture(COMPUTER_USE, unavailable, move || screen.capture(&request))
                 .await
+        } else if method == WireMethod::MachineScreenObserve {
+            let request: ScreenObserveRequest = decode(params)?;
+            self.capture(COMPUTER_USE, "observe_not_available", move || {
+                screen.observe(&request)
+            })
+            .await
         } else {
             let request: ScreenReadRequest = decode(params)?;
-            self.capture(SCREEN_READ, move || screen.read(&request))
+            self.capture(SCREEN_READ, unavailable, move || screen.read(&request))
                 .await
         }
     }
@@ -1005,6 +1019,10 @@ impl Service {
         } else if method == WireMethod::MachineInputText {
             let request: InputTextRequest = decode(params)?;
             self.inject(COMPUTER_USE, move || input.text(&screen, &request))
+                .await
+        } else if method == WireMethod::MachineInputAction {
+            let act = action::parse(&decode::<InputActionRequest>(params)?)?;
+            self.inject(COMPUTER_USE, move || action::serve_action(&screen, &act))
                 .await
         } else {
             let request: InputWriteRequest = decode(params)?;

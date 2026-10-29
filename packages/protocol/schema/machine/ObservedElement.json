@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "actions": {
+      "items": {
+        "maxLength": 64,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "checked": {
+      "type": "boolean"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "expanded": {
+      "type": "boolean"
+    },
+    "frame": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "width": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "x": {
+          "maximum": 16384,
+          "minimum": -16384,
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 16384,
+          "minimum": -16384,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "type": "object"
+    },
+    "label": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "parent": {
+      "maxLength": 256,
+      "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+      "type": "string"
+    },
+    "ref": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "role": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "secure": {
+      "type": "boolean"
+    },
+    "selected": {
+      "type": "boolean"
+    },
+    "value": {
+      "maxLength": 4096,
+      "type": "string"
+    }
+  },
+  "required": [
+    "ref",
+    "role",
+    "actions",
+    "frame",
+    "secure"
+  ],
+  "type": "object"
+}

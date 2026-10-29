@@ -6,6 +6,6 @@
   "offeredAt": 1,
   "peer": {
     "kind": "client",
-    "contractVersion": 2
+    "contractVersion": 3
   }
 }

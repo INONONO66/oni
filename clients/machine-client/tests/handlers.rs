@@ -666,7 +666,7 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
         [
             (
                 "machine.input.pointer",
-                json!({"kind":"click","captureId":capture,"x":31,"y":15,"button":"left","count":1}),
+                json!({"kind":"click","at":{"captureId":capture,"x":31,"y":15},"button":"left","count":1}),
             ),
             (
                 "machine.input.key",
@@ -704,7 +704,7 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
     }
     let injected = recorder.events().len();
     assert_eq!(injected, 7);
-    let out = json!({"kind":"move","captureId":anchor,"x":32,"y":0});
+    let out = json!({"kind":"move","at":{"captureId":anchor,"x":32,"y":0}});
     let answer = call("machine.input.pointer", out).await.expect("pointer");
     assert_eq!(answer, refusal("invalid_region"));
 
@@ -852,4 +852,51 @@ async fn held_input_is_released_on_detach_and_on_a_withdrawn_grant() {
         [shift(true), shift(false), shift(true), shift(false)],
         "a withdrawn computer.use releases"
     );
+}
+
+#[tokio::test]
+async fn observation_methods_gate_like_screen_and_input_and_refuse_without_an_observer() {
+    use oni_machine_client::{
+        input::{recorder::Recorder, Input},
+        screen::{fixture::Fixture as Frames, Screen},
+    };
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let screen = Screen::new(Box::new(Frames::display(32, 16, 1.0)), 2);
+    let service = Service::open_computer(
+        &settings(false, root.path()),
+        pty,
+        screen,
+        Input::new(Recorder::default()),
+    )
+    .expect("service");
+    let hooks = service.hooks(Duration::from_secs(60));
+    let call = |method: &str, params: Value| (hooks.service)(method.to_owned(), Some(params));
+    let observe = json!({"target":{"pid":1,"windowId":2},"screenshot":false});
+    let action = json!({"observationId":"o1","target":{"pid":1,"windowId":2,"epoch":0},"ref":"AXButton[0]","action":"press"});
+    let methods = [
+        ("machine.screen.observe", observe, "observe_not_available"),
+        ("machine.input.action", action, "input_not_available"),
+    ];
+    for (method, params, _) in &methods {
+        let answer = call(method, params.clone()).await.expect(method);
+        assert_eq!(answer, refusal("machine_not_attached"), "{method}");
+        assert!(call(method, json!({"bogus":1})).await.is_err(), "{method}");
+    }
+    for capabilities in [
+        vec!["shell.exec"],
+        vec!["screen.read", "computer.use", "input.write"],
+    ] {
+        service.attached(&Negotiated {
+            generation: NonZeroU64::MIN,
+            capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
+            exports: vec![],
+        });
+        for (method, params, reason) in &methods {
+            let answer = call(method, params.clone()).await.expect(method);
+            assert_eq!(answer, refusal(reason), "{method}");
+        }
+    }
+    let unnamed = json!({"observationId":"o1","target":{"pid":1,"windowId":2,"epoch":0},"ref":"AXButton[0]","action":"perform"});
+    assert!(call("machine.input.action", unnamed).await.is_err());
 }

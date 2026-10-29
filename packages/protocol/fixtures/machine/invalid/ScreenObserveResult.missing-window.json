@@ -1,0 +1,42 @@
+{
+  "status": "ok",
+  "observationId": "o1",
+  "lineage": "w4242-7-0",
+  "target": {
+    "pid": 4242,
+    "windowId": 7,
+    "epoch": 0
+  },
+  "complete": true,
+  "private": false,
+  "focused": "AXButton[0]",
+  "elements": [
+    {
+      "ref": "AXGroup[0]",
+      "role": "AXGroup",
+      "actions": [],
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 300
+      },
+      "secure": false
+    },
+    {
+      "ref": "AXButton[0]",
+      "role": "AXButton",
+      "label": "Save",
+      "actions": ["AXPress"],
+      "frame": {
+        "x": 10,
+        "y": 20,
+        "width": 80,
+        "height": 24
+      },
+      "parent": "AXGroup[0]",
+      "secure": false,
+      "enabled": true
+    }
+  ]
+}

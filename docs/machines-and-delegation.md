@@ -229,6 +229,62 @@ offer `computer.use` is never sent the new methods.
   browser viewer) has not been observed; that acceptance belongs to epic
   #1622.
 
+### 2.2.2 Window-bound observation and ref-targeted actions (#1689)
+
+`Machine.contractVersion` is 3. The two methods below ride the existing
+`computer.use` grant; the host refuses both with `observe_not_available`,
+without a wire call, when the attached peer offered a contract below 3.
+
+- **Observe.** `machine.screen.observe` takes `{target: {pid, windowId,
+  epoch?}, since?, screenshot, maxElements?}` and answers one window's
+  accessibility elements. Each element carries a `ref` minted from its role
+  path (`role[i]` segments joined by `/`, `i` counting same-role siblings;
+  an element with an empty role has `ref: null` and no actions), `role`,
+  optional `label`/`value`, `actions`, a window-local `frame`, its `parent`
+  ref, `secure` (a secure field's value is never sent) and the optional
+  `enabled|selected|checked|expanded` states. The walk stops at 2000
+  elements (or `maxElements`), 5000 visited nodes, 2.5 s and 256 KiB of
+  serialized elements, answering `complete: false` when a bound cut it.
+  Labels cap at 1024 characters, values at 4096, actions at 16 per element.
+  `screenshot: true` adds a window capture that becomes the display's input
+  anchor. `private` is reserved and always `false`.
+- **Identity.** The answer names `observationId` (`o<n>`), the lineage
+  `w<pid>-<windowId>-<epoch>`, the target with its `epoch`, and the window's
+  `title` and owning app (`bundleId`, executable `path`). The peer keeps an
+  epoch table per attachment: a window that disappears and reappears, or
+  whose owner changes, gets the next epoch. Only the lineage's latest
+  observation is live.
+- **Diff.** `since` naming the lineage's latest observation answers a
+  `diff` (`added` and `changed` whole, `removed` by ref) instead of
+  `elements`; any other id refuses `stale_observation`. Full-refresh
+  exception: when either snapshot holds an element without a ref (empty
+  role, ambiguous sibling or descendant, too-deep path, incomplete walk),
+  the answer carries `elements` instead of a lossy `diff`. A walk cut by
+  `maxElements` or the hard walk limit (`complete: false`) mints no refs,
+  and the fresh walk behind an action must be complete too.
+- **Action.** `machine.input.action` takes `{observationId, target: {pid,
+  windowId, epoch}, ref, action: press|setValue|perform, value?, name?}`
+  (value at most 65536 characters) and answers `InputWriteResult`. The peer
+  rechecks the lineage, re-resolves the ref on a fresh walk and requires the
+  same role, label and secure flag before it acts; nothing is executed on
+  any refusal. Refusals: `window_not_found`, `epoch_changed`,
+  `stale_observation`, `ref_not_found`, `action_not_supported`,
+  `permission_denied`, `input_not_available`, `input_failed`.
+- **Host.** Both methods enter the same captured `tool.pre` port as input
+  (`captureInput`), so observation is an Owner-visible effect too, and both
+  recheck attachment, generation and grant at forward time.
+  `ComputerHandle` gains `observe` and `action`; code mode exposes them as
+  `getMachine(id).computer.screen.observe` and `.input.action`.
+- **Backends.** The ref minting, diff and epoch table are platform-free
+  client code; the macOS backend reads the accessibility tree and performs
+  actions only. The headless fixture layout gains per-window `pid`, `app`,
+  `epoch` and `elements`, and records actions as `kind: "action"` recorder
+  lines.
+- **Pointer.** `machine.input.pointer` anchors at `at: {captureId, x, y}`
+  or `at: {observationId, ref}`; a ref anchor is revalidated like an
+  action and resolves to the element's centre, refusing with the same
+  reasons. Windows mechanics are later work.
+
 ### 2.3 Network transport (#1270)
 
 The host owns a listener SET feeding one attachment registry: the unix socket

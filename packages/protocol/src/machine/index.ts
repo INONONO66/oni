@@ -3,6 +3,7 @@ import * as Schema from "./schema.js";
 import { Events as MachineEvents } from "./events.js";
 import * as Gateway from "./gateway.js";
 import * as Contract from "./contract.js";
+import * as Observe from "./observe.js";
 
 /**
  * Machine domain (docs/machines-and-delegation.md): attached devices as the
@@ -263,4 +264,25 @@ export namespace Machine {
   export const STREAM_DATA_MAX_BYTES = Schema.STREAM_DATA_MAX_BYTES;
   export const CDP_CHUNK_MAX_BYTES = Schema.CDP_CHUNK_MAX_BYTES;
   export const CDP_MAX_LIFETIME_MS = Schema.CDP_MAX_LIFETIME_MS;
+
+  // Window-bound observation (#1689).
+  export const AppIdentity = Schema.AppIdentity;
+  export type AppIdentity = Schema.AppIdentity;
+  export const WindowTarget = Observe.WindowTarget;
+  export type WindowTarget = Observe.WindowTarget;
+  export const ObservedElement = Observe.ObservedElement;
+  export type ObservedElement = Observe.ObservedElement;
+  export const ScreenObserveRequest = Observe.ScreenObserveRequest;
+  export type ScreenObserveRequest = Observe.ScreenObserveRequest;
+  export const ScreenObserveResult = Observe.ScreenObserveResult;
+  export type ScreenObserveResult = Observe.ScreenObserveResult;
+  export const InputActionRequest = Observe.InputActionRequest;
+  export type InputActionRequest = Observe.InputActionRequest;
+  export const OBSERVE_MAX_ELEMENTS = Observe.OBSERVE_MAX_ELEMENTS;
+  export const OBSERVE_MAX_VISITS = Observe.OBSERVE_MAX_VISITS;
+  export const OBSERVE_BUDGET_MS = Observe.OBSERVE_BUDGET_MS;
+  export const OBSERVE_MAX_VALUE_CHARS = Observe.OBSERVE_MAX_VALUE_CHARS;
+  export const OBSERVE_MAX_LABEL_CHARS = Observe.OBSERVE_MAX_LABEL_CHARS;
+  export const OBSERVE_MAX_ACTIONS = Observe.OBSERVE_MAX_ACTIONS;
+  export const ACTION_MAX_VALUE_CHARS = Observe.ACTION_MAX_VALUE_CHARS;
 }

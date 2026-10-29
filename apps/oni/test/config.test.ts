@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Crypto, Effect } from "effect";
+import { Crypto, Effect, Result } from "effect";
 import { BunCrypto } from "../src/composition/cluster-crypto";
 import {
   assertWsExposure,
   ConfigurationError,
   loadConfig,
+  type MachinePlane,
+  type OniConfig,
   parseWsPort,
   resolveAlarmSweep,
   resolveSessionFork, resolveToolOutput,
@@ -67,6 +69,12 @@ let saved: Record<string, string | undefined>;
 /** expect.objectContaining, typed as the value the partial shape matches. */
 function containing<T extends object>(shape: Partial<T> & object): T {
   return expect.objectContaining(shape) as T;
+}
+
+function machinePlane(machines: NonNullable<OniConfig["machines"]>): MachinePlane {
+  const plane = validateMachinePlane(machines);
+  if (Result.isFailure(plane)) throw plane.failure;
+  return plane.success;
 }
 
 function configurationRefusal(run: () => void): ConfigurationError {
@@ -774,7 +782,7 @@ describe("machines self enrollment config (#1271)", () => {
     expect(machines?.default).toBeUndefined();
     expect(machines?.enrolled).toEqual([]);
     if (machines === undefined) throw new Error("machines plane expected");
-    expect(validateMachinePlane(machines).defaultMachine).toBe("self");
+    expect(machinePlane(machines).defaultMachine).toBe("self");
   });
 
   it("the default machine follows an explicit self id", () => {
@@ -785,7 +793,7 @@ describe("machines self enrollment config (#1271)", () => {
     });
     const machines = loadConfig().machines;
     if (machines === undefined) throw new Error("machines plane expected");
-    expect(validateMachinePlane(machines)).toEqual({
+    expect(machinePlane(machines)).toEqual({
       self: { id: "brain", capabilities: ["fs.read"], exports: selfExports },
       defaultMachine: "brain",
     });
@@ -837,7 +845,7 @@ describe("machines self enrollment config (#1271)", () => {
     const machines = loadConfig().machines;
     if (machines === undefined) throw new Error("machines plane expected");
     expect(machines.default).toBe("alpha");
-    expect(validateMachinePlane(machines).defaultMachine).toBe("alpha");
+    expect(machinePlane(machines).defaultMachine).toBe("alpha");
   });
 
   it("carries an absolute attachment inbox into the plane", () => {
@@ -845,14 +853,14 @@ describe("machines self enrollment config (#1271)", () => {
     process.env.ONI_MACHINES_INBOX = "/srv/inbox";
     const machines = loadConfig().machines;
     if (machines === undefined) throw new Error("machines plane expected");
-    expect(validateMachinePlane(machines)).toMatchObject({
+    expect(machinePlane(machines)).toMatchObject({
       inbox: "/srv/inbox",
       self: { exports: [{ name: "workspace", path: "/tmp/self-root" }, { name: "inbox", path: "/srv/inbox" }] },
     });
   });
 
   it("normalizes an inbox spelling and retains an existing exact self export", () => {
-    const plane = validateMachinePlane({
+    const plane = machinePlane({
       self: { capabilities: ["fs.read"], exports: [{ name: "workspace", path: "/srv/inbox/" }] },
       listen: { unix: "/tmp/oni-test.sock" }, enrolled: [], inbox: "/srv//inbox///",
     });
@@ -861,7 +869,7 @@ describe("machines self enrollment config (#1271)", () => {
   });
 
   it("does not append a self export for a remote default inbox", () => {
-    const plane = validateMachinePlane({
+    const plane = machinePlane({
       self: { capabilities: ["fs.read"], exports: [{ name: "workspace", path: "/tmp/self-root" }] },
       default: "alpha", listen: { unix: "/tmp/oni-test.sock" },
       enrolled: [{
@@ -875,7 +883,7 @@ describe("machines self enrollment config (#1271)", () => {
   });
 
   it("refuses a self inbox export named for a different root", () => {
-    const error = configurationRefusal(() => validateMachinePlane({
+    const error = configurationRefusal(() => machinePlane({
       self: { capabilities: ["fs.read"], exports: [{ name: "inbox", path: "/other" }] },
       listen: { unix: "/tmp/oni-test.sock" }, enrolled: [], inbox: "/srv/inbox",
     }));
@@ -892,7 +900,7 @@ describe("machines self enrollment config (#1271)", () => {
   });
 
   it.each(["relative", "/srv/../inbox", "/srv/in\0box"])("refuses injected inbox %p before boot", (inbox) => {
-    const validate = () => validateMachinePlane({
+    const validate = () => machinePlane({
       self: { capabilities: ["fs.write"], exports: selfExports },
       listen: { unix: "/tmp/oni-test.sock" }, enrolled: [], inbox,
     });

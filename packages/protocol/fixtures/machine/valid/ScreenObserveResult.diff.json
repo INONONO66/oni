@@ -1,0 +1,44 @@
+{
+  "status": "ok",
+  "observationId": "o2",
+  "lineage": "w4242-7-0",
+  "target": {
+    "pid": 4242,
+    "windowId": 7,
+    "epoch": 0
+  },
+  "window": {
+    "pid": 4242,
+    "windowId": 7,
+    "epoch": 0,
+    "title": "Untitled",
+    "app": {
+      "bundleId": null,
+      "path": "/usr/local/bin/editor"
+    }
+  },
+  "complete": true,
+  "private": false,
+  "diff": {
+    "since": "o1",
+    "added": [],
+    "changed": [
+      {
+        "ref": "AXButton[0]",
+        "role": "AXButton",
+        "label": "Saved",
+        "actions": ["AXPress"],
+        "frame": {
+          "x": 10,
+          "y": 20,
+          "width": 80,
+          "height": 24
+        },
+        "parent": "AXGroup[0]",
+        "secure": false,
+        "enabled": true
+      }
+    ],
+    "removed": ["AXGroup[0]/AXStaticText[1]"]
+  }
+}

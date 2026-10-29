@@ -252,7 +252,7 @@ describe("machine attach handshake", () => {
           },
         });
         try {
-          await client.call("machine.attach", { ...offer({ exports: [{ name: "docs", path: "/" }] }), peer: { kind: "daemon", contractVersion: 2 } });
+          await client.call("machine.attach", { ...offer({ exports: [{ name: "docs", path: "/" }] }), peer: { kind: "daemon", contractVersion: 3 } });
           const handle = host.get("mac-studio");
           await expect(handle.fs.stat("/file")).rejects.toMatchObject({
             _tag: "MachineRefusalError",
@@ -422,7 +422,7 @@ describe("machine attach handshake", () => {
           await expect(
             client.call("machine.attach", { machineId: "mac-studio" }),
           ).rejects.toBeInstanceOf(IpcRemoteError);
-          expect(await client.call("machine.attach", { ...offer(), peer: { kind: "daemon", contractVersion: 2 } })).toEqual({
+          expect(await client.call("machine.attach", { ...offer(), peer: { kind: "daemon", contractVersion: 3 } })).toEqual({
             status: "attached",
             generation: 1,
             effectiveCapabilities: ["fs.read"],

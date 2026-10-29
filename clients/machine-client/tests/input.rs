@@ -144,7 +144,7 @@ fn ok() -> Value {
 }
 
 fn click(capture: &str, x: i64, y: i64) -> Value {
-    json!({"kind":"click","captureId":capture,"x":x,"y":y,"button":"left","count":1})
+    json!({"kind":"click","at":{"captureId":capture,"x":x,"y":y},"button":"left","count":1})
 }
 
 #[test]
@@ -166,20 +166,20 @@ fn key_names_parse_characters_function_keys_and_named_keys() {
 fn pointer_actions_translate_display_points_to_global_points() {
     let rig = rig();
     let capture = rig.capture(2);
-    let double = json!({"kind":"click","captureId":capture,"x":5,"y":6,"button":"right","count":2});
+    let double =
+        json!({"kind":"click","at":{"captureId":capture,"x":5,"y":6},"button":"right","count":2});
     assert_eq!(rig.pointer(double), ok());
-    let hold =
-        json!({"kind":"button","captureId":capture,"x":79,"y":39,"button":"middle","state":"down"});
+    let hold = json!({"kind":"button","at":{"captureId":capture,"x":79,"y":39},"button":"middle","state":"down"});
     assert_eq!(rig.pointer(hold), ok());
-    let lift =
-        json!({"kind":"button","captureId":capture,"x":0,"y":0,"button":"left","state":"up"});
+    let lift = json!({"kind":"button","at":{"captureId":capture,"x":0,"y":0},"button":"left","state":"up"});
     assert_eq!(rig.pointer(lift), ok());
     let scroll =
-        json!({"kind":"scroll","captureId":capture,"x":1,"y":2,"deltaX":3,"deltaY":-10000});
+        json!({"kind":"scroll","at":{"captureId":capture,"x":1,"y":2},"deltaX":3,"deltaY":-10000});
     assert_eq!(rig.pointer(scroll), ok());
-    let still = json!({"kind":"scroll","captureId":capture,"x":1,"y":2,"deltaX":0,"deltaY":0});
+    let still =
+        json!({"kind":"scroll","at":{"captureId":capture,"x":1,"y":2},"deltaX":0,"deltaY":0});
     assert_eq!(rig.pointer(still), ok());
-    let hover = json!({"kind":"move","captureId":capture,"x":2,"y":3});
+    let hover = json!({"kind":"move","at":{"captureId":capture,"x":2,"y":3}});
     assert_eq!(rig.pointer(hover), ok());
     let right = |down| Button {
         button: Right,
@@ -188,22 +188,38 @@ fn pointer_actions_translate_display_points_to_global_points() {
     assert_eq!(
         rig.recorder.events(),
         [
-            Move { x: 105, y: 16 },
+            Move {
+                x: 105,
+                y: 16,
+                reference: None
+            },
             right(true),
             right(false),
             right(true),
             right(false),
-            Move { x: 179, y: 49 },
+            Move {
+                x: 179,
+                y: 49,
+                reference: None
+            },
             Button {
                 button: Middle,
                 down: true
             },
-            Move { x: 100, y: 10 },
+            Move {
+                x: 100,
+                y: 10,
+                reference: None
+            },
             Button {
                 button: Left,
                 down: false
             },
-            Move { x: 101, y: 12 },
+            Move {
+                x: 101,
+                y: 12,
+                reference: None
+            },
             Scroll {
                 horizontal: true,
                 delta: 3
@@ -212,8 +228,16 @@ fn pointer_actions_translate_display_points_to_global_points() {
                 horizontal: false,
                 delta: -10000
             },
-            Move { x: 101, y: 12 },
-            Move { x: 102, y: 13 },
+            Move {
+                x: 101,
+                y: 12,
+                reference: None
+            },
+            Move {
+                x: 102,
+                y: 13,
+                reference: None
+            },
         ]
     );
 }
@@ -423,7 +447,11 @@ fn a_legacy_batch_runs_on_the_main_display_only() {
         key: K::Named(named),
         down,
     };
-    let at = Move { x: 3, y: 14 };
+    let at = Move {
+        x: 3,
+        y: 14,
+        reference: None,
+    };
     let button = |button, down| Button { button, down };
     assert_eq!(
         rig.recorder.events(),
@@ -434,7 +462,11 @@ fn a_legacy_batch_runs_on_the_main_display_only() {
             at,
             button(Middle, true),
             button(Middle, false),
-            Move { x: 99, y: 59 },
+            Move {
+                x: 99,
+                y: 59,
+                reference: None
+            },
             Text("hi".into()),
             named(Named::Control, true),
             named(Named::Shift, true),
@@ -492,7 +524,11 @@ fn a_driver_failure_releases_what_the_request_pressed() {
     assert_eq!(
         tail,
         [
-            Move { x: 1, y: 11 },
+            Move {
+                x: 1,
+                y: 11,
+                reference: None
+            },
             Button {
                 button: Left,
                 down: true
@@ -600,7 +636,11 @@ fn the_native_driver_maps_every_event_onto_enigo() {
     let fake = Fake::default();
     let mut driver = native::Native(fake.clone());
     let events = [
-        Move { x: -5, y: 7 },
+        Move {
+            x: -5,
+            y: 7,
+            reference: None,
+        },
         Button {
             button: Left,
             down: true,
@@ -709,8 +749,7 @@ fn held_keys_and_buttons_survive_requests_until_settled() {
     let left = |down| Button { button: Left, down };
     let down = json!({"captureId":capture,"key":"Shift","action":"down"});
     assert_eq!(rig.key(down), ok());
-    let press =
-        json!({"kind":"button","captureId":capture,"x":1,"y":1,"button":"left","state":"down"});
+    let press = json!({"kind":"button","at":{"captureId":capture,"x":1,"y":1},"button":"left","state":"down"});
     assert_eq!(rig.pointer(press), ok());
     let held = rig.recorder.events();
     rig.input.settle();

@@ -114,7 +114,7 @@ function decisionIntentValue(request: ExecutionRequest, phase: "pre" | "post", d
 }
 
 export { ExecutionApprovalError } from "../ports/failure";
-export { type ExecutionLedger, type ExecutionRequest, type ExecutionResult, type ExecutionBatchItem, type ExecutionBatchResult, type Executor, type DurableExecutor, type ExecutorOptions, type ResolvedExecutorOptions, RawToolSlots, createRawSlots, GenerationRawSlots, type InvocationFrame, activeInvocation, ExecutorContext, executorContext, ExecutorContextError, requireExecutor, currentExecutor, withExecutor, currentInvocation, requireOpenInvocation, forkInvocation, openInvocation, withInvocation, immutableInput } from "./invocation";
+export { type ExecutionLedger, type ExecutionRequest, type ExecutionResult, type ExecutionBatchItem, type ExecutionBatchResult, type Executor, type DurableExecutor, type ExecutorOptions, type ResolvedExecutorOptions, RawToolSlots, createRawSlots, GenerationRawSlots, type InvocationFrame, activeInvocation, ExecutorContext, executorContext, optionalExecutor, ExecutorContextError, requireExecutor, currentExecutor, withExecutor, currentInvocation, requireOpenInvocation, forkInvocation, openInvocation, withInvocation, immutableInput } from "./invocation";
 export type { LlmAttempts } from "./attempts";
 export type { ExecutionApprovalRequest, ExecutionApprovals } from "./approval";
 export { failureEvidence } from "./record";

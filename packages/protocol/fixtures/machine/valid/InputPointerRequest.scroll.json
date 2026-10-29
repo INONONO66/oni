@@ -1,8 +1,10 @@
 {
   "kind": "scroll",
-  "captureId": "cap-1",
-  "x": 10,
-  "y": 10,
+  "at": {
+    "captureId": "cap-1",
+    "x": 10,
+    "y": 10
+  },
   "deltaX": 0,
   "deltaY": -10000
 }

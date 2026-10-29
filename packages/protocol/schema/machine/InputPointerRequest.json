@@ -4,48 +4,126 @@
     {
       "additionalProperties": false,
       "properties": {
-        "captureId": {
-          "maxLength": 128,
-          "minLength": 1,
-          "type": "string"
+        "at": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "captureId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "x": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "y": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "captureId",
+                "x",
+                "y"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "observationId": {
+                  "maxLength": 32,
+                  "pattern": "^o\\d+$",
+                  "type": "string"
+                },
+                "ref": {
+                  "maxLength": 256,
+                  "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "observationId",
+                "ref"
+              ],
+              "type": "object"
+            }
+          ]
         },
         "kind": {
           "const": "move",
           "type": "string"
-        },
-        "x": {
-          "maximum": 16384,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "y": {
-          "maximum": 16384,
-          "minimum": 0,
-          "type": "integer"
         }
       },
       "required": [
         "kind",
-        "captureId",
-        "x",
-        "y"
+        "at"
       ],
       "type": "object"
     },
     {
       "additionalProperties": false,
       "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "captureId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "x": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "y": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "captureId",
+                "x",
+                "y"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "observationId": {
+                  "maxLength": 32,
+                  "pattern": "^o\\d+$",
+                  "type": "string"
+                },
+                "ref": {
+                  "maxLength": 256,
+                  "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "observationId",
+                "ref"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "button": {
           "enum": [
             "left",
             "right",
             "middle"
           ],
-          "type": "string"
-        },
-        "captureId": {
-          "maxLength": 128,
-          "minLength": 1,
           "type": "string"
         },
         "count": {
@@ -56,23 +134,11 @@
         "kind": {
           "const": "click",
           "type": "string"
-        },
-        "x": {
-          "maximum": 16384,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "y": {
-          "maximum": 16384,
-          "minimum": 0,
-          "type": "integer"
         }
       },
       "required": [
         "kind",
-        "captureId",
-        "x",
-        "y",
+        "at",
         "button",
         "count"
       ],
@@ -81,17 +147,62 @@
     {
       "additionalProperties": false,
       "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "captureId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "x": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "y": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "captureId",
+                "x",
+                "y"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "observationId": {
+                  "maxLength": 32,
+                  "pattern": "^o\\d+$",
+                  "type": "string"
+                },
+                "ref": {
+                  "maxLength": 256,
+                  "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "observationId",
+                "ref"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "button": {
           "enum": [
             "left",
             "right",
             "middle"
           ],
-          "type": "string"
-        },
-        "captureId": {
-          "maxLength": 128,
-          "minLength": 1,
           "type": "string"
         },
         "kind": {
@@ -104,23 +215,11 @@
             "up"
           ],
           "type": "string"
-        },
-        "x": {
-          "maximum": 16384,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "y": {
-          "maximum": 16384,
-          "minimum": 0,
-          "type": "integer"
         }
       },
       "required": [
         "kind",
-        "captureId",
-        "x",
-        "y",
+        "at",
         "button",
         "state"
       ],
@@ -129,10 +228,55 @@
     {
       "additionalProperties": false,
       "properties": {
-        "captureId": {
-          "maxLength": 128,
-          "minLength": 1,
-          "type": "string"
+        "at": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "captureId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "x": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "y": {
+                  "maximum": 16384,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "captureId",
+                "x",
+                "y"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "observationId": {
+                  "maxLength": 32,
+                  "pattern": "^o\\d+$",
+                  "type": "string"
+                },
+                "ref": {
+                  "maxLength": 256,
+                  "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "observationId",
+                "ref"
+              ],
+              "type": "object"
+            }
+          ]
         },
         "deltaX": {
           "maximum": 10000,
@@ -147,23 +291,11 @@
         "kind": {
           "const": "scroll",
           "type": "string"
-        },
-        "x": {
-          "maximum": 16384,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "y": {
-          "maximum": 16384,
-          "minimum": 0,
-          "type": "integer"
         }
       },
       "required": [
         "kind",
-        "captureId",
-        "x",
-        "y",
+        "at",
         "deltaX",
         "deltaY"
       ],

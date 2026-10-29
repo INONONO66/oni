@@ -1,0 +1,10 @@
+{
+  "kind": "move",
+  "at": {
+    "captureId": "cap-1",
+    "x": 1,
+    "y": 1,
+    "observationId": "o3",
+    "ref": "AXButton[0]"
+  }
+}

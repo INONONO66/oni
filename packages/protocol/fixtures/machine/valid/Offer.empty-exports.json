@@ -7,6 +7,6 @@
   "exports": [],
   "peer": {
     "kind": "daemon",
-    "contractVersion": 2
+    "contractVersion": 3
   }
 }

@@ -1,0 +1,10 @@
+{
+  "observationId": "o1",
+  "target": {
+    "pid": 4242,
+    "windowId": 7,
+    "epoch": 0
+  },
+  "ref": "AXButton[0]",
+  "action": "click"
+}

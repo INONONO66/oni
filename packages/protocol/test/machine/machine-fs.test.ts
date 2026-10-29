@@ -22,7 +22,7 @@ const offer = {
   daemonVersion: "0.1.0",
   platform: "darwin-arm64",
   offeredAt: 2,
-  peer: { kind: "daemon", contractVersion: 2 },
+  peer: { kind: "daemon", contractVersion: 3 },
 } satisfies Machine.Offer;
 
 describe("Machine.WellKnownCapability.fsRead", () => {
@@ -125,7 +125,7 @@ describe("machine wire compatibility", () => {
   test("an Offer JSON without exports parses with no export set", () => {
     const withoutExports: PlainValue = JSON.parse(
       '{"machineId":"mac-0","offeredCapabilities":["fs.read"],"daemonVersion":"0.1.0",' +
-        '"platform":"darwin-arm64","offeredAt":2,"peer":{"kind":"daemon","contractVersion":2}}',
+        '"platform":"darwin-arm64","offeredAt":2,"peer":{"kind":"daemon","contractVersion":3}}',
     );
     const result = Machine.Offer.safeParse(withoutExports);
     expect(result.success).toBe(true);

@@ -164,6 +164,11 @@ const methods = {
   [Machine.WireMethod.CdpOpen]: { params: Machine.CdpOpenRequest, result: Machine.CdpOpenResult },
   [Machine.WireMethod.CdpChunk]: { params: Machine.CdpChunk, result: Machine.CdpChunkResult },
   [Machine.WireMethod.CdpClose]: { params: Machine.CdpCloseRequest, result: Machine.CdpCloseResult },
+  [Machine.WireMethod.ScreenObserve]: {
+    params: Machine.ScreenObserveRequest,
+    result: Machine.ScreenObserveResult,
+  },
+  [Machine.WireMethod.InputAction]: { params: Machine.InputActionRequest, result: Machine.InputWriteResult },
 };
 
 export namespace Ipc {

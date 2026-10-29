@@ -1,5 +1,5 @@
 {
-  "contractVersion": 2,
+  "contractVersion": 3,
   "schemas": [
     {
       "file": "AbsolutePath.json",
@@ -64,6 +64,10 @@
     {
       "file": "AgentTranscriptRecord.json",
       "name": "AgentTranscriptRecord"
+    },
+    {
+      "file": "AppIdentity.json",
+      "name": "AppIdentity"
     },
     {
       "file": "AttachResult.json",
@@ -202,6 +206,10 @@
       "name": "InputAction"
     },
     {
+      "file": "InputActionRequest.json",
+      "name": "InputActionRequest"
+    },
+    {
       "file": "InputKeyRequest.json",
       "name": "InputKeyRequest"
     },
@@ -236,6 +244,10 @@
     {
       "file": "MachineId.json",
       "name": "MachineId"
+    },
+    {
+      "file": "ObservedElement.json",
+      "name": "ObservedElement"
     },
     {
       "file": "Offer.json",
@@ -382,6 +394,14 @@
       "name": "ScreenListResult"
     },
     {
+      "file": "ScreenObserveRequest.json",
+      "name": "ScreenObserveRequest"
+    },
+    {
+      "file": "ScreenObserveResult.json",
+      "name": "ScreenObserveResult"
+    },
+    {
       "file": "ScreenReadRequest.json",
       "name": "ScreenReadRequest"
     },
@@ -436,6 +456,10 @@
     {
       "file": "ToolCallResult.json",
       "name": "ToolCallResult"
+    },
+    {
+      "file": "WindowTarget.json",
+      "name": "WindowTarget"
     },
     {
       "file": "WireMethod.json",

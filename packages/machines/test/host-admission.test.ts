@@ -11,7 +11,7 @@ import { captureError, within } from "./ipc/helpers/signal";
 
 const offer: Machine.Offer = {
   machineId: "worker", daemonVersion: "test", platform: "linux-arm64", offeredAt: 0,
-  peer: { kind: "daemon", contractVersion: 2 }, offeredCapabilities: ["shell.exec"],
+  peer: { kind: "daemon", contractVersion: 3 }, offeredCapabilities: ["shell.exec"],
   resources: { cpus: 1, memoryBytes: 1024 },
 };
 const attached = (generation: number): Machine.AttachResult => ({
@@ -39,13 +39,13 @@ async function fixture(options: { generations?: AttachGenerationStore; neverSupe
   };
 }
 
-test("v2 daemon and client fresh offers mint successive generations for one machine", async () => {
+test("v3 daemon and client fresh offers mint successive generations for one machine", async () => {
   const f = await fixture();
   try {
     const daemon = await f.connect();
     expect(await daemon.call(Machine.WireMethod.Attach, offer)).toEqual(attached(1));
     const client = await f.connect();
-    const peer: Machine.Offer["peer"] = { kind: "client", contractVersion: 2 };
+    const peer: Machine.Offer["peer"] = { kind: "client", contractVersion: 3 };
     expect(await client.call(Machine.WireMethod.Attach, { ...offer, peer })).toEqual(attached(2));
     expect(f.host.list()).toMatchObject([{ machineId: "worker", generation: 2, peer }]);
     const listed = f.host.list()[0];
@@ -85,7 +85,7 @@ test.each([
   } finally { await f.close(); }
 });
 
-test.each([1, 3])("contract %s is refused before generation admission", async (contractVersion) => {
+test.each([1, 4])("contract %s is refused before generation admission", async (contractVersion) => {
   const f = await fixture();
   try {
     const client = await f.connect();
@@ -97,9 +97,9 @@ test.each([1, 3])("contract %s is refused before generation admission", async (c
 });
 
 test.each([
-  { kind: "other", contractVersion: 2 },
+  { kind: "other", contractVersion: 3 },
   { kind: "daemon", contractVersion: 0 },
-  { kind: "daemon", contractVersion: 2, extra: true },
+  { kind: "daemon", contractVersion: 3, extra: true },
   null,
 ])("malformed peer fails at the offer parse boundary: %j", async (peer) => {
   const f = await fixture();

@@ -1,0 +1,15 @@
+{
+  "ref": "AXTextField[0]",
+  "role": "AXTextField",
+  "actions": [],
+  "frame": {
+    "x": -4,
+    "y": 0,
+    "width": 200,
+    "height": 22
+  },
+  "secure": true,
+  "selected": false,
+  "checked": false,
+  "expanded": false
+}

@@ -30,7 +30,10 @@ fn display(monitor: &Monitor) -> Result<Display, Fault> {
 }
 
 fn window(window: &XWindow) -> Result<Window, Fault> {
+    let pid = window.pid().map_err(failed)?;
     Ok(Window {
+        pid: Some(pid),
+        app: super::ax::native::app(pid),
         id: window.id().map_err(failed)?,
         display: window
             .current_monitor()
