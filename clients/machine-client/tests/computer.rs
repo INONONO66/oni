@@ -65,17 +65,17 @@ fn fixture_block_serves_frames_and_records_input() {
     );
     let capture = frame["captureId"].as_str().expect("capture id").to_owned();
     let pointer: InputPointerRequest = oni_protocol::decode(
-        json!({ "delivery": "foreground", "kind": "click", "at":{"captureId": capture, "x": 4, "y": 5}, "button": "right", "count": 1 }),
+        json!({ "requestId":"1-1", "delivery": "foreground", "kind": "click", "at":{"captureId": capture, "x": 4, "y": 5}, "button": "right", "count": 1 }),
     )
     .expect("pointer request");
     assert_eq!(input.pointer(&screen, &pointer)["status"], "ok");
     let key: InputKeyRequest = oni_protocol::decode(
-        json!({ "delivery": "foreground", "captureId": capture, "key": "F5", "action": "press", "modifiers": { "shift": true } }),
+        json!({ "requestId":"1-2", "delivery": "foreground", "captureId": capture, "key": "F5", "action": "press", "modifiers": { "shift": true } }),
     )
     .expect("key request");
     assert_eq!(input.key(&screen, &key)["status"], "ok");
     let text: InputTextRequest = oni_protocol::decode(
-        json!({ "delivery": "foreground", "captureId": capture, "text": "hi" }),
+        json!({ "requestId":"1-3", "delivery": "foreground", "captureId": capture, "text": "hi" }),
     )
     .expect("text request");
     assert_eq!(input.text(&screen, &text)["status"], "ok");
@@ -201,8 +201,47 @@ fn observe(screen: &oni_machine_client::screen::Screen, params: Value) -> Value 
 }
 
 fn act(screen: &oni_machine_client::screen::Screen, params: Value) -> Value {
+    let mut params = params;
+    params["requestId"] = json!("1-1");
     let request: InputActionRequest = oni_protocol::decode(params).expect("action request");
     action::serve_action(screen, &action::parse(&request).expect("parse"))
+}
+
+#[test]
+fn superseded_action_is_cancelled_before_fixture_dispatch() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    observable(directory.path(), 0);
+    let path = client(
+        directory.path(),
+        Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
+    );
+    let (screen, input) = computer::open(&path).expect("open").expect("fixture block");
+    let observed = observe(
+        &screen,
+        json!({ "target": { "pid": 4242, "windowId": 7 }, "screenshot": false }),
+    );
+    assert_eq!(observed["status"], "ok");
+    let ledger = input.ledger();
+    ledger.attach(1);
+    let entry = ledger.start("1-1").expect("first request");
+    ledger.attach(2);
+    let request: InputActionRequest = oni_protocol::decode(json!({
+        "requestId": "1-1", "observationId": observed["observationId"],
+        "target": { "pid": 4242, "windowId": 7, "epoch": 0 },
+        "ref": "AXButton[0]", "action": "press"
+    }))
+    .expect("action request");
+
+    assert_eq!(
+        action::serve_action_guarded(
+            &screen,
+            &action::parse(&request).expect("parse"),
+            &entry,
+            &ledger
+        ),
+        json!({"status":"unverifiable","reason":"cancelled","dispatched":false,"hint":"re_observe"})
+    );
+    assert!(!directory.path().join("input.jsonl").exists());
 }
 
 #[test]
@@ -276,7 +315,7 @@ fn fixture_windows_observe_diff_and_act_by_ref() {
         ]
     );
     let click = |observation: &Value| {
-        let request: InputPointerRequest = oni_protocol::decode(json!({ "delivery": "foreground", "kind": "click",
+        let request: InputPointerRequest = oni_protocol::decode(json!({ "requestId":"1-1", "delivery": "foreground", "kind": "click",
             "at": { "observationId": observation, "ref": "AXButton[0]" }, "button": "left", "count": 1 }))
         .expect("pointer request");
         input.pointer(&screen, &request)
@@ -354,7 +393,7 @@ fn fixture_windows_observe_diff_and_act_by_ref() {
 
 #[test]
 fn actions_missing_their_argument_are_invalid_params() {
-    let base = json!({ "observationId": "o1", "target": { "pid": 1, "windowId": 2, "epoch": 0 }, "ref": "AXButton[0]" });
+    let base = json!({ "requestId":"1-1", "observationId": "o1", "target": { "pid": 1, "windowId": 2, "epoch": 0 }, "ref": "AXButton[0]" });
     for (verb, extra) in [("setValue", "name"), ("perform", "value")] {
         let mut params = base.clone();
         params["action"] = json!(verb);

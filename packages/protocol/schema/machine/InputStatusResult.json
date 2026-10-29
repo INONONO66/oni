@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "anyOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "dispatched": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "pattern": "^[1-9]\\d*-[1-9]\\d*$",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "not_started",
+            "dispatched",
+            "completed"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "requestId",
+        "dispatched",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "dispatched": {
+          "type": "boolean"
+        },
+        "eventsDelivered": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "pattern": "^[1-9]\\d*-[1-9]\\d*$",
+          "type": "string"
+        },
+        "state": {
+          "const": "cancelled",
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "requestId",
+        "dispatched",
+        "state",
+        "eventsDelivered"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "request_unknown",
+            "request_busy"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

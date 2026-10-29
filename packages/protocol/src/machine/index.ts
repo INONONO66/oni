@@ -7,6 +7,7 @@ import * as Observe from "./observe.js";
 import * as App from "./app.js";
 import * as Facts from "./facts.js";
 import * as ReleaseContract from "./release.js";
+import * as Dispatch from "./dispatch.js";
 import * as Settle from "./settle.js";
 
 /**
@@ -15,6 +16,12 @@ import * as Settle from "./settle.js";
  * `machines` package; enrollment storage lives in the ledger.
  */
 export namespace Machine {
+  export const InputRequestId = Dispatch.InputRequestId;
+  export type InputRequestId = Dispatch.InputRequestId;
+  export const InputStatusRequest = Dispatch.InputStatusRequest;
+  export type InputStatusRequest = Dispatch.InputStatusRequest;
+  export const InputStatusResult = Dispatch.InputStatusResult;
+  export type InputStatusResult = Dispatch.InputStatusResult;
   export const AppLaunchRequest = App.AppLaunchRequest;
   export type AppLaunchRequest = App.AppLaunchRequest;
   export const AppLaunchResult = App.AppLaunchResult;

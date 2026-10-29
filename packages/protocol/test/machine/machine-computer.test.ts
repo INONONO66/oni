@@ -156,6 +156,27 @@ describe("Machine.InputWriteRequest", () => {
 });
 
 describe("Machine.InputWriteResult", () => {
+  test("uncertain dispatch carries a bounded reason and a re-observe hint", () => {
+    for (const reason of ["transport_lost", "cancelled", "detached", "driver_timeout"] as const) {
+      expect(Machine.InputWriteResult.parse({ status: "unverifiable", reason, dispatched: "unknown", hint: "re_observe" }))
+        .toEqual({ status: "unverifiable", reason, dispatched: "unknown", hint: "re_observe" });
+    }
+    expect(Machine.InputWriteResult.safeParse({ status: "unverifiable", reason: "transport_lost", dispatched: false, hint: "retry" }).success).toBe(false);
+    expect(Machine.InputWriteResult.parse({ status: "refused", reason: "window_busy" })).toEqual({ status: "refused", reason: "window_busy" });
+    expect(Machine.InputWriteResult.parse({ status: "refused", reason: "request_busy" })).toEqual({ status: "refused", reason: "request_busy" });
+  });
+
+  test("input status keeps request identity distinct from transport correlation", () => {
+    expect(Machine.InputStatusRequest.parse({ requestId: "3-7" })).toEqual({ requestId: "3-7" });
+    expect(Machine.InputStatusResult.parse({ status: "ok", requestId: "3-7", dispatched: false, state: "not_started" }))
+      .toEqual({ status: "ok", requestId: "3-7", dispatched: false, state: "not_started" });
+    expect(Machine.InputStatusResult.parse({ status: "ok", requestId: "3-7", dispatched: true, state: "cancelled", eventsDelivered: 0 }))
+      .toEqual({ status: "ok", requestId: "3-7", dispatched: true, state: "cancelled", eventsDelivered: 0 });
+    expect(Machine.InputStatusResult.safeParse({ status: "ok", requestId: "3-7", dispatched: false, state: "cancelled" }).success).toBe(false);
+    expect(Machine.InputStatusResult.parse({ status: "refused", reason: "request_unknown" })).toEqual({ status: "refused", reason: "request_unknown" });
+    expect(Machine.InputStatusResult.parse({ status: "refused", reason: "request_busy" })).toEqual({ status: "refused", reason: "request_busy" });
+    expect(Machine.InputStatusRequest.safeParse({ requestId: "transport-id" }).success).toBe(false);
+  });
   test("accepts ok and every typed input refusal", () => {
     expect(Machine.InputWriteResult.parse({ status: "ok" })).toEqual({ status: "ok" });
     for (const reason of [

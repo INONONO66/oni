@@ -94,6 +94,7 @@ fn native_observe_and_ref_press_latency() {
     let mut presses = Vec::with_capacity(SAMPLES);
     for _ in 0..SAMPLES {
         let request: InputActionRequest = oni_protocol::decode(json!({
+            "requestId": "1-1",
             "observationId": observation["observationId"],
             "target": observation["target"],
             "ref": reference,

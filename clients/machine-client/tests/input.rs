@@ -124,7 +124,7 @@ fn unsupported_modified_key_refuses_before_any_modifier_is_posted() {
     let recorder = Recorder::default();
     let input = Input::new(RejectBeforePost(recorder.clone()));
     let request: InputKeyRequest = decode(json!({
-        "delivery":"foreground","captureId":capture,"key":"x","action":"press",
+        "requestId":"1-1","delivery":"foreground","captureId":capture,"key":"x","action":"press",
         "modifiers":{"shift":true}
     }));
     assert_eq!(
@@ -132,6 +132,25 @@ fn unsupported_modified_key_refuses_before_any_modifier_is_posted() {
         "unsupported_action"
     );
     assert!(recorder.events().is_empty());
+}
+
+#[test]
+fn a_cancelled_input_uses_the_unverifiable_result_without_posting_an_event() {
+    let rig = rig();
+    let capture = rig.capture(1);
+    let ledger = rig.input.ledger();
+    ledger.attach(1);
+    let entry = ledger.start("1-1").expect("first request");
+    ledger.cancel();
+    let request: InputKeyRequest = decode(json!({
+        "requestId":"1-1","delivery":"foreground","captureId":capture,
+        "key":"Enter","action":"press"
+    }));
+    assert_eq!(
+        rig.input.key_guarded(&rig.screen, &request, Some(&entry)),
+        json!({"status":"unverifiable","reason":"cancelled","dispatched":false,"hint":"re_observe"})
+    );
+    assert!(rig.recorder.events().is_empty());
 }
 
 fn decode<T: oni_protocol::WireRoot>(value: Value) -> T {
@@ -151,19 +170,22 @@ impl Rig {
 
     fn pointer(&self, mut request: Value) -> Value {
         request["delivery"] = json!("foreground");
+        request["requestId"] = json!("1-1");
         let request: InputPointerRequest = decode(request);
         self.input.pointer(&self.screen, &request)
     }
 
     fn key(&self, mut request: Value) -> Value {
         request["delivery"] = json!("foreground");
+        request["requestId"] = json!("1-1");
         let request: InputKeyRequest = decode(request);
         self.input.key(&self.screen, &request)
     }
 
     fn text(&self, capture: &str, text: &str) -> Value {
-        let request: InputTextRequest =
-            decode(json!({"captureId":capture,"text":text,"delivery":"foreground"}));
+        let request: InputTextRequest = decode(
+            json!({"requestId":"1-1","captureId":capture,"text":text,"delivery":"foreground"}),
+        );
         self.input.text(&self.screen, &request)
     }
 
@@ -342,7 +364,7 @@ fn a_vanished_or_unreadable_screen_refuses_before_any_injection() {
     let headless = Input::new(recorder.clone());
     let answer = headless.text(
         &Screen::absent(),
-        &decode(json!({"delivery":"foreground","captureId":capture,"text":"x"})),
+        &decode(json!({"requestId":"1-1","delivery":"foreground","captureId":capture,"text":"x"})),
     );
     assert_eq!(answer["reason"], "input_not_available");
     assert_eq!(recorder.events(), []);
@@ -364,7 +386,7 @@ fn a_withdrawn_or_absent_driver_injects_nothing() {
     rig.input.settle();
     let answer = absent.key(
         &rig.screen,
-        &decode(json!({"delivery":"foreground","captureId":capture,"key":"a","action":"press"})),
+        &decode(json!({"requestId":"1-1","delivery":"foreground","captureId":capture,"key":"a","action":"press"})),
     );
     assert_eq!(
         answer,

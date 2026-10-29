@@ -14,6 +14,7 @@
 pub mod action;
 pub mod cg;
 pub mod delivery;
+pub mod dispatch;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -41,6 +42,8 @@ use serde_json::{json, Value};
 
 use crate::screen::{Display, Fault, Screen};
 use delivery::Route;
+use dispatch::{DispatchLedger, Entry};
+use std::sync::Arc;
 
 /// Characters one request may type, across all of its text.
 pub const MAX_TEXT_CHARS: usize = 10_000;
@@ -425,11 +428,15 @@ struct Driven {
 
 pub struct Input {
     driver: Option<Mutex<Driven>>,
+    dispatch: Arc<DispatchLedger>,
 }
 
 impl Input {
     pub fn absent() -> Self {
-        Self { driver: None }
+        Self {
+            driver: None,
+            dispatch: Arc::new(DispatchLedger::default()),
+        }
     }
 
     /// Offer an existing driver; permission is checked before every injection.
@@ -439,6 +446,7 @@ impl Input {
                 driver: Box::new(driver),
                 held: Vec::new(),
             })),
+            dispatch: Arc::new(DispatchLedger::default()),
         }
     }
 
@@ -458,6 +466,10 @@ impl Input {
         self.driver.is_some()
     }
 
+    pub fn ledger(&self) -> Arc<DispatchLedger> {
+        self.dispatch.clone()
+    }
+
     /// Waits for an in-flight request to finish, then releases, in reverse,
     /// every button and key still held: after `screen.forget()` and this
     /// call, no request anchored before them can still inject and nothing
@@ -475,6 +487,15 @@ impl Input {
     }
 
     pub fn pointer(&self, screen: &Screen, request: &InputPointerRequest) -> Value {
+        self.pointer_guarded(screen, request, None)
+    }
+
+    pub fn pointer_guarded(
+        &self,
+        screen: &Screen,
+        request: &InputPointerRequest,
+        guard: Option<&Entry>,
+    ) -> Value {
         let foreground = match request {
             InputPointerRequest::Move { delivery, .. } => delivery.to_string() == "foreground",
             InputPointerRequest::Click { delivery, .. } => delivery.to_string() == "foreground",
@@ -490,7 +511,7 @@ impl Input {
             InputPointerRequest::Button { at, .. } => at.into(),
             InputPointerRequest::Scroll { at, .. } => at.into(),
         };
-        self.run(screen, &anchor, false, Route::Foreground, &|plan| {
+        self.run(screen, &anchor, false, Route::Foreground, guard, &|plan| {
             match request {
                 InputPointerRequest::Move { .. } => {}
                 InputPointerRequest::Click {
@@ -516,6 +537,15 @@ impl Input {
     }
 
     pub fn key(&self, screen: &Screen, request: &InputKeyRequest) -> Value {
+        self.key_guarded(screen, request, None)
+    }
+
+    pub fn key_guarded(
+        &self,
+        screen: &Screen,
+        request: &InputKeyRequest,
+        guard: Option<&Entry>,
+    ) -> Value {
         let target = request.target.as_ref().map(|target| {
             crate::screen::observe::target(target.pid.get(), target.window_id, target.epoch)
         });
@@ -528,6 +558,7 @@ impl Input {
             &Anchor::Capture(&request.capture_id),
             false,
             route,
+            guard,
             &|plan| {
                 let pressed = key(&request.key).ok_or_else(|| unknown(&request.key))?;
                 let held = request.modifiers.as_ref().map_or_else(Vec::new, |held| {
@@ -553,6 +584,15 @@ impl Input {
     }
 
     pub fn text(&self, screen: &Screen, request: &InputTextRequest) -> Value {
+        self.text_guarded(screen, request, None)
+    }
+
+    pub fn text_guarded(
+        &self,
+        screen: &Screen,
+        request: &InputTextRequest,
+        guard: Option<&Entry>,
+    ) -> Value {
         let target = request.target.as_ref().map(|target| {
             crate::screen::observe::target(target.pid.get(), target.window_id, target.epoch)
         });
@@ -565,6 +605,7 @@ impl Input {
             &Anchor::Capture(&request.capture_id),
             false,
             route,
+            guard,
             &|plan| plan.text(&request.text),
         )
     }
@@ -577,6 +618,7 @@ impl Input {
             &Anchor::Capture(&request.capture_id),
             true,
             Route::Foreground,
+            None,
             &|plan| {
                 for action in &request.actions {
                     match action {
@@ -608,6 +650,7 @@ impl Input {
         anchor: &Anchor<'_>,
         main_only: bool,
         route: Route,
+        guard: Option<&Entry>,
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
     ) -> Value {
         let Some(driver) = &self.driver else {
@@ -615,15 +658,21 @@ impl Input {
         };
         let mut driven = driver.lock().unwrap_or_else(PoisonError::into_inner);
         let Driven { driver, held } = &mut *driven;
-        self.attempt(
+        let outcome = self.attempt(
             (driver.as_mut(), held),
             screen,
             anchor,
             main_only,
-            route,
+            (route, guard),
             build,
-        )
-        .map_or_else(Refusal::value, |()| json!({"status":"ok"}))
+        );
+        match outcome {
+            Err(refusal) if refusal.reason == "cancelled" => guard
+                .expect("cancelled requires a dispatch entry")
+                .cancelled_result(),
+            Err(refusal) => refusal.value(),
+            Ok(()) => json!({"status":"ok"}),
+        }
     }
 
     fn attempt(
@@ -632,7 +681,7 @@ impl Input {
         screen: &Screen,
         anchor: &Anchor<'_>,
         main_only: bool,
-        route: Route,
+        (route, guard): (Route, Option<&Entry>),
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
     ) -> Result<(), Refusal> {
         if !driver.permitted() {
@@ -657,7 +706,13 @@ impl Input {
         driver
             .prepare(delivery.route, delivery.events)
             .map_err(|message| explain("unsupported_action", message))?;
-        inject(driver, held, delivery.route, delivery.events)
+        inject(
+            driver,
+            held,
+            delivery.route,
+            delivery.events,
+            guard.map(|entry| (entry, self.dispatch.as_ref())),
+        )
     }
 }
 
@@ -669,9 +724,17 @@ fn inject(
     kept: &mut Vec<(Route, Event)>,
     route: Route,
     events: &[Event],
+    guard: Option<(&Entry, &DispatchLedger)>,
 ) -> Result<(), Refusal> {
     let mut held: Vec<(Route, Event)> = Vec::new();
     for event in events {
+        if let Some((entry, ledger)) = guard {
+            if !entry.before_event(ledger.current()) {
+                entry.cancelled_result();
+                return Err(refuse("cancelled"));
+            }
+            entry.dispatching();
+        }
         if let Err(error) = delivery::post(driver, route, event) {
             let stuck = held
                 .iter()
@@ -692,6 +755,9 @@ fn inject(
         }
         track(&mut held, route, event);
         track(kept, route, event);
+        if let Some((entry, _)) = guard {
+            entry.delivered();
+        }
     }
     Ok(())
 }

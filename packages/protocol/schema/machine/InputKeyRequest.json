@@ -46,6 +46,10 @@
       },
       "type": "object"
     },
+    "requestId": {
+      "pattern": "^[1-9]\\d*-[1-9]\\d*$",
+      "type": "string"
+    },
     "target": {
       "additionalProperties": false,
       "properties": {
@@ -73,6 +77,7 @@
     }
   },
   "required": [
+    "requestId",
     "captureId",
     "delivery",
     "key",

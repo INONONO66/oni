@@ -65,10 +65,15 @@
         "kind": {
           "const": "move",
           "type": "string"
+        },
+        "requestId": {
+          "pattern": "^[1-9]\\d*-[1-9]\\d*$",
+          "type": "string"
         }
       },
       "required": [
         "kind",
+        "requestId",
         "delivery",
         "at"
       ],
@@ -151,10 +156,15 @@
         "kind": {
           "const": "click",
           "type": "string"
+        },
+        "requestId": {
+          "pattern": "^[1-9]\\d*-[1-9]\\d*$",
+          "type": "string"
         }
       },
       "required": [
         "kind",
+        "requestId",
         "delivery",
         "at",
         "button",
@@ -235,6 +245,10 @@
           "const": "button",
           "type": "string"
         },
+        "requestId": {
+          "pattern": "^[1-9]\\d*-[1-9]\\d*$",
+          "type": "string"
+        },
         "state": {
           "enum": [
             "down",
@@ -245,6 +259,7 @@
       },
       "required": [
         "kind",
+        "requestId",
         "delivery",
         "at",
         "button",
@@ -326,10 +341,15 @@
         "kind": {
           "const": "scroll",
           "type": "string"
+        },
+        "requestId": {
+          "pattern": "^[1-9]\\d*-[1-9]\\d*$",
+          "type": "string"
         }
       },
       "required": [
         "kind",
+        "requestId",
         "delivery",
         "at",
         "deltaX",

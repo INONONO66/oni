@@ -675,15 +675,15 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
         [
             (
                 "machine.input.pointer",
-                json!({"delivery":"foreground","kind":"click","at":{"captureId":capture,"x":31,"y":15},"button":"left","count":1}),
+                json!({"requestId":"1-1","delivery":"foreground","kind":"click","at":{"captureId":capture,"x":31,"y":15},"button":"left","count":1}),
             ),
             (
                 "machine.input.key",
-                json!({"delivery":"foreground","captureId":capture,"key":"Enter","action":"press"}),
+                json!({"requestId":"1-2","delivery":"foreground","captureId":capture,"key":"Enter","action":"press"}),
             ),
             (
                 "machine.input.text",
-                json!({"delivery":"foreground","captureId":capture,"text":"hi"}),
+                json!({"requestId":"1-3","delivery":"foreground","captureId":capture,"text":"hi"}),
             ),
             (
                 "machine.input_write",
@@ -713,7 +713,44 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
     }
     let injected = recorder.events().len();
     assert_eq!(injected, 7);
-    let out = json!({"delivery":"foreground","kind":"move","at":{"captureId":anchor,"x":32,"y":0}});
+    assert_eq!(
+        call("machine.input.status", json!({"requestId":"1-1"}))
+            .await
+            .expect("status"),
+        json!({"status":"ok","requestId":"1-1","dispatched":true,"state":"completed"})
+    );
+    assert_eq!(
+        call("machine.input.status", json!({"requestId":"1-999"}))
+            .await
+            .expect("unknown status"),
+        refusal("request_unknown")
+    );
+    let button = json!({"requestId":"1-5","delivery":"foreground","kind":"button",
+        "at":{"captureId":anchor,"x":1,"y":1},"button":"left","state":"up"});
+    assert_eq!(
+        call("machine.input.pointer", button).await.expect("button"),
+        json!({"status":"ok"})
+    );
+    let scroll = json!({"requestId":"1-6","delivery":"foreground","kind":"scroll",
+        "at":{"captureId":anchor,"x":1,"y":1},"deltaX":0,"deltaY":1});
+    assert_eq!(
+        call("machine.input.pointer", scroll).await.expect("scroll"),
+        json!({"status":"ok"})
+    );
+    let injected = recorder.events().len();
+    let (method, params) = requests(&anchor).into_iter().next().expect("pointer");
+    assert_eq!(
+        call(method, params).await.expect("duplicate"),
+        refusal("request_busy")
+    );
+    for (method, params) in requests(&anchor).into_iter().skip(1).take(2) {
+        assert_eq!(
+            call(method, params).await.expect("duplicate"),
+            refusal("request_busy")
+        );
+    }
+    assert_eq!(recorder.events().len(), injected);
+    let out = json!({"requestId":"1-4","delivery":"foreground","kind":"move","at":{"captureId":anchor,"x":32,"y":0}});
     let answer = call("machine.input.pointer", out).await.expect("pointer");
     assert_eq!(answer, refusal("invalid_region"));
 
@@ -724,7 +761,10 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
     }
     service.detached();
     grant(&["screen.read", "computer.use", "input.write"]);
-    for (method, params) in requests(&anchor) {
+    for (index, (method, mut params)) in requests(&anchor).into_iter().enumerate() {
+        if method != "machine.input_write" {
+            params["requestId"] = json!(format!("1-{}", index + 10));
+        }
         let answer = call(method, params).await.expect(method);
         assert_eq!(answer, refusal("stale_capture"), "{method}");
     }
@@ -749,7 +789,7 @@ async fn input_write_is_not_offered_without_an_input_driver() {
         exports: vec![],
     });
     let hooks = service.hooks(Duration::from_secs(60));
-    let text = json!({"delivery":"foreground","captureId":"cap-1","text":"x"});
+    let text = json!({"requestId":"1-1","delivery":"foreground","captureId":"cap-1","text":"x"});
     let answer = (hooks.service)("machine.input.text".to_owned(), Some(text)).await;
     assert_eq!(answer, Ok(refusal("input_not_available")));
     let write = json!({"captureId":"cap-1","actions":[{"type":{"text":"x"}}]});
@@ -799,10 +839,21 @@ async fn a_panicking_input_driver_fails_the_call_without_taking_the_client_down(
         .await
         .expect("capture");
     let anchor = shot["captureId"].as_str().expect("capture id").to_owned();
-    let text = json!({"delivery":"foreground","captureId":anchor,"text":"x"});
+    let text = json!({"requestId":"1-1","delivery":"foreground","captureId":anchor,"text":"x"});
     let failed = (hooks.service)("machine.input.text".to_owned(), Some(text.clone())).await;
     assert!(failed.expect_err("worker panic").contains("panic"));
-    let again = (hooks.service)("machine.input.text".to_owned(), Some(text)).await;
+    assert_eq!(
+        (hooks.service)(
+            "machine.input.status".to_owned(),
+            Some(json!({"requestId":"1-1"}))
+        )
+        .await
+        .expect("terminal status"),
+        json!({"status":"ok","requestId":"1-1","dispatched":true,"state":"completed"})
+    );
+    let mut next = text;
+    next["requestId"] = json!("1-2");
+    let again = (hooks.service)("machine.input.text".to_owned(), Some(next)).await;
     assert!(again.expect_err("still faulting").contains("panic"));
 }
 
@@ -836,19 +887,18 @@ async fn held_input_is_released_on_detach_and_on_a_withdrawn_grant() {
         key: Key::Named(Named::Shift),
         down,
     };
-    let hold = || async {
+    let hold = |request_id: &'static str| async move {
         let capture = json!({"target":{"kind":"display","display":1},"encoding":{"format":"png"}});
         let shot = call("machine.screen.capture", capture)
             .await
             .expect("capture");
         let anchor = shot["captureId"].as_str().expect("capture id").to_owned();
-        let down =
-            json!({"delivery":"foreground","captureId":anchor,"key":"Shift","action":"down"});
+        let down = json!({"requestId":request_id,"delivery":"foreground","captureId":anchor,"key":"Shift","action":"down"});
         let answer = call("machine.input.key", down).await.expect("key");
         assert_eq!(answer, json!({"status":"ok"}));
     };
     grant(&["screen.read", "computer.use"]);
-    hold().await;
+    hold("1-1").await;
     service.detached();
     assert_eq!(
         recorder.events(),
@@ -861,7 +911,7 @@ async fn held_input_is_released_on_detach_and_on_a_withdrawn_grant() {
         2,
         "a reconnect inherits nothing held"
     );
-    hold().await;
+    hold("1-2").await;
     grant(&["screen.read"]);
     assert_eq!(
         recorder.events(),
@@ -889,7 +939,7 @@ async fn observation_methods_gate_like_screen_and_input_and_refuse_without_an_ob
     let hooks = service.hooks(Duration::from_secs(60));
     let call = |method: &str, params: Value| (hooks.service)(method.to_owned(), Some(params));
     let observe = json!({"target":{"pid":1,"windowId":2},"screenshot":false});
-    let action = json!({"observationId":"o1","target":{"pid":1,"windowId":2,"epoch":0},"ref":"AXButton[0]","action":"press"});
+    let action = json!({"requestId":"1-1","observationId":"o1","target":{"pid":1,"windowId":2,"epoch":0},"ref":"AXButton[0]","action":"press"});
     let settle = json!({"target":{"pid":1,"windowId":2,"epoch":0},"quietMs":50,"timeoutMs":100});
     assert_eq!(
         call("machine.screen.settle", settle.clone())
@@ -934,6 +984,35 @@ async fn observation_methods_gate_like_screen_and_input_and_refuse_without_an_ob
             expected
         );
     }
-    let unnamed = json!({"observationId":"o1","target":{"pid":1,"windowId":2,"epoch":0},"ref":"AXButton[0]","action":"perform"});
+    let unnamed = json!({"requestId":"1-2","observationId":"o1","target":{"pid":1,"windowId":2,"epoch":0},"ref":"AXButton[0]","action":"perform"});
     assert!(call("machine.input.action", unnamed).await.is_err());
+    service.attached(&Negotiated {
+        generation: NonZeroU64::MIN,
+        capabilities: vec!["screen.read".into()],
+        exports: vec![],
+    });
+    assert_eq!(
+        call("machine.input.status", json!({"requestId":"1-1"}))
+            .await
+            .expect("unavailable status"),
+        refusal("request_unknown")
+    );
+    service.attached(&Negotiated {
+        generation: NonZeroU64::new(2).expect("generation"),
+        capabilities: vec!["computer.use".into()],
+        exports: vec![],
+    });
+    let stale = json!({"requestId":"1-3","observationId":"o1","target":{"pid":1,"windowId":2,"epoch":0},"ref":"AXButton[0]","action":"press"});
+    assert_eq!(
+        call("machine.input.action", stale.clone())
+            .await
+            .expect("stale action"),
+        json!({"status":"unverifiable","reason":"cancelled","dispatched":false,"hint":"re_observe"})
+    );
+    assert_eq!(
+        call("machine.input.action", stale)
+            .await
+            .expect("duplicate action"),
+        refusal("request_busy")
+    );
 }

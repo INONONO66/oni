@@ -1,5 +1,6 @@
 {
   "kind": "click",
+  "requestId": "1-1",
   "at": {
     "captureId": "cap-1",
     "x": 100,

@@ -353,6 +353,42 @@ loop; the headless layout's window `timeline` drives the same quiet-window
 fold. The host bounds this call at the request's `timeoutMs + 1000` and
 captures it through `tool.pre` like observation and input.
 
+### 2.2.4 Input dispatch and uncertain outcomes (#1692)
+
+The host mints a machine-scoped `requestId` (`<attachGeneration>-<seq>`)
+for each pointer, key, text and ref action. The ID travels on the input
+request, independently of the IPC envelope ID. Each new host process advances
+the persisted attach generation before accepting input, while reconnects to
+that host keep the generation and increasing sequence. Thus IDs never repeat
+across host restarts, even after the client's bounded ledger evicts old IDs.
+The client retains dispatch
+status for the last 4096 IDs for its process lifetime, including reconnects;
+a process restart loses that ledger. `machine.input.status {requestId}`
+returns `{status:"ok",requestId,dispatched,state}` with `state` one of
+`not_started|dispatched|completed|cancelled`, or a typed
+`request_unknown|request_busy` refusal. A terminal `cancelled` status also
+reports `eventsDelivered` (including zero before the first native event).
+An unknown ID does not prove the event never ran.
+
+An input call whose reply is lost answers
+`{status:"unverifiable",reason:"transport_lost",dispatched:"unknown",
+hint:"re_observe"}`. The client's per-event cutoff answers `cancelled`
+with a known boolean dispatch fact; the union also admits `detached` and
+`driver_timeout` at native boundaries. A
+caller must re-observe the target before considering another action; the
+host never resends an uncertain input request. On reconnect it queries
+status for reservations still open, releasing completed or acknowledged
+cancelled entries without replay; unknown entries remain reserved. Status
+is a read behind the computer grant, not a captured input.
+
+The host reserves one input per machine and window (`pid:windowId` when
+targeted, `*` otherwise). A wildcard overlaps every window on that
+machine; a second overlapping input refuses `window_busy`. Reservation
+lasts until a terminal answer, known completion or acknowledged cutoff.
+The client fences every
+native event on the current attach generation and cancellation state;
+`request_busy` refuses a duplicate live request ID.
+
 ### 2.3 Network transport (#1270)
 
 The host owns a listener SET feeding one attachment registry: the unix socket
@@ -426,6 +462,10 @@ required `generations: AttachGenerationStore` port
 `current + 1` through CAS, re-reading once on a lost race and refusing
 `stale_generation` if the second attempt loses too. A reconnect offer must
 present exactly the current generation or it is refused `stale_generation`.
+On the first attach of a machine in a host process, a matching saved generation
+is superseded through the same CAS to `current + 1`. The host remembers the
+machines whose generations it has issued; later matching reconnects in that
+process retain their generation.
 The accepted value is returned as `AttachResult.attached.generation`,
 appears on `MachineInfo` (`generation` plus `peer`), and the client keeps it
 for its next reconnect.

@@ -371,6 +371,16 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
     JSON.stringify(events) === JSON.stringify(expected),
     `input recorder ${JSON.stringify(events)}`,
   );
+  const requestId = recorder.captured.find((entry) => entry.method === Machine.WireMethod.InputText)?.params;
+  check(requestId !== undefined && "requestId" in requestId, "text action id missing");
+  const status = await run(computer.status({ requestId: requestId.requestId }));
+  check(status.status === "ok" && status.requestId === requestId.requestId && status.dispatched && status.state === "completed",
+    `input status answered ${JSON.stringify(status)}`);
+  const missing = await run(computer.status({ requestId: "1-4096" }));
+  check(missing.status === "refused" && missing.reason === "request_unknown",
+    `unknown input answered ${JSON.stringify(missing)}`);
+  check(recorded(setup.recorder).length === before + events.length, "status read injected input");
+  harness.record(`input status ${requestId.requestId} completed after ${events.length} recorded events; unknown id refused without injection`);
   const methods = recorder.captured.map((entry) => entry.method);
   check(
     methods.join(",") ===

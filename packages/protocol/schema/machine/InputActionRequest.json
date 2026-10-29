@@ -25,6 +25,10 @@
       "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
       "type": "string"
     },
+    "requestId": {
+      "pattern": "^[1-9]\\d*-[1-9]\\d*$",
+      "type": "string"
+    },
     "target": {
       "additionalProperties": false,
       "properties": {
@@ -57,6 +61,7 @@
     }
   },
   "required": [
+    "requestId",
     "observationId",
     "target",
     "ref",

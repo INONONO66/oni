@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { WindowTarget } from "./target.js";
+import { InputRequestId } from "./dispatch.js";
 export { WindowTarget } from "./target.js";
 import { AppIdentity, COMPUTER_MAX_DIMENSION, ObservationId, ObservedRef, SCREEN_AX_MAX_BYTES, SCREEN_PNG_MAX_BYTES } from "./schema.js";
 
@@ -130,6 +131,7 @@ export type ScreenObserveResult = z.infer<typeof ScreenObserveResult>;
  */
 export const InputActionRequest = z
   .object({
+    requestId: InputRequestId,
     observationId: ObservationId,
     target: WindowTarget.required({ epoch: true }),
     ref: Ref,

@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { type Ipc, Machine } from "@oni/protocol";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { z } from "zod";
-import type { ChannelListeners, ComputerHandle, MachineError, MachineInputCapture, RelayEnd, StreamListeners } from "../src";
+import { createMemoryGenerationStore, type AttachGenerationStore, type ChannelListeners, type ComputerHandle, type MachineError, type MachineInputCapture, type RelayEnd, type StreamListeners } from "../src";
 import { createMachineHost } from "./helpers/native";
 import { eventCollector } from "./helpers/events";
 import { socketPath } from "./helpers/socket-path";
@@ -18,7 +18,7 @@ const offerOf = (capabilities: readonly string[], generation?: number, contractV
   peer: { kind: "client", contractVersion }, offeredCapabilities: [...capabilities],
   ...(generation === undefined ? {} : { generation }),
 });
-const pointer: Machine.InputPointerRequest = { delivery: "foreground", kind: "click", at: { captureId: "cap-1", x: 10, y: 20 }, button: "left", count: 1 };
+const pointer: Parameters<ComputerHandle["pointer"]>[0] = { delivery: "foreground", kind: "click", at: { captureId: "cap-1", x: 10, y: 20 }, button: "left", count: 1 };
 const streamRequest = {
   source: { kind: "display", display: 1 },
   video: { maxFps: 30, keyframeIntervalMs: 2000, maxBitrateBps: 1_000_000, maxDimension: 1280, maxFrameBytes: 65_536 },
@@ -26,13 +26,14 @@ const streamRequest = {
 } as const;
 const channelRequest = { endpoint: { kind: "discover" }, lifetimeMs: 60_000 } as const;
 
-async function fixture(options: { grants?: string[]; captureInput?: Capture | "absent" } = {}) {
+async function fixture(options: { grants?: string[]; captureInput?: Capture | "absent"; generations?: AttachGenerationStore } = {}) {
   const events = eventCollector();
   const grants = { allowed: options.grants ?? [COMPUTER] };
   let clock = 100;
   let ids = 0;
   const host = await createMachineHost({
     events: events.sink, now: () => clock, listen: { unix: socketPath() },
+    ...(options.generations === undefined ? {} : { generations: options.generations }),
     id: () => { ids += 1; return `relay-${ids}`; },
     enrollment: (machineId) => ({ machineId, name: machineId, allowedCapabilities: grants.allowed, publicKey: "0".repeat(64), enrolledAt: 0 }),
     ...(options.captureInput === "absent" ? {} : { captureInput: options.captureInput ?? ((_request, forward) => forward) }),
@@ -51,9 +52,10 @@ async function fixture(options: { grants?: string[]; captureInput?: Capture | "a
     });
     peers.push(client);
     const attached = events.next(Machine.Events.Attached.name);
-    await client.call(Machine.WireMethod.Attach, offerOf(capabilities, generation, contractVersion));
+    const result = Machine.AttachResult.parse(await client.call(Machine.WireMethod.Attach, offerOf(capabilities, generation, contractVersion)));
+    if (result.status !== "attached") throw new Error(`attach refused: ${result.reason}`);
     await attached;
-    return { client, received, closed: closed.promise };
+    return { client, received, closed: closed.promise, generation: result.generation };
   }
   return {
     host, events, grants, peer,
@@ -85,7 +87,7 @@ const opened = (field: "streamId" | "channelId"): Responder => (params) =>
   ({ status: "opened", [field]: (params as Record<string, string>)[field] ?? "", expiresAt: 5000 });
 const accepted: Responder = (params) => ({ status: "accepted", seq: (params as { seq: number }).seq });
 const observeRequest: Machine.ScreenObserveRequest = { target: { pid: 42, windowId: 7 }, screenshot: false };
-const actionRequest: Machine.InputActionRequest = { observationId: "o1", target: { pid: 42, windowId: 7, epoch: 0 }, ref: "AXButton[0]", action: "press" };
+const actionRequest: Omit<Machine.InputActionRequest, "requestId"> = { observationId: "o1", target: { pid: 42, windowId: 7, epoch: 0 }, ref: "AXButton[0]", action: "press" };
 const observed: Machine.ScreenObserveResult = {
   status: "ok", observationId: "o1", lineage: "w42-7-0", target: { pid: 42, windowId: 7, epoch: 0 },
   window: { pid: 42, windowId: 7, epoch: 0, title: "Notes", app: { bundleId: null, path: "/Applications/Notes.app" } }, complete: true, private: false, elements: [],
@@ -177,9 +179,9 @@ test("typed input forwards only through the capture port and passes refusals thr
     expect(await run(computer.key({ captureId: "old", key: "Return", action: "press", modifiers: { meta: true } }))).toEqual({ status: "refused", reason: "stale_capture" });
     expect(await run(computer.text({ captureId: "cap-1", text: "hello" }))).toEqual({ status: "ok" });
     expect(captured).toEqual([
-      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputPointer, params: pointer },
-      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputKey, params: { delivery: "background", captureId: "old", key: "Return", action: "press", modifiers: { meta: true } } },
-      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputText, params: { delivery: "background", captureId: "cap-1", text: "hello" } },
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputPointer, params: { ...pointer, requestId: "1-1" } },
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputKey, params: { requestId: "1-2", delivery: "background", captureId: "old", key: "Return", action: "press", modifiers: { meta: true } } },
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputText, params: { requestId: "1-3", delivery: "background", captureId: "cap-1", text: "hello" } },
     ]);
     expect(inputs(desk.received).map((entry) => entry.method)).toEqual([Machine.WireMethod.InputPointer, Machine.WireMethod.InputKey, Machine.WireMethod.InputText]);
   } finally { await f.close(); }
@@ -228,6 +230,176 @@ test("a supersede during capture fails stale_generation and neither attachment r
     expect(await run(Effect.flip(f.machine().pointer(pointer)))).toMatchObject({ _tag: "MachineRefusalError", reason: "stale_generation" });
     expect(inputs(first.received)).toEqual([]);
     expect(inputs(second?.received ?? [])).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("a lost input reply is unverifiable and reconnect queries status without replay", async () => {
+  const f = await fixture();
+  try {
+    const dispatched = Promise.withResolvers<string>();
+    const first = await f.peer([COMPUTER], {
+      [Machine.WireMethod.InputText]: (params) => {
+        const request = Machine.InputTextRequest.parse(params);
+        dispatched.resolve(request.requestId);
+        return undefined;
+      },
+    });
+    const pending = run(f.machine().text({ captureId: "cap-1", text: "once", delivery: "foreground" }));
+    const requestId = await dispatched.promise;
+    const detached = f.events.next(Machine.Events.Detached.name);
+    await first.client.close();
+    await detached;
+    expect(await pending).toEqual({ status: "unverifiable", reason: "transport_lost", dispatched: "unknown", hint: "re_observe" });
+    const queried = Promise.withResolvers<void>();
+    const second = await f.peer([COMPUTER], {
+      [Machine.WireMethod.InputStatus]: (params) => {
+        expect(params).toEqual({ requestId });
+        queried.resolve();
+        return { status: "ok", requestId, dispatched: true, state: "completed" };
+      },
+      [Machine.WireMethod.InputText]: () => ({ status: "ok" }),
+    }, 1);
+    const reported = f.events.next(Machine.Events.Reported.name);
+    expect(await second.client.call(Machine.WireMethod.Report, { machineId: "desk", reportedAt: 1, load: { loadAvg1: 0, memoryAvailableBytes: 0, inFlight: 0 } })).toEqual({ status: "accepted" });
+    await reported;
+    await queried.promise;
+    expect(await run(f.machine().status({ requestId }))).toEqual({ status: "ok", requestId, dispatched: true, state: "completed" });
+    expect(second.received.filter((entry) => entry.method === Machine.WireMethod.InputText)).toEqual([]);
+    expect(await run(f.machine().text({ captureId: "cap-1", text: "next", delivery: "foreground" }))).toEqual({ status: "ok" });
+    expect(first.received.filter((entry) => entry.method === Machine.WireMethod.InputText)).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
+test("a restarted host advances the saved generation before restarting input sequence", async () => {
+  const generations = createMemoryGenerationStore();
+  let f = await fixture({ generations });
+  try {
+    const script = { [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }) };
+    const first = await f.peer([COMPUTER], script);
+    const g = first.generation;
+    expect(await run(f.machine().pointer(pointer))).toEqual({ status: "ok" });
+    expect(inputs(first.received)[0]?.params).toMatchObject({ requestId: `${g}-1` });
+    await f.close();
+
+    f = await fixture({ generations });
+    const reconnected = await f.peer([COMPUTER], script, g);
+    expect(reconnected.generation).toBe(g + 1);
+    expect(await run(generations.current("desk"))).toBe(g + 1);
+    expect(await run(f.machine().pointer(pointer))).toEqual({ status: "ok" });
+    expect(inputs(reconnected.received)[0]?.params).toMatchObject({ requestId: `${g + 1}-1` });
+
+    const sameHost = await f.peer([COMPUTER], script, reconnected.generation);
+    expect(sameHost.generation).toBe(g + 1);
+    expect(await run(f.machine().pointer(pointer))).toEqual({ status: "ok" });
+    expect(inputs(sameHost.received)[0]?.params).toMatchObject({ requestId: `${g + 1}-2` });
+  } finally { await f.close(); }
+});
+
+test("one pending window refuses overlap but does not reserve another window", async () => {
+  const captured: MachineInputCapture[] = [];
+  const f = await fixture({ captureInput: (request, forward) => { captured.push(request); return forward; } });
+  try {
+    const sent = Promise.withResolvers<void>();
+    const peer = await f.peer([COMPUTER], {
+      [Machine.WireMethod.InputKey]: (params) => {
+        const request = Machine.InputKeyRequest.parse(params);
+        if (request.target?.windowId === 7) { sent.resolve(); return undefined; }
+        return { status: "ok" };
+      },
+    });
+    const key = (windowId: number) => ({
+      captureId: "cap-1", delivery: "foreground" as const,
+      target: { pid: 42, windowId, epoch: 0 }, key: "Enter", action: "press" as const,
+    });
+    const pending = run(f.machine().key(key(7)));
+    await sent.promise;
+    expect(await run(f.machine().key(key(7)))).toEqual({ status: "refused", reason: "window_busy" });
+    expect(await run(f.machine().key(key(8)))).toEqual({ status: "ok" });
+    const detached = f.events.next(Machine.Events.Detached.name);
+    await peer.client.close();
+    await detached;
+    expect(await pending).toEqual({ status: "unverifiable", reason: "transport_lost", dispatched: "unknown", hint: "re_observe" });
+    expect(peer.received.filter((entry) => entry.method === Machine.WireMethod.InputKey)).toHaveLength(2);
+    expect(captured.map((entry) => "requestId" in entry.params ? entry.params.requestId : null)).toEqual(["1-1", "1-2", "1-3"]);
+  } finally { await f.close(); }
+});
+
+test("an unknown recovery status cannot release an outstanding input", async () => {
+  const f = await fixture();
+  try {
+    const sent = Promise.withResolvers<string>();
+    const first = await f.peer([COMPUTER], {
+      [Machine.WireMethod.InputText]: (params) => { sent.resolve(Machine.InputTextRequest.parse(params).requestId); return undefined; },
+    });
+    const pending = run(f.machine().text({ captureId: "cap-1", text: "once", delivery: "foreground" }));
+    const requestId = await sent.promise;
+    const detached = f.events.next(Machine.Events.Detached.name);
+    await first.client.close();
+    await detached;
+    expect((await pending).status).toBe("unverifiable");
+    const queried = Promise.withResolvers<void>();
+    const second = await f.peer([COMPUTER], {
+      [Machine.WireMethod.InputStatus]: () => { queried.resolve(); return { status: "refused", reason: "request_unknown" }; },
+      [Machine.WireMethod.InputText]: () => ({ status: "ok" }),
+    }, 1);
+    const reported = f.events.next(Machine.Events.Reported.name);
+    await second.client.call(Machine.WireMethod.Report, { machineId: "desk", reportedAt: 1, load: { loadAvg1: 0, memoryAvailableBytes: 0, inFlight: 0 } });
+    await reported;
+    await queried.promise;
+    expect(await run(f.machine().text({ captureId: "cap-1", text: "again", delivery: "foreground" })))
+      .toEqual({ status: "refused", reason: "window_busy" });
+    expect(inputs(second.received).filter((entry) => entry.method === Machine.WireMethod.InputText)).toEqual([]);
+    expect(requestId).toBe("1-1");
+  } finally { await f.close(); }
+});
+
+test("a malformed input reply retains its reservation after forwarding", async () => {
+  const f = await fixture();
+  try {
+    const desk = await f.peer([COMPUTER], {
+      [Machine.WireMethod.InputText]: () => ({ status: "ok", extra: true }),
+    });
+    const computer = f.machine();
+    expect(await run(Effect.flip(computer.text({ captureId: "cap-1", text: "once", delivery: "foreground" }))))
+      .toMatchObject({ _tag: "MachinesFailure", operation: "machine.input.text.response" });
+    expect(await run(computer.text({ captureId: "cap-1", text: "again", delivery: "foreground" })))
+      .toEqual({ status: "refused", reason: "window_busy" });
+    expect(inputs(desk.received).filter((entry) => entry.method === Machine.WireMethod.InputText)).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
+test("interrupting the waiter after peer receipt retains the input reservation", async () => {
+  const f = await fixture();
+  try {
+    const received = Promise.withResolvers<void>();
+    const desk = await f.peer([COMPUTER], {
+      [Machine.WireMethod.InputText]: () => { received.resolve(); return undefined; },
+    });
+    await run(Effect.scoped(Effect.gen(function* () {
+      const waiter = yield* Effect.forkScoped(f.machine().text({ captureId: "cap-1", text: "once", delivery: "foreground" }));
+      yield* Effect.promise(() => received.promise);
+      yield* Fiber.interrupt(waiter);
+    })));
+    expect(await run(f.machine().text({ captureId: "cap-1", text: "again", delivery: "foreground" })))
+      .toEqual({ status: "refused", reason: "window_busy" });
+    expect(inputs(desk.received).filter((entry) => entry.method === Machine.WireMethod.InputText)).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
+test("a contract-two peer also leaves a lost input uncertain without replay", async () => {
+  const f = await fixture();
+  try {
+    const sent = Promise.withResolvers<Ipc.Request["params"]>();
+    const peer = await f.peer([COMPUTER], {
+      [Machine.WireMethod.InputText]: (params) => { sent.resolve(params); return undefined; },
+    }, undefined, 2);
+    const pending = run(f.machine().text({ captureId: "cap-1", text: "once", delivery: "foreground" }));
+    expect(await sent.promise).toEqual({ captureId: "cap-1", text: "once" });
+    const detached = f.events.next(Machine.Events.Detached.name);
+    await peer.client.close();
+    await detached;
+    expect(await pending).toEqual({ status: "unverifiable", reason: "transport_lost", dispatched: "unknown", hint: "re_observe" });
+    expect(peer.received.filter((entry) => entry.method === Machine.WireMethod.InputText)).toHaveLength(1);
   } finally { await f.close(); }
 });
 
@@ -415,8 +587,8 @@ test("refused and disconnected input is still captured as tool.pre before it is 
     await detached;
     expect(await run(Effect.flip(computer.text({ captureId: "cap-1", text: "hi" })))).toMatchObject({ _tag: "MachineRefusalError", reason: "disconnected" });
     expect(captured).toEqual([
-      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputText, params: { delivery: "background", captureId: "cap-1", text: "hi" } },
-      { machineId: "desk", generation: null, method: Machine.WireMethod.InputText, params: { delivery: "background", captureId: "cap-1", text: "hi" } },
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputText, params: { requestId: "1-1", delivery: "background", captureId: "cap-1", text: "hi" } },
+      { machineId: "desk", generation: null, method: Machine.WireMethod.InputText, params: { requestId: "1-2", delivery: "background", captureId: "cap-1", text: "hi" } },
     ]);
     expect(inputs(desk.received)).toEqual([]);
   } finally { await f.close(); }
@@ -479,11 +651,11 @@ test("observe and action are captured like input and relay the peer's typed answ
     expect(await run(computer.action(actionRequest))).toEqual({ status: "refused", reason: "epoch_changed" });
     expect(captured).toEqual([
       { machineId: "desk", generation: 1, method: Machine.WireMethod.ScreenObserve, params: observeRequest },
-      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputAction, params: actionRequest },
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputAction, params: { ...actionRequest, requestId: "1-1" } },
     ]);
     expect(observations(desk.received)).toEqual([
       { method: Machine.WireMethod.ScreenObserve, params: observeRequest },
-      { method: Machine.WireMethod.InputAction, params: actionRequest },
+      { method: Machine.WireMethod.InputAction, params: { ...actionRequest, requestId: "1-1" } },
     ]);
   } finally { await f.close(); }
 });
@@ -675,7 +847,7 @@ test("contract two input never upgrades background requests to global input", as
     const text = { delivery: "foreground", captureId: "cap-1", text: "targeted", target } as const;
     expect(await run(f.machine().key(key))).toEqual({ status: "ok" });
     expect(await run(f.machine().text(text))).toEqual({ status: "ok" });
-    expect(captured.slice(-2).map((entry) => entry.params)).toEqual([key, text]);
+    expect(captured.slice(-2).map((entry) => entry.params)).toEqual([{ ...key, requestId: "1-5" }, { ...text, requestId: "1-6" }]);
     const oldKey = z.strictObject({ captureId: z.string(), key: z.string(), action: z.string() });
     const oldText = z.strictObject({ captureId: z.string(), text: z.string() });
     expect(oldKey.safeParse(peer.received.at(-2)?.params).success).toBe(true);

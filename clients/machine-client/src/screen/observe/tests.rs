@@ -81,10 +81,21 @@ impl Observer for Fake {
 
     fn act(
         &self,
+        window: &WindowIdentity,
+        path: &[Segment],
+        admit: ax::Admit<'_>,
+        action: &Action,
+    ) -> Result<(), ActFault> {
+        self.act_guarded(window, path, admit, action, &|| true)
+    }
+
+    fn act_guarded(
+        &self,
         _: &WindowIdentity,
         path: &[Segment],
         admit: ax::Admit<'_>,
         action: &Action,
+        before_dispatch: &dyn Fn() -> bool,
     ) -> Result<(), ActFault> {
         if let Some(fault) = self.act_fault.lock().expect("lock").clone() {
             return Err(fault);
@@ -97,6 +108,9 @@ impl Observer for Fake {
         let nodes = self.walk.lock().expect("lock").clone();
         let found = resolve(&nodes, &path).ok_or(ActFault::NotFound)?;
         if !admit(&found.attributes) {
+            return Err(ActFault::NotFound);
+        }
+        if !before_dispatch() {
             return Err(ActFault::NotFound);
         }
         let label = found.attributes.label.clone().unwrap_or_default();
@@ -515,6 +529,70 @@ fn dispatch_admits_only_the_identity_it_validated() {
         Err(Refusal::RefNotFound),
         "an element gone at dispatch is not found"
     );
+}
+
+#[test]
+fn cancellation_during_the_fresh_walk_cuts_off_the_native_action() {
+    use crate::input::dispatch::DispatchLedger;
+    let fake = Fake::new(tree());
+    let observations = Observations::default();
+    observe(&observations, &fake, None);
+    let ledger = DispatchLedger::default();
+    ledger.attach(1);
+    let entry = ledger.start("1-1").expect("input entry");
+    let (entered, walking) = channel();
+    let (release, released) = channel();
+    *fake.hold.lock().expect("lock") = Some((entered, released));
+    std::thread::scope(|scope| {
+        let action = scope.spawn(|| {
+            observations.act_guarded(&fake, &act("o1", "AXButton[0]", Action::Press), &|| {
+                entry.before_event(ledger.current())
+            })
+        });
+        walking
+            .recv_timeout(Duration::from_secs(30))
+            .expect("fresh walk started");
+        ledger.cancel();
+        release.send(()).expect("release fresh walk");
+        assert_eq!(
+            action.join().expect("action thread"),
+            Err(Refusal::RefNotFound)
+        );
+    });
+    assert!(fake.acted.lock().expect("lock").is_empty());
+    assert!(!entry.before_event(ledger.current()));
+}
+
+#[test]
+fn supersession_during_the_fresh_walk_cuts_off_the_native_action() {
+    use crate::input::dispatch::DispatchLedger;
+    let fake = Fake::new(tree());
+    let observations = Observations::default();
+    observe(&observations, &fake, None);
+    let ledger = DispatchLedger::default();
+    ledger.attach(1);
+    let entry = ledger.start("1-1").expect("input entry");
+    let (entered, walking) = channel();
+    let (release, released) = channel();
+    *fake.hold.lock().expect("lock") = Some((entered, released));
+    std::thread::scope(|scope| {
+        let action = scope.spawn(|| {
+            observations.act_guarded(&fake, &act("o1", "AXButton[0]", Action::Press), &|| {
+                entry.before_event(ledger.current())
+            })
+        });
+        walking
+            .recv_timeout(Duration::from_secs(30))
+            .expect("fresh walk started");
+        ledger.attach(2);
+        release.send(()).expect("release fresh walk");
+        assert_eq!(
+            action.join().expect("action thread"),
+            Err(Refusal::RefNotFound)
+        );
+    });
+    assert!(fake.acted.lock().expect("lock").is_empty());
+    assert!(!entry.before_event(ledger.current()));
 }
 
 #[test]

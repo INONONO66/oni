@@ -47,16 +47,17 @@ fn background_pointer_and_missing_targets_refuse_before_delivery() {
     let (_dir, screen, input) = rig(json!({}));
     let capture = capture(&screen);
     let pointer: InputPointerRequest = oni_protocol::decode(
-        json!({"delivery":"background","kind":"move","at":{"captureId":capture,"x":1,"y":1}}),
+        json!({"requestId":"1-1","delivery":"background","kind":"move","at":{"captureId":capture,"x":1,"y":1}}),
     )
     .expect("pointer");
     let key: InputKeyRequest = oni_protocol::decode(
-        json!({"delivery":"background","captureId":capture,"key":"a","action":"press"}),
+        json!({"requestId":"1-2","delivery":"background","captureId":capture,"key":"a","action":"press"}),
     )
     .expect("key");
-    let text: InputTextRequest =
-        oni_protocol::decode(json!({"delivery":"background","captureId":capture,"text":"hi"}))
-            .expect("text");
+    let text: InputTextRequest = oni_protocol::decode(
+        json!({"requestId":"1-3","delivery":"background","captureId":capture,"text":"hi"}),
+    )
+    .expect("text");
     let refused = json!({"status":"refused","reason":"foreground_required"});
     assert_eq!(input.pointer(&screen, &pointer), refused);
     assert_eq!(input.key(&screen, &key), refused);
@@ -71,7 +72,7 @@ fn background_keys_release_to_the_same_pid_on_failure_and_settle() {
     let capture = capture(&screen);
     let key = |action| {
         oni_protocol::decode(
-            json!({"delivery":"background","captureId":capture,"key":"Shift","action":action,
+            json!({"requestId":"1-1","delivery":"background","captureId":capture,"key":"Shift","action":action,
         "target":{"pid":4242,"windowId":7,"epoch":0}}),
         )
         .expect("key")
@@ -82,7 +83,7 @@ fn background_keys_release_to_the_same_pid_on_failure_and_settle() {
     recorder.fail(&[1]);
     assert_eq!(input.key(&screen, &key("press"))["reason"], "input_failed");
     assert_eq!(recorder.routes(), vec![Some(4242); 4]);
-    let stale: InputTextRequest = oni_protocol::decode(json!({"delivery":"background","captureId":capture,"text":"x","target":{"pid":4242,"windowId":7,"epoch":1}})).expect("text");
+    let stale: InputTextRequest = oni_protocol::decode(json!({"requestId":"1-2","delivery":"background","captureId":capture,"text":"x","target":{"pid":4242,"windowId":7,"epoch":1}})).expect("text");
     assert_eq!(
         input.text(&screen, &stale),
         json!({"status":"refused","reason":"epoch_changed"})
@@ -104,7 +105,7 @@ fn lifecycle_uses_fixture_launcher_and_epoch_fence() {
         app::launch(&screen, &request),
         json!({"status":"ok","pid":4242,"windows":[{"pid":4242,"windowId":7,"epoch":0}]})
     );
-    let text: InputTextRequest = oni_protocol::decode(json!({"delivery":"background","captureId":capture(&screen),"text":"background","target":{"pid":4242,"windowId":7,"epoch":0}})).expect("text");
+    let text: InputTextRequest = oni_protocol::decode(json!({"requestId":"1-1","delivery":"background","captureId":capture(&screen),"text":"background","target":{"pid":4242,"windowId":7,"epoch":0}})).expect("text");
     assert_eq!(input.text(&screen, &text), json!({"status":"ok"}));
     assert_eq!(
         app::window(&screen, target, false),
@@ -318,7 +319,7 @@ fn failed_detach_release_never_switches_to_foreground() {
     let (_dir, screen, _) = rig(json!({}));
     let recorder = Recorder::default();
     let input = Input::new(recorder.clone());
-    let key: InputKeyRequest = oni_protocol::decode(json!({"delivery":"background","captureId":capture(&screen),"key":"Shift","action":"down","target":{"pid":4242,"windowId":7,"epoch":0}})).expect("request");
+    let key: InputKeyRequest = oni_protocol::decode(json!({"requestId":"1-1","delivery":"background","captureId":capture(&screen),"key":"Shift","action":"down","target":{"pid":4242,"windowId":7,"epoch":0}})).expect("request");
     assert_eq!(input.key(&screen, &key), json!({"status":"ok"}));
     recorder.fail(&[0]);
     input.settle();
@@ -465,10 +466,61 @@ fn background_plans_refuse_a_foreground_only_driver() {
     }
     let (_dir, screen, _) = rig(json!({}));
     let input = Input::new(ForegroundOnly);
-    let request: InputTextRequest = oni_protocol::decode(json!({"delivery":"background","captureId":capture(&screen),"text":"x","target":{"pid":4242,"windowId":7}})).expect("request");
+    let request: InputTextRequest = oni_protocol::decode(json!({"requestId":"1-1","delivery":"background","captureId":capture(&screen),"text":"x","target":{"pid":4242,"windowId":7}})).expect("request");
     assert_eq!(
         input.text(&screen, &request),
         json!({"status":"refused","reason":"foreground_required"})
+    );
+}
+
+#[tokio::test]
+async fn a_ref_action_reports_completed_dispatch_after_the_native_fixture_records_it() {
+    use oni_machine_client::{
+        attach::{Negotiated, Session},
+        handlers::Service,
+        pty::ops::Pty,
+    };
+    let (dir, screen, input) = rig(json!({"elements":[{
+        "role":"AXButton","label":"OK","actions":["AXPress"],
+        "frame":{"x":2,"y":3,"width":4,"height":4}
+    }]}));
+    let pty = Pty::new("/definitely/missing/tmux", None, "action".into()).await;
+    let service = Service::open_computer(
+        &client_config::client_config(dir.path(), None),
+        pty,
+        screen,
+        input,
+    )
+    .expect("service");
+    service.attached(&Negotiated {
+        generation: std::num::NonZeroU64::MIN,
+        capabilities: vec!["computer.use".into()],
+        exports: vec![],
+    });
+    let hooks = service.hooks(std::time::Duration::from_secs(60));
+    let call = |method: &str, params: Value| (hooks.service)(method.into(), Some(params));
+    let observed = call(
+        "machine.screen.observe",
+        json!({
+            "target":{"pid":4242,"windowId":7},"screenshot":false
+        }),
+    )
+    .await
+    .expect("observation");
+    assert_eq!(observed["status"], "ok");
+    let action = json!({
+        "requestId":"1-1","observationId":observed["observationId"],
+        "target":observed["target"],"ref":"AXButton[0]","action":"press"
+    });
+    assert_eq!(
+        call("machine.input.action", action).await.expect("action"),
+        json!({"status":"ok"})
+    );
+    assert_eq!(
+        call("machine.input.status", json!({"requestId":"1-1"}))
+            .await
+            .expect("status"),
+        json!({"status":"ok","requestId":"1-1","dispatched":true,"state":"completed"})
     );
 }
 
