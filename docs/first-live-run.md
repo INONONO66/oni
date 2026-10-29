@@ -13,9 +13,17 @@ what it records becomes the first live evidence. Shipped state is in
   key; `ONI_WS_TOKEN` when the socket is reachable off loopback).
 - `oni daemon install` (or `oni start` in a terminal), then
   `oni doctor`: every check `PASS`, `health` answering.
-- Install the platform's `mclient` beside `dist/app/` in the Oni install,
+- Build the platform's `mclient` beside `dist/app/` in the Oni install,
   or set `ONI_MCLIENT_BIN` to its executable path before starting the
-  Resident service. The npm package does not include that binary.
+  Resident service. The npm package embeds the release manifest, not the
+  binary. On an enrolled machine, `mclient update` fetches the host-pinned
+  archive, verifies its byte count and SHA-256, probes it, then switches
+  `~/.oni/bin/current` and restarts the client service. Use
+  `mclient update --from URL` or `--file PATH` to select a different manifest.
+  Hosted release records require absolute archive URLs; relative archive
+  paths are supported only for explicit `--file` or `--from` documents.
+  The host-self supervisor deployment and update recipe is tracked in #1699;
+  live MacBook grant retention and PVE bootstrap are tracked in #1702.
 - The daemon's socket stays on loopback for every step below: a login and a
   channel declaration carry a credential across it in clear.
 - Voice notes and video, when the model cannot read them: a voice note is

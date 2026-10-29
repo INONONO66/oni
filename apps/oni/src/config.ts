@@ -146,6 +146,8 @@ export interface OniConfig {
   readonly machineGenerationsPath?: string;
   /** Rust machine client executable; ONI_MCLIENT_BIN overrides the packaged default. */
   readonly mclientBin?: string;
+  /** Client release record the host pins machines to (#1696); ONI_MCLIENT_RELEASE overrides. */
+  readonly mclientRelease?: string;
   /**
    * Owner-declared allowances for cold proactive sends (#1569 lane 8: a
    * target without one takes the Owner's consent on the invocation). The
@@ -284,6 +286,30 @@ export function resolveMclientBin(env: Record<string, string | undefined> = proc
   if (existsSync(join(sourceRoot, "clients", "Cargo.toml")))
     return join(sourceRoot, "clients", "target", "release", "mclient");
   return join(dirname(process.argv[1] ?? process.execPath), "mclient");
+}
+
+/** Source runs read the workspace release build; installed oni reads `dist/clients/release.json`. */
+export function resolveMclientRelease(env: Record<string, string | undefined> = process.env): string {
+  const configured = env.ONI_MCLIENT_RELEASE?.trim();
+  if (configured) return configured;
+  const sourceRoot = fileURLToPath(new URL("../../../", import.meta.url));
+  if (existsSync(join(sourceRoot, "clients", "Cargo.toml"))) return join(sourceRoot, "clients", "release.json");
+  return join(dirname(process.argv[1] ?? process.execPath), "..", "clients", "release.json");
+}
+
+/** Read per request so a rebuilt release is served without a restart; absent or malformed = no release. */
+export function readClientRelease(path: string): Machine.Release | undefined {
+  try {
+    const parsed = Machine.Release.safeParse(JSON.parse(readFileSync(path, "utf-8")));
+    if (!parsed.success) return undefined;
+    for (const artifact of Object.values(parsed.data.artifacts)) {
+      if (artifact !== undefined && !/^(https?:\/\/|file:\/\/)/.test(artifact.url)) return undefined;
+    }
+    return parsed.data;
+  } catch (error) {
+    if (error instanceof SyntaxError || (error instanceof Error && "code" in error)) return undefined;
+    throw error;
+  }
 }
 
 /**
@@ -904,6 +930,7 @@ export function loadConfig(
       home,
     ),
     mclientBin: resolveMclientBin(env),
+    mclientRelease: resolveMclientRelease(env),
     ...(socialBudgets === undefined ? {} : { socialBudgets }),
     ...(channelAllowedSenders === undefined ? {} : { channelAllowedSenders }),
     ...(channelMentionOnly === undefined ? {} : { channelMentionOnly }),

@@ -18,6 +18,26 @@ Linux clients omit the human-input fact; native Linux and Windows input
 adapters are tracked in #1700. Live grant-dependent
 acceptance is tracked in #1702.
 
+## #1696 machine client release pin
+
+The client release workflow builds Linux x86_64, Linux arm64 and signed macOS
+universal archives, publishes SHA-256 sidecars and a versioned `release.json`,
+and the npm staging command requires and embeds that record at
+`dist/clients/release.json`. The host serves the same record over HTTP and the
+pre-attachment `machine.release` IPC call. `mclient join` stages and probes
+the host release before installing its service, or adopts the running binary
+behind `~/.oni/bin/current` with `pinned: false` if no release is available.
+`mclient update`
+verifies archive bytes and SHA-256, probes the staged binary without
+attachment or enrollment changes, retains the previous symlink target, and
+atomically switches `current` before restarting the service. Typed failures
+are written to `metrics.jsonl`; a refused restart restores the previous link
+and pin. `run` checks the persisted pin unless
+`--allow-unpinned` is passed. An active or rollback version cannot be
+restaged in place. Fixture tests cover refusals and symlink preservation;
+live MacBook grant retention and PVE bootstrap remain unverified (#1702).
+The host-self supervisor deployment and update recipe belongs to #1699.
+
 ## #1682 npm package host/client report compatibility
 
 `apps/oni` rebuilds `@oni/protocol` before staging its npm bundle. Staging

@@ -1,5 +1,5 @@
 import type { BunPlugin } from "bun";
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +16,9 @@ import { fileURLToPath } from "node:url";
  * - `bin/oni.js` — node-runnable stub that re-executes under bun.
  * - The package does not carry mclient; the service installs it beside
  *   `dist/app/` or sets `ONI_MCLIENT_BIN`.
+ * - `dist/clients/release.json` — the client release the host pins machines
+ *   to (#1696), copied from `ONI_MCLIENT_RELEASE` or `clients/release.json`
+ *   (`script/build-clients-release.ts`); a package without one is refused.
  * - the generated package.json carries no workspace dependency: workspace
  *   packages are folded into the bundles and never exist on the npm registry.
  *   Its only dependencies are the native addons below, pinned to the version
@@ -24,12 +27,22 @@ import { fileURLToPath } from "node:url";
 const appDir = fileURLToPath(new URL("..", import.meta.url));
 const staging = process.argv[2] ?? join(appDir, "dist-npm");
 
+class ClientReleaseMissingError extends Error {
+  readonly name = "ClientReleaseMissingError";
+  constructor(readonly path: string) {
+    super(`no client release at ${path}; run script/build-clients-release.ts or set ONI_MCLIENT_RELEASE`);
+  }
+}
+
 class ProtocolBuildError extends Error {
   readonly name = "ProtocolBuildError";
   constructor(readonly exitCode: number) {
     super(`@oni/protocol build exited ${exitCode}`);
   }
 }
+
+const clientRelease = process.env.ONI_MCLIENT_RELEASE?.trim() || join(appDir, "..", "..", "clients", "release.json");
+if (!existsSync(clientRelease)) throw new ClientReleaseMissingError(clientRelease);
 
 /**
  * A native addon cannot be folded into a bundle: its loader opens the prebuilt
@@ -84,6 +97,8 @@ for (const entrypoint of [
   }
 }
 
+mkdirSync(join(staging, "dist", "clients"), { recursive: true });
+cpSync(clientRelease, join(staging, "dist", "clients", "release.json"));
 cpSync(join(appDir, "npm", "README.md"), join(staging, "README.md"));
 cpSync(join(appDir, "npm", "oni-bin.js"), join(staging, "bin", "oni.js"));
 

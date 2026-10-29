@@ -4,6 +4,7 @@ import { join } from "node:path";
 export const scriptsLanes = {
   "scripts-contracts": [
     "benchmark-workflow.test.ts",
+    "build-clients-release.test.ts",
     "check-benchmark-regression.test.ts",
     "check-core-end-state.test.ts",
     "check-dead-exports.test.ts",

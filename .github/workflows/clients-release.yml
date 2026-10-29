@@ -1,0 +1,106 @@
+name: Clients Release
+
+on:
+  push:
+    tags: ['mclient-v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build mclient (${{ matrix.platform }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+          - platform: darwin-universal
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup
+      - run: bun install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: 1.98.0
+          targets: ${{ matrix.platform == 'darwin-universal' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - run: bun run --cwd packages/protocol build
+      - run: bun run script/generate-machine-schema.ts --check
+      - name: Build (linux)
+        if: matrix.platform != 'darwin-universal'
+        run: |
+          cd clients && cargo build --release --locked -p oni-machine-client
+          mkdir -p ../out && cp target/release/mclient ../out/mclient
+      - name: Build universal binary and sign ad hoc (macOS)
+        if: matrix.platform == 'darwin-universal'
+        run: |
+          cd clients
+          cargo build --release --locked -p oni-machine-client --target aarch64-apple-darwin
+          cargo build --release --locked -p oni-machine-client --target x86_64-apple-darwin
+          mkdir -p ../out
+          lipo -create -output ../out/mclient \
+            target/aarch64-apple-darwin/release/mclient target/x86_64-apple-darwin/release/mclient
+          codesign --force --sign - --identifier ai.oni.mclient ../out/mclient
+          codesign --verify --verbose ../out/mclient
+      - name: Probe the built binary
+        run: |
+          version=$(./out/mclient --version --json | jq -r .version)
+          test "$version" = "${GITHUB_REF_NAME#mclient-v}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mclient-${{ matrix.platform }}
+          path: out/mclient
+          if-no-files-found: error
+
+  release:
+    name: Publish release record
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: built
+      - name: Restore downloaded executable modes
+        run: chmod 755 built/mclient-*/mclient
+      - name: Package archives and release.json
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          bun run script/build-clients-release.ts \
+            --release clients/release.json \
+            --version "${TAG#mclient-v}" \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" \
+            linux-x86_64=built/mclient-linux-x86_64/mclient \
+            linux-arm64=built/mclient-linux-arm64/mclient \
+            darwin-universal=built/mclient-darwin-universal/mclient
+      - name: Verify published archive executables
+        run: |
+          for platform in linux-x86_64 linux-arm64 darwin-universal; do
+            mode=$(tar -tvzf "clients/mclient-${platform}.tar.gz" | awk '$NF == "mclient" {print $1}')
+            test "$mode" = "-rwxr-xr-x"
+          done
+          mkdir -p extracted
+          tar -xzf clients/mclient-linux-x86_64.tar.gz -C extracted
+          test -x extracted/mclient
+          test "$(./extracted/mclient --version --json | jq -r .version)" = "${GITHUB_REF_NAME#mclient-v}"
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" --title "$TAG" --notes "mclient ${TAG#mclient-v}" clients/release.json clients/mclient-*.tar.gz clients/mclient-*.tar.gz.sha256

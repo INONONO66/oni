@@ -1,1 +1,4 @@
 target/
+/release.json
+/mclient-*.tar.gz
+/mclient-*.tar.gz.sha256

@@ -386,6 +386,18 @@
       "name": "PtyWriteResult"
     },
     {
+      "file": "Release.json",
+      "name": "Release"
+    },
+    {
+      "file": "ReleaseArtifact.json",
+      "name": "ReleaseArtifact"
+    },
+    {
+      "file": "ReleaseResult.json",
+      "name": "ReleaseResult"
+    },
+    {
       "file": "Report.json",
       "name": "Report"
     },

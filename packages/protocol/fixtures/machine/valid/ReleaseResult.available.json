@@ -1,0 +1,21 @@
+{
+  "status": "available",
+  "release": {
+    "version": "0.1.0",
+    "contractVersion": 2,
+    "artifacts": {
+      "linux-x86_64": {
+        "name": "mclient-0.1.0-linux-x86_64.tar.gz",
+        "bytes": 4096,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "url": "mclient-0.1.0-linux-x86_64.tar.gz"
+      },
+      "darwin-universal": {
+        "name": "mclient-0.1.0-darwin-universal.tar.gz",
+        "bytes": 4096,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "url": "https://example.invalid/mclient-0.1.0-darwin-universal.tar.gz"
+      }
+    }
+  }
+}

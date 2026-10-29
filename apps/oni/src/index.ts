@@ -96,7 +96,9 @@ import {
   resolveAlarmSweep,
   resolveClusterStorage,
   resolveMachineGenerationsPath,
+  readClientRelease,
   resolveMclientBin,
+  resolveMclientRelease,
   resolveSessionFork,
   resolveToolOutput,
   validateMachinePlane,
@@ -198,6 +200,7 @@ async function composeMachinePlane(
     readonly enrollments: MachinePort["enrollments"];
     readonly events: BusEvent.Sink & Required<Pick<ObservationPort, "subscribe">>;
     readonly mclientBin: string;
+    readonly release: () => Machine.Release | undefined;
     readonly id: () => string;
     readonly now: () => number;
     readonly callTool: (
@@ -239,6 +242,7 @@ async function composeMachinePlane(
       return yield* createMachineHost({
         listen: machines.listen,
         generations: createFileGenerationStore({ path: generationsPath }),
+        release: deps.release,
         ...(machines.tls === undefined ? {} : { tls: machines.tls }),
         enrollment: (machineId) => {
           if (machineId === plane.self.id) return selfRecord;
@@ -328,7 +332,15 @@ function webhookFor(pathname: string, webhookHandler: (key: string) => WebhookHa
 function createHttpRoutes(
   wsHandler: WebSocketHandler,
   webhookHandler: (provider: string) => WebhookHandler | undefined,
+  release: () => Machine.Release | undefined,
 ) {
+  const publicGet = new Map<string, () => Response>([
+    ["/health", () => Response.json({ ok: true })],
+    ["/machine-client/release", () => {
+      const current = release();
+      return Response.json(current ?? { reason: "release_unavailable" }, current === undefined ? { status: 404 } : undefined);
+    }],
+  ]);
   return (
     request: Request,
     bunServer: Parameters<WebSocketHandler["handleUpgrade"]>[1],
@@ -338,8 +350,9 @@ function createHttpRoutes(
       // undefined = the upgrade succeeded; a Response = the upgrade was denied.
       return wsHandler.handleUpgrade(request, bunServer);
     }
-    if (request.method === "GET" && url.pathname === "/health") {
-      return Response.json({ ok: true });
+    if (request.method === "GET") {
+      const publicRoute = publicGet.get(url.pathname);
+      if (publicRoute !== undefined) return publicRoute();
     }
     const webhook = request.method === "POST" ? webhookFor(url.pathname, webhookHandler) : undefined;
     if (webhook !== undefined) return webhook(request);
@@ -733,10 +746,13 @@ export async function startOni(options: StartOptions = {}) {
     // The cell door is bound per cell rather than globally, so a cell serves
     // exactly the tools its own dispatcher holds.
     let cells: ComposedCodemode | undefined;
+    const releasePath = config.mclientRelease ?? resolveMclientRelease();
+    const clientRelease = () => readClientRelease(releasePath);
     const machinery = await composeMachinePlane(runtime, machinesConfig, resolveMachineGenerationsPath(config), {
       enrollments,
       events: services.observations,
       mclientBin: config.mclientBin ?? resolveMclientBin(),
+      release: clientRelease,
       id: services.entropy.id,
       now: services.now,
       callTool: (call) =>
@@ -1409,7 +1425,7 @@ export async function startOni(options: StartOptions = {}) {
       hostname: config.host,
       port: config.wsPort,
       websocket: wsCallbacks.callbacks,
-      fetch: createHttpRoutes(wsHandler, (provider) => webhookHandlers.get(provider)),
+      fetch: createHttpRoutes(wsHandler, (provider) => webhookHandlers.get(provider), clientRelease),
     });
 
     if (server.port === undefined)

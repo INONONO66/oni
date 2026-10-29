@@ -98,14 +98,18 @@ pub fn unit_directory(home: &Path, root: bool, xdg_config_home: Option<&Path>) -
     }
 }
 
-pub fn install(options: &JoinOptions, home: &Path, config: &Path) -> io::Result<State> {
+pub fn install(
+    options: &JoinOptions,
+    home: &Path,
+    config: &Path,
+    binary: &Path,
+) -> io::Result<State> {
     if options.no_service {
         return Ok(State {
             name: "none",
             state: "skipped",
         });
     }
-    let binary = std::env::current_exe()?;
     #[cfg(target_os = "macos")]
     {
         let directory = options
@@ -113,7 +117,7 @@ pub fn install(options: &JoinOptions, home: &Path, config: &Path) -> io::Result<
             .clone()
             .unwrap_or_else(|| home.join("Library/LaunchAgents"));
         let logs = home.join(".oni/logs");
-        let contents = plist(&binary, config, &logs)?;
+        let contents = plist(binary, config, &logs)?;
         fs::create_dir_all(&directory)?;
         let path = directory.join("ai.oni.machine.plist");
         let changed = put(&path, &contents)?;
@@ -171,7 +175,7 @@ pub fn install(options: &JoinOptions, home: &Path, config: &Path) -> io::Result<
         let directory = options.service_dir.clone().unwrap_or_else(|| {
             unit_directory(home, root, xdg_config_home.as_deref().map(Path::new))
         });
-        let contents = unit(&binary, config, !root)?;
+        let contents = unit(binary, config, !root)?;
         fs::create_dir_all(&directory)?;
         let path = directory.join(NAME);
         let existed = path.exists();

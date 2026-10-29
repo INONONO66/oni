@@ -6,6 +6,7 @@ import * as Contract from "./contract.js";
 import * as Observe from "./observe.js";
 import * as App from "./app.js";
 import * as Facts from "./facts.js";
+import * as ReleaseContract from "./release.js";
 
 /**
  * Machine domain (docs/machines-and-delegation.md): attached devices as the
@@ -31,6 +32,14 @@ export namespace Machine {
   export type WindowParkResult = App.WindowParkResult;
   export const contractVersion = Contract.contractVersion;
   export const supportedContractVersions = Contract.supportedContractVersions;
+  export const ReleaseArtifact = ReleaseContract.ReleaseArtifact;
+  export type ReleaseArtifact = ReleaseContract.ReleaseArtifact;
+  export const releasePlatforms = ReleaseContract.releasePlatforms;
+  export type ReleasePlatform = ReleaseContract.ReleasePlatform;
+  export const Release = ReleaseContract.Release;
+  export type Release = ReleaseContract.Release;
+  export const ReleaseResult = ReleaseContract.ReleaseResult;
+  export type ReleaseResult = ReleaseContract.ReleaseResult;
   export const Info = Gateway.Info;
   export type Info = Gateway.Info;
   export const Request = Gateway.Request;

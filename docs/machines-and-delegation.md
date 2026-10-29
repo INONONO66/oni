@@ -460,6 +460,32 @@ process ends only on a terminal condition. Failures print one JSON line
 (`stale_generation`, `unsupported_contract`, `peer_key_mismatch`, or a host
 pin mismatch on connect), 4 for the memory budget, 2 for anything else.
 
+**Release pin and update.** The host serves `GET /machine-client/release`
+from its bundled `dist/clients/release.json` and answers `machine.release`
+before attachment. The release names its version, machine contract version,
+and per-platform archive name, byte count, SHA-256 and URL. Join stages and
+probes the host's binary before installing the service, and records the
+host version in `machine-client/pin.json`; if the release is unavailable it
+adopts the running binary with `pinned: false`. The service executes the
+`~/.oni/bin/current` symlink, which points into
+`~/.oni/machine-client/versions/<version>/mclient`. `mclient run` refuses
+`unpinned_binary` without a matching saved pin unless
+`--allow-unpinned` is set.
+
+`mclient update` reads the saved host connection; `--from URL` or
+`--file PATH` selects an explicit release document. It verifies the archive
+length and SHA-256, extracts the staged binary, checks `--version --json`,
+and runs `probe --release` against the release and, when obtained from the
+host, its contract version. Probe does not attach or touch enrollment and
+generation. A refusal (`release_unavailable`, `checksum_mismatch`, or
+`probe_failed`) writes an `update_failed` receipt to `metrics.jsonl` without
+changing the running service or `current`. Once verified, update retains
+`bin/previous`, atomically renames the new `bin/current` link, updates the
+pin, and restarts the service. An active or
+rollback version directory cannot be overwritten during staging. If the
+service manager refuses the restart, the previous link and pin are restored
+and the attempt is recorded as a refusal.
+
 **Generation and reconnect.** The accepted `AttachResult.attached.generation`
 is saved to `state.json` and presented on every later offer; a first offer
 omits the `generation` key entirely, because the Offer schema allows absence,

@@ -62,6 +62,7 @@ interface MachineHostOptions {
    */
   readonly staleAfterMs?: number;
   readonly capacity?: readonly Machine.CapacityRow[];
+  readonly release?: () => Machine.Release | undefined;
   readonly scheduler?: LeaseScheduler;
   readonly idleTtlMs?: number;
   /**
@@ -438,21 +439,28 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         time: options.now(),
       });
     }
+    const directRequests = new Map<string, (params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, source: RequestSource) => Effect.Effect<void, MachineError>>([
+      [Machine.WireMethod.CallTool, (params, respond, source) =>
+        Effect.try({ try: () => Machine.ToolCall.parse(params), catch: decodeMachineFailure("tool.decode") })
+          .pipe(Effect.flatMap((call) => callTool(call, source.key)), Effect.map(respond))],
+      [Machine.WireMethod.Report, (params, respond, source) =>
+        Effect.try({ try: () => Machine.Report.parse(params), catch: decodeMachineFailure("report.decode") })
+          .pipe(Effect.map((incoming) => respond(report(incoming, source))))],
+      [Machine.WireMethod.AgentPermission, (params, respond, source) =>
+        Effect.try({ try: () => Machine.AgentPermissionRequest.parse(params), catch: decodeMachineFailure("agent.permission.request") })
+          .pipe(Effect.flatMap((request) => decidePermission(request, source)), Effect.map(respond))],
+      [Machine.WireMethod.Release, (_params, respond) => Effect.sync(() => {
+        const release = options.release?.();
+        respond(release === undefined
+          ? { status: "refused", reason: "release_unavailable" }
+          : { status: "available", release });
+      })],
+    ]);
     function dispatchRequest(method: string, params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, source: RequestSource): Effect.Effect<void, MachinesFailure> {
       return Effect.gen(function* () {
-        if (method === Machine.WireMethod.CallTool) {
-          const call = yield* Effect.try({ try: () => Machine.ToolCall.parse(params), catch: decodeMachineFailure("tool.decode") });
-          respond(yield* callTool(call, source.key));
-          return;
-        }
-        if (method === Machine.WireMethod.Report) {
-          const incoming = yield* Effect.try({ try: () => Machine.Report.parse(params), catch: decodeMachineFailure("report.decode") });
-          respond(report(incoming, source));
-          return;
-        }
-        if (method === Machine.WireMethod.AgentPermission) {
-          const request = yield* Effect.try({ try: () => Machine.AgentPermissionRequest.parse(params), catch: decodeMachineFailure("agent.permission.request") });
-          respond(yield* decidePermission(request, source));
+        const direct = directRequests.get(method);
+        if (direct !== undefined) {
+          yield* direct(params, respond, source);
           return;
         }
         const relayed = relayInbound(method, params, source.key);

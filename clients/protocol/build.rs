@@ -48,7 +48,7 @@ fn main() {
         fs::write(out_dir.join(format!("{module}.rs")), code).expect("write generated module");
         root.push_str(&format!(
             "/// Types generated from `{file}`.\n\
-             // build.rs proves every pattern with regress before emitting runtime unwraps.\n\
+             // build.rs proves every pattern with regress before emitting runtime unwraps;\n\
              #[allow(clippy::unwrap_used)]\n\
              pub mod {module} {{\n\
                  include!(concat!(env!(\"OUT_DIR\"), \"/{module}.rs\"));\n\
@@ -115,6 +115,14 @@ fn generate(name: &str, mut schema: Value, path: &Path) -> String {
             syn::Item::Enum(item) => {
                 for variant in &mut item.variants {
                     preserve_presence(&mut variant.fields);
+                    if name == "ReleaseResult" && variant.ident == "Available" {
+                        for field in &mut variant.fields {
+                            if field.ident.as_ref().is_some_and(|ident| ident == "release") {
+                                let inner = &field.ty;
+                                field.ty = parse_quote!(Box<#inner>);
+                            }
+                        }
+                    }
                 }
             }
             _ => {}
