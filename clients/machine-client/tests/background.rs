@@ -12,7 +12,9 @@ use std::{fs, sync::mpsc};
 fn rig(extra: Value) -> (tempfile::TempDir, oni_machine_client::screen::Screen, Input) {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut window = json!({"id":7,"display":1,"title":"Fixture","owner":"fixture","pid":4242,
-        "app":{"bundleId":"org.oni.fixture","path":"/Fixture.app"},"x":0,"y":0,"width":8,"height":8,"elements":[]});
+        "app":{"bundleId":"org.oni.fixture","path":"/Fixture.app"},"x":0,"y":0,"width":8,"height":8,
+        "elements":[{"role":"AXButton","label":"Normal","focused":true,
+            "frame":{"x":0,"y":0,"width":8,"height":8}}]});
     for (key, value) in extra.as_object().expect("extra") {
         window[key] = value.clone();
     }

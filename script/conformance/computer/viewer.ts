@@ -7,8 +7,11 @@
  */
 import { z } from "zod";
 
+/** A decoded H.264 pixel counts as masked below this channel sum: lossy decode never returns exact zeros. */
+export const MASKED_PIXEL_SUM = 12;
+
 const PAGE = `(window.__viewer = (() => {
-  const state = { count: 0, keys: 0, bytes: 0, head: [], waiters: [], pc: undefined, remote: [] };
+  const state = { count: 0, keys: 0, bytes: 0, head: [], waiters: [], pc: undefined, remote: [], video: undefined };
   const worker = "onrtctransform = (event) => { const t = event.transformer; const r = t.readable.getReader(); const w = t.writable.getWriter(); (async () => { for (;;) { const { value, done } = await r.read(); if (done) break; postMessage({ type: value.type, data: value.data.slice(0, 8), size: value.data.byteLength }); await w.write(value); } })(); };";
   function frame(type, data, size) {
     state.count += 1;
@@ -27,6 +30,13 @@ const PAGE = `(window.__viewer = (() => {
     });
   }
   function received(event) {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.autoplay = true;
+    video.srcObject = event.streams[0];
+    document.body.append(video);
+    video.play();
+    state.video = video;
     if (typeof RTCRtpScriptTransform === "function") {
       const transform = new Worker(URL.createObjectURL(new Blob([worker], { type: "text/javascript" })));
       transform.onmessage = (message) => frame(message.data.type, message.data.data, message.data.size);
@@ -74,7 +84,30 @@ const PAGE = `(window.__viewer = (() => {
       settle();
     }).then(() => ({ count: state.count, keys: state.keys, bytes: state.bytes, head: state.head, connection: state.pc.connectionState }));
   }
-  return { answer, candidate, until };
+  function untilPixel(x, y, black) {
+    return new Promise((resolve) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      const video = state.video;
+      if (video === undefined) throw new Error("video track not received");
+      function sample() {
+        video.requestVideoFrameCallback(() => {
+          if (video.videoWidth <= x || video.videoHeight <= y) {
+            sample();
+            return;
+          }
+          context.drawImage(video, x, y, 1, 1, 0, 0, 1, 1);
+          const rgba = Array.from(context.getImageData(0, 0, 1, 1).data);
+          if ((rgba[0] + rgba[1] + rgba[2] < ${MASKED_PIXEL_SUM}) === black) resolve(rgba);
+          else sample();
+        });
+      }
+      sample();
+    });
+  }
+  return { answer, candidate, until, untilPixel };
 })(), true)`;
 
 const Answer = z
@@ -100,6 +133,7 @@ export interface Viewer {
   answer(offer: string): Promise<ViewerAnswer>;
   candidate(line: string): Promise<void>;
   until(frames: number, keys: number): Promise<ViewerFrames>;
+  untilPixel(x: number, y: number, black: boolean): Promise<readonly number[]>;
   close(): void;
 }
 
@@ -119,6 +153,10 @@ export async function openViewer(): Promise<Viewer> {
     },
     until: async (frames, keys) =>
       Frames.parse(await view.evaluate(`window.__viewer.until(${frames}, ${keys})`)),
+    untilPixel: async (x, y, black) =>
+      z.array(z.number().int().min(0).max(255)).length(4).parse(
+        await view.evaluate(`window.__viewer.untilPixel(${x}, ${y}, ${black})`),
+      ),
     close: () => view.close(),
   };
 }

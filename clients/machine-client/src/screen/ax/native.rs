@@ -10,12 +10,13 @@ use std::{
 };
 
 use accessibility_sys::{
-    kAXErrorSuccess, kAXPressAction, kAXValueAttribute, kAXValueTypeAXError, kAXValueTypeCGPoint,
-    kAXValueTypeCGSize, kAXWindowsAttribute, AXError, AXIsProcessTrusted,
-    AXUIElementCopyActionNames, AXUIElementCopyMultipleAttributeValues,
-    AXUIElementCreateApplication, AXUIElementPerformAction, AXUIElementRef,
-    AXUIElementSetAttributeValue, AXUIElementSetMessagingTimeout, AXValueGetType, AXValueGetTypeID,
-    AXValueGetValue, AXValueRef,
+    kAXErrorSuccess, kAXFocusedUIElementAttribute, kAXPressAction, kAXRoleAttribute,
+    kAXSecureTextFieldSubrole, kAXSubroleAttribute, kAXValueAttribute, kAXValueTypeAXError,
+    kAXValueTypeCGPoint, kAXValueTypeCGSize, kAXWindowsAttribute, AXError, AXIsProcessTrusted,
+    AXUIElementCopyActionNames, AXUIElementCopyAttributeValue,
+    AXUIElementCopyMultipleAttributeValues, AXUIElementCreateApplication, AXUIElementPerformAction,
+    AXUIElementRef, AXUIElementSetAttributeValue, AXUIElementSetMessagingTimeout, AXValueGetType,
+    AXValueGetTypeID, AXValueGetValue, AXValueRef,
 };
 use core_foundation::{
     array::{CFArray, CFArrayRef},
@@ -32,6 +33,7 @@ use super::{
     AppIdentity, Attributes, Bounds, Observer, Raw, Segment, Tree, Walk, WindowIdentity,
     ATTRIBUTES,
 };
+use crate::screen::private::Focused;
 use crate::screen::Fault;
 
 #[link(name = "ApplicationServices", kind = "framework")]
@@ -333,6 +335,41 @@ impl Observer for Native {
             .next()
             .ok_or(ActFault::Unsupported)?;
         performed(perform(&close, &Action::Press))
+    }
+    fn focused(&self, window: &WindowIdentity) -> Result<Option<Focused>, Fault> {
+        if !trusted() {
+            return Err(Fault::Permission);
+        }
+        let pid = i32::try_from(window.pid).map_err(|_| Fault::WindowNotFound)?;
+        // SAFETY: the created application element is retained until the attribute copy returns.
+        let app = unsafe {
+            CFType::wrap_under_create_rule(AXUIElementCreateApplication(pid) as CFTypeRef)
+        };
+        let name = CFString::new(kAXFocusedUIElementAttribute);
+        let mut value: CFTypeRef = ptr::null();
+        // SAFETY: app and name are live CF values and value is a valid output pointer.
+        checked(unsafe {
+            AXUIElementCopyAttributeValue(
+                app.as_CFTypeRef() as AXUIElementRef,
+                name.as_concrete_TypeRef(),
+                &mut value,
+            )
+        })?;
+        if value.is_null() {
+            return Ok(None);
+        }
+        // SAFETY: a successful copy transfers ownership of a live AX element.
+        let element = Element(unsafe { CFType::wrap_under_create_rule(value) });
+        if element.window_id() != Some(window.window_id) {
+            return Ok(None);
+        }
+        let fields = element.values(&[kAXRoleAttribute, kAXSubroleAttribute])?;
+        let role = match fields.first() {
+            Some(Raw::Text(role)) => role.clone(),
+            _ => String::new(),
+        };
+        let secure = matches!(fields.get(1), Some(Raw::Text(subrole)) if subrole == kAXSecureTextFieldSubrole);
+        Ok(Some(Focused { role, secure }))
     }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         if !trusted() {

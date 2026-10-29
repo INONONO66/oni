@@ -1,5 +1,7 @@
 #[path = "support/client_config.rs"]
 mod client_config;
+#[path = "support/ordinary_focus.rs"]
+mod ordinary_focus;
 #[path = "support/script.rs"]
 mod script;
 #[path = "support/tmux.rs"]
@@ -78,6 +80,107 @@ fn settings(exports: bool, root: &Path) -> ClientConfig {
 
 fn refusal(reason: &str) -> Value {
     json!({"status":"refused","reason":reason})
+}
+
+fn ordinary_screen() -> oni_machine_client::screen::Screen {
+    let mut source = oni_machine_client::screen::fixture::Fixture::display(32, 16, 1.0);
+    source.windows.push(oni_machine_client::screen::Window {
+        id: 1,
+        display: 1,
+        title: "Fixture".into(),
+        owner: "fixture".into(),
+        pid: Some(1),
+        app: None,
+        x: 0,
+        y: 0,
+        width: 32,
+        height: 16,
+    });
+    ordinary_focus::screen(source, 2, &[1])
+}
+
+#[tokio::test]
+async fn connected_ungranted_computer_requests_never_query_accessibility() {
+    use oni_machine_client::{
+        input::{recorder::Recorder, Input},
+        screen::{
+            ax::{ActFault, Action, Admit, Bounds, Observer, Segment, Walk, WindowIdentity},
+            private::Focused,
+            Fault, Screen,
+        },
+        transport::client::{handler, Client},
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Counting(Arc<AtomicUsize>);
+    impl Observer for Counting {
+        fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(Vec::new())
+        }
+        fn focused(&self, _: &WindowIdentity) -> Result<Option<Focused>, Fault> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+        fn walk(&self, _: &WindowIdentity, _: &Bounds) -> Result<Walk, Fault> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(Fault::Permission)
+        }
+        fn act(
+            &self,
+            _: &WindowIdentity,
+            _: &[Segment],
+            _: Admit<'_>,
+            _: &Action,
+        ) -> Result<(), ActFault> {
+            Err(ActFault::Permission)
+        }
+    }
+
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let screen = Screen::new(
+        Box::new(oni_machine_client::screen::fixture::Fixture::display(
+            32, 16, 1.0,
+        )),
+        1,
+    )
+    .observing(Box::new(Counting(calls.clone())));
+    let service = Service::open_computer(
+        &settings(false, root.path()),
+        pty,
+        screen,
+        Input::new(Recorder::default()),
+    )
+    .expect("service");
+    let (peer, _host) = tokio::io::duplex(1024);
+    let client = Client::from_stream(
+        peer,
+        handler(|_, _| async { Err("unexpected request".to_owned()) }),
+    );
+    service.connected(client.caller());
+    service.attached(&Negotiated {
+        generation: NonZeroU64::MIN,
+        capabilities: vec!["shell.exec".into()],
+        exports: Vec::new(),
+    });
+    let hooks = service.hooks(Duration::from_secs(60));
+    let refused = (hooks.service)(
+        "machine.screen.capture".into(),
+        Some(json!({"target":{"kind":"display","display":1},"encoding":{"format":"png"}})),
+    )
+    .await
+    .expect("capture refusal");
+    assert_eq!(refused, refusal("screen_not_available"));
+    let input = (hooks.service)(
+        "machine.input.text".into(),
+        Some(json!({"delivery":"foreground","captureId":"cap-1","text":"secret"})),
+    )
+    .await
+    .expect("input refusal");
+    assert_eq!(input, refusal("input_not_available"));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
 fn begin(id: &str, mode: &str, export: &str) -> Value {
@@ -483,10 +586,9 @@ async fn terminal_driver_failures_become_error_frames() {
 
 #[tokio::test]
 async fn screen_methods_gate_attachment_then_capability_and_free_frames_on_teardown() {
-    use oni_machine_client::screen::{fixture::Fixture as Frames, Screen};
     let root = tempfile::tempdir().expect("root");
     let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
-    let screen = Screen::new(Box::new(Frames::display(32, 16, 1.0)), 2);
+    let screen = ordinary_screen();
     let service = Service::open_with(&settings(false, root.path()), pty, screen).expect("service");
     let mut expected = vec!["shell.exec", "screen.read", "computer.use"];
     if oni_machine_client::code::Code::available() {
@@ -646,14 +748,11 @@ async fn a_panicking_capture_backend_becomes_an_error_frame_and_frees_its_slot()
 
 #[tokio::test]
 async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
-    use oni_machine_client::{
-        input::{recorder::Recorder, Input},
-        screen::{fixture::Fixture as Frames, Screen},
-    };
+    use oni_machine_client::input::{recorder::Recorder, Input};
     let root = tempfile::tempdir().expect("root");
     let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
     let recorder = Recorder::default();
-    let screen = Screen::new(Box::new(Frames::display(32, 16, 1.0)), 2);
+    let screen = ordinary_screen();
     let input = Input::new(recorder.clone());
     let service =
         Service::open_computer(&settings(false, root.path()), pty, screen, input).expect("service");
@@ -799,10 +898,7 @@ async fn input_write_is_not_offered_without_an_input_driver() {
 
 #[tokio::test]
 async fn a_panicking_input_driver_fails_the_call_without_taking_the_client_down() {
-    use oni_machine_client::{
-        input::{Driver, Event, Input},
-        screen::{fixture::Fixture as Frames, Screen},
-    };
+    use oni_machine_client::input::{Driver, Event, Input};
     struct Panics;
     impl Driver for Panics {
         fn pid_delivery(&self) -> bool {
@@ -820,7 +916,7 @@ async fn a_panicking_input_driver_fails_the_call_without_taking_the_client_down(
     }
     let root = tempfile::tempdir().expect("root");
     let pty = Pty::new(MISSING_TMUX, None, "p".into()).await;
-    let screen = Screen::new(Box::new(Frames::display(32, 16, 1.0)), 2);
+    let screen = ordinary_screen();
     let service = Service::open_computer(
         &settings(false, root.path()),
         pty,
@@ -859,14 +955,11 @@ async fn a_panicking_input_driver_fails_the_call_without_taking_the_client_down(
 
 #[tokio::test]
 async fn held_input_is_released_on_detach_and_on_a_withdrawn_grant() {
-    use oni_machine_client::{
-        input::{recorder::Recorder, Event, Input, Key, Named},
-        screen::{fixture::Fixture as Frames, Screen},
-    };
+    use oni_machine_client::input::{recorder::Recorder, Event, Input, Key, Named};
     let root = tempfile::tempdir().expect("root");
     let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
     let recorder = Recorder::default();
-    let screen = Screen::new(Box::new(Frames::display(32, 16, 1.0)), 2);
+    let screen = ordinary_screen();
     let service = Service::open_computer(
         &settings(false, root.path()),
         pty,

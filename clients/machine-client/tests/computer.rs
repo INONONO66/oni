@@ -47,7 +47,18 @@ fn absent_block_keeps_the_platform_backends() {
 #[test]
 fn fixture_block_serves_frames_and_records_input() {
     let directory = tempfile::tempdir().expect("tempdir");
-    fs::write(directory.path().join("layout.json"), LAYOUT).expect("write layout");
+    let mut layout: Value = serde_json::from_str(LAYOUT).expect("layout");
+    layout["windows"]
+        .as_array_mut()
+        .expect("windows")
+        .push(json!({
+            "id": 8, "display": 2, "title": "Input", "owner": "fixture",
+            "pid": 4242, "x": 320, "y": 0, "width": 160, "height": 100,
+            "elements": [{ "role": "AXButton", "focused": true, "frame": {
+                "x": 0, "y": 0, "width": 160, "height": 100
+            }}]
+        }));
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("write layout");
     let path = client(
         directory.path(),
         Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
@@ -92,6 +103,310 @@ fn fixture_block_serves_frames_and_records_input() {
             json!({ "delivery": "foreground", "pid": null, "tag": true, "event": "text", "text": "hi" }),
         ]
     );
+}
+
+#[test]
+fn secure_focus_hides_observation_capture_and_input() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let mut layout: Value = serde_json::from_str(LAYOUT).expect("layout");
+    layout["windows"][0]["pid"] = json!(4242);
+    layout["windows"][0]["elements"] = json!([
+        { "role": "AXSecureTextField", "secure": true, "focused": true,
+          "frame": { "x": 2, "y": 3, "width": 40, "height": 12 } }
+    ]);
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("write layout");
+    let path = client(
+        directory.path(),
+        Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
+    );
+    let (screen, input) = computer::open(&path).expect("open").expect("fixture");
+    let observation = observe(
+        &screen,
+        json!({
+            "target": { "pid": 4242, "windowId": 7 },
+            "screenshot": false
+        }),
+    );
+    assert_eq!(observation["private"], true);
+    assert_eq!(observation["elements"], json!([]));
+    assert_eq!(observation["complete"], true);
+    let capture: ScreenCaptureRequest = oni_protocol::decode(json!({
+        "target": { "kind": "window", "windowId": "7" },
+        "encoding": { "format": "png" }
+    }))
+    .expect("capture");
+    assert_eq!(
+        screen.capture(&capture),
+        json!({ "status": "refused", "reason": "private" })
+    );
+    let display: ScreenCaptureRequest = oni_protocol::decode(json!({
+        "target": { "kind": "display", "display": 1 },
+        "encoding": { "format": "png" }
+    }))
+    .expect("display");
+    let anchor = screen.capture(&display)["captureId"]
+        .as_str()
+        .expect("anchor")
+        .to_owned();
+    let text: InputTextRequest = oni_protocol::decode(
+        json!({ "delivery": "foreground", "captureId": anchor, "text": "secret" }),
+    )
+    .expect("text");
+    assert_eq!(
+        input.text(&screen, &text),
+        json!({ "status": "refused", "reason": "private" })
+    );
+    assert!(!directory.path().join("input.jsonl").exists());
+    let source: oni_protocol::stream_open_request::StreamOpenRequestSource =
+        serde_json::from_value(json!({ "kind": "window", "windowId": "7" }))
+            .expect("stream source");
+    let mut frame = Vec::new();
+    assert_eq!(
+        screen
+            .frame(&source, 320, &mut frame)
+            .expect("private frame"),
+        (120, 80)
+    );
+    assert!(frame.iter().all(|byte| *byte == 0));
+    let display_source: oni_protocol::stream_open_request::StreamOpenRequestSource =
+        serde_json::from_value(json!({ "kind": "display", "display": 1 }))
+            .expect("display stream source");
+    assert!(screen
+        .stream_private(&display_source)
+        .expect("display private"));
+    frame.clear();
+    assert_eq!(
+        screen
+            .frame(&display_source, 640, &mut frame)
+            .expect("masked display"),
+        (640, 400)
+    );
+    assert!(frame.contains(&0));
+    assert!(frame.iter().any(|byte| *byte != 0));
+    let outside: oni_protocol::stream_open_request::StreamOpenRequestSource =
+        serde_json::from_value(json!({
+            "kind": "display", "display": 1,
+            "region": { "x": 200, "y": 100, "width": 100, "height": 80 }
+        }))
+        .expect("outside stream source");
+    assert!(!screen.stream_private(&outside).expect("outside private"));
+    frame.clear();
+    screen
+        .frame(&outside, 320, &mut frame)
+        .expect("outside frame");
+    assert!(frame.iter().any(|byte| *byte != 0));
+}
+
+#[test]
+fn unknown_focus_refuses_text_without_injection() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    observable(directory.path(), 0);
+    let path = client(
+        directory.path(),
+        Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
+    );
+    let (screen, input) = computer::open(&path).expect("open").expect("fixture");
+    let capture: ScreenCaptureRequest = oni_protocol::decode(json!({
+        "target": { "kind": "display", "display": 1 }, "encoding": { "format": "png" }
+    }))
+    .expect("capture");
+    let anchor = screen.capture(&capture)["captureId"]
+        .as_str()
+        .expect("anchor")
+        .to_owned();
+    fs::write(directory.path().join("layout.json"), LAYOUT).expect("empty focus layout");
+    let text: InputTextRequest = oni_protocol::decode(
+        json!({ "delivery": "foreground", "captureId": anchor, "text": "secret" }),
+    )
+    .expect("text");
+    assert_eq!(
+        input.text(&screen, &text),
+        json!({ "status": "refused", "reason": "private" })
+    );
+    assert!(!directory.path().join("input.jsonl").exists());
+}
+
+#[test]
+fn ref_click_targets_ordinary_window_despite_unrelated_private_focus() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    observable(directory.path(), 0);
+    let mut layout: Value =
+        serde_json::from_slice(&fs::read(directory.path().join("layout.json")).expect("layout"))
+            .expect("json");
+    layout["windows"]
+        .as_array_mut()
+        .expect("windows")
+        .push(json!({
+            "id": 8, "display": 2, "pid": 4243, "title": "Private", "owner": "fixture",
+            "x": 320, "y": 0, "width": 40, "height": 40,
+            "elements": [{ "role": "AXSecureTextField", "secure": true, "focused": true,
+                "frame": { "x": 0, "y": 0, "width": 40, "height": 40 } }]
+        }));
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("layout");
+    let path = client(
+        directory.path(),
+        Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
+    );
+    let (screen, input) = computer::open(&path).expect("open").expect("fixture");
+    let observed = observe(
+        &screen,
+        json!({
+            "target": { "pid": 4242, "windowId": 7 }, "screenshot": false
+        }),
+    );
+    let pointer: InputPointerRequest = oni_protocol::decode(json!({
+        "delivery": "foreground", "kind": "click", "button": "left", "count": 1,
+        "at": { "observationId": observed["observationId"], "ref": "AXButton[0]" }
+    }))
+    .expect("pointer");
+    assert_eq!(input.pointer(&screen, &pointer), json!({ "status": "ok" }));
+    assert_eq!(lines(&directory.path().join("input.jsonl")).len(), 3);
+}
+
+#[test]
+fn private_observation_replaces_previous_snapshot_and_is_a_diff_baseline() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    observable(directory.path(), 0);
+    let path = client(
+        directory.path(),
+        Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
+    );
+    let (screen, _) = computer::open(&path).expect("open").expect("fixture");
+    let target = json!({ "pid": 4242, "windowId": 7 });
+    let ordinary = observe(&screen, json!({ "target": target, "screenshot": false }));
+    let mut layout: Value =
+        serde_json::from_slice(&fs::read(directory.path().join("layout.json")).expect("layout"))
+            .expect("json");
+    layout["windows"][0]["elements"][1]["secure"] = json!(true);
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("private layout");
+    let private = observe(&screen, json!({ "target": target, "screenshot": true }));
+    assert_eq!(private["private"], true);
+    assert!(private.get("screenshot").is_none());
+    layout["windows"][0]["elements"][1]["secure"] = json!(false);
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("ordinary layout");
+    assert_eq!(
+        act(
+            &screen,
+            json!({
+                "observationId": ordinary["observationId"], "target": private["target"],
+                "ref": "AXButton[0]", "action": "press"
+            })
+        )["reason"],
+        "stale_observation"
+    );
+    let after = observe(
+        &screen,
+        json!({ "target": target, "since": private["observationId"], "screenshot": false }),
+    );
+    assert_eq!(after["status"], "ok");
+    assert!(!after["diff"]["added"].as_array().expect("added").is_empty());
+}
+
+#[test]
+fn private_window_spanning_displays_masks_both_and_secondary_region() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let mut layout: Value = serde_json::from_str(LAYOUT).expect("layout");
+    layout["windows"][0]["pid"] = json!(4242);
+    layout["windows"][0]["x"] = json!(310);
+    layout["windows"][0]["y"] = json!(0);
+    layout["windows"][0]["width"] = json!(30);
+    layout["windows"][0]["elements"] = json!([{
+        "role": "AXSecureTextField", "focused": true, "secure": true,
+        "frame": { "x": 0, "y": 0, "width": 30, "height": 80 }
+    }]);
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("layout");
+    let path = client(
+        directory.path(),
+        Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
+    );
+    let (screen, _) = computer::open(&path).expect("open").expect("fixture");
+    for (source, expected, inside) in [
+        (
+            json!({ "kind": "display", "display": 1 }),
+            (640, 400),
+            (625, 5),
+        ),
+        (
+            json!({ "kind": "display", "display": 2 }),
+            (160, 100),
+            (5, 5),
+        ),
+        (
+            json!({ "kind": "display", "display": 2,
+            "region": { "x": 0, "y": 0, "width": 20, "height": 20 } }),
+            (20, 20),
+            (5, 5),
+        ),
+    ] {
+        let source = serde_json::from_value(source).expect("stream source");
+        assert!(screen.stream_private(&source).expect("private fact"));
+        let mut frame = Vec::new();
+        assert_eq!(
+            screen.frame(&source, 640, &mut frame).expect("frame"),
+            expected
+        );
+        let offset = usize::try_from((inside.1 * expected.0 + inside.0) * 4).expect("pixel offset");
+        assert_eq!(&frame[offset..offset + 4], &[0; 4]);
+    }
+}
+
+#[test]
+fn fractional_crop_masks_the_original_pixel_intersection() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let layout = json!({
+        "displays": [{"id":1,"x":0,"y":0,"width":5,"height":5,"scale":1.6,"primary":true}],
+        "windows": [{"id":7,"display":1,"title":"Private","owner":"fixture",
+            "pid":4242,"x":3,"y":0,"width":1,"height":1,
+            "elements":[{"role":"AXSecureTextField","secure":true,"focused":true,
+                "frame":{"x":0,"y":0,"width":1,"height":1}}]}]
+    });
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("layout");
+    let path = client(
+        directory.path(),
+        Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
+    );
+    let (screen, _) = computer::open(&path).expect("open").expect("fixture");
+    let source = serde_json::from_value(json!({
+        "kind":"display","display":1,
+        "region":{"x":1,"y":0,"width":3,"height":2}
+    }))
+    .expect("source");
+    let mut frame = Vec::new();
+    assert_eq!(
+        screen.frame(&source, 320, &mut frame).expect("frame"),
+        (6, 4)
+    );
+    assert_eq!(&frame[3 * 4..4 * 4], &[0; 4]);
+    assert_eq!(frame[2 * 4 + 3], 255);
+}
+
+#[test]
+fn stream_rechecks_focus_between_consecutive_frames() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    observable(directory.path(), 0);
+    let path = client(
+        directory.path(),
+        Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
+    );
+    let (screen, _) = computer::open(&path).expect("open").expect("fixture");
+    let source =
+        serde_json::from_value(json!({ "kind": "window", "windowId": "7" })).expect("source");
+    let mut frame = Vec::new();
+    let (_, ordinary) = screen
+        .frame_private(&source, 320, &mut frame)
+        .expect("ordinary");
+    assert!(!ordinary);
+    assert!(frame.iter().any(|byte| *byte != 0));
+    let mut layout: Value =
+        serde_json::from_slice(&fs::read(directory.path().join("layout.json")).expect("layout"))
+            .expect("json");
+    layout["windows"][0]["elements"][1]["secure"] = json!(true);
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("secure");
+    let (_, private) = screen
+        .frame_private(&source, 320, &mut frame)
+        .expect("private");
+    assert!(private);
+    assert!(frame.iter().all(|byte| *byte == 0));
 }
 
 #[test]
@@ -382,7 +697,22 @@ fn fixture_windows_observe_diff_and_act_by_ref() {
     let late = json!({ "pid": 4243, "windowId": 9 });
     assert_eq!(
         observe(&screen, json!({ "target": late, "screenshot": true })),
-        json!({ "status": "refused", "reason": "window_not_found" })
+        json!({
+            "status": "ok",
+            "observationId": "o3",
+            "lineage": "w4243-9-0",
+            "target": { "pid": 4243, "windowId": 9, "epoch": 0 },
+            "window": {
+                "pid": 4243,
+                "windowId": 9,
+                "epoch": 0,
+                "title": "Late",
+                "app": { "bundleId": null, "path": "/fixture/4243" }
+            },
+            "complete": true,
+            "private": true,
+            "elements": []
+        })
     );
     let unshot = observe(&screen, json!({ "target": late, "screenshot": false }));
     assert_eq!(

@@ -17,6 +17,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use super::private::Focused;
 use super::Fault;
 
 /// The app that owns a window: its bundle id, if any, and executable path.
@@ -140,6 +141,7 @@ pub trait Observer: Send + Sync {
     /// Resolves `path` once, asks `admit` about that element and performs
     /// `action` on that same element; an element `admit` refuses is
     /// `ActFault::NotFound` and nothing executes.
+    fn focused(&self, window: &WindowIdentity) -> Result<Option<Focused>, Fault>;
     fn act(
         &self,
         window: &WindowIdentity,
@@ -428,6 +430,10 @@ mod tests {
     impl Observer for DefaultGuard {
         fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
             Ok(Vec::new())
+        }
+
+        fn focused(&self, _: &WindowIdentity) -> Result<Option<Focused>, Fault> {
+            Ok(None)
         }
 
         fn walk(&self, _: &WindowIdentity, _: &Bounds) -> Result<Walk, Fault> {

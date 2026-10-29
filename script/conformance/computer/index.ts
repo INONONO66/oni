@@ -28,7 +28,7 @@ import { run } from "../../../packages/machines/test/ipc/helpers/effects.js";
 import { Machine } from "../../../packages/protocol/src/index.js";
 import { type FakeDevtools, startFakeDevtools } from "./devtools.js";
 import { type ReportTap, startReportTap } from "./tap.js";
-import { openViewer } from "./viewer.js";
+import { MASKED_PIXEL_SUM, openViewer } from "./viewer.js";
 
 const LAYOUT = resolve(
   import.meta.dir,
@@ -119,6 +119,7 @@ export interface ComputerHarness {
   attach(): Promise<void>;
   stop(): Promise<void>;
   grant(allowed: boolean): void;
+  nextPrivate(): Promise<Machine.PrivateEvent>;
 }
 
 function check(condition: boolean, message: string): asserts condition {
@@ -187,7 +188,7 @@ function observedLayout(setup: ComputerSetup): string {
 }
 
 /** The tracked layout with its first window made observable; a new `epoch` token is a recreation. */
-function observableLayout(layout: Layout, epoch: number, timeline: readonly { readonly atMs: number; readonly kind: string }[] = []): string {
+function observableLayout(layout: Layout, epoch: number, timeline: readonly { readonly atMs: number; readonly kind: string }[] = [], secure = false): string {
   const [window, ...rest] = layout.windows;
   check(window !== undefined, "fixture layout has no window");
   const observable = {
@@ -197,7 +198,9 @@ function observableLayout(layout: Layout, epoch: number, timeline: readonly { re
     epoch,
     timeline,
     elements: [
-      { role: "AXButton", label: "Save", actions: ["AXPress"], frame: { x: 4, y: 4, width: 40, height: 16 } },
+      { role: secure ? "AXSecureTextField" : "AXButton", label: "Save",
+        actions: secure ? [] : ["AXPress"], secure, focused: true,
+        frame: { x: 4, y: 4, width: 40, height: 16 } },
     ],
   };
   return JSON.stringify({ ...layout, windows: [observable, ...rest], apps: [{ bundleId: observable.app.bundleId, path: observable.app.path, pid: OBSERVED_PID, windows: [window.id] }] });
@@ -549,6 +552,73 @@ async function exerciseSettle(context: Context): Promise<void> {
   harness.record(`settle quiet ${settled.observationId}, busy ${pending.observationId} changes 2, both usable as since; every settle captured`);
 }
 
+async function exercisePrivate(context: Context): Promise<void> {
+  const { harness, layout, setup, tap } = context;
+  const computer = computerOf(context);
+  const [window, display] = [layout.windows[0], layout.displays[0]];
+  check(window !== undefined && display !== undefined, "private fixture needs a window and display");
+  const target = { pid: OBSERVED_PID, windowId: window.id };
+  const ordinary = await run(computer.observe({ target, screenshot: false }));
+  check(ordinary.status === "ok", "private fixture could not observe ordinary focus");
+  const before = recorded(setup.recorder).length;
+  const entered = harness.nextPrivate();
+  writeFileSync(observedLayout(setup), observableLayout(layout, 1, [], true));
+  const privateObservation = await run(computer.observe({ target, screenshot: true }));
+  const enteredEdge = await harness.within(entered, "client private entered edge");
+  check(enteredEdge.state === "entered" && enteredEdge.machineId === context.machineId
+    && enteredEdge.target.windowId === window.id, "private entered edge was not client-originated");
+  check(privateObservation.status === "ok" && privateObservation.private === true
+    && "elements" in privateObservation && privateObservation.elements.length === 0
+    && !("screenshot" in privateObservation) && !("focused" in privateObservation),
+    `private observation leaked content ${JSON.stringify(privateObservation)}`);
+  const windowCapture = await run(computer.capture({
+    target: { kind: "window", windowId: String(window.id) }, encoding: { format: "png" },
+  }));
+  check(windowCapture.status === "refused" && windowCapture.reason === "private",
+    `private window capture ${JSON.stringify(windowCapture)}`);
+  const action = await run(computer.action({
+    observationId: privateObservation.observationId, target: privateObservation.target,
+    ref: BUTTON, action: "press",
+  }));
+  check(action.status === "refused" && action.reason === "private",
+    `private action ${JSON.stringify(action)}`);
+  const anchor = await run(computer.capture({
+    target: { kind: "display", display: display.id }, encoding: { format: "png" },
+  }));
+  check(anchor.status === "ok", "private display capture refused");
+  const input = await run(computer.text({ delivery: "foreground", captureId: anchor.captureId, text: "secret" }));
+  check(input.status === "refused" && input.reason === "private",
+    `private input ${JSON.stringify(input)}`);
+  check(recorded(setup.recorder).length === before, "private refusal reached input recorder");
+  const streamEnd = ending();
+  const stream = await run(computer.stream.open(streamRequest(display.id), {
+    onSignal: () => undefined, onClose: streamEnd.onClose,
+  }));
+  check("streamId" in stream, "private stream did not open");
+  const report = tap.next((entry) =>
+    entry.streams?.some((item) => item.streamId === stream.streamId && item.private === true) === true);
+  await harness.within(report, "private stream fact before video connection");
+  check((await run(stream.close())).status === "closed", "private stream did not close");
+  await harness.within(streamEnd.ended, "private stream close");
+  const left = harness.nextPrivate();
+  writeFileSync(observedLayout(setup), observableLayout(layout, 1));
+  const after = await run(computer.observe({
+    target, screenshot: false, since: privateObservation.observationId,
+  }));
+  const leftEdge = await harness.within(left, "client private left edge");
+  check(leftEdge.state === "left" && leftEdge.target.windowId === window.id,
+    "private left edge did not reach host");
+  check(after.status === "ok" && "diff" in after
+    && after.diff.since === privateObservation.observationId && after.diff.added.length > 0,
+    `private diff baseline ${JSON.stringify(after)}`);
+  const stale = await run(computer.action({
+    observationId: ordinary.observationId, target: after.target, ref: BUTTON, action: "press",
+  }));
+  check(stale.status === "refused" && stale.reason === "stale_observation",
+    "ordinary observation survived private focus");
+  harness.record("private fixture: client entered/left edges, empty screenshot-free observe, capture/action/input refusals with zero recorder writes, unconnected private stream report and post-private diff baseline");
+}
+
 function streamRequest(display: number): Omit<Machine.StreamOpenRequest, "streamId"> {
   return {
     source: { kind: "display", display },
@@ -650,6 +720,21 @@ async function exerciseStream(context: Context): Promise<void> {
     harness.record(
       `stream media: viewer received ${frames.count} encoded H.264 frames (${frames.keys} keyframes, ${frames.bytes} B, connection ${frames.connection}), first keyframe starts ${frames.head.map((byte) => byte.toString(16).padStart(2, "0")).join(" ")}`,
     );
+    await harness.within(viewer.untilPixel(30, 50, false), "ordinary stream pixel");
+    const privatePixel = viewer.untilPixel(30, 50, true);
+    const entered = harness.nextPrivate();
+    writeFileSync(observedLayout(setup), observableLayout(layout, 1, [], true));
+    await harness.within(entered, "stream private entered edge");
+    const masked = await harness.within(privatePixel, "masked stream pixel");
+    check(masked.slice(0, 3).reduce((sum, channel) => sum + channel, 0) < MASKED_PIXEL_SUM,
+      `private window pixel was not masked ${JSON.stringify(masked)}`);
+    const privateReport = tap.next((entry) =>
+      entry.streams?.some((item) => item.streamId === opened.streamId && item.private === true) === true);
+    await harness.within(privateReport, "connected private stream report");
+    const left = harness.nextPrivate();
+    writeFileSync(observedLayout(setup), observableLayout(layout, 1));
+    await harness.within(left, "stream private left edge");
+    harness.record(`connected stream masked private window pixel ${JSON.stringify(masked)} and reported private=true`);
     const observed = await harness.within(report, "machine.report carrying the stream");
     const stream = observed.streams?.find((entry) => entry.streamId === opened.streamId);
     check(stream !== undefined, "report lost the stream");
@@ -870,6 +955,7 @@ export async function exerciseComputer(
     await exerciseObservation(context);
     await exerciseBackground(context);
     await exerciseSettle(context);
+    await exercisePrivate(context);
     await exerciseStream(context);
     await exerciseCdp(context);
     await exerciseOverflowAndRelease(context);
@@ -891,7 +977,7 @@ async function exerciseBackground(context: Context): Promise<void> {
   check(shot.status === "ok", `background capture ${JSON.stringify(shot)}`);
   const pointer = await run(computer.pointer({ delivery: "background", kind: "move", at: { captureId: shot.captureId, x: 1, y: 1 } }));
   check(pointer.status === "refused" && pointer.reason === "foreground_required", `background pointer ${JSON.stringify(pointer)}`);
-  const typed = await run(computer.text({ captureId: shot.captureId, text: "background", target }));
+  const typed = await run(computer.text({ delivery: "background", captureId: shot.captureId, text: "background", target }));
   check(typed.status === "ok", `background text ${JSON.stringify(typed)}`);
   const closed = await run(computer.window.close({ target }));
   check(closed.status === "ok" && closed.closed, `window close ${JSON.stringify(closed)}`);

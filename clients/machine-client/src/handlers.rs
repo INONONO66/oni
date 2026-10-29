@@ -133,6 +133,7 @@ struct Agents {
 }
 
 pub struct Service {
+    machine_id: String,
     offered: Vec<String>,
     exports: HashMap<String, PathBuf>,
     fs: Mutex<FsDriver>,
@@ -306,7 +307,15 @@ impl Service {
         address: std::net::IpAddr,
     ) -> Result<Arc<Self>, FsError> {
         let drivers = Self::open_drivers(config, pty)?;
-        Ok(Self::assemble(drivers, screen, input, cdp, address, None))
+        Ok(Self::assemble(
+            config.machine_id.clone(),
+            drivers,
+            screen,
+            input,
+            cdp,
+            address,
+            None,
+        ))
     }
 
     /// Everything the wire needs: the drivers plus the agent registry, which
@@ -323,6 +332,7 @@ impl Service {
         let drivers = Self::open_drivers(config, pty)?;
         let registry = Registry::open(&options.registry)?;
         Ok(Self::assemble(
+            config.machine_id.clone(),
             drivers,
             screen,
             input,
@@ -347,6 +357,7 @@ impl Service {
     }
 
     fn assemble(
+        machine_id: String,
         Drivers { exports, fs, pty }: Drivers,
         screen: Screen,
         input: Input,
@@ -387,6 +398,7 @@ impl Service {
         }
         let tmux_socket = pty.socket().map(str::to_owned);
         Arc::new(Self {
+            machine_id: machine_id.clone(),
             offered,
             exports,
             fs: Mutex::new(fs),
@@ -398,7 +410,7 @@ impl Service {
             screen: Arc::new(screen),
             input: Arc::new(input),
             cdp,
-            stream: Stream::new(address),
+            stream: Stream::new(address, machine_id.clone()),
             code: Code::with_socket(tmux_socket),
         })
     }
@@ -943,6 +955,39 @@ impl Pressure for Service {
 }
 
 impl Service {
+    async fn publish_private_edges(&self) {
+        let Some(caller) = self.caller().clone() else {
+            return;
+        };
+        let screen = self.screen.clone();
+        let Ok(Ok(edges)) = tokio::task::spawn_blocking(move || screen.private_edges()).await
+        else {
+            return;
+        };
+        for (target, edge) in edges {
+            let state = match edge {
+                crate::screen::private::Edge::Entered => "entered",
+                crate::screen::private::Edge::Left => "left",
+            };
+            let params = json!({
+                "machineId": self.machine_id,
+                "target": {
+                    "pid": target.pid,
+                    "windowId": target.window_id,
+                    "epoch": target.epoch.unwrap_or(0),
+                },
+                "state": state,
+            });
+            let _ = caller
+                .call_with_timeout(
+                    "machine.event.private",
+                    Some(params),
+                    Duration::from_secs(5),
+                )
+                .await;
+        }
+    }
+
     /// Screen methods answer `machine_not_attached` before an attach and
     /// `unavailable` unless `capability` is offered and granted; the
     /// capture itself runs off the async workers.
@@ -1046,20 +1091,32 @@ impl Service {
         let unavailable = "screen_not_available";
         if method == WireMethod::MachineScreenList {
             let request: ScreenListRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.capture(COMPUTER_USE, unavailable, move || screen.list(&request))
                 .await
         } else if method == WireMethod::MachineScreenCapture {
             let request: ScreenCaptureRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.capture(COMPUTER_USE, unavailable, move || screen.capture(&request))
                 .await
         } else if method == WireMethod::MachineScreenObserve {
             let request: ScreenObserveRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.capture(COMPUTER_USE, "observe_not_available", move || {
                 screen.observe(&request)
             })
             .await
         } else {
             let request: ScreenReadRequest = decode(params)?;
+            if self.grant().is_some() && self.has(SCREEN_READ) {
+                self.publish_private_edges().await;
+            }
             self.capture(SCREEN_READ, unavailable, move || screen.read(&request))
                 .await
         }
@@ -1077,6 +1134,9 @@ impl Service {
         }
         if method == WireMethod::MachineInputPointer {
             let request: InputPointerRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             let request_id = match &request {
                 InputPointerRequest::Move { request_id, .. } => request_id.to_string(),
                 InputPointerRequest::Click { request_id, .. } => request_id.to_string(),
@@ -1095,6 +1155,9 @@ impl Service {
             .await
         } else if method == WireMethod::MachineInputKey {
             let request: InputKeyRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.inject(COMPUTER_USE, move || {
                 let ledger = input.ledger();
                 let entry = match ledger.start(&request.request_id) {
@@ -1107,6 +1170,9 @@ impl Service {
             .await
         } else if method == WireMethod::MachineInputText {
             let request: InputTextRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.inject(COMPUTER_USE, move || {
                 let ledger = input.ledger();
                 let entry = match ledger.start(&request.request_id) {
@@ -1120,6 +1186,9 @@ impl Service {
         } else if method == WireMethod::MachineInputAction {
             let request: InputActionRequest = decode(params)?;
             let act = action::parse(&request)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.inject(COMPUTER_USE, move || {
                 let ledger = input.ledger();
                 let entry = match ledger.start(&request.request_id) {
@@ -1136,6 +1205,9 @@ impl Service {
             .await
         } else {
             let request: InputWriteRequest = decode(params)?;
+            if self.grant().is_some() && self.has(INPUT_WRITE) {
+                self.publish_private_edges().await;
+            }
             self.inject(INPUT_WRITE, move || input.write(&screen, &request))
                 .await
         }

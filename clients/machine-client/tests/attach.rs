@@ -198,7 +198,7 @@ impl Pressure for CountingPressure {
     fn streams(&self) -> Vec<Value> {
         (0..6)
             .map(|index| {
-                json!({"streamId":format!("s{index}"),"fps":12.5,"bytesPerSecond":4000,
+                json!({"streamId":format!("s{index}"),"private":false,"fps":12.5,"bytesPerSecond":4000,
                     "encodeMs":1.5,"droppedFrames":index,"retainedBytes":11})
             })
             .collect()

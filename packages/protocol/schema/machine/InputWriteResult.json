@@ -81,7 +81,8 @@
             "observe_not_available",
             "foreground_required",
             "window_busy",
-            "request_busy"
+            "request_busy",
+            "private"
           ],
           "type": "string"
         },

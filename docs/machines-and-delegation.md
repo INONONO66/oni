@@ -297,7 +297,8 @@ without a wire call, when the attached peer offered a contract below 3.
   serialized elements, answering `complete: false` when a bound cut it.
   Labels cap at 1024 characters, values at 4096, actions at 16 per element.
   `screenshot: true` adds a window capture that becomes the display's input
-  anchor. `private` is reserved and always `false`.
+  anchor. `private` is normally `false`; private mode below defines its only
+  `true` shape.
 - **Identity.** The answer names `observationId` (`o<n>`), the lineage
   `w<pid>-<windowId>-<epoch>`, the target with its `epoch`, and the window's
   `title` and owning app (`bundleId`, executable `path`). The peer keeps an
@@ -388,6 +389,33 @@ lasts until a terminal answer, known completion or acknowledged cutoff.
 The client fences every
 native event on the current attach generation and cancellation state;
 `request_busy` refuses a duplicate live request ID.
+
+### 2.2.5 Private focus (#1695)
+
+Private mode is a client-side fact, not an app policy. Before walking,
+capturing or dispatching against a resolved window, the client reads its
+focused accessibility element. A secure attribute or the native secure-text
+role makes the window private; an unavailable focus fails closed.
+
+- **Observation and effects.** Observing a private window succeeds with its
+  identity and `{private: true, complete: true, elements: []}` but no diff,
+  focused ref or screenshot. Window capture and every input path refuse
+  `private` before reading or dispatching content. Display capture remains
+  available and blanks each private window rectangle, including the
+  intersecting part of a display-region capture.
+- **Streams.** Window streams replace the whole frame while private; display
+  streams blank private rectangles. `Report.streams[]` requires
+  `private: boolean`, indicating whether the stream source currently
+  intersects private focus. An open stream re-reads focus on a 250 ms
+  monotonic cadence and changes its masking before the next frame.
+- **Edges.** Each per-window transition emits
+  `machine.event.private {machineId,target,state:"entered"|"left"}`. The
+  host accepts it only from the attached matching machine and publishes
+  `Machine.Events.Private` with its receipt time.
+
+The accessibility gate cannot identify a custom-painted password interface
+that exposes no secure accessibility role or attribute. The app exclusion
+list in #1697 complements that platform limit.
 
 ### 2.3 Network transport (#1270)
 

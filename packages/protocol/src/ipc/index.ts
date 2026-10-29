@@ -179,6 +179,16 @@ const methods = {
   },
   [Machine.WireMethod.ScreenSettle]: { params: Machine.ScreenSettleRequest, result: Machine.ScreenSettleResult },
   [Machine.WireMethod.InputAction]: { params: Machine.InputActionRequest, result: Machine.InputWriteResult },
+  [Machine.WireMethod.EventPrivate]: {
+    params: Machine.PrivateEvent,
+    result: z.discriminatedUnion("status", [
+      z.object({ status: z.literal("accepted") }).strict(),
+      z.object({
+        status: z.literal("refused"),
+        reason: z.enum(["machine_not_attached", "machine_mismatch"]),
+      }).strict(),
+    ]),
+  },
 };
 
 export namespace Ipc {

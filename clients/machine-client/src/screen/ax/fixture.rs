@@ -24,7 +24,10 @@ use crate::screen::observe;
 use crate::screen::settle::{
     observer, Notification, Notifications, Sample, Subscription, Unsupported,
 };
-use crate::{computer::append, screen::Fault};
+use crate::{
+    computer::append,
+    screen::{private::Focused, Fault},
+};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -244,6 +247,23 @@ impl Observer for Scripted {
             }),
         )
         .map_err(|error| ActFault::Failed(error.to_string()))
+    }
+    fn focused(&self, window: &WindowIdentity) -> Result<Option<Focused>, Fault> {
+        fn find(elements: &[Element]) -> Option<Focused> {
+            for element in elements {
+                if element.focused {
+                    return Some(Focused {
+                        role: element.role.clone(),
+                        secure: element.secure,
+                    });
+                }
+                if let Some(focused) = find(&element.children) {
+                    return Some(focused);
+                }
+            }
+            None
+        }
+        Ok(find(&self.row(window)?.elements))
     }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         Ok(self

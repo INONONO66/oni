@@ -178,6 +178,10 @@
       "name": "EventLeaseRefused"
     },
     {
+      "file": "EventPrivate.json",
+      "name": "EventPrivate"
+    },
+    {
       "file": "EventPtyOutput.json",
       "name": "EventPtyOutput"
     },
@@ -324,6 +328,10 @@
     {
       "file": "PlacementRequest.json",
       "name": "PlacementRequest"
+    },
+    {
+      "file": "PrivateEvent.json",
+      "name": "PrivateEvent"
     },
     {
       "file": "PtyCloseRequest.json",

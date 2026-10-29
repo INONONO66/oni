@@ -1,3 +1,6 @@
+#[path = "support/ordinary_focus.rs"]
+mod ordinary_focus;
+
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc, Arc, Mutex,
@@ -39,7 +42,7 @@ fn window(id: u32, display: u32, x: i32, y: i32, width: u32, height: u32) -> Win
 }
 
 fn screen(fixture: Fixture) -> Screen {
-    Screen::new(Box::new(fixture), 2)
+    ordinary_focus::screen(fixture, 2, &[4])
 }
 
 fn list(screen: &Screen, params: Value) -> Value {
@@ -79,6 +82,12 @@ fn refusal(reason: &str) -> Value {
 
 struct DeniedAx(Fault);
 impl oni_machine_client::screen::ax::Observer for DeniedAx {
+    fn focused(
+        &self,
+        _: &oni_machine_client::screen::ax::WindowIdentity,
+    ) -> Result<Option<oni_machine_client::screen::private::Focused>, Fault> {
+        Err(self.0.clone())
+    }
     fn windows(&self) -> Result<Vec<oni_machine_client::screen::ax::WindowIdentity>, Fault> {
         Err(self.0.clone())
     }
@@ -101,7 +110,7 @@ impl oni_machine_client::screen::ax::Observer for DeniedAx {
 }
 
 #[test]
-fn window_capture_uses_screen_grant_when_accessibility_is_denied() {
+fn window_capture_refuses_when_accessibility_is_denied() {
     let mut source = Fixture::display(8, 8, 1.0);
     source.windows.push(window(7, 1, 0, 0, 8, 8));
     let granted = screen(source.clone()).observing(Box::new(DeniedAx(Fault::Permission)));
@@ -109,8 +118,8 @@ fn window_capture_uses_screen_grant_when_accessibility_is_denied() {
         capture(
             &granted,
             json!({"target":{"kind":"window","windowId":"7"},"encoding":{"format":"png"}})
-        )["status"],
-        "ok"
+        ),
+        refusal("permission_denied")
     );
     let failed = screen(source).observing(Box::new(DeniedAx(Fault::Failed(
         "source unavailable".into(),
@@ -227,7 +236,7 @@ fn listing_caps_windows_at_the_wire_limit() {
 fn captures_target_displays_windows_and_regions_in_pixels() {
     let fixture = Fixture {
         displays: vec![display(1, 0, 40, 30, 2.0), display(2, 40, 20, 10, 1.5)],
-        windows: vec![window(4, 2, 45, 0, 12, 6), window(8, 3, 0, 0, 5, 5)],
+        windows: vec![window(4, 2, 45, 0, 12, 6), window(8, 3, -100, 0, 5, 5)],
         ..Fixture::default()
     };
     let screen = screen(fixture);
@@ -441,16 +450,17 @@ fn newer_window_capture_supersedes_the_inflight_frame_before_publication() {
         let (proceed, gate) = mpsc::channel();
         let mut inner = Fixture::display(16, 16, 1.0);
         inner.windows.push(window(7, 1, 0, 0, 8, 8));
-        let screen = Screen::new(
-            Box::new(Gate {
+        let screen = ordinary_focus::screen(
+            Gate {
                 inner,
                 entered,
                 proceed: Mutex::new(gate),
                 fail: failure.clone(),
                 malformed: Arc::new(AtomicBool::new(false)),
                 first_window: AtomicBool::new(true),
-            }),
+            },
             2,
+            &[7],
         );
         let request: ScreenCaptureRequest = oni_protocol::decode(
             json!({"target":{"kind":"window","windowId":"7"},"encoding":{"format":"png"}}),

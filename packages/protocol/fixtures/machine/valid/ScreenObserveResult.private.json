@@ -1,0 +1,19 @@
+{
+  "status": "ok",
+  "observationId": "o2",
+  "lineage": "w4242-7-0",
+  "target": { "pid": 4242, "windowId": 7, "epoch": 0 },
+  "window": {
+    "pid": 4242,
+    "windowId": 7,
+    "epoch": 0,
+    "title": "Login",
+    "app": {
+      "bundleId": "com.example.login",
+      "path": "/Applications/Login.app"
+    }
+  },
+  "complete": true,
+  "private": true,
+  "elements": []
+}

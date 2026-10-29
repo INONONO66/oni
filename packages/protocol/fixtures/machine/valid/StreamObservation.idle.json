@@ -1,5 +1,6 @@
 {
   "streamId": "s",
+  "private": true,
   "fps": 0,
   "bytesPerSecond": 0,
   "encodeMs": 0,

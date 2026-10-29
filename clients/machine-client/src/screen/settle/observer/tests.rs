@@ -72,6 +72,7 @@ impl Drop for Fake {
 fn empty() -> Sample {
     Sample {
         windows: vec![],
+        private: false,
         walk: Walk {
             nodes: vec![],
             focused: None,

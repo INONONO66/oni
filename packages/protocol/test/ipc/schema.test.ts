@@ -135,6 +135,7 @@ describe("Ipc.Methods param schemas", () => {
         Machine.WireMethod.ScreenObserve,
         Machine.WireMethod.ScreenSettle,
         Machine.WireMethod.InputAction,
+        Machine.WireMethod.EventPrivate,
       ].sort(),
     );
   });

@@ -46,7 +46,8 @@
     "machine.screen.observe",
     "machine.screen.settle",
     "machine.input.action",
-    "machine.release"
+    "machine.release",
+    "machine.event.private"
   ],
   "type": "string"
 }

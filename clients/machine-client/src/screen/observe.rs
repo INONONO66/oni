@@ -34,6 +34,7 @@ use super::ax::{
     WindowIdentity,
 };
 use super::encode::{Encoding, Format};
+use super::private::focus_is_secure;
 use super::{Display, Fault, Screen, MAX_DIMENSION};
 
 pub const MAX_ELEMENTS: usize = 2000;
@@ -84,6 +85,7 @@ pub enum Refusal {
     RefNotFound,
     Unsupported,
     OffScreen,
+    Private,
     Failed(String),
 }
 
@@ -120,6 +122,7 @@ impl Refusal {
             Self::WindowNotFound => "window_not_found",
             Self::EpochChanged => "epoch_changed",
             Self::Stale => "stale_observation",
+            Self::Private => "observe_failed",
             Self::RefNotFound | Self::Unsupported | Self::OffScreen | Self::Failed(_) => {
                 "observe_failed"
             }
@@ -143,6 +146,7 @@ impl Refusal {
             Self::RefNotFound => "ref_not_found",
             Self::Unsupported => "action_not_supported",
             Self::OffScreen => "invalid_region",
+            Self::Private => "private",
             Self::Failed(_) => "input_failed",
         }
     }
@@ -280,14 +284,21 @@ pub struct Prepared {
     located: Located,
     since: Option<(String, Vec<Element>)>,
     minted: Minted,
+    private: bool,
 }
 
 impl Prepared {
-    fn new(located: Located, since: Option<(String, Vec<Element>)>, walk: Walk) -> Self {
+    fn new(
+        located: Located,
+        since: Option<(String, Vec<Element>)>,
+        walk: Walk,
+        private: bool,
+    ) -> Self {
         Self {
             located,
             since,
             minted: mint(walk),
+            private,
         }
     }
 }
@@ -365,6 +376,26 @@ impl Observations {
         Arc::clone(lock(&self.windows).entry(key).or_default())
     }
 
+    pub fn target_for(
+        &self,
+        observer: &dyn Observer,
+        window: &WindowIdentity,
+    ) -> Result<Target, Refusal> {
+        let located = self.locate(
+            observer,
+            Target {
+                pid: window.pid.into(),
+                window_id: window.window_id.into(),
+                epoch: None,
+            },
+        )?;
+        Ok(Target {
+            pid: located.window.pid.into(),
+            window_id: located.window.window_id.into(),
+            epoch: Some(located.epoch),
+        })
+    }
+
     /// Observes `request`'s window; `shot` (given the window id) adds a
     /// screenshot or fails the observation before it is named.
     pub fn observe(
@@ -377,7 +408,11 @@ impl Observations {
         let window = self.window(&located);
         let _serial = lock(&window);
         let prepared = self.prepare(observer, request, located)?;
-        let screenshot = shot(prepared.located.window.window_id)?;
+        let screenshot = if prepared.private {
+            None
+        } else {
+            shot(prepared.located.window.window_id)?
+        };
         Ok(self.commit(prepared, screenshot))
     }
 
@@ -387,6 +422,18 @@ impl Observations {
         request: &Request,
         located: Located,
     ) -> Result<Prepared, Refusal> {
+        if focus_is_secure(observer.focused(&located.window).ok().flatten()) {
+            return Ok(Prepared::new(
+                located,
+                None,
+                Walk {
+                    nodes: Vec::new(),
+                    focused: None,
+                    complete: true,
+                },
+                true,
+            ));
+        }
         let since = match &request.since {
             Some(id) => {
                 let state = lock(&self.state);
@@ -401,7 +448,7 @@ impl Observations {
             budget: BUDGET,
         };
         let walk = observer.walk(&located.window, &bounds)?;
-        Ok(Prepared::new(located, since, walk))
+        Ok(Prepared::new(located, since, walk, false))
     }
 
     /// Settle samples outside the store lock, then fences the sampled
@@ -411,9 +458,10 @@ impl Observations {
         target: Target,
         windows: Vec<WindowIdentity>,
         walk: Walk,
+        private: bool,
     ) -> Result<Prepared, Refusal> {
         let located = self.locate_windows(windows, target)?;
-        Ok(Prepared::new(located, None, walk))
+        Ok(Prepared::new(located, None, walk, private))
     }
 
     pub fn destroy(&self, target: Target) {
@@ -450,8 +498,25 @@ impl Observations {
                 "pid": window.pid, "windowId": window.window_id, "epoch": epoch,
                 "title": clip(&window.title, MAX_TITLE), "app": window.app,
             },
-            "complete": complete, "private": false,
+            "complete": complete, "private": prepared.private,
         });
+        if prepared.private {
+            lock(&self.state).snapshots.insert(
+                lineage,
+                Snapshot {
+                    id,
+                    target: Target {
+                        pid: window.pid.into(),
+                        window_id: window.window_id.into(),
+                        epoch: Some(epoch),
+                    },
+                    elements: Vec::new(),
+                    keys: HashMap::new(),
+                },
+            );
+            body["elements"] = json!([]);
+            return body;
+        }
         if let Some(focused) = focused {
             body["focused"] = json!(focused);
         }
@@ -499,6 +564,9 @@ impl Observations {
         let located = self.locate(observer, act.target)?;
         let window = self.window(&located);
         let _serial = lock(&window);
+        if focus_is_secure(observer.focused(&located.window).ok().flatten()) {
+            return Err(Refusal::Private);
+        }
         let (observed, key) = lock(&self.state)
             .latest(&located.lineage, &act.observation)?
             .element(&act.reference)?;
@@ -537,6 +605,9 @@ impl Observations {
         let located = self.locate(observer, target)?;
         let window = self.window(&located);
         let _serial = lock(&window);
+        if focus_is_secure(observer.focused(&located.window).ok().flatten()) {
+            return Err(Refusal::Private);
+        }
         let frame = fresh(observer, &located, reference, &key)?.frame;
         let (x, y) = located.window.origin;
         Ok((

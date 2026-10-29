@@ -113,6 +113,44 @@ test("an offer alone never grants computer use: the enrollment must grant it too
   } finally { await f.close(); }
 });
 
+test("private focus edges publish only from the attached machine identity", async () => {
+  const f = await fixture();
+  const desk = await f.peer([COMPUTER]);
+  try {
+    const edge = f.events.next(Machine.Events.Private.name);
+    expect(await desk.client.call(Machine.WireMethod.EventPrivate, {
+      machineId: "desk", target: { pid: 42, windowId: 7, epoch: 0 }, state: "entered",
+    })).toEqual({ status: "accepted" });
+    expect(await edge).toEqual({
+      name: Machine.Events.Private.name,
+      payload: { machineId: "desk", time: 100, target: { pid: 42, windowId: 7, epoch: 0 }, state: "entered" },
+    });
+    expect(await desk.client.call(Machine.WireMethod.EventPrivate, {
+      machineId: "other", target: { pid: 42, windowId: 7, epoch: 0 }, state: "left",
+    })).toEqual({ status: "refused", reason: "machine_mismatch" });
+  } finally {
+    await f.close();
+  }
+});
+
+test("a version 2 peer reports an active stream without a private fact", async () => {
+  const f = await fixture();
+  try {
+    const desk = await f.peer([COMPUTER], {}, undefined, 2);
+    const report = {
+      machineId: "desk", reportedAt: 100,
+      load: { loadAvg1: 0, memoryAvailableBytes: 1024, inFlight: 0 },
+      streams: [{ streamId: "legacy", fps: 1, bytesPerSecond: 64, encodeMs: 1,
+        droppedFrames: 0, retainedBytes: 256 }],
+    };
+    expect(Machine.Report.safeParse(report).success).toBe(false);
+    expect(await desk.client.call(Machine.WireMethod.Report, report)).toEqual({ status: "accepted" });
+    expect(f.host.native.list()[0]?.live?.reportedAt).toBe(100);
+  } finally {
+    await f.close();
+  }
+});
+
 test("an enrolled grant without an available display refuses every surface as not available", async () => {
   const f = await fixture();
   try {

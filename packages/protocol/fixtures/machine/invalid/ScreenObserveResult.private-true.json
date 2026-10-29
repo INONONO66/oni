@@ -19,5 +19,13 @@
   },
   "complete": true,
   "private": true,
-  "elements": []
+  "elements": [
+    {
+      "ref": "AXSecureTextField[0]",
+      "role": "AXSecureTextField",
+      "actions": [],
+      "frame": { "x": 0, "y": 0, "width": 20, "height": 10 },
+      "secure": true
+    }
+  ]
 }

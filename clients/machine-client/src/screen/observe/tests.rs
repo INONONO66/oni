@@ -10,6 +10,7 @@ struct Fake {
     windows: Mutex<Result<Vec<WindowIdentity>, Fault>>,
     walk: Mutex<Vec<Node>>,
     walk_fault: Mutex<Option<Fault>>,
+    focus_fault: Mutex<Option<Fault>>,
     act_fault: Mutex<Option<ActFault>>,
     acted: Mutex<Vec<(String, Action)>>,
     /// Nodes the window holds once a fresh walk passed, before dispatch.
@@ -24,6 +25,7 @@ impl Fake {
             windows: Mutex::new(Ok(vec![window(0)])),
             walk: Mutex::new(nodes),
             walk_fault: Mutex::new(None),
+            focus_fault: Mutex::new(None),
             act_fault: Mutex::new(None),
             acted: Mutex::new(Vec::new()),
             swap: Mutex::new(None),
@@ -54,6 +56,28 @@ fn resolve<'a>(nodes: &'a [Node], path: &str) -> Option<&'a Node> {
 }
 
 impl Observer for Fake {
+    fn focused(
+        &self,
+        _: &WindowIdentity,
+    ) -> Result<Option<crate::screen::private::Focused>, Fault> {
+        if let Some(fault) = self.focus_fault.lock().expect("lock").clone() {
+            return Err(fault);
+        }
+        let nodes = self.walk.lock().expect("lock");
+        Ok(nodes
+            .iter()
+            .find(|node| node.attributes.focused)
+            .map(|node| crate::screen::private::Focused {
+                role: node.attributes.role.clone(),
+                secure: node.attributes.secure,
+            })
+            .or_else(|| {
+                Some(crate::screen::private::Focused {
+                    role: "AXWindow".into(),
+                    secure: false,
+                })
+            }))
+    }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         self.windows.lock().expect("lock").clone()
     }
@@ -120,6 +144,30 @@ impl Observer for Fake {
             .push((format!("{path} {label}"), action.clone()));
         Ok(())
     }
+}
+
+#[test]
+fn unreadable_focus_returns_empty_private_observation_without_tree_walk() {
+    let fake = Fake::new(tree());
+    *fake.focus_fault.lock().expect("lock") = Some(Fault::Permission);
+    *fake.walk_fault.lock().expect("lock") = Some(Fault::Failed("walk must not run".into()));
+    let observations = Observations::default();
+    let result = observe(&observations, &fake, None);
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["private"], true);
+    assert_eq!(result["elements"], json!([]));
+}
+
+#[test]
+fn empty_accessibility_window_set_is_private_for_input() {
+    let fake = Fake::new(tree());
+    *fake.windows.lock().expect("lock") = Ok(Vec::new());
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
+        1,
+    )
+    .observing(Box::new(fake));
+    assert_eq!(screen.input_private(None), Ok(true));
 }
 
 fn window(token: u64) -> WindowIdentity {
@@ -377,6 +425,7 @@ fn since_answers_a_ref_diff_against_the_latest_observation_only() {
     observe(&observations, &fake, None);
     let mut nodes = tree();
     nodes[0].attributes.label = Some("Done".into());
+    nodes[0].attributes.focused = true;
     nodes.truncate(3);
     nodes.push(node("AXLink", Some("Help"), None));
     *fake.walk.lock().expect("lock") = nodes;

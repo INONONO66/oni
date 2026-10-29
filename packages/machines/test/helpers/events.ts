@@ -6,7 +6,8 @@ type MachineEventPayload =
   | ReturnType<typeof Machine.Events.LeaseRefused.schema.parse>
   | ReturnType<typeof Machine.Events.Reported.schema.parse>
   | ReturnType<typeof Machine.Events.HumanInput.schema.parse>
-  | ReturnType<typeof Machine.Events.PtyOutput.schema.parse>;
+  | ReturnType<typeof Machine.Events.PtyOutput.schema.parse>
+  | ReturnType<typeof Machine.Events.Private.schema.parse>;
 type EnrollmentEventPayload =
   | ReturnType<typeof Machine.Events.Enrolled.schema.parse>
   | ReturnType<typeof Machine.Events.Unenrolled.schema.parse>;
@@ -22,6 +23,7 @@ function parseEvent<T>(name: string, payload: T): RecordedEvent {
   if (name === Machine.Events.Reported.name) return { name, payload: Machine.Events.Reported.schema.parse(payload) };
   if (name === Machine.Events.HumanInput.name) return { name, payload: Machine.Events.HumanInput.schema.parse(payload) };
   if (name === Machine.Events.PtyOutput.name) return { name, payload: Machine.Events.PtyOutput.schema.parse(payload) };
+  if (name === Machine.Events.Private.name) return { name, payload: Machine.Events.Private.schema.parse(payload) };
   if (name === Machine.Events.LeaseRefused.name) return { name, payload: Machine.Events.LeaseRefused.schema.parse(payload) };
   return { name, payload: Machine.Events.Detached.schema.parse(payload) };
 }

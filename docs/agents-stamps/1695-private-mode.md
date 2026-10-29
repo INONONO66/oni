@@ -1,0 +1,1 @@
+#1695 (epic #1688) on `feat/1695-private-mode` (2026-10-29, base `8065ecdb2` after #1689, PR #TBD): fail-closed private focus across observe/capture/input/stream, private display-region masking, 250 ms stream refresh, `machine.event.private` and `Machine.Events.Private`; contract in `docs/machines-and-delegation.md` 2.2.3, status and receipts in `docs/implementation-status.md`.

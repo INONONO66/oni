@@ -22,6 +22,12 @@ struct Model {
 struct FakeObserver(Arc<Mutex<Model>>);
 
 impl Observer for FakeObserver {
+    fn focused(
+        &self,
+        _: &WindowIdentity,
+    ) -> Result<Option<crate::screen::private::Focused>, Fault> {
+        Ok(None)
+    }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         let mut model = self.0.lock().expect("model");
         if let Some(fault) = &model.fault {

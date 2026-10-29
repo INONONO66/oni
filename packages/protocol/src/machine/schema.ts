@@ -146,6 +146,8 @@ export const WireMethod = {
   InputAction: "machine.input.action",
   /** Client → host before any attach (#1696); answered with `ReleaseResult`. */
   Release: "machine.release",
+  /** Daemon → host edge when a window enters or leaves private focus. */
+  EventPrivate: "machine.event.private",
 } as const;
 
 /** Shared by Enrollment/Offer arrays and the machine.attached event payload. */
@@ -304,6 +306,7 @@ export type StreamId = z.infer<typeof StreamId>;
 export const StreamObservation = z
   .object({
     streamId: StreamId,
+    private: z.boolean(),
     fps: z.number().nonnegative().max(STREAM_MAX_FPS),
     bytesPerSecond: z.number().int().nonnegative(),
     encodeMs: z.number().nonnegative().max(STREAM_ENCODE_MAX_MS),
@@ -355,6 +358,7 @@ export const Report = z
   })
   .strict();
 export type Report = z.infer<typeof Report>;
+
 
 /**
  * Host reply to `machine.report`. A refusal is a typed outcome: the report
@@ -892,6 +896,7 @@ export const InputWriteResult = z.discriminatedUnion("status", [
         "foreground_required",
         "window_busy",
         "request_busy",
+        "private",
       ]),
       /** Human-readable detail, e.g. which display a refused anchor captured. */
       message: z.string().min(1).max(256).optional(),
@@ -1345,6 +1350,13 @@ const ScreenRefusalReason = z.enum([
 const ScreenRefusal = z
   .object({ status: z.literal("refused"), reason: ScreenRefusalReason, message: RefusalMessage.optional() })
   .strict();
+const CaptureRefusal = z
+  .object({
+    status: z.literal("refused"),
+    reason: z.enum([...ScreenRefusalReason.options, "private"]),
+    message: RefusalMessage.optional(),
+  })
+  .strict();
 
 /** `width`/`height` are display points; `scale` is pixels per point. */
 export const ScreenDisplay = z
@@ -1463,7 +1475,7 @@ export const ScreenCaptureResult = z.discriminatedUnion("status", [
       accessibilityTree: BoundedAccessibilityTree.optional(),
     })
     .strict(),
-  ScreenRefusal,
+  CaptureRefusal,
 ]);
 export type ScreenCaptureResult = z.infer<typeof ScreenCaptureResult>;
 

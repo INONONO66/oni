@@ -17,7 +17,16 @@ import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
 import type { AttachGenerationStore } from "./generation-store";
 import type { StreamingMachineHandle, StreamWriteOptions, StreamWriteReceipt } from "./stream-write";
-import type { z } from "zod";
+import { z } from "zod";
+
+/** A negotiated v2 peer reports stream load without a privacy observation. */
+const LegacyReport = Machine.Report.extend({
+  streams: z.array(Machine.StreamObservation.omit({ private: true })).max(Machine.STREAM_MAX_CONCURRENT).optional(),
+});
+
+function decodeReport(params: Ipc.Request["params"], contractVersion?: number) {
+  return (contractVersion === 2 ? LegacyReport : Machine.Report).parse(params);
+}
 
 interface MachineHostOptions {
   /**
@@ -336,7 +345,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     const lastGeneration = new Map<string, number>();
     let closed = false;
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
-    const reports = new Map<string, { readonly report: Machine.Report; readonly receivedAt: number }>();
+    const reports = new Map<string, { readonly report: Machine.Report | z.infer<typeof LegacyReport>; readonly receivedAt: number }>();
     const pings = new PingLiveness();
     const staleAfterMs = options.staleAfterMs ?? REPORT_STALE_AFTER_MS;
     const capacity = createCapacity({ ...options, rows, list });
@@ -458,7 +467,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
      * and only for the machine it attached as; anything else is a typed
      * refusal and the host keeps nothing from it.
      */
-    function report(incoming: Machine.Report, source: RequestSource, respond: (result: Machine.ReportResult) => void): Effect.Effect<void> {
+    function report(incoming: Machine.Report | z.infer<typeof LegacyReport>, source: RequestSource, respond: (result: Machine.ReportResult) => void): Effect.Effect<void> {
       return Effect.gen(function* () {
         const attachment = attachments.get(source.key);
         if (attachment === undefined) { respond({ status: "refused", reason: "machine_not_attached" }); return; }
@@ -483,8 +492,10 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         Effect.try({ try: () => Machine.ToolCall.parse(params), catch: decodeMachineFailure("tool.decode") })
           .pipe(Effect.flatMap((call) => callTool(call, source.key)), Effect.map(respond))],
       [Machine.WireMethod.Report, (params, respond, source) =>
-        Effect.try({ try: () => Machine.Report.parse(params), catch: decodeMachineFailure("report.decode") })
-          .pipe(Effect.flatMap((incoming) => report(incoming, source, respond)))],
+        Effect.try({
+          try: () => decodeReport(params, attachments.get(source.key)?.offer.peer.contractVersion),
+          catch: decodeMachineFailure("report.decode"),
+        }).pipe(Effect.flatMap((incoming) => report(incoming, source, respond)))],
       [Machine.WireMethod.AgentPermission, (params, respond, source) =>
         Effect.try({ try: () => Machine.AgentPermissionRequest.parse(params), catch: decodeMachineFailure("agent.permission.request") })
           .pipe(Effect.flatMap((request) => decidePermission(request, source)), Effect.map(respond))],
@@ -1203,6 +1214,14 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     }
     /** Peer → host relay methods; undefined for any other method. */
     function relayInbound(method: string, params: Ipc.Request["params"], key: string): Effect.Effect<Ipc.Response["result"], MachineError> | undefined {
+      if (method === Machine.WireMethod.EventPrivate)
+        return decode(Machine.PrivateEvent, params, "private.event.decode").pipe(Effect.map((event) => {
+          const peer = attachments.get(key);
+          if (peer === undefined) return { status: "refused", reason: "machine_not_attached" } as const;
+          if (peer.offer.machineId !== event.machineId) return { status: "refused", reason: "machine_mismatch" } as const;
+          options.events.publish(Machine.Events.Private, { machineId: event.machineId, time: options.now(), target: event.target, state: event.state });
+          return { status: "accepted" } as const;
+        }));
       if (method === Machine.WireMethod.StreamSignal)
         return decode(Machine.StreamSignalRequest, params, "stream.signal.decode").pipe(Effect.map((request) => acceptSignal(key, request)));
       if (method === Machine.WireMethod.CdpChunk)
