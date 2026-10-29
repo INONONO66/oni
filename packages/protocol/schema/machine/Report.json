@@ -2,6 +2,40 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "properties": {
+    "humanInput": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lastAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "source": {
+          "enum": [
+            "pointer",
+            "keyboard",
+            "both"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "lastAt",
+        "source",
+        "events"
+      ],
+      "type": "object"
+    },
+    "humanInputUnavailable": {
+      "enum": [
+        "input_monitoring_not_granted"
+      ],
+      "type": "string"
+    },
     "load": {
       "additionalProperties": false,
       "properties": {
@@ -49,6 +83,22 @@
       },
       "required": [
         "permission"
+      ],
+      "type": "object"
+    },
+    "session": {
+      "additionalProperties": false,
+      "properties": {
+        "asleep": {
+          "type": "boolean"
+        },
+        "locked": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "locked",
+        "asleep"
       ],
       "type": "object"
     },

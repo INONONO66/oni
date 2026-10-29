@@ -1,0 +1,7 @@
+{
+  "machineId": "mac-0",
+  "reportedAt": 2000,
+  "load": { "loadAvg1": 0, "memoryAvailableBytes": 1024, "inFlight": 0 },
+  "humanInputUnavailable": "input_monitoring_not_granted",
+  "session": { "locked": true, "asleep": false }
+}

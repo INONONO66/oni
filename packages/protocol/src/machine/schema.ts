@@ -3,6 +3,7 @@ import { EpochMs } from "../time.js";
 import { PlainValueSchema } from "../json.js";
 import { sha256Hex } from "../sha256.js";
 import { WindowTarget } from "./target.js";
+import { HumanInput, HumanInputUnavailable, Session } from "./facts.js";
 
 /**
  * Capability id grammar: two-plus dot-separated lowercase segments —
@@ -93,6 +94,7 @@ export const WireMethod = {
   Attach: "machine.attach",
   /** Daemon → host heartbeat (#1555); answered with `ReportResult`. */
   Report: "machine.report",
+  EventHumanInput: "machine.event.human_input",
   RunCode: "machine.run_code",
   CancelCode: "machine.cancel_code",
   PeekCode: "machine.peek_code",
@@ -333,6 +335,9 @@ export const Report = z
     load: Load,
     /** Absent from clients predating the screen fact; the host treats it as unknown. */
     screen: ScreenPermission.optional(),
+    humanInput: HumanInput.optional(),
+    humanInputUnavailable: HumanInputUnavailable.optional(),
+    session: Session.optional(),
     /**
      * Open live streams at report time (#1662). Absent when none is open; a
      * peer only has streams after the host opened them, so a host that never

@@ -3,6 +3,7 @@
   "enum": [
     "machine.attach",
     "machine.report",
+    "machine.event.human_input",
     "machine.run_code",
     "machine.cancel_code",
     "machine.peek_code",

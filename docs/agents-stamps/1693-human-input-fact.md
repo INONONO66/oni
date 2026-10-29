@@ -1,0 +1,1 @@
+#1693 (human-input fact, #1688), feat/1693-human-input-fact, 2026-10-29, base 712f621d4, PR #1707: optional input and session report facts with an authenticated human-input edge notification; receipts `clients/machine-client/src/input/watch.rs`, `packages/machines/test/report.test.ts`, `.omo/ulw-loop/01a17b2e-ef29-70f2-86db-62b24bbcf847/waves/cu-p2c-r1/impl.md`.

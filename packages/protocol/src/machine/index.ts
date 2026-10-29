@@ -5,6 +5,7 @@ import * as Gateway from "./gateway.js";
 import * as Contract from "./contract.js";
 import * as Observe from "./observe.js";
 import * as App from "./app.js";
+import * as Facts from "./facts.js";
 
 /**
  * Machine domain (docs/machines-and-delegation.md): attached devices as the
@@ -82,6 +83,14 @@ export namespace Machine {
   export type Load = Schema.Load;
   export const Report = Schema.Report;
   export type Report = Schema.Report;
+  export const HumanInput = Facts.HumanInput;
+  export type HumanInput = Facts.HumanInput;
+  export const Session = Facts.Session;
+  export type Session = Facts.Session;
+  export const HumanInputUnavailable = Facts.HumanInputUnavailable;
+  export type HumanInputUnavailable = Facts.HumanInputUnavailable;
+  export const HumanInputNotification = Facts.HumanInputNotification;
+  export type HumanInputNotification = Facts.HumanInputNotification;
   export const ReportResult = Schema.ReportResult;
   export type ReportResult = Schema.ReportResult;
   export const CellRequest = Schema.CellRequest;

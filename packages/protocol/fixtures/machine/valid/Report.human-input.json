@@ -1,0 +1,7 @@
+{
+  "machineId": "mac-0",
+  "reportedAt": 2000,
+  "load": { "loadAvg1": 0, "memoryAvailableBytes": 1024, "inFlight": 0 },
+  "humanInput": { "lastAt": 1999, "source": "both", "events": 2 },
+  "session": { "locked": false, "asleep": true }
+}
