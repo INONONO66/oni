@@ -55,7 +55,7 @@ const PTY_NAME = "conformance";
 const PTY_MARKER = "pty-conformance-ok";
 const STEP_TIMEOUT_MS = 60_000;
 const PTY_READ_ATTEMPTS = 10;
-const STALE_EXIT_CODE = 2;
+const STALE_EXIT_CODE = 3;
 
 export type ClientProcess = Bun.Subprocess<"ignore", "pipe", "pipe">;
 
@@ -407,12 +407,12 @@ async function staleGeneration(
   )), "stale generation refusal");
   check(refused.code === STALE_EXIT_CODE, `stale client exited ${refused.code}: ${refused.stderr}`);
   check(
-    refused.stderr.includes(JSON.stringify({ reason: "remote_unavailable" })),
+    refused.stderr.includes(JSON.stringify({ reason: "superseded" })),
     `stale client stderr: ${refused.stderr}`,
   );
   check(host.list().length === 0, "machine_list admitted the stale generation");
   record(
-    `synthetic generation 2 (host minted 1) refused stale_generation, classified remote_unavailable by one-shot client`,
+    `synthetic generation 2 (host minted 1) refused stale_generation, classified superseded by the one-shot client, exit ${STALE_EXIT_CODE}`,
   );
 }
 
