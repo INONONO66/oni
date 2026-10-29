@@ -4,6 +4,7 @@ use std::{
     hash::{BuildHasher, Hasher},
     io,
     num::{NonZeroU64, NonZeroUsize},
+    os::unix::fs::PermissionsExt,
     path::Path,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -27,9 +28,12 @@ use crate::{
     pty::ops::Pty,
     report::{self, Probe},
     transport::{
+        classes::{self, FailureClass},
         client::{handler, Caller, Client, Handler, TransportError},
         connection::HostTrust,
+        events,
         request_table::CallError,
+        retry::{Event, Next, Random, Retry},
     },
 };
 
@@ -59,12 +63,24 @@ pub enum AttachError {
     Computer(#[from] crate::computer::ComputerError),
     #[error(transparent)]
     Update(#[from] crate::release::UpdateError),
+    #[error("service_unavailable")]
+    ServiceUnavailable,
+    #[error("attachment event channel closed")]
+    EventsClosed,
+    #[error("attach failed: {0:?}")]
+    Once(FailureClass),
 }
 
 impl AttachError {
     pub fn exit_code(&self) -> u8 {
         match self {
-            Self::Terminal(_) | Self::Transport(TransportError::HostKeyMismatch) => 3,
+            Self::Terminal(_)
+            | Self::Transport(TransportError::HostKeyMismatch)
+            | Self::Once(
+                FailureClass::Authentication
+                | FailureClass::Configuration
+                | FailureClass::Superseded,
+            ) => 3,
             Self::MemoryBudget => 4,
             _ => 2,
         }
@@ -77,6 +93,7 @@ impl AttachError {
                 "unpinned_binary".to_owned()
             }
             Self::Update(_) => "update_failed".to_owned(),
+            Self::Once(class) => class.as_str().to_owned(),
             _ => self.to_string(),
         }
     }
@@ -97,6 +114,14 @@ pub trait Session: Send + Sync {
     fn detached(&self);
     /// Handed the client-to-host uplink of each connection before its attach.
     fn uplink(&self, _uplink: Uplink) {}
+}
+
+struct AttachedSession<'a>(&'a dyn Session);
+
+impl Drop for AttachedSession<'_> {
+    fn drop(&mut self) {
+        self.0.detached();
+    }
 }
 
 pub struct Hooks {
@@ -123,7 +148,8 @@ impl Enrollment {
 
 #[derive(Deserialize)]
 struct SavedGeneration {
-    generation: NonZeroU64,
+    generation: Option<NonZeroU64>,
+    pid: Option<u32>,
 }
 
 pub fn now_ms() -> u64 {
@@ -150,7 +176,8 @@ pub fn offer(
         "daemonVersion": env!("CARGO_PKG_VERSION"),
         "platform": format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
         "offeredAt": at,
-        "peer": {"kind":"client","contractVersion":oni_protocol::CONTRACT_VERSION}
+        "peer": {"kind":"client","contractVersion":oni_protocol::CONTRACT_VERSION},
+        "capabilities": ["ping"]
     });
     // The Offer schema allows `generation` to be absent, never `null`: a first
     // attach must omit the key or the host refuses the frame as invalid params.
@@ -190,17 +217,33 @@ pub fn result(value: Value) -> Result<Negotiated, AttachError> {
 
 fn read_generation(directory: &Path) -> Result<Option<NonZeroU64>, AttachError> {
     match fs::read(directory.join("state.json")) {
-        Ok(data) => Ok(Some(
-            serde_json::from_slice::<SavedGeneration>(&data)?.generation,
-        )),
+        Ok(data) => Ok(serde_json::from_slice::<SavedGeneration>(&data)?.generation),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
     }
 }
 
 fn save_generation(directory: &Path, generation: NonZeroU64) -> io::Result<()> {
-    let state = json!({ "generation": generation }).to_string();
+    let state =
+        json!({ "generation": generation, "pid": service_pid(directory).map_err(io::Error::other)? })
+            .to_string();
     config::write_private(&directory.join("state.json"), state.as_bytes())
+}
+
+pub fn service_pid(directory: &Path) -> Result<Option<u32>, AttachError> {
+    match fs::read(directory.join("state.json")) {
+        Ok(data) => Ok(serde_json::from_slice::<SavedGeneration>(&data)?.pid),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn save_service_pid(directory: &Path, pid: Option<u32>) -> Result<(), AttachError> {
+    fs::create_dir_all(directory)?;
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+    let state = json!({ "generation": read_generation(directory)?, "pid": pid }).to_string();
+    config::write_private(&directory.join("state.json"), state.as_bytes())?;
+    Ok(())
 }
 
 fn clear_generation(directory: &Path) -> io::Result<()> {
@@ -210,14 +253,15 @@ fn clear_generation(directory: &Path) -> io::Result<()> {
     }
 }
 
-fn jitter(attempt: u32) -> Duration {
-    let ceiling = 250_u64
-        .saturating_mul(2_u64.saturating_pow(attempt.min(20)))
-        .min(30_000);
-    let random = std::collections::hash_map::RandomState::new()
-        .build_hasher()
-        .finish();
-    Duration::from_millis(random % (ceiling + 1))
+struct RuntimeRandom;
+
+impl Random for RuntimeRandom {
+    fn upper_half(&mut self, ceiling: u64) -> u64 {
+        let random = std::collections::hash_map::RandomState::new()
+            .build_hasher()
+            .finish();
+        ceiling / 2 + random % (ceiling - ceiling / 2 + 1)
+    }
 }
 
 fn refuse_inbound() -> Handler {
@@ -353,10 +397,10 @@ impl Drop for InFlight {
 pub enum Outcome {
     Unreachable,
     Refused,
-    Ended,
+    Ended(Duration),
 }
 
-pub struct Attachment<'a, P> {
+pub struct Attachment<'a, P: ?Sized> {
     config: &'a ClientConfig,
     directory: &'a Path,
     capabilities: &'a [String],
@@ -369,6 +413,8 @@ pub struct Attachment<'a, P> {
     human: InputWatch,
     input_producer: InputProducer,
     watch_start: Instant,
+    pub last_failure: Option<FailureClass>,
+    pub attempts: u64,
 }
 
 fn join_failure(error: JoinError) -> AttachError {
@@ -393,7 +439,7 @@ async fn notify_human_edge(
     Ok(())
 }
 
-impl<'a, P: Probe> Attachment<'a, P> {
+impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
     pub fn new(
         config: &'a ClientConfig,
         directory: &'a Path,
@@ -418,6 +464,8 @@ impl<'a, P: Probe> Attachment<'a, P> {
             human,
             input_producer,
             watch_start,
+            last_failure: None,
+            attempts: 0,
         })
     }
 
@@ -436,12 +484,13 @@ impl<'a, P: Probe> Attachment<'a, P> {
         if !self.negotiate(&client).await? {
             return Ok(Outcome::Refused);
         }
+        let _session = AttachedSession(self.hooks.session.as_ref());
+        let connected = tokio::time::Instant::now();
         let ended = self.heartbeat(&mut client, &mut calls).await;
-        self.hooks.session.detached();
-        ended.map(|()| Outcome::Ended)
+        ended.map(|()| Outcome::Ended(connected.elapsed()))
     }
 
-    async fn connect(&self) -> Result<Option<Client>, AttachError> {
+    async fn connect(&mut self) -> Result<Option<Client>, AttachError> {
         let service = gated(
             self.hooks.service.clone(),
             self.in_flight.clone(),
@@ -460,7 +509,10 @@ impl<'a, P: Probe> Attachment<'a, P> {
         match connected {
             Ok(client) => Ok(Some(client)),
             Err(error @ TransportError::HostKeyMismatch) => Err(error.into()),
-            Err(_) => Ok(None),
+            Err(error) => {
+                self.last_failure = Some(classes::classify(&AttachError::Transport(error)));
+                Ok(None)
+            }
         }
     }
 
@@ -474,8 +526,16 @@ impl<'a, P: Probe> Attachment<'a, P> {
             cpus,
             self.probe.memory()?,
         );
-        let Ok(Some(response)) = client.call("machine.attach", Some(offered)).await else {
-            return Ok(false);
+        let response = match client.call("machine.attach", Some(offered)).await {
+            Ok(Some(response)) => response,
+            Err(error) => {
+                self.last_failure = Some(classes::classify(&AttachError::Call(error)));
+                return Ok(false);
+            }
+            Ok(None) => {
+                self.last_failure = Some(FailureClass::RemoteUnavailable);
+                return Ok(false);
+            }
         };
         match result(response) {
             Ok(negotiated) => {
@@ -486,7 +546,10 @@ impl<'a, P: Probe> Attachment<'a, P> {
                 Ok(true)
             }
             Err(error @ AttachError::Terminal(_)) => Err(error),
-            Err(_) => Ok(false),
+            Err(error) => {
+                self.last_failure = Some(classes::classify(&error));
+                Ok(false)
+            }
         }
     }
 
@@ -519,7 +582,8 @@ impl<'a, P: Probe> Attachment<'a, P> {
         let mut report = json!({
             "machineId": self.config.machine_id, "reportedAt": at,
             "load": self.probe.load(in_flight)?,
-            "screen": {"permission": report::screen_permission(self.hooks.screen.probe())}
+            "screen": {"permission": report::screen_permission(self.hooks.screen.probe())},
+            "transport": {"lastFailure": self.last_failure, "attempts": self.attempts}
         });
         #[cfg(target_os = "macos")]
         {
@@ -548,9 +612,24 @@ impl<'a, P: Probe> Attachment<'a, P> {
         let mut tick = tokio::time::interval(self.hooks.heartbeat);
         let mut reports = JoinSet::new();
         let mut uplinks = JoinSet::new();
+        let mut frames = client.frames();
+        let silence = async move {
+            loop {
+                let deadline = *frames.borrow_and_update() + Duration::from_secs(15);
+                tokio::select! {
+                    () = tokio::time::sleep_until(deadline) => return,
+                    changed = frames.changed() => if changed.is_err() { return },
+                }
+            }
+        };
+        tokio::pin!(silence);
         loop {
             tokio::select! {
                 _ = client.closed() => break Ok(()),
+                () = &mut silence => {
+                    self.last_failure = Some(FailureClass::Timeout);
+                    break Ok(());
+                },
                 Some((at, source)) = self.human.next_edge() =>
                     notify_human_edge(&self.config.machine_id, self.watch_start, client, at, source).await?,
                 Some(call) = calls.recv(), if uplinks.len() < UPLINK_BOUND => {
@@ -591,53 +670,157 @@ impl<'a, P: Probe> Attachment<'a, P> {
     }
 }
 
-pub async fn run(
+pub async fn run_with_events(
     config: &ClientConfig,
     directory: &Path,
     capabilities: &[String],
     hooks: &Hooks,
-) -> Result<Infallible, AttachError> {
-    run_with_probe(config, directory, capabilities, hooks, &report::SystemProbe).await
-}
-
-pub async fn run_with_probe(
-    config: &ClientConfig,
-    directory: &Path,
-    capabilities: &[String],
-    hooks: &Hooks,
-    probe: &impl Probe,
+    probe: &dyn Probe,
+    events: &mut mpsc::UnboundedReceiver<Event>,
 ) -> Result<Infallible, AttachError> {
     let mut attachment = Attachment::new(config, directory, capabilities, hooks, probe)?;
-    let mut attempt = 0_u32;
-    let error = loop {
-        match attachment.once().await {
-            Err(error) => break error,
-            Ok(Outcome::Ended) => attempt = 0,
-            Ok(_) => {}
+    let mut retry = Retry::default();
+    let mut random = RuntimeRandom;
+    let clock = tokio::time::Instant::now();
+    loop {
+        let outcome = tokio::select! {
+            outcome = attachment.once() => Some(outcome),
+            event = events.recv() => {
+                let Some(event) = event else { return Err(AttachError::EventsClosed) };
+                retry.event(clock.elapsed(), event, &mut random);
+                None
+            }
+        };
+        let Some(outcome) = outcome else {
+            while retry.next(clock.elapsed()) == Next::Suspended {
+                let Some(event) = events.recv().await else {
+                    return Err(AttachError::EventsClosed);
+                };
+                retry.event(clock.elapsed(), event, &mut random);
+            }
+            continue;
+        };
+        let class = match outcome {
+            Ok(Outcome::Ended(connected_for)) => {
+                let stopped = clock.elapsed();
+                retry.event(
+                    stopped.saturating_sub(connected_for),
+                    Event::Connected,
+                    &mut random,
+                );
+                retry.event(stopped, Event::Disconnected, &mut random);
+                attachment
+                    .last_failure
+                    .take()
+                    .unwrap_or(FailureClass::RemoteUnavailable)
+            }
+            Ok(Outcome::Refused | Outcome::Unreachable) => attachment
+                .last_failure
+                .unwrap_or(FailureClass::RemoteUnavailable),
+            Err(error @ AttachError::MemoryBudget) => return Err(error),
+            Err(error) => classes::classify(&error),
+        };
+        let next = retry.event(clock.elapsed(), Event::Failed(class), &mut random);
+        attachment.last_failure = retry.last_failure;
+        attachment.attempts = retry.attempts;
+        report::append_metrics(
+            &directory.join("metrics.jsonl"),
+            &json!({"at": now_ms(), "transport": {"lastFailure": class, "attempts": retry.attempts}}),
+        )?;
+        if !class.retries() {
+            eprintln!("{}", json!({"class": class, "nextStep": class.next_step()}));
         }
-        tokio::time::sleep(jitter(attempt)).await;
-        attempt = attempt.saturating_add(1);
+        await_next(&mut retry, next, events, clock, &mut random).await?;
+    }
+}
+
+async fn await_next(
+    retry: &mut Retry,
+    mut next: Next,
+    events: &mut mpsc::UnboundedReceiver<Event>,
+    clock: tokio::time::Instant,
+    random: &mut RuntimeRandom,
+) -> Result<Next, AttachError> {
+    while let Next::Wait(delay) = next {
+        tokio::select! {
+            () = tokio::time::sleep(delay) => break,
+            event = events.recv() => {
+                let Some(event) = event else { return Err(AttachError::EventsClosed) };
+                next = retry.event(clock.elapsed(), event, random);
+                if next == Next::Attempt { break }
+            }
+        }
+    }
+    while next == Next::Suspended {
+        let Some(event) = events.recv().await else {
+            return Err(AttachError::EventsClosed);
+        };
+        next = retry.event(clock.elapsed(), event, random);
+    }
+    Ok(next)
+}
+
+pub async fn run_default(path: &Path) -> Result<(), AttachError> {
+    run_default_with_screen(path, false, false).await
+}
+
+pub async fn run_service(config_path: &Path) -> Result<(), AttachError> {
+    let directory = config_path.parent().unwrap_or(Path::new(""));
+    let mut retry_signal =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1())?;
+    let mut terminated = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    save_service_pid(directory, Some(std::process::id()))?;
+    let result = loop {
+        match run_default_with_screen(config_path, true, false).await {
+            Err(error) if service_reprobe(&error) => {
+                let class = classes::classify(&error);
+                eprintln!("{}", json!({"class": class, "nextStep": class.next_step()}));
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_secs(300)) => {}
+                    _ = retry_signal.recv() => {}
+                    _ = terminated.recv() => break Ok(()),
+                }
+            }
+            result => break result,
+        }
     };
-    Err(error)
+    save_service_pid(directory, None)?;
+    result
 }
 
-pub async fn run_default(path: Option<&Path>) -> Result<(), AttachError> {
-    run_default_with_screen(path, false).await
+fn service_reprobe(error: &AttachError) -> bool {
+    !matches!(error, AttachError::MemoryBudget)
+        && matches!(
+            classes::classify(error),
+            FailureClass::Authentication | FailureClass::Configuration | FailureClass::Superseded
+        )
 }
 
-pub async fn run_service(path: Option<&Path>) -> Result<(), AttachError> {
-    run_default_with_screen(path, true).await
+fn once_result(
+    outcome: Result<Outcome, AttachError>,
+    last_failure: Option<FailureClass>,
+) -> Result<(), AttachError> {
+    match outcome {
+        Ok(Outcome::Ended(_)) => Ok(()),
+        Ok(_) => Err(AttachError::Once(
+            last_failure.unwrap_or(FailureClass::RemoteUnavailable),
+        )),
+        Err(error @ AttachError::MemoryBudget) => Err(error),
+        Err(error) => Err(AttachError::Once(classes::classify(&error))),
+    }
+}
+
+pub async fn run_service_once(path: &Path) -> Result<(), AttachError> {
+    run_default_with_screen(path, false, true).await
 }
 
 async fn run_default_with_screen(
-    path: Option<&Path>,
+    path: &Path,
     request_screen: bool,
+    once: bool,
 ) -> Result<(), AttachError> {
-    let path = path
-        .map(Path::to_path_buf)
-        .unwrap_or(config::root().join("machine-client/client.json"));
     let directory = path.parent().unwrap_or(Path::new(""));
-    let config = config::load(&path)?;
+    let config = config::load(path)?;
     #[cfg(target_os = "macos")]
     if request_screen {
         crate::service::request_screen();
@@ -669,7 +852,7 @@ async fn run_default_with_screen(
     let manifest =
         crate::cdp::manifest::Manifest::load(&directory.join(crate::cdp::manifest::FILE))
             .map_err(io::Error::other)?;
-    let (screen, input) = crate::computer::open(&path)?.unwrap_or_else(|| {
+    let (screen, input) = crate::computer::open(path)?.unwrap_or_else(|| {
         (
             crate::screen::Screen::platform(),
             crate::input::Input::platform(),
@@ -690,14 +873,23 @@ async fn run_default_with_screen(
     let mut terminated = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupted =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    let (mut events, feed) = events::subscribe(!once)?;
     let result = tokio::select! {
-        result = run(&config, directory, service.capabilities(), &hooks) => match result {
-            Ok(never) => match never {},
-            Err(error) => Err(error),
-        },
+        result = async {
+            if once {
+                let mut attachment = Attachment::new(&config, directory, service.capabilities(), &hooks, &report::SystemProbe)?;
+                let outcome = attachment.once().await;
+                return once_result(outcome, attachment.last_failure);
+            }
+            match run_with_events(&config, directory, service.capabilities(), &hooks, &report::SystemProbe, &mut events).await {
+                Ok(never) => match never {},
+                Err(error) => Err(error),
+            }
+        } => result,
         _ = terminated.recv() => Ok(()),
         _ = interrupted.recv() => Ok(()),
     };
+    feed.abort();
     service.detached();
     service.shutdown().await;
     permissions.abort_all();
@@ -761,7 +953,172 @@ mod tests {
         },
     };
 
-    use super::{join_failure, notify_human_edge, AttachError};
+    use super::{
+        await_next, join_failure, notify_human_edge, once_result, service_reprobe, AttachError,
+        Outcome, RuntimeRandom,
+    };
+    use crate::transport::{
+        classes::FailureClass,
+        retry::{Event, Next, Retry},
+    };
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_retry_event_attempts_immediately() {
+        let clock = tokio::time::Instant::now();
+        let mut retry = Retry::default();
+        let mut random = RuntimeRandom;
+        let next = retry.event(
+            Duration::ZERO,
+            Event::Failed(FailureClass::Authentication),
+            &mut random,
+        );
+        let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+        sender.send(Event::Retry).expect("retry event");
+
+        let result = await_next(&mut retry, next, &mut events, clock, &mut random).await;
+
+        assert!(matches!(result, Ok(Next::Attempt)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_event_remains_waiting_until_deadline() {
+        let clock = tokio::time::Instant::now();
+        let mut retry = Retry::default();
+        let mut random = RuntimeRandom;
+        let next = retry.event(
+            Duration::ZERO,
+            Event::Failed(FailureClass::Authentication),
+            &mut random,
+        );
+        let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+        sender
+            .send(Event::Failed(FailureClass::Authentication))
+            .expect("failure event");
+
+        let (result, ()) = tokio::join!(
+            await_next(&mut retry, next, &mut events, clock, &mut random),
+            tokio::time::advance(Duration::from_secs(301))
+        );
+
+        assert!(matches!(result, Ok(Next::Wait(_))));
+        assert_eq!(retry.attempts, 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_closed_events_returns_error() {
+        let clock = tokio::time::Instant::now();
+        let mut retry = Retry::default();
+        let mut random = RuntimeRandom;
+        let next = retry.event(
+            Duration::ZERO,
+            Event::Failed(FailureClass::Authentication),
+            &mut random,
+        );
+        let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+        drop(sender);
+
+        let result = await_next(&mut retry, next, &mut events, clock, &mut random).await;
+
+        assert!(matches!(result, Err(AttachError::EventsClosed)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_suspend_then_wake_attempts() {
+        let clock = tokio::time::Instant::now();
+        let mut retry = Retry::default();
+        let mut random = RuntimeRandom;
+        let next = retry.event(
+            Duration::ZERO,
+            Event::Failed(FailureClass::Authentication),
+            &mut random,
+        );
+        let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+        sender.send(Event::Suspend).expect("suspend event");
+        sender.send(Event::Wake).expect("wake event");
+
+        let result = await_next(&mut retry, next, &mut events, clock, &mut random).await;
+
+        assert!(matches!(result, Ok(Next::Attempt)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn suspended_wake_attempts() {
+        let clock = tokio::time::Instant::now();
+        let mut retry = Retry::default();
+        let mut random = RuntimeRandom;
+        let next = retry.event(Duration::ZERO, Event::Suspend, &mut random);
+        let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+        sender.send(Event::Wake).expect("wake event");
+
+        let result = await_next(&mut retry, next, &mut events, clock, &mut random).await;
+
+        assert!(matches!(result, Ok(Next::Attempt)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn suspended_closed_events_returns_error() {
+        let clock = tokio::time::Instant::now();
+        let mut retry = Retry::default();
+        let mut random = RuntimeRandom;
+        let next = retry.event(Duration::ZERO, Event::Suspend, &mut random);
+        let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+        drop(sender);
+
+        let result = await_next(&mut retry, next, &mut events, clock, &mut random).await;
+
+        assert!(matches!(result, Err(AttachError::EventsClosed)));
+    }
+
+    #[test]
+    fn budget_exit_survives_both_service_wrappers() {
+        let budget = AttachError::MemoryBudget;
+        assert!(!service_reprobe(&budget));
+        assert_eq!(
+            once_result(Err(budget), None)
+                .expect_err("budget exit")
+                .exit_code(),
+            4
+        );
+    }
+
+    #[test]
+    fn once_result_maps_ended_refused_and_transport_failure() {
+        assert!(once_result(Ok(Outcome::Ended(Duration::ZERO)), None).is_ok());
+        assert!(matches!(
+            once_result(Ok(Outcome::Unreachable), None),
+            Err(AttachError::Once(FailureClass::RemoteUnavailable))
+        ));
+        assert!(matches!(
+            once_result(Ok(Outcome::Refused), Some(FailureClass::Authentication)),
+            Err(AttachError::Once(FailureClass::Authentication))
+        ));
+        assert!(matches!(
+            once_result(Err(AttachError::ServiceUnavailable), None),
+            Err(AttachError::Once(FailureClass::Configuration))
+        ));
+    }
+
+    #[test]
+    fn service_reprobes_authentication_configuration_and_superseded() {
+        assert!(service_reprobe(&AttachError::Terminal(
+            "unsupported_contract".to_owned()
+        )));
+        assert!(service_reprobe(&AttachError::Terminal(
+            "machine_not_enrolled".to_owned()
+        )));
+        assert!(service_reprobe(&AttachError::Terminal(
+            "stale_generation".to_owned()
+        )));
+        assert_eq!(
+            once_result(Ok(Outcome::Refused), Some(FailureClass::Superseded))
+                .expect_err("superseded one-shot refusal")
+                .exit_code(),
+            3
+        );
+        assert!(!service_reprobe(&AttachError::Transport(
+            crate::transport::client::TransportError::Closed
+        )));
+    }
 
     #[tokio::test]
     async fn inbound_requests_before_attachment_are_refused() {

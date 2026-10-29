@@ -147,6 +147,108 @@ async fn seventeenth_request_starts_after_one_of_sixteen_completes() {
 }
 
 #[tokio::test]
+async fn ping_answers_while_all_ordinary_execution_slots_are_occupied() {
+    let (wire, host) = tokio::io::duplex(1 << 20);
+    let (reader, mut writer) = split(host);
+    let mut responses = Framed::new(reader);
+    let permits = Arc::new(Semaphore::new(0));
+    let (started, mut entered) = mpsc::unbounded_channel();
+    let waiting = permits.clone();
+    let client = Client::from_stream(
+        wire,
+        handler(move |method, _| {
+            let started = started.clone();
+            let permits = waiting.clone();
+            async move {
+                if method == "machine.ping" {
+                    return Ok(json!({"status":"alive"}));
+                }
+                started.send(()).expect("host observing starts");
+                let _permit = permits.acquire().await.expect("open gate");
+                Ok(json!(true))
+            }
+        }),
+    );
+    for id in 0..80 {
+        write_frame(
+            &mut writer,
+            &json!({"v":2,"type":"request","id":id.to_string(),"method":"machine.exec","params":{}}),
+        )
+        .await
+        .expect("ordinary request");
+    }
+    for _ in 0..16 {
+        entered.recv().await.expect("ordinary work entered");
+    }
+    write_frame(
+        &mut writer,
+        &json!({"v":2,"type":"request","id":"probe","method":"machine.ping","params":{}}),
+    )
+    .await
+    .expect("ping request");
+    let reply = next_response(&mut responses).await;
+    assert_eq!(reply["id"], "probe");
+    assert_eq!(reply["result"]["status"], "alive");
+    permits.add_permits(16);
+    drop(client);
+}
+
+#[tokio::test]
+async fn socket_rejects_invalid_ping_params() {
+    let mut host = FakeHost::unix().await;
+    let _client = Client::connect_unix(
+        Path::new(&host.endpoint),
+        handler(|_, _| async { Ok(json!({"status":"alive"})) }),
+    )
+    .await
+    .expect("connect");
+    host.send(json!({"v":2,"type":"request","id":"invalid","method":"machine.ping","params":{"extra":true}}))
+        .await;
+
+    let answer = host.incoming.recv().await.expect("invalid ping answer");
+
+    assert_eq!(answer["id"], "invalid");
+    assert_eq!(answer["error"]["code"], 1000);
+}
+
+#[tokio::test]
+async fn socket_refuses_ninth_pending_ping() {
+    let mut host = FakeHost::unix().await;
+    let (started, mut pending) = mpsc::unbounded_channel();
+    let (release, released) = tokio::sync::watch::channel(false);
+    let _client = Client::connect_unix(
+        Path::new(&host.endpoint),
+        handler(move |_, _| {
+            let started = started.clone();
+            let mut released = released.clone();
+            async move {
+                started.send(()).expect("control started");
+                released
+                    .wait_for(|ready| *ready)
+                    .await
+                    .expect("control released");
+                Ok(json!({"status":"alive"}))
+            }
+        }),
+    )
+    .await
+    .expect("connect");
+    for index in 0..8 {
+        host.send(json!({"v":2,"type":"request","id":format!("held-{index}"),"method":"machine.ping","params":{}}))
+            .await;
+        pending.recv().await.expect("control started");
+    }
+    host.send(json!({"v":2,"type":"request","id":"overflow","method":"machine.ping","params":{}}))
+        .await;
+
+    let answer = host.incoming.recv().await.expect("overflow answer");
+
+    assert_eq!(answer["id"], "overflow");
+    assert_eq!(answer["error"]["code"], 4001);
+    release.send(true).expect("controls still subscribed");
+}
+
+#[tokio::test]
 async fn inbound_queue_replies_4001_on_eighty_first_request() {
     let mut host = FakeHost::unix().await;
     let permits = Arc::new(Semaphore::new(0));

@@ -62,6 +62,10 @@ const methods = {
     params: Machine.Report,
     result: Machine.ReportResult,
   },
+  [Machine.WireMethod.Ping]: {
+    params: z.object({}).strict(),
+    result: Machine.PingResult,
+  },
   [Machine.WireMethod.Exec]: { params: Machine.ExecRequest, result: Machine.ExecResult },
   [Machine.WireMethod.CancelCode]: { params: Machine.CancelCode, result: Machine.CancelResult },
   /** Machine host → machine daemon: a live cell's output so far, for `eval peek`. */

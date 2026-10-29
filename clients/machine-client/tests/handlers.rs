@@ -185,6 +185,15 @@ async fn unoffered_methods_answer_typed_refusals_even_when_granted() {
 }
 
 #[tokio::test]
+async fn ping_answers_without_an_execution_grant() {
+    let fixture = Fixture::without_tmux(false).await;
+    assert_eq!(
+        fixture.ok("machine.ping", json!({})).await,
+        json!({"status":"alive"})
+    );
+}
+
+#[tokio::test]
 async fn host_served_and_unknown_methods_are_invalid() {
     let fixture = Fixture::without_tmux(false).await;
     for method in [

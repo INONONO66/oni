@@ -3,7 +3,7 @@ use std::{fs, io, io::Write, os::unix::fs::OpenOptionsExt, path::Path};
 use nix::libc;
 use serde::Serialize;
 
-use crate::{budget::Metrics, screen::Fault};
+use crate::screen::Fault;
 
 /// Interpret one source probe without touching the display or prompting.
 pub fn screen_permission(probe: Option<Result<(), Fault>>) -> &'static str {
@@ -215,7 +215,7 @@ pub fn rss_bytes() -> io::Result<u64> {
     Ok(unsafe { info.assume_init() }.pti_resident_size)
 }
 
-pub fn append_metrics(path: &Path, metrics: &Metrics) -> io::Result<()> {
+pub fn append_metrics(path: &Path, metrics: &impl Serialize) -> io::Result<()> {
     append_line(
         path,
         &serde_json::to_string(metrics).map_err(io::Error::other)?,

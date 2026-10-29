@@ -401,15 +401,18 @@ async function staleGeneration(
     join(setup.home, ".oni", "machine-client", "state.json"),
     JSON.stringify({ generation: 2 }),
   );
-  const refused = await within(finished(start(setup)), "stale generation refusal");
+  const refused = await within(finished(Bun.spawn(
+    [setup.binary, "run", "--once", "--config", setup.config],
+    { env: setup.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+  )), "stale generation refusal");
   check(refused.code === STALE_EXIT_CODE, `stale client exited ${refused.code}: ${refused.stderr}`);
   check(
-    refused.stderr.includes(JSON.stringify({ reason: "stale_generation" })),
+    refused.stderr.includes(JSON.stringify({ reason: "superseded" })),
     `stale client stderr: ${refused.stderr}`,
   );
   check(host.list().length === 0, "machine_list admitted the stale generation");
   record(
-    `synthetic generation 2 (host minted 1) refused stale_generation, client exit ${STALE_EXIT_CODE}`,
+    `synthetic generation 2 (host minted 1) refused stale_generation, classified superseded by the one-shot client, exit ${STALE_EXIT_CODE}`,
   );
 }
 

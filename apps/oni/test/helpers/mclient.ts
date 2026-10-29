@@ -30,27 +30,6 @@ export function mclientAttached(
   return { promise: admitted.promise.finally(dispose), dispose };
 }
 
-/** Scoped real client for other machine tests; callers close acquired Effects. */
-export async function spawnAttachedMclient(options: {
-  readonly configPath: string;
-  readonly host: MachineHost;
-  readonly events: Required<Pick<ObservationSink, "subscribe">>;
-  readonly machineId: string;
-}) {
-  const binary = await mclientBinary();
-  const pending = mclientAttached(options.host, options.events, options.machineId);
-  try {
-    const child = await acquireEffect(spawnMclient(options.configPath, binary));
-    const attachment = await Promise.race([
-      pending.promise,
-      child.exited.then((code) => { throw new Error(`mclient exited before attachment: ${code}`); }),
-    ]);
-    return { ...child, attachment };
-  } finally {
-    pending.dispose();
-  }
-}
-
 /** App-owned listeners publish the attachment through the same observation bus as production. */
 export async function attachAppMclient(options: {
   readonly socketPath: string;

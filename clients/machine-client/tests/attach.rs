@@ -16,7 +16,7 @@ use std::{
 
 use oni_machine_client::{
     agent::hook,
-    attach::{self, offer, result, run_with_probe, AttachError, Attachment, Hooks, Outcome},
+    attach::{self, offer, result, run_with_events, AttachError, Attachment, Hooks, Outcome},
     budget::{self, Budget, BudgetAction, Metrics, NoRetention, Pressure, Retained, StreamTotals},
     config::{self, ClientConfig, Export, JoinOptions},
     handlers::{available, Service},
@@ -26,6 +26,7 @@ use oni_machine_client::{
     transport::{
         client::{handler, TransportError},
         connection::{public_key_pin, HostTrust},
+        retry::Event,
     },
 };
 use serde_json::{json, Value};
@@ -85,6 +86,29 @@ struct Unobserved;
 impl attach::Session for Unobserved {
     fn attached(&self, _: &attach::Negotiated) {}
     fn detached(&self) {}
+}
+
+struct ObservedService {
+    service: Arc<Service>,
+    detached: tokio::sync::Notify,
+    count: AtomicUsize,
+}
+
+impl attach::Session for ObservedService {
+    fn connected(&self, caller: oni_machine_client::transport::client::Caller) {
+        self.service.connected(caller);
+    }
+    fn attached(&self, negotiated: &attach::Negotiated) {
+        self.service.attached(negotiated);
+    }
+    fn detached(&self) {
+        self.service.detached();
+        self.count.fetch_add(1, Ordering::SeqCst);
+        self.detached.notify_one();
+    }
+    fn uplink(&self, uplink: attach::Uplink) {
+        self.service.uplink(uplink);
+    }
 }
 
 fn hooks(pressure: Arc<dyn Pressure>) -> Hooks {
@@ -695,7 +719,10 @@ async fn tls_attach_uses_recorded_pin_and_refuses_mismatch() {
             .await;
         };
         let (outcome, ()) = tokio::join!(attachment.once(), exchange);
-        assert_eq!(outcome.expect("attached over TLS"), Outcome::Ended);
+        assert!(matches!(
+            outcome.expect("attached over TLS"),
+            Outcome::Ended(_)
+        ));
     }
     let host = FakeHost::tls().await;
     let (directory, settings) = tls_client(&host, [7; 32]).await;
@@ -807,7 +834,7 @@ async fn unix_attach_saves_generation_heartbeats_and_offers_it_on_reconnect() {
         drop(reconnect);
     };
     let (outcome, ()) = tokio::join!(attachment.once(), exchange);
-    assert_eq!(outcome.expect("closed"), Outcome::Ended);
+    assert!(matches!(outcome.expect("closed"), Outcome::Ended(_)));
 }
 
 #[tokio::test]
@@ -844,7 +871,7 @@ async fn cancelled_inbound_work_is_not_counted_after_reconnect() {
         host.reopen().await
     };
     let (outcome, mut host) = tokio::join!(attachment.once(), exchange);
-    assert_eq!(outcome.expect("closed"), Outcome::Ended);
+    assert!(matches!(outcome.expect("closed"), Outcome::Ended(_)));
     assert!(cancelled.await.is_err(), "pending service future dropped");
     let exchange = async move {
         let request = expect(&mut host, "machine.attach").await;
@@ -855,7 +882,7 @@ async fn cancelled_inbound_work_is_not_counted_after_reconnect() {
         report
     };
     let (outcome, report) = tokio::join!(attachment.once(), exchange);
-    assert_eq!(outcome.expect("closed"), Outcome::Ended);
+    assert!(matches!(outcome.expect("closed"), Outcome::Ended(_)));
     assert_eq!(report["params"]["load"]["inFlight"], 0);
 }
 
@@ -908,13 +935,171 @@ async fn attach_refusals_retry_or_stop_by_reason() {
 }
 
 #[tokio::test]
-async fn run_loop_reconnects_after_a_retrying_refusal() {
+async fn empty_attach_response_is_remote_unavailable() {
     let mut host = FakeHost::unix().await;
     let directory = tempfile::tempdir().expect("client directory");
     let settings = unix_settings(&host, directory.path()).await;
     let hooks = hooks(Arc::new(NoRetention));
     let probe = FixedProbe::new(0);
-    let run = run_with_probe(&settings, directory.path(), &[], &hooks, &probe);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let exchange = async {
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(json!({"v":2,"type":"response","id":request["id"]}))
+            .await;
+    };
+    let (outcome, ()) = tokio::join!(attachment.once(), exchange);
+    assert_eq!(outcome.expect("retryable refusal"), Outcome::Refused);
+    assert_eq!(
+        attachment.last_failure,
+        Some(oni_machine_client::transport::classes::FailureClass::RemoteUnavailable)
+    );
+}
+
+#[tokio::test]
+async fn client_reconnects_when_host_frames_stop_for_fifteen_seconds() {
+    tokio::time::pause();
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = unix_settings(&host, directory.path()).await;
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let exchange = async {
+        let offer = expect(&mut host, "machine.attach").await;
+        host.send(attached(&offer, 1)).await;
+        let _first = expect(&mut host, "machine.report").await;
+        tokio::time::advance(Duration::from_secs(16)).await;
+    };
+    let (outcome, ()) = tokio::join!(attachment.once(), exchange);
+    assert!(matches!(
+        outcome.expect("liveness disconnect"),
+        Outcome::Ended(connected_for) if connected_for >= Duration::from_secs(15)
+    ));
+    assert_eq!(
+        attachment.last_failure,
+        Some(oni_machine_client::transport::classes::FailureClass::Timeout)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn attached_idle_session_exits_on_silence_without_pending_report() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = unix_settings(&host, directory.path()).await;
+    let mut hooks = hooks(Arc::new(NoRetention));
+    hooks.heartbeat = Duration::from_secs(30);
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let exchange = async {
+        let offer = expect(&mut host, "machine.attach").await;
+        host.send(attached(&offer, 1)).await;
+        let _report = expect(&mut host, "machine.report").await;
+        tokio::time::advance(Duration::from_secs(16)).await;
+    };
+
+    let (outcome, ()) = tokio::join!(attachment.once(), exchange);
+
+    assert!(matches!(outcome, Ok(Outcome::Ended(_))));
+    assert_eq!(
+        attachment.last_failure,
+        Some(oni_machine_client::transport::classes::FailureClass::Timeout)
+    );
+}
+
+#[tokio::test]
+async fn unanswered_report_disconnects_at_the_fifteen_second_boundary() {
+    tokio::time::pause();
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = unix_settings(&host, directory.path()).await;
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let exchange = async {
+        let offer = expect(&mut host, "machine.attach").await;
+        host.send(attached(&offer, 1)).await;
+        expect(&mut host, "machine.report").await;
+        tokio::time::advance(Duration::from_secs(15)).await;
+    };
+    let (outcome, ()) = tokio::join!(attachment.once(), exchange);
+    assert!(matches!(
+        outcome.expect("silence disconnect"),
+        Outcome::Ended(connected_for) if connected_for >= Duration::from_secs(15)
+    ));
+    assert_eq!(
+        attachment.last_failure,
+        Some(oni_machine_client::transport::classes::FailureClass::Timeout)
+    );
+}
+
+#[tokio::test]
+async fn pending_uplink_cannot_extend_the_inbound_silence_deadline() {
+    tokio::time::pause();
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = unix_settings(&host, directory.path()).await;
+    let session = Arc::new(Uplinked(std::sync::Mutex::new(None)));
+    let mut hooks = hooks(Arc::new(NoRetention));
+    hooks.session = session.clone();
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let exchange = async {
+        let offer = expect(&mut host, "machine.attach").await;
+        host.send(attached(&offer, 1)).await;
+        let report = expect(&mut host, "machine.report").await;
+        host.send(reply(&report, json!({"status":"accepted"})))
+            .await;
+        let uplink = session
+            .0
+            .lock()
+            .expect("uplink slot")
+            .clone()
+            .expect("uplink");
+        let pending = async {
+            let answer = uplink.call("machine.cdp.chunk", json!({})).await;
+            assert!(matches!(
+                answer,
+                Err(oni_machine_client::transport::request_table::CallError::Disconnected)
+            ));
+        };
+        let hosting = async {
+            expect(&mut host, "machine.cdp.chunk").await;
+            tokio::time::advance(Duration::from_secs(15)).await;
+        };
+        tokio::join!(pending, hosting);
+    };
+    let (outcome, ()) = tokio::join!(attachment.once(), exchange);
+    assert!(matches!(
+        outcome.expect("silence disconnect"),
+        Outcome::Ended(_)
+    ));
+    assert_eq!(
+        attachment.last_failure,
+        Some(oni_machine_client::transport::classes::FailureClass::Timeout)
+    );
+}
+
+#[tokio::test]
+async fn explicit_retry_reconnects_after_authentication_refusal() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = unix_settings(&host, directory.path()).await;
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let run = run_with_events(
+        &settings,
+        directory.path(),
+        &[],
+        &hooks,
+        &probe,
+        &mut events,
+    );
     let exchange = async {
         let request = expect(&mut host, "machine.attach").await;
         host.send(reply(
@@ -923,25 +1108,84 @@ async fn run_loop_reconnects_after_a_retrying_refusal() {
         ))
         .await;
         let mut host = host.reopen().await;
+        sender.send(Event::Retry).expect("retry event");
         let request = expect(&mut host, "machine.attach").await;
         host.send(attached(&request, 5)).await;
         expect(&mut host, "machine.report").await;
-        let mut host = host.reopen().await;
-        let request = expect(&mut host, "machine.attach").await;
-        host.send(reply(
-            &request,
-            json!({"status":"refused","reason":"stale_generation"}),
-        ))
-        .await;
         request
     };
-    let (stopped, offer) = tokio::time::timeout(Duration::from_secs(5), async {
-        tokio::join!(run, exchange)
+    let offer = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::select! {
+            outcome = run => panic!("service stopped: {outcome:?}"),
+            offer = exchange => offer,
+        }
     })
     .await
-    .expect("reconnect ends on terminal refusal");
-    assert_eq!(offer["params"]["generation"], 5);
-    assert!(matches!(stopped, Err(AttachError::Terminal(reason)) if reason == "stale_generation"));
+    .expect("explicit retry attaches");
+    assert_eq!(offer["params"]["capabilities"], json!(["ping"]));
+}
+
+#[tokio::test]
+async fn failed_metrics_append_returns_io_from_reconnect_loop() {
+    let directory = tempfile::tempdir().expect("client directory");
+    std::fs::create_dir(directory.path().join("metrics.jsonl")).expect("blocking metrics");
+    let mut settings = config();
+    settings.unix = Some(directory.path().join("missing.sock"));
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let (_sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+
+    let outcome = run_with_events(
+        &settings,
+        directory.path(),
+        &[],
+        &hooks,
+        &probe,
+        &mut events,
+    )
+    .await;
+    assert!(matches!(
+        outcome,
+        Err(AttachError::Io(error)) if error.kind() == std::io::ErrorKind::IsADirectory
+    ));
+}
+
+#[tokio::test]
+async fn refused_and_terminal_attach_outcomes_reprobe_without_external_retry() {
+    tokio::time::pause();
+    for reason in ["machine_not_enrolled", "unsupported_contract"] {
+        let mut host = FakeHost::unix().await;
+        let directory = tempfile::tempdir().expect("client directory");
+        let settings = unix_settings(&host, directory.path()).await;
+        let hooks = hooks(Arc::new(NoRetention));
+        let probe = FixedProbe::new(0);
+        let (_sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let run = run_with_events(
+            &settings,
+            directory.path(),
+            &[],
+            &hooks,
+            &probe,
+            &mut events,
+        );
+        let exchange = async {
+            let request = expect(&mut host, "machine.attach").await;
+            host.send(reply(&request, json!({"status":"refused","reason":reason})))
+                .await;
+            let mut host = host.reopen().await;
+            let request = expect(&mut host, "machine.attach").await;
+            host.send(attached(&request, 2)).await;
+            expect(&mut host, "machine.report").await;
+        };
+        tokio::time::timeout(Duration::from_secs(310), async {
+            tokio::select! {
+                outcome = run => panic!("reconnect stopped: {outcome:?}"),
+                () = exchange => {}
+            }
+        })
+        .await
+        .expect("reprobe attaches after scheduled retry");
+    }
 }
 
 #[tokio::test]
@@ -989,8 +1233,73 @@ async fn memory_pressure_sheds_gates_new_work_and_exits_on_third_sample() {
         host
     };
     let (outcome, _host) = tokio::join!(attachment.once(), exchange);
-    assert!(matches!(outcome, Err(AttachError::MemoryBudget)));
+    assert!(
+        matches!(outcome, Err(AttachError::MemoryBudget)),
+        "{outcome:?}"
+    );
     assert_eq!(pressure.sheds.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn memory_budget_exit_ends_reconnect_loop_without_retry() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let mut settings = unix_settings(&host, directory.path()).await;
+    settings.memory_budget_mb = 1;
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(2 * 1024 * 1024);
+    let (_sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let exchange = async {
+        let offer = expect(&mut host, "machine.attach").await;
+        host.send(attached(&offer, 1)).await;
+        for _ in 0..2 {
+            let report = expect(&mut host, "machine.report").await;
+            host.send(reply(&report, json!({"status":"accepted"})))
+                .await;
+        }
+    };
+    let (outcome, ()) = tokio::join!(
+        run_with_events(
+            &settings,
+            directory.path(),
+            &[],
+            &hooks,
+            &probe,
+            &mut events
+        ),
+        exchange
+    );
+    assert!(matches!(outcome, Err(AttachError::MemoryBudget)));
+}
+
+#[tokio::test]
+async fn memory_budget_exit_passes_through_default_runner() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let mut settings = unix_settings(&host, directory.path()).await;
+    settings.memory_budget_mb = 0;
+    settings.exports.clear();
+    config::save(&settings, directory.path()).expect("zero budget config");
+    let path = directory.path().join("client.json");
+    let exchange = async {
+        let offer = expect(&mut host, "machine.attach").await;
+        host.send(attached(&offer, 1)).await;
+        for _ in 0..2 {
+            let report = expect(&mut host, "machine.report").await;
+            host.send(reply(&report, json!({"status":"accepted"})))
+                .await;
+        }
+    };
+    let run = attach::run_default(&path);
+    tokio::pin!(run);
+    let outcome = tokio::select! {
+        outcome = &mut run => outcome,
+        () = exchange => run.await,
+    };
+    assert!(
+        matches!(outcome, Err(AttachError::MemoryBudget)),
+        "{outcome:?}"
+    );
 }
 
 #[tokio::test]
@@ -1341,9 +1650,109 @@ async fn attach_grant_reaches_handlers_and_detach_revokes_it() {
         }
     };
     let (outcome, ()) = tokio::join!(attachment.once(), exchange);
-    assert_eq!(outcome.expect("ended"), Outcome::Ended);
+    assert!(matches!(outcome.expect("ended"), Outcome::Ended(_)));
     let answer = (hooks.service)("machine.fs_op".into(), Some(read)).await;
     assert_eq!(answer.expect("refusal")["reason"], "fs_not_available");
+}
+
+#[tokio::test]
+async fn closed_events_while_suspended_end_attachment() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = unix_settings(&host, directory.path()).await;
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let exchange = async {
+        let _request = expect(&mut host, "machine.attach").await;
+        sender.send(Event::Suspend).expect("suspend attachment");
+        drop(sender);
+    };
+
+    let (outcome, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            run_with_events(
+                &settings,
+                directory.path(),
+                &[],
+                &hooks,
+                &probe,
+                &mut events
+            ),
+            exchange
+        )
+    })
+    .await
+    .expect("suspended attachment ends");
+
+    assert!(matches!(outcome, Err(AttachError::EventsClosed)));
+}
+
+#[tokio::test]
+async fn suspend_cancels_the_attachment_and_revokes_the_real_service_grant() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let root = tempfile::tempdir().expect("export root");
+    std::fs::write(root.path().join("one"), b"hello").expect("seed");
+    let settings = exported(&host, root.path(), directory.path());
+    let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
+    let service = Service::open(&settings, pty).expect("service");
+    let observed = Arc::new(ObservedService {
+        service: service.clone(),
+        detached: tokio::sync::Notify::new(),
+        count: AtomicUsize::new(0),
+    });
+    let mut hooks = service.hooks(Duration::from_secs(60));
+    hooks.session = observed.clone();
+    let probe = FixedProbe::new(0);
+    let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let running = run_with_events(
+        &settings,
+        directory.path(),
+        service.capabilities(),
+        &hooks,
+        &probe,
+        &mut events,
+    );
+    let exchange = async {
+        let offer = expect(&mut host, "machine.attach").await;
+        host.send(reply(
+            &offer,
+            json!({
+                "status":"attached","effectiveCapabilities":["fs.read"],
+                "effectiveExports":["notes"],"generation":1
+            }),
+        ))
+        .await;
+        let report = expect(&mut host, "machine.report").await;
+        host.send(reply(&report, json!({"status":"accepted"})))
+            .await;
+        let before = (hooks.service)(
+            "machine.fs_op".into(),
+            Some(json!({"op":"read","export":"notes","path":"one"})),
+        )
+        .await
+        .expect("before suspension");
+        assert_eq!(before["status"], "completed");
+        sender.send(Event::Suspend).expect("suspend event");
+        observed.detached.notified().await;
+        let after = (hooks.service)(
+            "machine.fs_op".into(),
+            Some(json!({"op":"read","export":"notes","path":"one"})),
+        )
+        .await
+        .expect("after suspension");
+        assert_eq!(after["reason"], "fs_not_available");
+        assert_eq!(observed.count.load(Ordering::SeqCst), 1);
+        let mut host = host.reopen().await;
+        sender.send(Event::Wake).expect("wake suspended attachment");
+        let offer = expect(&mut host, "machine.attach").await;
+        assert_eq!(offer["params"]["generation"], 1);
+    };
+    tokio::select! {
+        outcome = running => panic!("service stopped: {outcome:?}"),
+        () = exchange => {}
+    }
 }
 
 #[tokio::test]
@@ -1356,7 +1765,7 @@ async fn run_default_attaches_with_a_long_config_directory() {
     settings.exports.clear();
     config::save(&settings, &directory).expect("save without unrelated exports");
     let path = directory.join("client.json");
-    let run = attach::run_default(Some(&path));
+    let run = attach::run_default(&path);
     tokio::pin!(run);
     let exchange = async {
         let request = expect(&mut host, "machine.attach").await;
@@ -1406,11 +1815,11 @@ async fn run_default_attaches_with_a_long_config_directory() {
     })
     .await
     .expect("attachment exchange");
-    let outcome = run.await;
-    assert!(
-        matches!(outcome, Err(AttachError::Terminal(_))),
-        "{outcome:?}"
-    );
+    let state: Value = serde_json::from_slice(
+        &std::fs::read(directory.join("state.json")).expect("accepted generation"),
+    )
+    .expect("state");
+    assert_eq!(state["generation"], 1);
 }
 
 #[test]
@@ -1483,9 +1892,14 @@ async fn run_default_offers_the_available_capabilities_of_its_config() {
         .await;
         offered
     };
-    let (outcome, offered) = tokio::join!(attach::run_default(Some(&path)), exchange);
+    let (outcome, offered) = tokio::join!(attach::run_service_once(&path), exchange);
     assert!(
-        matches!(outcome, Err(AttachError::Terminal(_))),
+        matches!(
+            outcome,
+            Err(AttachError::Once(
+                oni_machine_client::transport::classes::FailureClass::Configuration
+            ))
+        ),
         "{outcome:?}"
     );
     let tmux = Pty::new("tmux", None, "g".into()).await.offered();
@@ -1510,9 +1924,9 @@ async fn run_default_offers_the_available_capabilities_of_its_config() {
     assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
 
     std::fs::remove_dir(root.path()).expect("remove export");
-    let missing = attach::run_default(Some(&path)).await;
+    let missing = attach::run_default(&path).await;
     assert!(matches!(missing, Err(AttachError::Io(_))), "{missing:?}");
-    let absent = attach::run_default(Some(&directory.path().join("absent.json"))).await;
+    let absent = attach::run_default(&directory.path().join("absent.json")).await;
     assert!(matches!(absent, Err(AttachError::Config(_))), "{absent:?}");
 }
 
@@ -1555,7 +1969,7 @@ async fn reconnect_discards_old_edges_but_reports_folded_human_counts() {
     })
     .await
     .expect("old edge is not replayed");
-    assert_eq!(outcome.expect("closed"), Outcome::Ended);
+    assert!(matches!(outcome.expect("closed"), Outcome::Ended(_)));
 }
 
 #[tokio::test]
@@ -1591,7 +2005,7 @@ async fn human_edge_and_report_fact_arrive_while_heartbeat_reply_is_held() {
     })
     .await
     .expect("human notification precedes held heartbeat reply");
-    assert_eq!(outcome.expect("closed"), Outcome::Ended);
+    assert!(matches!(outcome.expect("closed"), Outcome::Ended(_)));
 }
 
 #[tokio::test]
@@ -1652,7 +2066,7 @@ async fn human_edge_arrives_while_uplink_reply_is_held() {
     })
     .await
     .expect("human notification precedes held uplink reply");
-    assert_eq!(outcome.expect("closed"), Outcome::Ended);
+    assert!(matches!(outcome.expect("closed"), Outcome::Ended(_)));
 }
 
 #[tokio::test]
@@ -1692,7 +2106,7 @@ async fn uplink_calls_ride_the_attachment_and_fail_once_it_ends() {
         uplink
     };
     let (outcome, uplink) = tokio::join!(attachment.once(), exchange);
-    assert_eq!(outcome.expect("ended"), Outcome::Ended);
+    assert!(matches!(outcome.expect("ended"), Outcome::Ended(_)));
     let after = uplink.call("machine.cdp.chunk", json!({})).await;
     assert!(
         matches!(
@@ -1710,6 +2124,127 @@ async fn run_default_refuses_a_malformed_cdp_manifest() {
     unix_settings(&host, directory.path()).await;
     std::fs::write(directory.path().join("cdp.json"), b"{\"ports\":[0]}").expect("manifest");
     let path = directory.path().join("client.json");
-    let outcome = attach::run_default(Some(&path)).await;
+    let outcome = attach::run_default(&path).await;
     assert!(matches!(outcome, Err(AttachError::Io(_))), "{outcome:?}");
+}
+
+#[tokio::test]
+async fn service_reprobes_configuration_error_on_retry_and_stops_on_term() {
+    use nix::{
+        sys::signal::{kill, Signal},
+        unistd::Pid,
+    };
+    use tokio::io::AsyncBufReadExt;
+
+    let host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    unix_settings(&host, directory.path()).await;
+    std::fs::write(directory.path().join("cdp.json"), b"{\"ports\":[0]}").expect("manifest");
+    let path = directory.path().join("client.json");
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .args([
+            "run",
+            "--allow-unpinned",
+            "--config",
+            path.to_str().expect("utf8 path"),
+        ])
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("service process");
+    let pid = Pid::from_raw(i32::try_from(child.id().expect("pid")).expect("pid fits"));
+    let mut stderr = tokio::io::BufReader::new(child.stderr.take().expect("stderr"));
+    let scenario = async {
+        for signal in [Signal::SIGUSR1, Signal::SIGTERM] {
+            let mut line = String::new();
+            stderr.read_line(&mut line).await.expect("reprobe receipt");
+            let receipt: Value = serde_json::from_str(&line).expect("class receipt");
+            assert_eq!(receipt["class"], "configuration");
+            kill(pid, signal).expect("signal service");
+        }
+        assert_eq!(child.wait().await.expect("service exit").code(), Some(0));
+        assert!(attach::service_pid(directory.path())
+            .expect("saved pid")
+            .is_none());
+    };
+    tokio::time::timeout(Duration::from_secs(10), scenario)
+        .await
+        .expect("service reprobe and shutdown");
+}
+
+#[tokio::test]
+async fn service_timer_reprobes_after_config_is_repaired() {
+    tokio::time::pause();
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let mut settings = unix_settings(&host, directory.path()).await;
+    settings.exports.clear();
+    let path = directory.path().join("client.json");
+    std::fs::write(&path, b"{").expect("invalid config");
+    let run = attach::run_service(&path);
+    let exchange = async {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        config::save(&settings, directory.path()).expect("repair config");
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(attached(&request, 1)).await;
+        expect(&mut host, "machine.report").await;
+    };
+    tokio::time::timeout(Duration::from_secs(400), async {
+        tokio::select! {
+            biased;
+            outcome = run => panic!("service exited before reprobe: {outcome:?}"),
+            () = exchange => {}
+        }
+    })
+    .await
+    .expect("timer reprobing attached the repaired client");
+}
+
+#[tokio::test]
+async fn run_without_config_uses_the_home_client_path() {
+    use nix::{
+        sys::signal::{kill, Signal},
+        unistd::Pid,
+    };
+    use tokio::io::AsyncBufReadExt;
+
+    let home = tempfile::tempdir().expect("home");
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .args(["run", "--allow-unpinned", "--once"])
+        .env("HOME", home.path())
+        .output()
+        .await
+        .expect("once exits");
+    assert_eq!(output.status.code(), Some(2));
+    let reason: Value = serde_json::from_slice(&output.stderr).expect("once error receipt");
+    assert!(reason["reason"]
+        .as_str()
+        .expect("reason")
+        .starts_with("configuration I/O:"));
+
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .args(["run", "--allow-unpinned"])
+        .env("HOME", home.path())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("service starts");
+    let pid = Pid::from_raw(i32::try_from(child.id().expect("pid")).expect("pid fits"));
+    let mut stderr = tokio::io::BufReader::new(child.stderr.take().expect("stderr"));
+    let scenario = async {
+        let mut line = String::new();
+        stderr.read_line(&mut line).await.expect("reprobe receipt");
+        let receipt: Value = serde_json::from_str(&line).expect("class receipt");
+        assert_eq!(receipt["class"], "configuration");
+        kill(pid, Signal::SIGTERM).expect("stop service");
+        assert_eq!(child.wait().await.expect("service exit").code(), Some(0));
+        assert!(
+            attach::service_pid(&home.path().join(".oni/machine-client"))
+                .expect("service state")
+                .is_none()
+        );
+    };
+    tokio::time::timeout(Duration::from_secs(10), scenario)
+        .await
+        .expect("default service shuts down");
 }

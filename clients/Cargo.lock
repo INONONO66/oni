@@ -2009,6 +2009,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -2407,6 +2408,7 @@ dependencies = [
  "block2",
  "clap",
  "core-foundation",
+ "core-foundation-sys",
  "core-graphics",
  "enigo",
  "hex",

@@ -1,7 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 import net from "node:net";
 import { tmpdir } from "node:os";
-import { Machine } from "@oni/protocol";
+import { Ipc, Machine } from "@oni/protocol";
 import { createMachineHost } from "./helpers/native";
 import { createMemoryGenerationStore } from "../src";
 import { run } from "./ipc/helpers/effects";
@@ -13,7 +13,7 @@ import { captureError, within } from "./ipc/helpers/signal";
 
 beforeAll(mclientBinary, 300_000);
 
-test("drop fails pending once, reconnect preserves the old handle, and terminal refusal stops reconnect", async () => {
+test("drop fails pending once, reconnect preserves the handle, and stale generation keeps the service available", async () => {
   const events = eventCollector();
   const generations = createMemoryGenerationStore();
   const host = await createMachineHost({
@@ -33,7 +33,13 @@ test("drop fails pending once, reconnect preserves the old handle, and terminal 
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const proxyPath = socketPath();
-  const proxy = await startProxy(proxyPath, () => net.connect(host.endpoints.unix ?? ""));
+  const reoffer = Promise.withResolvers<void>();
+  let stale = false;
+  const proxy = await startProxy(proxyPath, () => net.connect(host.endpoints.unix ?? ""), (line) => {
+    const frame = Ipc.Request.safeParse(JSON.parse(line));
+    if (stale && frame.success && frame.data.method === Machine.WireMethod.Attach) reoffer.resolve();
+    return false;
+  });
   const client = await attachMclient({ host, events, machineId: "m-1", root: tmpdir(), exports: [], unix: proxyPath });
   try {
     const handle = host.get("m-1");
@@ -55,9 +61,13 @@ test("drop fails pending once, reconnect preserves the old handle, and terminal 
 
     expect(await run(generations.compareAndSet("m-1", 1, 2))).toBe(true);
     const lost = events.next(Machine.Events.Detached.name);
+    stale = true;
     proxy.sever();
     await within(lost, "terminal detach", 5_000);
-    expect(await within(client.exited, "terminal client exit", 5_000)).toBe(3);
+    await within(Promise.race([
+      reoffer.promise,
+      client.exited.then(() => { throw new Error("service exited after stale generation"); }),
+    ]), "stale-generation re-probe", 5_000);
     expect(host.list()).toEqual([]);
   } finally {
     release.resolve();

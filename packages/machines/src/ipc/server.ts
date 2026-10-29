@@ -42,6 +42,12 @@ interface IpcServerApi {
     params?: Ipc.Request["params"],
     timeoutMs?: number,
   ): Effect.Effect<Ipc.Response["result"], IpcError>;
+  callConnection(
+    id: string,
+    method: string,
+    params?: Ipc.Request["params"],
+    timeoutMs?: number,
+  ): Effect.Effect<Ipc.Response["result"], IpcError>;
   /** Returns false when the notification was dropped because no client is connected. */
   notify(method: string, params?: Ipc.Notification["params"]): Effect.Effect<boolean, IpcError>;
   useConnection(id: string): void;
@@ -317,6 +323,12 @@ function makeServerCore(handler: RequestHandler, options: IpcServerOptions, disp
       peer.disconnectAll(new IpcConnectionError({ message }));
     },
     api: {
+      callConnection(id, method, params, timeoutMs = 30_000) {
+        return Effect.suspend(() => {
+          const conn = connections.get(id);
+          return conn ? peer.call(conn, method, params, timeoutMs) : new IpcConnectionError({ message: "no connected client" });
+        });
+      },
       call(method, params, timeoutMs = 30_000) {
         return Effect.suspend(() => {
           const conn = getActiveConnection();

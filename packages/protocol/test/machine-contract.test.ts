@@ -78,6 +78,7 @@ describe("machine wire contract fixtures", () => {
       "ScreenObserveResult.private-true.json",
       "ScreenObserveResult.unknown-reason.json",
       "WindowTarget.unknown-field.json",
+      "TransportFailureClass.unsupported.json",
     ];
     const rootFailure = rootFailures.includes(file);
     expect(issue?.path.length).toBeGreaterThan(rootFailure ? -1 : 0);

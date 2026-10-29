@@ -486,7 +486,7 @@ fn run_admits_a_saved_offline_pin_before_loading_config() {
     )
     .expect("offline pin");
     let file = directory.path().join("client.json");
-    let output = mclient(&["run", "--config", file.to_str().expect("path")]);
+    let output = mclient(&["run", "--once", "--config", file.to_str().expect("path")]);
     assert_eq!(output.status.code(), Some(2));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("refusal");
     assert!(error["reason"]
@@ -516,6 +516,7 @@ fn run_reports_missing_config() {
     let output = mclient(&[
         "run",
         "--allow-unpinned",
+        "--once",
         "--config",
         path.to_str().expect("path"),
     ]);
@@ -526,6 +527,64 @@ fn run_reports_missing_config() {
         .expect("reason")
         .contains("configuration I/O"));
     assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn retry_refuses_missing_or_dead_service_without_spawning() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let directory = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&directory).expect("state directory");
+    for state in [None, Some(r#"{"generation":1,"pid":99999999}"#)] {
+        if let Some(state) = state {
+            std::fs::write(directory.join("state.json"), state).expect("dead pid");
+        }
+        let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .arg("retry")
+            .output()
+            .expect("mclient retry");
+        assert_eq!(output.status.code(), Some(2));
+        let error: serde_json::Value =
+            serde_json::from_slice(&output.stderr).expect("typed refusal");
+        assert_eq!(error["reason"], "service_unavailable");
+        assert!(output.stdout.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn retry_signals_the_running_service_for_an_immediate_reprobe() {
+    use tokio::io::AsyncBufReadExt;
+    let home = tempfile::tempdir().expect("isolated home");
+    let mut service = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["run", "--allow-unpinned"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("service starts");
+    let stderr = service.stderr.take().expect("service stderr");
+    let mut lines = tokio::io::BufReader::new(stderr).lines();
+    let first = tokio::time::timeout(std::time::Duration::from_secs(5), lines.next_line())
+        .await
+        .expect("first configuration observation")
+        .expect("stderr")
+        .expect("line");
+    let fact: serde_json::Value = serde_json::from_str(&first).expect("class fact");
+    assert_eq!(fact["class"], "configuration");
+    let retry = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .arg("retry")
+        .output()
+        .await
+        .expect("retry command");
+    assert_eq!(retry.status.code(), Some(0));
+    let second = tokio::time::timeout(std::time::Duration::from_secs(5), lines.next_line())
+        .await
+        .expect("immediate retry")
+        .expect("stderr")
+        .expect("line");
+    let fact: serde_json::Value = serde_json::from_str(&second).expect("reprobe class");
+    assert_eq!(fact["class"], "configuration");
+    service.kill().await.expect("stop service");
 }
 
 #[test]
@@ -827,11 +886,10 @@ fn join_installs_restarts_and_reports_manager_failure() {
     let service = directory.path().join("services");
     let bin = directory.path().join("bin");
     std::fs::create_dir(&bin).expect("fake binaries");
-    let manager = if cfg!(target_os = "macos") {
-        "launchctl"
-    } else {
-        "systemctl"
-    };
+    #[cfg(target_os = "macos")]
+    let manager = "launchctl";
+    #[cfg(target_os = "linux")]
+    let manager = "systemctl";
     let script = bin.join(manager);
     let log = directory.path().join("manager.log");
     let state = directory.path().join("loaded");
@@ -881,17 +939,11 @@ fn join_installs_restarts_and_reports_manager_failure() {
                 .display()
         )
     );
-    assert_eq!(
-        lines[1],
-        format!(
-            "service: {} (started)",
-            if cfg!(target_os = "macos") {
-                "ai.oni.machine"
-            } else {
-                "oni-machine-client.service"
-            }
-        )
-    );
+    #[cfg(target_os = "macos")]
+    let service_name = "ai.oni.machine";
+    #[cfg(target_os = "linux")]
+    let service_name = "oni-machine-client.service";
+    assert_eq!(lines[1], format!("service: {service_name} (started)"));
     assert_eq!(
         lines[2],
         format!(
@@ -1090,7 +1142,7 @@ fn run_without_config_reads_default_home_path() {
     let directory = tempfile::tempdir().expect("isolated home");
     let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
         .env("HOME", directory.path())
-        .args(["run", "--allow-unpinned"])
+        .args(["run", "--allow-unpinned", "--once"])
         .output()
         .expect("mclient runs");
     assert_eq!(output.status.code(), Some(2));
@@ -1102,7 +1154,7 @@ fn run_without_config_reads_default_home_path() {
 }
 
 #[test]
-fn run_without_recorded_host_pin_exits_two() {
+fn one_shot_without_recorded_host_pin_refuses_configuration() {
     let directory = tempfile::tempdir().expect("client directory");
     let path = directory.path().join("client.json");
     std::fs::write(
@@ -1113,12 +1165,13 @@ fn run_without_recorded_host_pin_exits_two() {
     let output = mclient(&[
         "run",
         "--allow-unpinned",
+        "--once",
         "--config",
         path.to_str().expect("path"),
     ]);
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(3));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
-    assert!(error["reason"].as_str().expect("reason").starts_with("I/O"));
+    assert_eq!(error["reason"], "configuration");
 }
 
 const CLAUDE_INPUT: &str =
