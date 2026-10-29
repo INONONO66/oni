@@ -20,6 +20,8 @@ import { login, type LoginDeps } from "./login";
 import { channelAdd } from "./channel";
 import { channelHistory, type ChannelHistoryDeps } from "./channel-history";
 import { type MessagingFacts, messagingReadiness } from "./messaging";
+import { type DeployClient, deployCommand } from "./deploy";
+import { ONI_VERSION } from "../version";
 
 /**
  * Command dispatch with every side effect injected. `main.ts` is the only
@@ -43,12 +45,18 @@ export interface CliDeps {
   readonly channelHistory: ChannelHistoryDeps;
   /** #1600 lane R4: the catalog's declared instances, Persons and sealed credentials, read for the readiness report. */
   readonly messagingFacts: () => Promise<MessagingFacts>;
+  /** #1699: the resident supervisor the service unit runs, and the deploy client of its socket. */
+  readonly supervise: () => Promise<number>;
+  readonly deploy: DeployClient;
 }
 
 const USAGE = `oni — Single-Owner Agent OS
 
 Usage:
   oni start                 run the Resident in the foreground
+  oni supervise             run the Resident under the deploy supervisor (the service unit's command)
+  oni deploy <tgz>          drain-restart onto a staged release [--grace-ms <0..300000>]; --reload re-deploys the newest staged one
+  oni --version             print the version
   oni onboard               interactive setup → ~/.oni/env
   oni daemon <verb>         install | uninstall | status | start | stop | restart
   oni machine attach <json> attach a machine daemon using a JSON config
@@ -74,6 +82,13 @@ export async function runCli(args: readonly string[], deps: CliDeps): Promise<nu
   switch (command) {
     case "start":
       await deps.startApp();
+      return 0;
+    case "supervise":
+      return await deps.supervise();
+    case "deploy":
+      return await deployCommand(args.slice(1), deps.deploy);
+    case "--version":
+      deps.stdout(ONI_VERSION);
       return 0;
     case "onboard":
       return await onboard(deps);

@@ -1,4 +1,6 @@
 import { expect, mock, test } from "bun:test";
+import { Core } from "@oni/agent";
+import { Effect } from "effect";
 import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +11,7 @@ import { runProcessEntry } from "../src/process-entry";
 import type { AppRuntimeOptions } from "../src/runtime";
 import { composedHolder } from "./helpers/bundle-fixture";
 import { Bus } from "./helpers/bus";
-import { appRuntime } from "./helpers/effect";
+import { appRuntime, runRuntimeEffect } from "./helpers/effect";
 import { planeOf } from "./helpers/ledger";
 import { messageFixture } from "./helpers/message-fixture";
 import { bounded } from "./helpers/protected-dispatch";
@@ -70,6 +72,10 @@ test("the process child isolates its runner tables in :memory: while the ledger 
       entityIdleMs: 50,
       model: { provider: "fake", id: "fixture" },
       apiKey: "fixture-key",
+      // The child shares the parent's owner lock instead of opening a second writer (#1699).
+      ownerFd: await runRuntimeEffect(parent, Effect.gen(function* () {
+        return (yield* Core.LedgerOwner).fd;
+      })),
     };
     stdin.write(`${JSON.stringify(request)}\n`);
     await bounded(running);

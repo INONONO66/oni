@@ -7,8 +7,9 @@ import {
   type WindowPlatform,
 } from "@oni/ui";
 import { useStore } from "@tanstack/react-store";
-import { useEffect, useLayoutEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
 import { SessionContent, useSessionChats } from "./chat/session-content";
+import type { GatewayChatTransport } from "./chat/gateway-transport";
 import { selectChatTransport } from "./chat/select-transport";
 import type { RendererPlatform } from "./platform";
 import { placeIcon } from "./shell/place-icon";
@@ -54,6 +55,7 @@ export function App({ platform, storage, host }: AppEnvironment) {
   useShellLifecycle(storage);
   const chatFor = useSessionChats(transport);
   const { forkNotice, onFork, onOpenChild } = useSessionActions(host, transport);
+  const drainNotice = useHostDrainNotice(transport);
   const {
     arrive,
     captureCloseFocus,
@@ -148,7 +150,7 @@ export function App({ platform, storage, host }: AppEnvironment) {
       <SessionContent
         chat={chatFor(session.id)}
         key={tab?.id}
-        notice={forkNotice ?? notice}
+        notice={drainNotice ?? forkNotice ?? notice}
         onFork={onFork}
         onOpenChild={onOpenChild}
         session={session}
@@ -156,6 +158,21 @@ export function App({ platform, storage, host }: AppEnvironment) {
       />
     );
   return <Console content={content} shell={shell} sidebar={sidebar} strip={strip} />;
+}
+
+const NO_DRAIN = (): undefined => undefined;
+const NO_SUBSCRIPTION = () => () => undefined;
+
+/** The host's drain-restart announcement (#1699) as the composer notice; cleared on cancel or socket loss. */
+function useHostDrainNotice(transport: GatewayChatTransport | null): string | undefined {
+  const drain = useSyncExternalStore(
+    transport?.subscribeHostDrain ?? NO_SUBSCRIPTION,
+    transport?.hostDrain ?? NO_DRAIN,
+    NO_DRAIN,
+  );
+  return drain === undefined
+    ? undefined
+    : `Host restarting to ${drain.targetVersion}: running turns finish, new sessions wait`;
 }
 
 function useChatEndpoint(id: () => string) {

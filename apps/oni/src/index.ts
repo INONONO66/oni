@@ -15,6 +15,8 @@ import { webhookContacts } from "./composition/webhook-contacts";
 import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
 import { createAutomationDelivery } from "./composition/automation-delivery";
+import { createDrainGate, createWorkTracker, drainAdmission, hostControlRoutes } from "./composition/drain";
+import { ONI_VERSION } from "./version";
 import { automationAlarm, type AlarmIngress } from "./composition/automation-alarm";
 import { configureFailures, foreignFailure } from "./composition/failure";
 import { shutdownSessions } from "./shutdown";
@@ -183,6 +185,8 @@ interface StartOptions {
   readonly config?: OniConfig;
   readonly channelProviders?: typeof ChannelProviders;
   readonly telegramDataDir?: string;
+  /** What a confirmed `POST /drain` does once answered; the process default signals its own shutdown. */
+  readonly onDrained?: () => void;
 }
 
 /**
@@ -333,6 +337,7 @@ function createHttpRoutes(
   wsHandler: WebSocketHandler,
   webhookHandler: (provider: string) => WebhookHandler | undefined,
   release: () => Machine.Release | undefined,
+  control: ReturnType<typeof hostControlRoutes>,
 ) {
   const publicGet = new Map<string, () => Response>([
     ["/health", () => Response.json({ ok: true })],
@@ -354,6 +359,8 @@ function createHttpRoutes(
       const publicRoute = publicGet.get(url.pathname);
       if (publicRoute !== undefined) return publicRoute();
     }
+    const controlled = control(request, url.pathname);
+    if (controlled !== undefined) return controlled;
     const webhook = request.method === "POST" ? webhookFor(url.pathname, webhookHandler) : undefined;
     if (webhook !== undefined) return webhook(request);
     if (request.method === "GET" && CARD_PATHS.has(url.pathname)) {
@@ -480,6 +487,7 @@ export async function startOni(options: StartOptions = {}) {
           // this seam; the real turn/timer ports resolve below.
           entityPorts: yield* SessionEntityBinding,
           media: yield* DeliveryMediaRegistry,
+          owner: yield* Core.LedgerOwner,
         };
       }),
     );
@@ -545,6 +553,17 @@ export async function startOni(options: StartOptions = {}) {
     // Live entity turns publish their approval gate + boundary drain here;
     // request readiness and the session facade reach running turns through it.
     const liveTurns = createSessionLivePlane();
+    const work = createWorkTracker();
+    const drainGate = createDrainGate({
+      liveTurns: work.count,
+      onLiveChange: work.subscribe,
+      announce: (frame) => wsHandler?.broadcast(frame),
+      after: (ms, fire) => {
+        const timer = setTimeout(fire, ms);
+        return () => clearTimeout(timer);
+      },
+      now: services.now,
+    });
     const notifyLiveApprovals = (id: string): void => {
       const approvals = liveTurns.get(id)?.approvals;
       if (approvals === undefined) return;
@@ -661,6 +680,10 @@ export async function startOni(options: StartOptions = {}) {
         return gateway.ingest(...args);
       },
     };
+    // Admitted ingress counts toward the drain until routing returns; the
+    // drain's admission decision itself is taken once, at prepare.
+    const admitIngress = (...args: Parameters<GatewayRouter["ingest"]>) =>
+      work.track(undefined, messages.ingest(...args));
     // Provisioning administration port: the supervisor is created after the
     // Resident (it needs the routing handler), so the port reaches it through
     // a late binding — tools cannot run before composition finishes anyway.
@@ -1063,7 +1086,7 @@ export async function startOni(options: StartOptions = {}) {
     // App shutdown aborts every in-flight inbox download and its machine write first (R04).
     const inboxShutdown = new AbortController();
     const routing = inboxHandler(machinery.inbox, tools.machines, services.observations.publish, services.now, async ({ sender, facts }) => {
-      const admission = await runAppEffect(runtime, messages.ingest(sender, facts));
+      const admission = await runAppEffect(runtime, admitIngress(sender, facts));
       if (admission.status === "blocked_pre") {
         throw new MessageAdmissionRefused(admission.reasonCode);
       }
@@ -1147,6 +1170,7 @@ export async function startOni(options: StartOptions = {}) {
       // destination's Session entity; the child never writes another chain.
       deliver: (input) => runAppEffect(runtime, commitProcessDelivery(input.commit, input.deliver)),
       command: [process.execPath, processEntryPath(import.meta.url)],
+      ownerFd: services.owner.fd,
       child: {
         ...resolveClusterStorage(config),
         model: config.model,
@@ -1240,7 +1264,10 @@ export async function startOni(options: StartOptions = {}) {
             commit: (input) =>
               commitDelivery(input).pipe(Effect.mapError(decodeChannelFailure("message.commit"))),
           },
-          prepare: prepareMessage(plane, resident.genesis),
+          prepare: drainAdmission(prepareMessage(plane, resident.genesis), {
+            draining: () => drainGate.state() === "draining",
+            live: work.live,
+          }),
           judge,
           requests: requestsWithDeadlines,
           stores: channelStores,
@@ -1292,13 +1319,17 @@ export async function startOni(options: StartOptions = {}) {
     // runner over the activation's kernel + fence; process-runner sessions
     // delegate to the child transport without committing under this fence.
     const turns = await runAppBoot(runtime, sessionRuntime.turns);
+    const runTool = bindSessionToolTurn(turns, sessionRuntime.options, services.scope, liveTurns);
     services.entityPorts.bind({
       approvalPolicy: sessionRuntime.options.approvalPolicy, dispatchOutbound: turns.dispatchOutbound,
-      runTool: bindSessionToolTurn(turns, sessionRuntime.options, services.scope, liveTurns),
-      runTurn: (input) =>
-        sessionRunner(input.authority.sessionId) === "process"
+      runTool: (input) => work.track(input.authority.sessionId, runTool(input)),
+      // The drain counts a turn from its start through the detached body's
+      // terminal seal and commit, not just the runner (#1699).
+      runTurn: (input) => work.track(input.authority.sessionId, Effect.suspend(() => {
+        const sessionId = input.authority.sessionId;
+        return sessionRunner(sessionId) === "process"
           ? Effect.tryPromise({
-              try: () => processSessions.wake(input.authority.sessionId),
+              try: () => work.trackPromise(sessionId, () => processSessions.wake(sessionId)),
               catch: foreignFailure((fields) => new AgentFailure(fields), "process.wake"),
             }).pipe(Effect.asVoid)
           : turns.run(
@@ -1307,7 +1338,8 @@ export async function startOni(options: StartOptions = {}) {
                 resident.runnerFor(Core.sessionReadModel(input.kernel).row(input.authority.sessionId)),
               ),
               services.scope,
-            )(input),
+            )({ ...input, detach: (body) => input.detach(work.track(sessionId, body)) });
+      })),
       requestDomainRevisions: domainRevisions,
       // An entity-path Resolve (the answer found no live turn) may land after
       // the activation it triggered recovered the open turn, which then parked
@@ -1391,7 +1423,7 @@ export async function startOni(options: StartOptions = {}) {
       (inbound) =>
         Effect.suspend(() => {
           const message = withWsParts(wsMedia, inbound);
-          return messages.ingest(message.sender, message.facts);
+          return admitIngress(message.sender, message.facts);
         }).pipe(
           Effect.flatMap((admission) =>
             admission.status === "blocked_pre"
@@ -1425,7 +1457,11 @@ export async function startOni(options: StartOptions = {}) {
       hostname: config.host,
       port: config.wsPort,
       websocket: wsCallbacks.callbacks,
-      fetch: createHttpRoutes(wsHandler, (provider) => webhookHandlers.get(provider), clientRelease),
+      fetch: createHttpRoutes(wsHandler, (provider) => webhookHandlers.get(provider), clientRelease, hostControlRoutes(drainGate, {
+        token: config.wsToken,
+        version: ONI_VERSION,
+        onDrained: options.onDrained ?? (() => process.kill(process.pid, "SIGTERM")),
+      })),
     });
 
     if (server.port === undefined)

@@ -80,6 +80,8 @@ export interface AppRuntimeOptions {
    * catalog file would fight over the same runner tables.
    */
   readonly clusterStoragePath?: string;
+  /** A process child's descriptor of the parent's held catalog owner lock (`Core.LedgerConfig.ownership`). */
+  readonly ownership?: { readonly inherited: number };
   /** Session entity activation; present once composition supplies the turn port. */
   readonly entity?: {
     readonly owner: string;
@@ -170,13 +172,14 @@ function wiredLayer(
   // The core host: catalog, session files, runner storage and the Session
   // entity under the runtime's Scope. Product choices stay here: the clock,
   // the drain defaults, the incident log and the Bun crypto.
-  const ledger: Layer.Layer<Core.Ledger | ClusterServices> = Core.openLedger({
+  const ledger: Layer.Layer<Core.Ledger | Core.LedgerOwner | ClusterServices> = Core.openLedger({
     now,
     ...(options.catalogPath === undefined ? {} : { catalog: { path: options.catalogPath } }),
     ...(options.sessionsDir === undefined ? {} : { sessions: { dir: options.sessionsDir } }),
     observationSink: observations,
     onObservationFailure: reportObservationPublishFailure,
     owner: seam.owner,
+    ...(options.ownership === undefined ? {} : { ownership: options.ownership }),
     cluster: {
       storagePath: options.clusterStoragePath ?? options.catalogPath ?? ":memory:",
       entityIdleMs: options.entityIdleMs ?? 60_000,
@@ -206,6 +209,7 @@ function wiredLayer(
 
 export type AppServices =
   | Core.Ledger
+  | Core.LedgerOwner
   | Entropy
   | ObservationSink
   | AppLedger

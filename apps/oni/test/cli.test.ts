@@ -17,6 +17,7 @@ import { afterEach } from "bun:test";
 import type { CliDeps } from "../src/cli/commands";
 import { CliError } from "../src/cli/errors";
 import { runCli } from "../src/cli/commands";
+import { ONI_VERSION } from "../src/version";
 import type { DaemonIo, DaemonTarget, ExecResult } from "../src/cli/daemon";
 import {
   daemonActive,
@@ -186,18 +187,18 @@ const darwinTarget: DaemonTarget = {
 const linuxTarget: DaemonTarget = { ...darwinTarget, platform: "linux", home: "/home/owner" };
 
 describe("daemon units", () => {
-  test("launchd plist carries bun+entry+start, KeepAlive, and log paths", () => {
+  test("launchd plist carries bun+entry+supervise, KeepAlive, and log paths", () => {
     const plist = renderLaunchdPlist(darwinTarget);
     expect(plist).toContain("<string>/opt/bun</string>");
     expect(plist).toContain("<string>/pkg/dist/app/main.js</string>");
-    expect(plist).toContain("<string>start</string>");
+    expect(plist).toContain("<string>supervise</string>");
     expect(plist).toContain("<key>KeepAlive</key>\n\t<true/>");
     expect(plist).toContain("<string>/Users/owner/.oni/logs/oni.log</string>");
   });
 
   test("systemd unit quotes ExecStart paths and restarts on failure", () => {
     const unit = renderSystemdUnit(linuxTarget);
-    expect(unit).toContain('ExecStart="/opt/bun" "/pkg/dist/app/main.js" start');
+    expect(unit).toContain('ExecStart="/opt/bun" "/pkg/dist/app/main.js" supervise\nExecReload="/opt/bun" "/pkg/dist/app/main.js" deploy --reload\n');
     expect(unit).toContain("Restart=on-failure");
     expect(unit).toContain("WantedBy=default.target");
   });
@@ -210,7 +211,7 @@ describe("daemon units", () => {
     };
     const unit = renderSystemdUnit(hostile);
     expect(unit).toContain(
-      'ExecStart="/opt/we\\"ird/bun" "/pkg/100%%/back\\\\slash/main.js" start',
+      'ExecStart="/opt/we\\"ird/bun" "/pkg/100%%/back\\\\slash/main.js" supervise',
     );
     // `$` must never reach systemd unescaped: ExecStart environment-expands it.
     const curly = "{X}";
@@ -770,6 +771,15 @@ describe("cli dispatch", () => {
           id: () => "request-1",
         },
         messagingFacts: () => Promise.reject(new Error("no catalog in this test")),
+        supervise: async () => 7,
+        deploy: {
+          supervisorReachable: () => false,
+          stage: () => Promise.reject(new Error("no staging in this test")),
+          token: () => undefined,
+          send: () => Promise.reject(new Error("no supervisor in this test")),
+          stdout: (line) => out.push(line),
+          stderr: (line) => err.push(line),
+        },
         channelHistory: {
           id: () => "request-1",
           read: () => Promise.reject(new Error("no history in this test")),
@@ -825,6 +835,15 @@ describe("cli dispatch", () => {
     ]);
     expect(await runCli(["login", "telegram"], cli)).toBe(1);
     expect(err.at(-1)).toBe("Telegram login is not configured");
+  });
+
+  test("supervise, --version and deploy dispatch; a missing supervisor answers supervisor_unavailable without staging", async () => {
+    const { deps: cli, out, err } = deps();
+    expect(await runCli(["supervise"], cli)).toBe(7);
+    expect(await runCli(["--version"], cli)).toBe(0);
+    expect(out).toEqual([ONI_VERSION]);
+    expect(await runCli(["deploy", "oni.tgz"], cli)).toBe(1);
+    expect(err).toEqual([JSON.stringify({ ok: false, class: "supervisor_unavailable", step: "request" })]);
   });
 
   test("unknown command prints usage and exits 1", async () => {

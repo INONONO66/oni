@@ -872,6 +872,83 @@ headed = browser("laptop", headless=False,
 headed.close()                                  # ends Chromium + session, keeps profile
 ```
 
+### 2.8 Drain-restart deploy (#1699)
+
+The service unit runs `oni supervise`, not the host: `ExecStart=<bun> <entry> supervise`,
+and on systemd `ExecReload=<bun> <entry> deploy --reload`. The supervisor owns
+`~/.oni/current` (a link to a staged release under `~/.oni/releases/`; absent,
+the supervisor's own entry runs), spawns the host child `oni start` from it,
+forwards SIGTERM, and exits with the child's code when the child dies outside
+a deploy. The host child never replaces itself.
+
+**Control socket.** `~/.oni/supervise.sock` (mode 0600) takes one JSON line per
+connection and answers one line (`apps/oni/src/cli/supervise-wire.ts`):
+
+- `{ op: "deploy", artifact, targetVersion, graceMs (0..300000), token }` — the
+  token is `~/.oni/supervise.token` (0600, fresh at each supervisor start);
+- `{ op: "reload" }` — re-deploys the newest staged release at the default
+  grace (60000 ms); the socket's mode is its authentication;
+- answer `{ ok: true, instanceId } | { ok: false, class, step }`. A request while
+  one runs refuses `deploy_in_progress`; a malformed line `invalid_request`; a
+  wrong token `unauthenticated`. `oni deploy` with no socket answers
+  `supervisor_unavailable` and stages nothing.
+
+**Host surface.** `oni start` serves, beside the unauthenticated `/health`,
+`GET /status` → `{ version, instanceId, contractVersion, capabilities:
+{ drainRestart: true }, state: open | draining }` and `POST /drain
+{ expectedInstanceId, targetVersion, graceMs? }`, both requiring
+`Authorization: Bearer <ONI_WS_TOKEN>` (a tokenless host refuses both). The
+instance id is a 26-character time-ordered id minted at boot. A mismatched id
+refuses `instance_mismatch` (409), a running drain `draining` (409). While
+draining, the router's one prepare step refuses `draining` to any message that
+would create a session or wake an idle one (`drainAdmission`,
+`apps/oni/src/composition/drain.ts`); steering of a session whose turn is in
+flight and a live turn's own outbound sends are continuations and pass, as do
+request answers and interrupts. Each connected socket gets `{ type:
+"draining", targetVersion, graceMs }` (`Gateway.HostDrain`), and the desktop
+composer shows a restart notice until the frame clears or the socket drops.
+One work tracker counts every turn from its start through the detached body's
+terminal commit (entity, process-runner and tool paths) plus admitted ingress
+until routing returns. The drain answers `{ drained: true, inFlight: 0,
+projectionsIdle: true }` when that count reaches zero, then the host SIGTERMs
+itself; at the deadline it answers `{ drained: false, inFlight,
+projectionsIdle }`, reopens admission and sends `{ type: "drain_cancelled" }`.
+
+**Replacement** (`apps/oni/src/cli/deploy.ts`), each step's refusal class in
+parentheses: the staged release's `--version` equals `targetVersion`
+(`version_mismatch`); drain the live host (`drain_refused`, `drain_timeout`);
+wait for the child's exit within `graceMs + 30 s` (`exit_timeout`: the child
+is stopped and the previous release restarted); take the catalog owner lock —
+the same `Core.acquireOwnerLock` that `Core.openLedger` takes for a file
+catalog — and copy `catalog.sqlite` (+ `-wal`, `-shm`) and the sessions
+directory to `~/.oni/deploy-snapshot`, then release (`lock_held`,
+`snapshot_failed`: the previous release restarts on untouched files); point
+`current` at the release and start the candidate on the same port; verify its
+status: a new instance id, `state: open`, `targetVersion` and the machine
+contract version (`candidate_failed` at `start`, `verify_failed`). A failed
+candidate is stopped, `current` repointed, the snapshot restored under a fresh
+owner lock, and the previous release restarted. The restore runs only when the
+owners log (`<catalog>.owners`) shows no writer but the candidate between the
+snapshot's mark and the restore's own acquisition; another writer, or a held
+lock, answers `restore_refused` and leaves the files. The snapshot is first
+copied beside each live path (`.restore`) and then renamed in, so a failed copy
+leaves the live files untouched. A throwing link write or spawn rolls back the
+same way (`io_failed`); supervisor shutdown cancels the replacement at the
+next boundary (`cancelled`: files restored, nothing started); a recovery step
+that throws answers `recovery_failed`. The supervisor's version probe and
+host client reads are bounded by an abort signal, and the client reaches a
+wildcard or IPv6 bind through its loopback address. The service manager sees
+the supervisor exit with the host's code once a deploy that observed the host
+exit settles.
+
+**Owner lock.** `<catalog>.owner` is held by an exclusive `flock` on an open
+descriptor for the holder's lifetime, so the kernel releases it on exit — no
+pid probe, takeover or deletion. A second opener refuses `OpenRefused`
+`owner`. Process-runner children inherit the descriptor as fd 3
+(`Core.inheritOwnerLock`) instead of opening their own. Every acquisition
+writes `{ owner, pid }` into the file and appends one line to
+`<catalog>.owners`; `Core.ownersSince` reads the owners between two marks.
+
 ## 3. Session messaging contracts
 
 The model and cell catalog exposes one `send_message({to, message, kind?, reply_to?, deadline_ms?})` tool. Targets are an existing session (`to.kind: session`), a new parent-linked session (`new_session`), or an existing contact (`contact`; the protocol keeps `actor` internally). `kind` is `prompt | interrupt | resume` and defaults to `prompt`; a committed prompt becomes a letter in the recipient inbox. The returned `{messageId, target}` is a handle, not a synchronous join.

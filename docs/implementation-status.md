@@ -38,6 +38,30 @@ restaged in place. Fixture tests cover refusals and symlink preservation;
 live MacBook grant retention and PVE bootstrap remain unverified (#1702).
 The host-self supervisor deployment and update recipe belongs to #1699.
 
+## #1699 drain-restart deploy (PR pending)
+
+The service unit now runs `oni supervise` (`ExecReload=… deploy --reload` on
+systemd), which spawns `oni start` from `~/.oni/current` and takes `deploy` and
+`reload` lines on `~/.oni/supervise.sock` (contract in
+`docs/machines-and-delegation.md` §2.8). The host serves authenticated
+`GET /status` and `POST /drain` with a boot instance id; while draining,
+messages that would create a session or wake an idle one refuse `draining` at
+the router's prepare step, steering of a running turn passes, the drain waits
+for every turn's terminal commit, and the desktop composer shows the
+`draining` frame as a restart notice. `Core.openLedger` holds a file
+catalog's `flock` owner lock (`OpenRefused` code `owner` for a second
+opener; process-runner children inherit it as fd 3). `oni deploy <tgz>`
+unpacks the tarball into `~/.oni/releases/`, runs `bun install --production`
+there, and asks the supervisor to replace the host. Tests: drain gate and an
+in-process host draining one held turn (`apps/oni/test/drain.test.ts`), every
+deploy boundary, I/O fault and cancellation on real catalog/session files with
+fake child and status ports (`apps/oni/test/deploy.test.ts`), `oni supervise`
+driving fake host releases through deploy, rollback, shutdown and host exit
+(`apps/oni/test/supervise.test.ts`), the desktop drain notice, the owner lock
+(`packages/agent/test/core/session/owner-lock.test.ts`, `host.test.ts`). Not
+yet exercised on a live host: a real `oni supervise` swapping two npm
+releases.
+
 ## #1682 npm package host/client report compatibility
 
 `apps/oni` rebuilds `@oni/protocol` before staging its npm bundle. Staging

@@ -14,6 +14,7 @@ import { loadConfig } from "../config";
 import { installShutdownHandlers, startOni } from "..";
 import { type CliDeps, runCli } from "./commands";
 import { attachConfiguredMachine } from "./machine";
+import { deployClient, supervise } from "./supervise";
 import { platformEntropy } from "../composition/platform";
 import type { DaemonIo, DaemonTarget, ExecResult } from "./daemon";
 import { daemonActive, unitPath } from "./daemon";
@@ -376,6 +377,11 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     },
     channelHistory: { id: () => platformEntropy().id(), read: readChannelHistory },
     messagingFacts,
+    supervise: () => {
+      applyEnvFile(envPath);
+      return supervise({ home, bunPath: process.execPath, selfEntry: target.entryPath, config: loadConfig(home) });
+    },
+    deploy: deployClient(home, process.execPath, { stdout: (line) => console.log(line), stderr: (line) => console.error(line) }),
   };
 }
 

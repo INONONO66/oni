@@ -375,6 +375,13 @@ export namespace Gateway {
   export const IngestResult = MessageContract.Result;
   export type IngestResult = z.infer<typeof IngestResult>;
 
+  /** The host's drain-restart announcement (#1699), broadcast to every live socket. */
+  export const HostDrain = z.discriminatedUnion("type", [
+    z.object({ type: z.literal("draining"), targetVersion: z.string().min(1), graceMs: z.number().int().positive() }),
+    z.object({ type: z.literal("drain_cancelled") }),
+  ]);
+  export type HostDrain = z.infer<typeof HostDrain>;
+
   export const RuleTableA = MessageContract.RuleTableA;
   export type RuleTableA = z.infer<typeof RuleTableA>;
 

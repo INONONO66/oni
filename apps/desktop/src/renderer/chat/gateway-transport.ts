@@ -46,6 +46,7 @@ const serverFrameSchema = z.union([
   SessionRead.Bound,
   SessionFork.Forked,
   SessionFork.Refused,
+  Gateway.HostDrain,
   z.object({
     type: z.literal("message"),
     messageId: z.string(),
@@ -134,7 +135,12 @@ export interface GatewayChatTransport extends ChatTransport<UIMessage> {
    * only on transport failure (socket drain, no gateway).
    */
   forkSession(request: Omit<SessionFork.Request, "type">): Promise<SessionFork.Response>;
+  /** The host's drain-restart state (#1699): set by `draining`, cleared by `drain_cancelled` or socket loss. */
+  hostDrain(): HostDrainState;
+  subscribeHostDrain(listener: () => void): () => void;
 }
+
+type HostDrainState = Extract<Gateway.HostDrain, { type: "draining" }> | undefined;
 
 type ManagedResponse = Ingress.AutomationResponse | Machine.Response;
 type AutomationReply<Type extends ManagedResponse["type"]> =
@@ -252,6 +258,22 @@ export function createGatewayChatTransport(
     }
   }
 
+  let hostDrain: HostDrainState;
+  const hostListeners = new Set<() => void>();
+  function setHostDrain(next: HostDrainState): void {
+    if (next === hostDrain) return;
+    hostDrain = next;
+    for (const listener of hostListeners) listener();
+  }
+
+  function receive(source: SocketLike, frame: ServerFrame): void {
+    if (frame.type === "draining" || frame.type === "drain_cancelled") {
+      setHostDrain(frame.type === "draining" ? frame : undefined);
+    } else {
+      settle(source, frame);
+    }
+  }
+
   function settle(source: SocketLike, frame: ServerFrame): void {
     if ("requestId" in frame) {
       settleAutomation(source, frame);
@@ -342,6 +364,8 @@ export function createGatewayChatTransport(
 
   /** Every in-flight turn on one socket ends when that socket does. */
   function drain(source: SocketLike, errorText?: string): void {
+    // A lost socket may be the restart itself; its successor announces afresh.
+    setHostDrain(undefined);
     drainEntries(automations, source, new GatewayUnavailableError(errorText ?? "gateway socket closed"));
     drainEntries(reads, source, new Error(errorText ?? "gateway socket closed"));
     drainEntries(forks, source, new Error(errorText ?? "gateway socket closed"));
@@ -357,7 +381,7 @@ export function createGatewayChatTransport(
     }
   }
 
-  const { closeSocket, connectUntilAborted } = createConnection(options, settle, drain);
+  const { closeSocket, connectUntilAborted } = createConnection(options, receive, drain);
 
   async function automation<Type extends ManagedResponse["type"]>(
     input: AutomationInput | Omit<Machine.Request, "requestId">,
@@ -452,6 +476,13 @@ export function createGatewayChatTransport(
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
+      };
+    },
+    hostDrain: () => hostDrain,
+    subscribeHostDrain(listener) {
+      hostListeners.add(listener);
+      return () => {
+        hostListeners.delete(listener);
       };
     },
     async sendMessages({ trigger, chatId, messages, abortSignal }) {
