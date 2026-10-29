@@ -1265,7 +1265,7 @@ mod private_tests {
     use super::*;
     use crate::{
         screen::{
-            ax::{self, fixture::Scripted},
+            ax::{self, fixture::Scripted, Observer},
             fixture::Fixture,
             Fault,
         },
@@ -1302,6 +1302,33 @@ mod private_tests {
         ) -> Result<(), ax::ActFault> {
             Err(ax::ActFault::Unsupported)
         }
+    }
+
+    #[test]
+    fn panicking_observer_refuses_every_other_call() {
+        let observer = PanicWindows;
+        let window = ax::WindowIdentity {
+            pid: 7,
+            window_id: 9,
+            owner_pid: 7,
+            title: "Editor".into(),
+            app: ax::fixture::fixture_app(7),
+            token: 0,
+            origin: (0, 0),
+            minimized: false,
+        };
+        let bounds = ax::Bounds {
+            max_elements: 1,
+            max_visits: 1,
+            budget: Duration::from_secs(1),
+        };
+
+        assert_eq!(observer.walk(&window, &bounds), Err(Fault::Absent));
+        assert_eq!(observer.focused(&window), Err(Fault::Absent));
+        assert_eq!(
+            observer.act(&window, &[], &|_| true, &ax::Action::Press),
+            Err(ax::ActFault::Unsupported)
+        );
     }
 
     async fn service_with_observer(observer: Box<dyn ax::Observer>) -> Arc<Service> {

@@ -641,19 +641,16 @@ mod private_tests {
     use super::*;
     use crate::screen::{ax::fixture::Scripted, fixture::Fixture, Window};
 
-    #[tokio::test]
-    async fn refreshed_focus_publishes_private_entry_and_exit_despite_uplink_failure() {
-        let directory = tempfile::tempdir().expect("directory");
-        let layout = directory.path().join("layout.json");
-        let row = |secure| {
-            json!({
-                "windows":[{"id":9,"pid":7,"title":"Editor","elements":[{
-                    "role":"AXTextField","secure":secure,"focused":true,
-                    "frame":{"x":0,"y":0,"width":16,"height":16}
-                }]}]
-            })
-        };
-        std::fs::write(&layout, row(true).to_string()).expect("layout");
+    fn row(secure: bool) -> Value {
+        json!({
+            "windows":[{"id":9,"pid":7,"title":"Editor","elements":[{
+                "role":"AXTextField","secure":secure,"focused":true,
+                "frame":{"x":0,"y":0,"width":16,"height":16}
+            }]}]
+        })
+    }
+
+    async fn private_focus_pump(layout: &std::path::Path) -> Pump {
         let source = Fixture {
             windows: vec![Window {
                 id: 9,
@@ -671,8 +668,8 @@ mod private_tests {
         };
         let screen = Arc::new(
             Screen::new(Box::new(source), 2).observing(Box::new(Scripted {
-                layout: layout.clone(),
-                recorder: directory.path().join("recorder.jsonl"),
+                layout: layout.to_path_buf(),
+                recorder: layout.with_file_name("recorder.jsonl"),
             })),
         );
         let request: StreamOpenRequest = oni_protocol::decode(json!({
@@ -683,7 +680,33 @@ mod private_tests {
         }))
         .expect("stream request");
         let stream = Stream::new(IpAddr::V4(Ipv4Addr::LOCALHOST), "laptop".into());
-        let (mut pump, _) = stream.prepare(&request, &screen).await.expect("prepare");
+        let (pump, _) = stream.prepare(&request, &screen).await.expect("prepare");
+        pump
+    }
+
+    #[tokio::test]
+    async fn refreshed_focus_without_uplink_updates_private_state_without_publishing() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = directory.path().join("layout.json");
+        std::fs::write(&layout, row(false).to_string()).expect("layout");
+        let mut pump = private_focus_pump(&layout).await;
+        assert!(pump.uplink.is_none());
+        assert!(!pump.private);
+
+        std::fs::write(&layout, row(true).to_string()).expect("private focus");
+        pump.refresh_focus(pump.started_at + Duration::from_millis(250))
+            .await
+            .expect("refresh without uplink");
+
+        assert!(pump.private);
+    }
+
+    #[tokio::test]
+    async fn refreshed_focus_publishes_private_entry_and_exit_despite_uplink_failure() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = directory.path().join("layout.json");
+        std::fs::write(&layout, row(true).to_string()).expect("layout");
+        let mut pump = private_focus_pump(&layout).await;
         let (uplink, mut calls) = Uplink::channel();
         pump.uplink = Some(uplink);
         let start = pump.started_at;
