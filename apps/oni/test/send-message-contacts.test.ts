@@ -74,13 +74,14 @@ test("a call to a contact without standing reach waits for per-call Owner approv
     revision: 0, createdBy: "owner", updatedAt: 1,
   });
   const starts: string[] = [];
-  const tool = eraseTool(createSendMessageTool(undefined, () => 1, {
+  const definition = createSendMessageTool(undefined, () => 1, {
     persons: plane.stores.persons,
     call: { start: async (input) => {
       starts.push(input.contact);
       return { contact: input.contact, status: "joined", call: "call-1", surface: input.surface, channelId: input.channelId };
     } },
-  }));
+  });
+  const tool = eraseTool(definition);
   const input = {
     to: { kind: "contact", id: "person:soju", surface: "slack:owner", conversation: { channelId: "D1" } },
     kind: "call",
@@ -117,14 +118,14 @@ test("a call to a contact without standing reach waits for per-call Owner approv
     await edited.close();
   }
   // The Owner's own Person and a contact the store does not hold never wait; the route refuses the latter itself.
-  if (tool.approval === undefined) throw new Error("send_message declares no approval hook");
+  if (definition.approval === undefined) throw new Error("send_message declares no approval hook");
   plane.stores.persons.put({
     id: "person:owner", displayName: "Owner", kind: "human", trustTier: "owner",
     endpoints: [{ channel: "slack", workspace: "T1", externalId: "T1:U-owner" }],
     revision: 0, createdBy: "owner", updatedAt: 1,
   });
   for (const id of ["person:owner", "person:nobody"])
-    expect(tool.approval({ ...input, to: { ...input.to, id } }, context)).toEqual({ required: false, domainRevisions: {} });
+    expect(definition.approval({ ...input, kind: "call", to: { ...input.to, kind: "contact", id } }, context)).toEqual({ required: false, domainRevisions: {} });
   plane.close();
 });
 
