@@ -180,10 +180,11 @@ export function createCodemode(options: CodemodeOptions) {
           settle: (request: Machine.ScreenSettleRequest) => use((computer) => computer.settle(request)),
         },
         input: {
-          pointer: (request: Machine.InputPointerRequest) => use((computer) => computer.pointer(request)),
-          key: (request: Machine.InputKeyRequest) => use((computer) => computer.key(request)),
-          text: (request: Machine.InputTextRequest) => use((computer) => computer.text(request)),
-          action: (request: Machine.InputActionRequest) => use((computer) => computer.action(request)),
+           pointer: (request: Parameters<ComputerHandle["pointer"]>[0]) => use((computer) => computer.pointer(request)),
+           key: (request: Omit<Machine.InputKeyRequest, "requestId">) => use((computer) => computer.key(request)),
+           text: (request: Omit<Machine.InputTextRequest, "requestId">) => use((computer) => computer.text(request)),
+           action: (request: Omit<Machine.InputActionRequest, "requestId">) => use((computer) => computer.action(request)),
+           status: (request: Machine.InputStatusRequest) => use((computer) => computer.status(request)),
         },
         app: {
           launch: (request: Machine.AppLaunchRequest) => use((computer) => computer.app.launch(request)),

@@ -240,6 +240,26 @@ The npm artifact remains platform-independent and does not contain
 location before booting. The Resident service command `oni daemon` is
 separate from the machine client.
 
+## #1692 unverifiable input and dispatch reservation (machine contract 3, PR pending)
+
+On `feat/1692-unverifiable-input` (2026-10-29, base
+`8065ecdb2`). Typed computer input carries host-minted request IDs;
+`InputWriteResult` can answer `unverifiable` with a dispatch fact and a
+re-observe hint, and `machine.input.status` reads the client process's
+bounded dispatch ledger after reconnect. A cancelled terminal receipt carries
+the delivered-event count. The host reserves overlapping window input until
+a terminal answer, confirmed completion or acknowledged cutoff; unknown status
+and post-send failure keep the reservation, without replay. The client fences
+each native event and ref action against its attachment generation and
+cancellation state. Active entries remain queryable even at ledger capacity;
+an all-active ledger refuses a new request. Code mode exposes status
+alongside pointer, key, text and action. Each new host advances the persisted
+generation on a machine's first attach, preventing input ID reuse when the
+host's sequence restarts; same-host reconnects keep the generation and sequence.
+The schema export and headless
+fixture tests cover the new wire shapes; native grant-dependent acceptance
+remains #1702.
+
 ## #1690 background delivery and window lifecycle (machine contract 3, PR pending)
 
 On `feat/1690-background-delivery` (2026-10-29, stacked base `a2a7d1092`).

@@ -250,6 +250,18 @@
       "name": "InputPointerRequest"
     },
     {
+      "file": "InputRequestId.json",
+      "name": "InputRequestId"
+    },
+    {
+      "file": "InputStatusRequest.json",
+      "name": "InputStatusRequest"
+    },
+    {
+      "file": "InputStatusResult.json",
+      "name": "InputStatusResult"
+    },
+    {
       "file": "InputTextRequest.json",
       "name": "InputTextRequest"
     },

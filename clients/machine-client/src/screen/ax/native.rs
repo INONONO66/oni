@@ -354,8 +354,22 @@ impl Observer for Native {
         admit: Admit<'_>,
         action: &Action,
     ) -> Result<(), ActFault> {
+        self.act_guarded(window, path, admit, action, &|| true)
+    }
+
+    fn act_guarded(
+        &self,
+        window: &WindowIdentity,
+        path: &[Segment],
+        admit: Admit<'_>,
+        action: &Action,
+        before_dispatch: &dyn Fn() -> bool,
+    ) -> Result<(), ActFault> {
         let (children, origin) = opened(window)?;
         let (element, _) = target(&Window { origin }, children, path, admit)?;
+        if !before_dispatch() {
+            return Err(ActFault::NotFound);
+        }
         performed(perform(&element, action))
     }
 }

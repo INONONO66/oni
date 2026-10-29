@@ -277,6 +277,17 @@ impl Observer for Scripted {
         admit: Admit<'_>,
         action: &Action,
     ) -> Result<(), ActFault> {
+        self.act_guarded(window, path, admit, action, &|| true)
+    }
+
+    fn act_guarded(
+        &self,
+        window: &WindowIdentity,
+        path: &[Segment],
+        admit: Admit<'_>,
+        action: &Action,
+        before_dispatch: &dyn Fn() -> bool,
+    ) -> Result<(), ActFault> {
         let row = self.row(window)?;
         let (element, _) = target(
             &Rows(PhantomData),
@@ -299,6 +310,9 @@ impl Observer for Scripted {
         });
         if let Some((key, text)) = argument {
             line[key] = json!(text);
+        }
+        if !before_dispatch() {
+            return Err(ActFault::NotFound);
         }
         append(&self.recorder, &line).map_err(|error| ActFault::Failed(error.to_string()))
     }
@@ -379,6 +393,18 @@ mod tests {
         ));
         let entries = fs::read_dir(directory.path()).expect("list").count();
         assert_eq!(entries, 1, "only the layout exists");
+    }
+
+    #[test]
+    fn a_rejected_dispatch_guard_records_no_action() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let fixture = scripted(directory.path(), LAYOUT);
+
+        assert_eq!(
+            fixture.act_guarded(&window(), &path(), &|_| true, &Action::Press, &|| false),
+            Err(ActFault::NotFound)
+        );
+        assert!(!fixture.recorder.exists());
     }
 
     #[test]

@@ -147,6 +147,19 @@ pub trait Observer: Send + Sync {
         admit: Admit<'_>,
         action: &Action,
     ) -> Result<(), ActFault>;
+    fn act_guarded(
+        &self,
+        window: &WindowIdentity,
+        path: &[Segment],
+        admit: Admit<'_>,
+        action: &Action,
+        before_dispatch: &dyn Fn() -> bool,
+    ) -> Result<(), ActFault> {
+        if !before_dispatch() {
+            return Err(ActFault::NotFound);
+        }
+        self.act(window, path, admit, action)
+    }
 }
 
 /// An element tree a backend reads one element at a time: each read is the
@@ -403,9 +416,70 @@ pub fn segments(reference: &str) -> Option<Vec<Segment>> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::{
+        cell::Cell,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     use super::*;
+
+    struct DefaultGuard(AtomicUsize);
+
+    impl Observer for DefaultGuard {
+        fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
+            Ok(Vec::new())
+        }
+
+        fn walk(&self, _: &WindowIdentity, _: &Bounds) -> Result<Walk, Fault> {
+            Ok(Walk {
+                nodes: Vec::new(),
+                focused: None,
+                complete: true,
+            })
+        }
+
+        fn act(
+            &self,
+            _: &WindowIdentity,
+            _: &[Segment],
+            _: Admit<'_>,
+            _: &Action,
+        ) -> Result<(), ActFault> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn default_guard_refuses_before_dispatch_and_delegates_after_admission() {
+        let observer = DefaultGuard(AtomicUsize::new(0));
+        let window = WindowIdentity {
+            pid: 7,
+            window_id: 9,
+            owner_pid: 7,
+            title: "Editor".into(),
+            app: fixture::fixture_app(7),
+            token: 0,
+            origin: (0, 0),
+            minimized: false,
+        };
+        let path = segments("AXButton[0]").expect("a ref");
+        assert_eq!(observer.windows().expect("no windows"), Vec::new());
+        let walk = observer
+            .walk(&window, &bounds(8, Duration::from_millis(50)))
+            .expect("empty walk");
+        assert!(walk.nodes.is_empty() && walk.focused.is_none() && walk.complete);
+        assert_eq!(
+            observer.act_guarded(&window, &path, &|_| true, &Action::Press, &|| false),
+            Err(ActFault::NotFound)
+        );
+        assert_eq!(observer.0.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            observer.act_guarded(&window, &path, &|_| true, &Action::Press, &|| true),
+            Ok(())
+        );
+        assert_eq!(observer.0.load(Ordering::SeqCst), 1);
+    }
 
     #[derive(Clone)]
     struct Item {

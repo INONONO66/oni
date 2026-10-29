@@ -17,6 +17,46 @@
     {
       "additionalProperties": false,
       "properties": {
+        "dispatched": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "unknown",
+              "type": "string"
+            }
+          ]
+        },
+        "hint": {
+          "const": "re_observe",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "transport_lost",
+            "cancelled",
+            "detached",
+            "driver_timeout"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "unverifiable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "dispatched",
+        "hint"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "message": {
           "maxLength": 256,
           "minLength": 1,
@@ -39,7 +79,9 @@
             "action_not_supported",
             "window_not_found",
             "observe_not_available",
-            "foreground_required"
+            "foreground_required",
+            "window_busy",
+            "request_busy"
           ],
           "type": "string"
         },

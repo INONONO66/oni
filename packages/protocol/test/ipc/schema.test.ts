@@ -121,6 +121,7 @@ describe("Ipc.Methods param schemas", () => {
         Machine.WireMethod.InputPointer,
         Machine.WireMethod.InputKey,
         Machine.WireMethod.InputText,
+        Machine.WireMethod.InputStatus,
         Machine.WireMethod.AppLaunch,
         Machine.WireMethod.AppQuit,
         Machine.WireMethod.WindowClose,

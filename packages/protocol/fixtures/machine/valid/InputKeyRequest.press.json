@@ -1,5 +1,6 @@
 {
   "captureId": "cap-1",
+  "requestId": "1-1",
   "key": "return",
   "action": "press",
   "delivery": "foreground"

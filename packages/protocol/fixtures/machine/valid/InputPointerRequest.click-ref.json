@@ -1,5 +1,6 @@
 {
   "kind": "click",
+  "requestId": "1-1",
   "at": {
     "observationId": "o3",
     "ref": "AXGroup[0]/AXButton[1]"

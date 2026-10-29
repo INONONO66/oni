@@ -19,9 +19,10 @@ use oni_protocol::{
     AgentSessionOpenRequest, AgentSessionOpenResult, AgentSessionSendRequest,
     AgentSessionSendResult, AgentSessionStopRequest, AgentSessionStopResult,
     AgentSessionTailRequest, AgentSessionTailResult, CancelCode, CellRequest, ExecRequest,
-    FsRequest, FsStreamRequest, InputActionRequest, InputWriteRequest, PeekCode, PtyCloseRequest,
-    PtyListRequest, PtyOpenRequest, PtyReadRequest, PtyReadScreenRequest, PtyResizeRequest,
-    PtyWriteRequest, ScreenReadRequest, WireMethod, WireRoot,
+    FsRequest, FsStreamRequest, InputActionRequest, InputStatusRequest, InputWriteRequest,
+    PeekCode, PtyCloseRequest, PtyListRequest, PtyOpenRequest, PtyReadRequest,
+    PtyReadScreenRequest, PtyResizeRequest, PtyWriteRequest, ScreenReadRequest, WireMethod,
+    WireRoot,
 };
 use oni_protocol::{CdpChunk, CdpCloseRequest, CdpOpenRequest};
 use oni_protocol::{InputKeyRequest, InputPointerRequest, InputTextRequest};
@@ -47,7 +48,7 @@ use crate::{
     config::ClientConfig,
     exec::{Exec, DEFAULT_DEADLINE},
     fs::{FsDriver, FsError},
-    input::{action, Input},
+    input::{action, dispatch::Completion, Input},
     pty::ops::Pty,
     screen::Screen,
     transport::{
@@ -885,6 +886,7 @@ impl Session for Service {
     }
 
     fn attached(&self, negotiated: &Negotiated) {
+        self.input.ledger().attach(negotiated.generation.get());
         *self.grant() = Some(Grant {
             generation: negotiated.generation,
             capabilities: negotiated.capabilities.clone(),
@@ -897,6 +899,7 @@ impl Session for Service {
     }
 
     fn detached(&self) {
+        self.input.ledger().cancel();
         self.code.detach();
         self.exec.detach();
         *self.grant() = None;
@@ -1025,6 +1028,7 @@ impl Service {
             WireMethod::MachineInputPointer
             | WireMethod::MachineInputKey
             | WireMethod::MachineInputText
+            | WireMethod::MachineInputStatus
             | WireMethod::MachineInputWrite
             | WireMethod::MachineInputAction => self.serve_input(method, params).await,
             WireMethod::MachineCdpOpen
@@ -1063,22 +1067,73 @@ impl Service {
 
     async fn serve_input(&self, method: WireMethod, params: Value) -> Result<Value, String> {
         let (screen, input) = (self.screen.clone(), self.input.clone());
+        if method == WireMethod::MachineInputStatus {
+            let request: InputStatusRequest = decode(params)?;
+            return Ok(if self.has(COMPUTER_USE) {
+                input.ledger().status(&request.request_id)
+            } else {
+                refused("request_unknown")
+            });
+        }
         if method == WireMethod::MachineInputPointer {
             let request: InputPointerRequest = decode(params)?;
-            self.inject(COMPUTER_USE, move || input.pointer(&screen, &request))
-                .await
+            let request_id = match &request {
+                InputPointerRequest::Move { request_id, .. } => request_id.to_string(),
+                InputPointerRequest::Click { request_id, .. } => request_id.to_string(),
+                InputPointerRequest::Button { request_id, .. } => request_id.to_string(),
+                InputPointerRequest::Scroll { request_id, .. } => request_id.to_string(),
+            };
+            self.inject(COMPUTER_USE, move || {
+                let ledger = input.ledger();
+                let entry = match ledger.start(&request_id) {
+                    Ok(entry) => entry,
+                    Err(refusal) => return refusal,
+                };
+                let _completion = Completion(entry.clone());
+                input.pointer_guarded(&screen, &request, Some(&entry))
+            })
+            .await
         } else if method == WireMethod::MachineInputKey {
             let request: InputKeyRequest = decode(params)?;
-            self.inject(COMPUTER_USE, move || input.key(&screen, &request))
-                .await
+            self.inject(COMPUTER_USE, move || {
+                let ledger = input.ledger();
+                let entry = match ledger.start(&request.request_id) {
+                    Ok(entry) => entry,
+                    Err(refusal) => return refusal,
+                };
+                let _completion = Completion(entry.clone());
+                input.key_guarded(&screen, &request, Some(&entry))
+            })
+            .await
         } else if method == WireMethod::MachineInputText {
             let request: InputTextRequest = decode(params)?;
-            self.inject(COMPUTER_USE, move || input.text(&screen, &request))
-                .await
+            self.inject(COMPUTER_USE, move || {
+                let ledger = input.ledger();
+                let entry = match ledger.start(&request.request_id) {
+                    Ok(entry) => entry,
+                    Err(refusal) => return refusal,
+                };
+                let _completion = Completion(entry.clone());
+                input.text_guarded(&screen, &request, Some(&entry))
+            })
+            .await
         } else if method == WireMethod::MachineInputAction {
-            let act = action::parse(&decode::<InputActionRequest>(params)?)?;
-            self.inject(COMPUTER_USE, move || action::serve_action(&screen, &act))
-                .await
+            let request: InputActionRequest = decode(params)?;
+            let act = action::parse(&request)?;
+            self.inject(COMPUTER_USE, move || {
+                let ledger = input.ledger();
+                let entry = match ledger.start(&request.request_id) {
+                    Ok(entry) => entry,
+                    Err(refusal) => return refusal,
+                };
+                let _completion = Completion(entry.clone());
+                if entry.before_event(ledger.current()) {
+                    action::serve_action_guarded(&screen, &act, &entry, &ledger)
+                } else {
+                    entry.cancelled_result()
+                }
+            })
+            .await
         } else {
             let request: InputWriteRequest = decode(params)?;
             self.inject(INPUT_WRITE, move || input.write(&screen, &request))

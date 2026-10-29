@@ -136,6 +136,32 @@ test.each([1, 2])("fresh admission retries one CAS conflict, refusing after two:
   } finally { await f.close(); }
 });
 
+test("a reconnect offer becomes stale after a lost CAS", async () => {
+  const memory = createMemoryGenerationStore();
+  await run(memory.compareAndSet("worker", undefined, 1));
+  let attempts = 0;
+  const generations: AttachGenerationStore = {
+    current: (id) => memory.current(id),
+    compareAndSet: (id, expected, next) => Effect.gen(function* () {
+      attempts += 1;
+      if (attempts === 1) {
+        yield* memory.compareAndSet(id, expected, next);
+        return false;
+      }
+      return yield* memory.compareAndSet(id, expected, next);
+    }),
+  };
+  const f = await fixture({ generations });
+  try {
+    const client = await f.connect();
+    expect(await client.call(Machine.WireMethod.Attach, { ...offer, generation: 1 }))
+      .toEqual({ status: "refused", reason: "stale_generation" });
+    expect(attempts).toBe(1);
+    expect(await run(memory.current("worker"))).toBe(2);
+    expect(f.host.list()).toEqual([]);
+  } finally { await f.close(); }
+});
+
 test("supersession closes the incumbent and fences its released leases before running work", async () => {
   const f = await fixture();
   const closed = Promise.withResolvers<void>();

@@ -4,6 +4,7 @@ import { PlainValueSchema } from "../json.js";
 import { sha256Hex } from "../sha256.js";
 import { WindowTarget } from "./target.js";
 import { HumanInput, HumanInputUnavailable, Session, TransportFacts } from "./facts.js";
+import { InputRequestId } from "./dispatch.js";
 
 /**
  * Capability id grammar: two-plus dot-separated lowercase segments —
@@ -126,6 +127,7 @@ export const WireMethod = {
   InputPointer: "machine.input.pointer",
   InputKey: "machine.input.key",
   InputText: "machine.input.text",
+  InputStatus: "machine.input.status",
   AppLaunch: "machine.app.launch",
   AppQuit: "machine.app.quit",
   WindowClose: "machine.window.close",
@@ -862,6 +864,12 @@ export type InputWriteRequest = z.infer<typeof InputWriteRequest>;
 
 export const InputWriteResult = z.discriminatedUnion("status", [
   z.object({ status: z.literal("ok") }).strict(),
+  z.object({
+    status: z.literal("unverifiable"),
+    reason: z.enum(["transport_lost", "cancelled", "detached", "driver_timeout"]),
+    dispatched: z.union([z.boolean(), z.literal("unknown")]),
+    hint: z.literal("re_observe"),
+  }).strict(),
   z
     .object({
       status: z.literal("refused"),
@@ -882,6 +890,8 @@ export const InputWriteResult = z.discriminatedUnion("status", [
         "window_not_found",
         "observe_not_available",
         "foreground_required",
+        "window_busy",
+        "request_busy",
       ]),
       /** Human-readable detail, e.g. which display a refused anchor captured. */
       message: z.string().min(1).max(256).optional(),
@@ -1466,6 +1476,7 @@ export type ScreenCaptureResult = z.infer<typeof ScreenCaptureResult>;
  */
 const PointerButton = z.enum(["left", "right", "middle"]);
 const PointerAt = {
+  requestId: InputRequestId,
   delivery: z.enum(["background", "foreground"]).default("background"),
   at: z.union([
     z.object({ captureId: CaptureId, x: Coordinate, y: Coordinate }).strict(),
@@ -1493,6 +1504,7 @@ export type InputPointerRequest = z.input<typeof InputPointerRequest>;
 /** `key` uses the peer's key vocabulary; an unknown name refuses `unsupported_action`. */
 export const InputKeyRequest = z
   .object({
+    requestId: InputRequestId,
     captureId: CaptureId,
     delivery: z.enum(["background", "foreground"]).default("background"),
     target: WindowTarget.optional(),
@@ -1513,6 +1525,7 @@ export type InputKeyRequest = z.input<typeof InputKeyRequest>;
 
 export const InputTextRequest = z
   .object({
+    requestId: InputRequestId,
     captureId: CaptureId,
     text: z.string().min(1).max(INPUT_MAX_TEXT_CHARS),
     delivery: z.enum(["background", "foreground"]).default("background"),

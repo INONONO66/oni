@@ -32,6 +32,7 @@
     "machine.input.pointer",
     "machine.input.key",
     "machine.input.text",
+    "machine.input.status",
     "machine.app.launch",
     "machine.app.quit",
     "machine.window.close",

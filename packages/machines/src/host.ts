@@ -11,6 +11,8 @@ import { decodeMachineFailure } from "./failure";
 import { answersObservation, legacyPointer, OBSERVE_NOT_AVAILABLE, observeRefusal } from "./observe";
 import { onAbort } from "./interrupt-on";
 import { PingLiveness } from "./ping-liveness";
+import { Reservations } from "./reservation";
+import { IpcConnectionError, IpcRemoteError, IpcTimeoutError } from "./ipc/errors";
 import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
 import type { AttachGenerationStore } from "./generation-store";
@@ -134,12 +136,14 @@ export interface MachineHandle {
   readonly computer?: ComputerHandle;
 }
 /** Computer-use wire methods (#1662) the host originates. */
-type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "ScreenSettle" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
+type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "ScreenSettle" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "InputStatus" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
 type LifecycleMethod = (typeof Machine.WireMethod)["AppLaunch" | "AppQuit" | "WindowClose" | "WindowPark"];
 type LifecycleParams = Machine.AppLaunchRequest | Machine.AppQuitRequest | Machine.WindowCloseRequest | Machine.WindowParkRequest;
 type LifecycleResult = Machine.AppLaunchResult | Machine.AppQuitResult | Machine.WindowCloseResult | Machine.WindowParkResult;
 type InputMethod = (typeof Machine.WireMethod)["InputPointer" | "InputKey" | "InputText"];
 type InputParams = Machine.InputPointerRequest | Machine.InputKeyRequest | Machine.InputTextRequest;
+type PointerCall = Machine.InputPointerRequest extends infer P ? P extends Machine.InputPointerRequest ? Omit<P, "requestId"> : never : never;
+type ActionRequest = Omit<Machine.InputActionRequest, "requestId">;
 type CapturedMethod = InputMethod | (typeof Machine.WireMethod)["ScreenObserve" | "ScreenSettle" | "InputAction"] | LifecycleMethod;
 type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.ScreenSettleRequest | Machine.InputActionRequest | LifecycleParams;
 /** What a captured call answers when it was forwarded (#1689 adds observation). */
@@ -192,13 +196,15 @@ export interface ComputerHandle {
   };
   list(request?: Machine.ScreenListRequest): Effect.Effect<Machine.ScreenListResult, MachineError>;
   capture(request: Machine.ScreenCaptureRequest): Effect.Effect<ComputerCapture, MachineError>;
-  pointer(request: Machine.InputPointerRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
-  key(request: Machine.InputKeyRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
-  text(request: Machine.InputTextRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
+  pointer(request: PointerCall): Effect.Effect<Machine.InputWriteResult, MachineError>;
+  key(request: Omit<Machine.InputKeyRequest, "requestId">): Effect.Effect<Machine.InputWriteResult, MachineError>;
+  text(request: Omit<Machine.InputTextRequest, "requestId">): Effect.Effect<Machine.InputWriteResult, MachineError>;
   /** Window-bound observation (#1689): captured like input, answered only by contract-3 peers. */
   observe(request: Machine.ScreenObserveRequest): Effect.Effect<Machine.ScreenObserveResult, MachineError>;
   settle(request: Machine.ScreenSettleRequest): Effect.Effect<Machine.ScreenSettleResult, MachineError>;
-  action(request: Machine.InputActionRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
+  action(request: ActionRequest): Effect.Effect<Machine.InputWriteResult, MachineError>;
+  /** A lost input answer is never replayed; observe the window before deciding another action. */
+  status(request: Machine.InputStatusRequest): Effect.Effect<Machine.InputStatusResult, MachineError>;
   readonly stream: {
     open(request: Omit<Machine.StreamOpenRequest, "streamId">, listeners: StreamListeners): Effect.Effect<ComputerStream | Extract<Machine.StreamOpenResult, { status: "refused" }>, MachineError>;
   };
@@ -280,15 +286,33 @@ function negotiate(offer: Machine.Offer, found: Machine.Enrollment | undefined, 
   });
 }
 
-function generationOf(store: AttachGenerationStore, offer: Machine.Offer, active: () => boolean): Effect.Effect<number | undefined, MachinesFailure> {
+function matchesGeneration(offer: Machine.Offer, current: number | undefined): boolean {
+  return offer.generation === undefined || offer.generation === current;
+}
+
+function generationOf(store: AttachGenerationStore, issued: Set<string>, offer: Machine.Offer, active: () => boolean): Effect.Effect<number | undefined, MachinesFailure> {
   return Effect.gen(function* () {
-    let current = yield* store.current(offer.machineId);
+    const current = yield* store.current(offer.machineId);
     if (!active()) return undefined;
-    if (offer.generation !== undefined) return offer.generation === current ? current : undefined;
+    if (!matchesGeneration(offer, current)) return undefined;
+    if (offer.generation !== undefined && issued.has(offer.machineId)) return current;
+    return yield* mintGeneration(store, issued, offer, active, current);
+  });
+}
+
+function mintGeneration(store: AttachGenerationStore, issued: Set<string>, offer: Machine.Offer, active: () => boolean, saved: number | undefined): Effect.Effect<number | undefined, MachinesFailure> {
+  return Effect.gen(function* () {
+    let current = saved;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const next = (current ?? 0) + 1;
-      if (yield* store.compareAndSet(offer.machineId, current, next)) return next;
-      if (attempt === 0) current = yield* store.current(offer.machineId);
+      if (yield* store.compareAndSet(offer.machineId, current, next)) {
+        issued.add(offer.machineId);
+        return next;
+      }
+      if (attempt === 0) {
+        current = yield* store.current(offer.machineId);
+        if (!matchesGeneration(offer, current)) return undefined;
+      }
       if (!active()) return undefined;
     }
     return undefined;
@@ -303,10 +327,13 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     const connectionByMachine = new Map<string, string>();
     /** Machines that attached at least once: their detached window reads `disconnected`. */
     const known = new Set<string>();
+    const issued = new Set<string>();
     const inFlight = new Map<string, Set<string>>();
     const permissions = new Map<string, Map<string, Deferred.Deferred<void>>>();
     const handles = new Map<string, StreamingMachineHandle>();
     const revoked = new Map<string, number>();
+    const reservations = new Reservations();
+    const lastGeneration = new Map<string, number>();
     let closed = false;
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
     const reports = new Map<string, { readonly report: Machine.Report; readonly receivedAt: number }>();
@@ -389,6 +416,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       if (offer.capabilities?.includes("ping")) pings.attach(source.key, options.now());
       connectionByMachine.set(offer.machineId, source.key);
       known.add(offer.machineId);
+      lastGeneration.set(offer.machineId, generation);
       options.events.publish(Machine.Events.Attached, { machineId: offer.machineId, time: options.now(), effectiveCapabilities: [...negotiated.capabilities] });
     }
     function recordExcess(offer: Machine.Offer, enrollment: Machine.Enrollment): Effect.Effect<void, MachineError> {
@@ -409,7 +437,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           return;
         }
         yield* recordExcess(offer, negotiated.enrollment);
-        const generation = yield* generationOf(options.generations, offer, () =>
+        const generation = yield* generationOf(options.generations, issued, offer, () =>
           admissionValid(offer, source, revision) === undefined);
         const state = admissionValid(offer, source, revision);
         if (state === "closed") return;
@@ -430,14 +458,17 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
      * and only for the machine it attached as; anything else is a typed
      * refusal and the host keeps nothing from it.
      */
-    function report(incoming: Machine.Report, source: RequestSource): Machine.ReportResult {
-      const attachment = attachments.get(source.key);
-      if (attachment === undefined) return { status: "refused", reason: "machine_not_attached" };
-      if (attachment.offer.machineId !== incoming.machineId) return { status: "refused", reason: "machine_mismatch" };
-      const receivedAt = options.now();
-      reports.set(source.key, { report: incoming, receivedAt });
-      options.events.publish(Machine.Events.Reported, { machineId: incoming.machineId, time: receivedAt, reportedAt: incoming.reportedAt, load: incoming.load });
-      return { status: "accepted" };
+    function report(incoming: Machine.Report, source: RequestSource, respond: (result: Machine.ReportResult) => void): Effect.Effect<void> {
+      return Effect.gen(function* () {
+        const attachment = attachments.get(source.key);
+        if (attachment === undefined) { respond({ status: "refused", reason: "machine_not_attached" }); return; }
+        if (attachment.offer.machineId !== incoming.machineId) { respond({ status: "refused", reason: "machine_mismatch" }); return; }
+        const receivedAt = options.now();
+        reports.set(source.key, { report: incoming, receivedAt });
+        respond({ status: "accepted" });
+        options.events.publish(Machine.Events.Reported, { machineId: incoming.machineId, time: receivedAt, reportedAt: incoming.reportedAt, load: incoming.load });
+        if (answersObservation(attachment.offer)) yield* recoverInputs(attachment);
+      });
     }
     function humanInput(incoming: Machine.HumanInputNotification, source: RequestSource): void {
       const attachment = attachments.get(source.key);
@@ -453,7 +484,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           .pipe(Effect.flatMap((call) => callTool(call, source.key)), Effect.map(respond))],
       [Machine.WireMethod.Report, (params, respond, source) =>
         Effect.try({ try: () => Machine.Report.parse(params), catch: decodeMachineFailure("report.decode") })
-          .pipe(Effect.map((incoming) => respond(report(incoming, source))))],
+          .pipe(Effect.flatMap((incoming) => report(incoming, source, respond)))],
       [Machine.WireMethod.AgentPermission, (params, respond, source) =>
         Effect.try({ try: () => Machine.AgentPermissionRequest.parse(params), catch: decodeMachineFailure("agent.permission.request") })
           .pipe(Effect.flatMap((request) => decidePermission(request, source)), Effect.map(respond))],
@@ -998,6 +1029,15 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         return peer.server.call(method, params, timeoutMs + 1000);
       }).pipe(Effect.mapError(transportFailure(`${method}.call`)), Effect.flatMap((raw) => decode(schema, raw, `${method}.response`)));
     }
+    function recoverInputs(peer: Attachment): Effect.Effect<void> {
+      return Effect.forEach(reservations.pending(peer.offer.machineId), (entry) =>
+        computerCall(peer, Machine.WireMethod.InputStatus, { requestId: entry.requestId }, Machine.InputStatusResult).pipe(
+          Effect.tap((result) => Effect.sync(() => {
+            if (result.status === "ok" && (result.state === "completed" || result.state === "cancelled")) reservations.release(entry.machineId, entry.requestId);
+          })),
+          Effect.catch(() => Effect.void),
+        ), { discard: true });
+    }
     function attached(id: string, operation: string): Effect.Effect<Attachment, MachineError> {
       return Effect.try({ try: () => connection(id), catch: decodeMachineFailure(operation) });
     }
@@ -1025,24 +1065,63 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       const peer = key === undefined ? undefined : attachments.get(key);
       return options.captureInput({ machineId: id, generation: peer?.generation ?? null, method, params }, forwardCaptured(id, peer, method, refuse, send));
     }
-    function input<M extends InputMethod>(id: string, method: M, schema: z.ZodType<Machine.InputKeyRequest | Machine.InputTextRequest>, request: Machine.InputKeyRequest | Machine.InputTextRequest): Effect.Effect<Machine.InputWriteResult, MachineError> {
-      return Effect.try({ try: () => schema.parse(request), catch: decodeMachineFailure(`${method}.request`) }).pipe(
-        Effect.flatMap((params) => captured(id, method, params, inputRefusal, (peer) => {
-          if (answersObservation(peer.offer)) return computerCall(peer, method, params, Machine.InputWriteResult);
-          if (params.delivery !== "foreground") return Effect.succeed({ status: "refused", reason: "foreground_required" } as const);
-          const { delivery: _delivery, target: _target, ...legacy } = params;
-          return computerCall(peer, method, legacy, Machine.InputWriteResult);
-        })),
+    function legacyInput(peer: Attachment, method: InputMethod | typeof Machine.WireMethod.InputAction, params: InputParams | Machine.InputActionRequest): Effect.Effect<Machine.InputWriteResult, MachineError> {
+      if (method === Machine.WireMethod.InputAction) return Effect.succeed(OBSERVE_NOT_AVAILABLE);
+      if ("delivery" in params && params.delivery !== "foreground") return Effect.succeed({ status: "refused", reason: "foreground_required" });
+      if ("kind" in params) {
+        const legacy = legacyPointer(params);
+        return legacy === undefined ? Effect.succeed(OBSERVE_NOT_AVAILABLE) : computerCall(peer, method, legacy, Machine.InputWriteResult);
+      }
+      if ("captureId" in params) {
+        const { requestId: _id, delivery: _delivery, target: _target, ...legacy } = params;
+        return computerCall(peer, method, legacy, Machine.InputWriteResult);
+      }
+      return Effect.succeed(OBSERVE_NOT_AVAILABLE);
+    }
+    function sendInput(peer: Attachment, method: InputMethod | typeof Machine.WireMethod.InputAction, params: InputParams | Machine.InputActionRequest): Effect.Effect<Machine.InputWriteResult, MachineError> {
+      if (!answersObservation(peer.offer)) return legacyInput(peer, method, params).pipe(
+        Effect.catchIf((error) => error instanceof TransportFailure ||
+          (error instanceof MachineRefusalError && error.reason === "disconnected"),
+        () => Effect.succeed({ status: "unverifiable", reason: "transport_lost", dispatched: "unknown", hint: "re_observe" } as const)),
+      );
+      return Effect.suspend(() => {
+        peer.server.useConnection(peer.rawId);
+        return peer.server.call(method, params, Machine.EXEC_TIMEOUT_MS + 1000);
+      }).pipe(
+        Effect.map((raw) => ({ kind: "reply", raw } as const)),
+        Effect.catchIf((error) => error instanceof IpcConnectionError || error instanceof IpcTimeoutError || error instanceof IpcRemoteError,
+          (error) => Effect.succeed({
+            kind: "lost", reason: error instanceof IpcRemoteError ? "cancelled" : "transport_lost",
+          } as const)),
+        Effect.mapError(transportFailure(`${method}.call`)),
+        Effect.flatMap((outcome) => outcome.kind === "lost"
+          ? Effect.succeed({ status: "unverifiable", reason: outcome.reason, dispatched: "unknown", hint: "re_observe" } as const)
+          : decode(Machine.InputWriteResult, outcome.raw, `${method}.response`)),
       );
     }
+    function dispatchInput<P extends InputParams | Machine.InputActionRequest>(id: string, method: InputMethod | typeof Machine.WireMethod.InputAction, schema: z.ZodType<P>, request: Omit<P, "requestId">): Effect.Effect<Machine.InputWriteResult, MachineError> {
+      return Effect.gen(function* () {
+        const key = connectionByMachine.get(id);
+        const peer = key === undefined ? undefined : attachments.get(key);
+        const generation = peer?.generation ?? lastGeneration.get(id) ?? 1;
+        const requestId = reservations.mint(id, generation);
+        const params = yield* decode(schema, { ...request, requestId }, `${method}.request`);
+        return yield* captured(id, method, params, inputRefusal, (current) => {
+          const target = "target" in params && params.target !== undefined
+            ? `${params.target.pid}:${params.target.windowId}` : "*";
+          const reserved = reservations.reserve(id, current.generation, target, requestId);
+          if (reserved === "window_busy") return Effect.succeed({ status: "refused", reason: "window_busy" } as const);
+          let terminal = false;
+          return sendInput(current, method, params).pipe(
+            Effect.tap((answer) => Effect.sync(() => { terminal = answer.status !== "unverifiable"; })),
+            Effect.ensuring(Effect.sync(() => { if (terminal) reservations.release(id, requestId); })),
+          );
+        });
+      });
+    }
     /** A contract-2 peer reads the flat capture form and answers no element form. */
-    function pointer(id: string, request: Machine.InputPointerRequest): Effect.Effect<Machine.InputWriteResult, MachineError> {
-      const method = Machine.WireMethod.InputPointer;
-      return decode(Machine.InputPointerRequest, request, `${method}.request`).pipe(Effect.flatMap((params) => captured(id, method, params, inputRefusal, (peer) => {
-        if (!answersObservation(peer.offer) && params.delivery !== "foreground") return Effect.succeed({ status: "refused", reason: "foreground_required" } as const);
-        const legacy = answersObservation(peer.offer) ? params : legacyPointer(params);
-        return legacy === undefined ? Effect.succeed(OBSERVE_NOT_AVAILABLE) : computerCall(peer, method, legacy, Machine.InputWriteResult);
-      })));
+    function pointer(id: string, request: PointerCall): Effect.Effect<Machine.InputWriteResult, MachineError> {
+      return dispatchInput(id, Machine.WireMethod.InputPointer, Machine.InputPointerRequest, { ...request, delivery: request.delivery ?? "background" });
     }
     function observation<P extends Machine.ScreenObserveRequest | Machine.InputActionRequest, R extends CapturedResult>(id: string, method: (typeof Machine.WireMethod)["ScreenObserve" | "InputAction"], schema: z.ZodType<P>, request: P, answer: z.ZodType<R>, refuse: (grant: "permission_denied" | "not_available") => R, unavailable: R): Effect.Effect<R | CaptureRefusal, MachineError> {
       return decode(schema, request, `${method}.request`).pipe(Effect.flatMap((params) => captured(id, method, params, refuse, (peer) => (answersObservation(peer.offer)
@@ -1256,8 +1335,8 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
             : { ...result, data };
         }),
         pointer: (request) => pointer(id, request),
-        key: (request) => input(id, Machine.WireMethod.InputKey, Machine.InputKeyRequest, request),
-        text: (request) => input(id, Machine.WireMethod.InputText, Machine.InputTextRequest, request),
+        key: (request) => dispatchInput(id, Machine.WireMethod.InputKey, Machine.InputKeyRequest, request),
+        text: (request) => dispatchInput(id, Machine.WireMethod.InputText, Machine.InputTextRequest, request),
         observe: (request) => observation(id, Machine.WireMethod.ScreenObserve, Machine.ScreenObserveRequest, request, Machine.ScreenObserveResult, observeRefusal, OBSERVE_NOT_AVAILABLE),
         settle: (request) => decode(Machine.ScreenSettleRequest, request, "screen.settle.request").pipe(
           Effect.flatMap((params) => captured(id, Machine.WireMethod.ScreenSettle, params, (grant): Machine.ScreenSettleResult => grant === "permission_denied"
@@ -1269,7 +1348,15 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
             ? Effect.succeed({ status: "refused", reason: "machine_not_attached" } as const)
             : Effect.fail(error)),
         ),
-        action: (request) => observation(id, Machine.WireMethod.InputAction, Machine.InputActionRequest, request, Machine.InputWriteResult, inputRefusal, OBSERVE_NOT_AVAILABLE),
+        action: (request) => dispatchInput(id, Machine.WireMethod.InputAction, Machine.InputActionRequest, request),
+        status: (request) => decode(Machine.InputStatusRequest, request, "input.status.request").pipe(Effect.flatMap((params) =>
+          screenGate(id, "input.status.connection").pipe(Effect.flatMap((peer) => typeof peer === "string" || !answersObservation(peer.offer)
+            ? Effect.succeed({ status: "refused", reason: "request_unknown" } as const)
+            : computerCall(peer, Machine.WireMethod.InputStatus, params, Machine.InputStatusResult).pipe(
+              Effect.tap((result) => Effect.sync(() => {
+                if (result.status === "ok" && (result.state === "completed" || result.state === "cancelled")) reservations.release(id, result.requestId);
+              })),
+            ))))),
         stream: { open: (request, listeners) => openStream(id, request, listeners) },
         cdp: { open: (request, listeners) => openChannel(id, request, listeners) },
       };

@@ -487,6 +487,15 @@ impl Observations {
     /// walk, then has the observer perform it on the element it resolves
     /// and admits by the observed identity; nothing executes on a refusal.
     pub fn act(&self, observer: &dyn Observer, act: &Act) -> Result<(), Refusal> {
+        self.act_guarded(observer, act, &|| true)
+    }
+
+    pub fn act_guarded(
+        &self,
+        observer: &dyn Observer,
+        act: &Act,
+        before_dispatch: &dyn Fn() -> bool,
+    ) -> Result<(), Refusal> {
         let located = self.locate(observer, act.target)?;
         let window = self.window(&located);
         let _serial = lock(&window);
@@ -505,7 +514,7 @@ impl Observations {
         fresh(observer, &located, &act.reference, &key)?;
         let path = ax::segments(&act.reference).ok_or(Refusal::RefNotFound)?;
         let admit = |attributes: &Attributes| Key::of(attributes) == key;
-        Ok(observer.act(&located.window, &path, &admit, &act.action)?)
+        Ok(observer.act_guarded(&located.window, &path, &admit, &act.action, before_dispatch)?)
     }
 
     /// The global centre of `reference` in `observation`, which must be its
@@ -799,8 +808,17 @@ impl Screen {
     }
 
     pub fn act(&self, act: &Act) -> Result<(), Refusal> {
+        self.act_guarded(act, &|| true)
+    }
+
+    pub fn act_guarded(
+        &self,
+        act: &Act,
+        before_dispatch: &dyn Fn() -> bool,
+    ) -> Result<(), Refusal> {
         let observer = self.observer.as_deref().ok_or(Refusal::NotAvailable)?;
-        self.observations.act(observer, act)
+        self.observations
+            .act_guarded(observer, act, before_dispatch)
     }
 
     /// Where a pointer aimed at `reference` of `observation` lands: the

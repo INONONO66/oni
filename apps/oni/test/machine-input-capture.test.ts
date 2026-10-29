@@ -41,7 +41,7 @@ async function withCapture(body: (capture: Capture) => Promise<void>) {
 }
 
 const request: Machines.MachineInputCapture = {
-  machineId: "desk", generation: 3, method: Machine.WireMethod.InputText, params: { captureId: "cap-1", text: "hi" },
+  machineId: "desk", generation: 3, method: Machine.WireMethod.InputText, params: { requestId: "3-1", captureId: "cap-1", text: "hi" },
 };
 
 test("machine input is captured as a tool effect and forwarded only from the executed body", async () => {
