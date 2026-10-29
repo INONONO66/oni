@@ -575,48 +575,48 @@ export interface MachinePlane {
  */
 export function validateMachinePlane(
   machines: NonNullable<OniConfig["machines"]>,
-): MachinePlane {
+): Result.Result<MachinePlane, ConfigurationError> {
   if (machines.inbox !== undefined && !Machine.AbsolutePath.safeParse(machines.inbox).success) {
-    throw new ConfigurationError({
+    return Result.fail(new ConfigurationError({
       code: "invalid_machines_inbox",
       message: `machines.inbox must be an absolute path: ${machines.inbox}`,
-    });
+    }));
   }
   const parsed = SelfMachine.safeParse(machines.self);
   if (!parsed.success) {
-    throw new ConfigurationError({
+    return Result.fail(new ConfigurationError({
       code: "invalid_machines_self",
       message: `machines.self is invalid: ${parsed.error.issues[0]?.message}`,
-    });
+    }));
   }
   const self = parsed.data;
   const ids = new Set<string>([self.id]);
   for (const enrollment of machines.enrolled) {
     if (ids.has(enrollment.machineId)) {
-      throw new ConfigurationError({
+      return Result.fail(new ConfigurationError({
         code: "invalid_machines_self",
         message: `machines ids must be unique: ${enrollment.machineId}`,
-      });
+      }));
     }
     ids.add(enrollment.machineId);
   }
   const defaultMachine = machines.default ?? self.id;
   if (!ids.has(defaultMachine)) {
-    throw new ConfigurationError({
+    return Result.fail(new ConfigurationError({
       code: "invalid_machines_default",
       message: `machines.default is not an enrolled machine: ${defaultMachine}`,
-    });
+    }));
   }
-  if (machines.inbox === undefined) return { self, defaultMachine };
+  if (machines.inbox === undefined) return Result.succeed({ self, defaultMachine });
   const inbox = normalizeExportRoot(machines.inbox);
   if (defaultMachine !== self.id || self.exports.some((entry) => normalizeExportRoot(entry.path) === inbox))
-    return { self, defaultMachine, inbox };
+    return Result.succeed({ self, defaultMachine, inbox });
   if (self.exports.some((entry) => entry.name === "inbox"))
-    throw new ConfigurationError({
+    return Result.fail(new ConfigurationError({
       code: "invalid_machines_inbox",
       message: `machines.inbox ${inbox} conflicts with self export named inbox rooted at ${self.exports.find((entry) => entry.name === "inbox")?.path}`,
-    });
-  return { self: { ...self, exports: [...self.exports, { name: "inbox", path: inbox }] }, defaultMachine, inbox };
+    }));
+  return Result.succeed({ self: { ...self, exports: [...self.exports, { name: "inbox", path: inbox }] }, defaultMachine, inbox });
 }
 const SocialBudgets = z.array(Gateway.SocialBudget);
 
@@ -833,7 +833,8 @@ function machinesFromEnv(
     enrolled: enrolled ?? [],
     ...(capacity === undefined ? {} : { capacity }),
   };
-  validateMachinePlane(machines);
+  const plane = validateMachinePlane(machines);
+  if (Result.isFailure(plane)) throw plane.failure;
   return machines;
 }
 

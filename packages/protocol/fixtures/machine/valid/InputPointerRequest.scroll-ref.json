@@ -1,0 +1,9 @@
+{
+  "kind": "scroll",
+  "at": {
+    "observationId": "o3",
+    "ref": "AXScrollArea[0]"
+  },
+  "deltaX": 0,
+  "deltaY": 3
+}

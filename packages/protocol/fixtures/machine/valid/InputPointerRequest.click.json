@@ -1,8 +1,10 @@
 {
   "kind": "click",
-  "captureId": "cap-1",
-  "x": 100,
-  "y": 200,
+  "at": {
+    "captureId": "cap-1",
+    "x": 100,
+    "y": 200
+  },
   "button": "left",
   "count": 2
 }

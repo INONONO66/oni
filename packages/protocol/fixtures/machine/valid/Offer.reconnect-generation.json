@@ -6,7 +6,7 @@
   "offeredAt": 1,
   "peer": {
     "kind": "daemon",
-    "contractVersion": 2
+    "contractVersion": 3
   },
   "generation": 3
 }

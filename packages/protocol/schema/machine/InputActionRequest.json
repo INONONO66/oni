@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "press",
+        "setValue",
+        "perform"
+      ],
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "observationId": {
+      "maxLength": 32,
+      "pattern": "^o\\d+$",
+      "type": "string"
+    },
+    "ref": {
+      "maxLength": 256,
+      "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+      "type": "string"
+    },
+    "target": {
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pid": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "windowId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pid",
+        "windowId",
+        "epoch"
+      ],
+      "type": "object"
+    },
+    "value": {
+      "maxLength": 65536,
+      "type": "string"
+    }
+  },
+  "required": [
+    "observationId",
+    "target",
+    "ref",
+    "action"
+  ],
+  "type": "object"
+}

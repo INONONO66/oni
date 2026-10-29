@@ -1,0 +1,15 @@
+{
+  "ref": "AXButton[0]",
+  "role": "AXButton",
+  "label": "Save",
+  "actions": ["AXPress"],
+  "frame": {
+    "x": 10,
+    "y": 20,
+    "width": 80,
+    "height": 24
+  },
+  "parent": "AXGroup[0]",
+  "secure": false,
+  "enabled": true
+}

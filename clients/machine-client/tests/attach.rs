@@ -203,7 +203,7 @@ fn reconnect_offer_contains_generation_and_exact_supplied_capabilities() {
         value["offeredCapabilities"],
         json!(["fs.read", "pty.session"])
     );
-    assert_eq!(value["peer"], json!({"kind":"client","contractVersion":2}));
+    assert_eq!(value["peer"], json!({"kind":"client","contractVersion":3}));
     assert_eq!(value["resources"], json!({"cpus":4,"memoryBytes":1024}));
     assert_eq!(value["exports"], json!([{"name":"home","path":"/home/me"}]));
     assert!(attach::now_ms() > 0);

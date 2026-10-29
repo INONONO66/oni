@@ -148,6 +148,13 @@ macro_rules! decode_fixture {
                 StreamOpenResult,
                 StreamSignalRequest,
                 StreamSignalResult,
+                // Window-bound observation (#1689).
+                AppIdentity,
+                InputActionRequest,
+                ObservedElement,
+                ScreenObserveRequest,
+                ScreenObserveResult,
+                WindowTarget,
             ]
         )
     };

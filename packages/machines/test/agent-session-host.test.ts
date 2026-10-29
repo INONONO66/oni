@@ -15,7 +15,7 @@ const pin = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const request = { sessionId: "session-one", requestId: "permission-one", tool: "write", description: "change file" };
 const cursor = { sessionId: request.sessionId, generation: 1, byteOffset: 0, recordHash: "a".repeat(64) };
 const offer = {
-  machineId, peer: { kind: "client", contractVersion: 2 }, daemonVersion: "test",
+  machineId, peer: { kind: "client", contractVersion: 3 }, daemonVersion: "test",
   platform: "darwin-arm64", offeredCapabilities: ["agent.session"], offeredAt: 2,
 } satisfies Machine.Offer;
 
@@ -147,7 +147,7 @@ test("a daemon claiming the client capability cannot route a session or a permis
   });
   const client = await connectIpcClient(state.path);
   try {
-    await client.call(Machine.WireMethod.Attach, { ...offer, peer: { kind: "daemon", contractVersion: 2 } });
+    await client.call(Machine.WireMethod.Attach, { ...offer, peer: { kind: "daemon", contractVersion: 3 } });
     const session = state.host.get(machineId).agentSession;
     if (session === undefined) throw new Error("attached host did not provide agentSession");
     expect(await captureError(run(session.list({ project: "/project" })))).toBeInstanceOf(MachineRefusalError);

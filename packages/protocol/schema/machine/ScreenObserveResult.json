@@ -1,0 +1,704 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "anyOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "elements": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "actions": {
+                "items": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 16,
+                "type": "array"
+              },
+              "checked": {
+                "type": "boolean"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "expanded": {
+                "type": "boolean"
+              },
+              "frame": {
+                "additionalProperties": false,
+                "properties": {
+                  "height": {
+                    "maximum": 16384,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "width": {
+                    "maximum": 16384,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "x": {
+                    "maximum": 16384,
+                    "minimum": -16384,
+                    "type": "integer"
+                  },
+                  "y": {
+                    "maximum": 16384,
+                    "minimum": -16384,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "label": {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              "parent": {
+                "maxLength": 256,
+                "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                "type": "string"
+              },
+              "ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "role": {
+                "maxLength": 128,
+                "type": "string"
+              },
+              "secure": {
+                "type": "boolean"
+              },
+              "selected": {
+                "type": "boolean"
+              },
+              "value": {
+                "maxLength": 4096,
+                "type": "string"
+              }
+            },
+            "required": [
+              "ref",
+              "role",
+              "actions",
+              "frame",
+              "secure"
+            ],
+            "type": "object"
+          },
+          "maxItems": 2000,
+          "type": "array"
+        },
+        "focused": {
+          "maxLength": 256,
+          "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+          "type": "string"
+        },
+        "lineage": {
+          "maxLength": 64,
+          "pattern": "^w\\d+-\\d+-\\d+$",
+          "type": "string"
+        },
+        "observationId": {
+          "maxLength": 32,
+          "pattern": "^o\\d+$",
+          "type": "string"
+        },
+        "private": {
+          "const": false,
+          "type": "boolean"
+        },
+        "screenshot": {
+          "additionalProperties": false,
+          "properties": {
+            "captureId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "data": {
+              "maxLength": 5592408,
+              "minLength": 1,
+              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "format": {
+              "enum": [
+                "png",
+                "jpeg"
+              ],
+              "type": "string"
+            },
+            "height": {
+              "maximum": 16384,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "width": {
+              "maximum": 16384,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "captureId",
+            "format",
+            "width",
+            "height",
+            "data"
+          ],
+          "type": "object"
+        },
+        "status": {
+          "const": "ok",
+          "type": "string"
+        },
+        "target": {
+          "additionalProperties": false,
+          "properties": {
+            "epoch": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pid": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "windowId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pid",
+            "windowId",
+            "epoch"
+          ],
+          "type": "object"
+        },
+        "window": {
+          "additionalProperties": false,
+          "properties": {
+            "app": {
+              "additionalProperties": false,
+              "properties": {
+                "bundleId": {
+                  "anyOf": [
+                    {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "path": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "bundleId",
+                "path"
+              ],
+              "type": "object"
+            },
+            "epoch": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pid": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "title": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "windowId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pid",
+            "windowId",
+            "epoch",
+            "title",
+            "app"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "status",
+        "observationId",
+        "lineage",
+        "target",
+        "window",
+        "complete",
+        "private",
+        "elements"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "diff": {
+          "additionalProperties": false,
+          "properties": {
+            "added": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "actions": {
+                    "items": {
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 16,
+                    "type": "array"
+                  },
+                  "checked": {
+                    "type": "boolean"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "expanded": {
+                    "type": "boolean"
+                  },
+                  "frame": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "height": {
+                        "maximum": 16384,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "width": {
+                        "maximum": 16384,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "x": {
+                        "maximum": 16384,
+                        "minimum": -16384,
+                        "type": "integer"
+                      },
+                      "y": {
+                        "maximum": 16384,
+                        "minimum": -16384,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y",
+                      "width",
+                      "height"
+                    ],
+                    "type": "object"
+                  },
+                  "label": {
+                    "maxLength": 1024,
+                    "type": "string"
+                  },
+                  "parent": {
+                    "maxLength": 256,
+                    "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                    "type": "string"
+                  },
+                  "ref": {
+                    "anyOf": [
+                      {
+                        "maxLength": 256,
+                        "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "role": {
+                    "maxLength": 128,
+                    "type": "string"
+                  },
+                  "secure": {
+                    "type": "boolean"
+                  },
+                  "selected": {
+                    "type": "boolean"
+                  },
+                  "value": {
+                    "maxLength": 4096,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ref",
+                  "role",
+                  "actions",
+                  "frame",
+                  "secure"
+                ],
+                "type": "object"
+              },
+              "maxItems": 2000,
+              "type": "array"
+            },
+            "changed": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "actions": {
+                    "items": {
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 16,
+                    "type": "array"
+                  },
+                  "checked": {
+                    "type": "boolean"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "expanded": {
+                    "type": "boolean"
+                  },
+                  "frame": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "height": {
+                        "maximum": 16384,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "width": {
+                        "maximum": 16384,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "x": {
+                        "maximum": 16384,
+                        "minimum": -16384,
+                        "type": "integer"
+                      },
+                      "y": {
+                        "maximum": 16384,
+                        "minimum": -16384,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y",
+                      "width",
+                      "height"
+                    ],
+                    "type": "object"
+                  },
+                  "label": {
+                    "maxLength": 1024,
+                    "type": "string"
+                  },
+                  "parent": {
+                    "maxLength": 256,
+                    "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                    "type": "string"
+                  },
+                  "ref": {
+                    "anyOf": [
+                      {
+                        "maxLength": 256,
+                        "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "role": {
+                    "maxLength": 128,
+                    "type": "string"
+                  },
+                  "secure": {
+                    "type": "boolean"
+                  },
+                  "selected": {
+                    "type": "boolean"
+                  },
+                  "value": {
+                    "maxLength": 4096,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ref",
+                  "role",
+                  "actions",
+                  "frame",
+                  "secure"
+                ],
+                "type": "object"
+              },
+              "maxItems": 2000,
+              "type": "array"
+            },
+            "removed": {
+              "items": {
+                "maxLength": 256,
+                "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+                "type": "string"
+              },
+              "maxItems": 2000,
+              "type": "array"
+            },
+            "since": {
+              "maxLength": 32,
+              "pattern": "^o\\d+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "since",
+            "added",
+            "changed",
+            "removed"
+          ],
+          "type": "object"
+        },
+        "focused": {
+          "maxLength": 256,
+          "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+          "type": "string"
+        },
+        "lineage": {
+          "maxLength": 64,
+          "pattern": "^w\\d+-\\d+-\\d+$",
+          "type": "string"
+        },
+        "observationId": {
+          "maxLength": 32,
+          "pattern": "^o\\d+$",
+          "type": "string"
+        },
+        "private": {
+          "const": false,
+          "type": "boolean"
+        },
+        "screenshot": {
+          "additionalProperties": false,
+          "properties": {
+            "captureId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "data": {
+              "maxLength": 5592408,
+              "minLength": 1,
+              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+              "type": "string"
+            },
+            "format": {
+              "enum": [
+                "png",
+                "jpeg"
+              ],
+              "type": "string"
+            },
+            "height": {
+              "maximum": 16384,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "width": {
+              "maximum": 16384,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "captureId",
+            "format",
+            "width",
+            "height",
+            "data"
+          ],
+          "type": "object"
+        },
+        "status": {
+          "const": "ok",
+          "type": "string"
+        },
+        "target": {
+          "additionalProperties": false,
+          "properties": {
+            "epoch": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pid": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "windowId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pid",
+            "windowId",
+            "epoch"
+          ],
+          "type": "object"
+        },
+        "window": {
+          "additionalProperties": false,
+          "properties": {
+            "app": {
+              "additionalProperties": false,
+              "properties": {
+                "bundleId": {
+                  "anyOf": [
+                    {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "path": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "bundleId",
+                "path"
+              ],
+              "type": "object"
+            },
+            "epoch": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pid": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "title": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "windowId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pid",
+            "windowId",
+            "epoch",
+            "title",
+            "app"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "status",
+        "observationId",
+        "lineage",
+        "target",
+        "window",
+        "complete",
+        "private",
+        "diff"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "machine_not_attached",
+            "permission_denied",
+            "observe_not_available",
+            "window_not_found",
+            "epoch_changed",
+            "stale_observation",
+            "observe_failed"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

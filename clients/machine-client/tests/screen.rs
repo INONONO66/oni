@@ -29,6 +29,8 @@ fn window(id: u32, display: u32, x: i32, y: i32, width: u32, height: u32) -> Win
         display,
         title: format!("window {id}"),
         owner: "Fixture".into(),
+        pid: None,
+        app: None,
         x,
         y,
         width,

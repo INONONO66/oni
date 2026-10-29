@@ -130,6 +130,9 @@ export const WireMethod = {
   /** Either direction: one bounded opaque chunk of an open debugging channel. */
   CdpChunk: "machine.cdp.chunk",
   CdpClose: "machine.cdp.close",
+  /** Window-bound observation (#1689), gated by `computer.use`. */
+  ScreenObserve: "machine.screen.observe",
+  InputAction: "machine.input.action",
 } as const;
 
 /** Shared by Enrollment/Offer arrays and the machine.attached event payload. */
@@ -856,6 +859,12 @@ export const InputWriteResult = z.discriminatedUnion("status", [
         "input_failed",
         "spawn_failed",
         "probe_timeout",
+        "epoch_changed",
+        "stale_observation",
+        "ref_not_found",
+        "action_not_supported",
+        "window_not_found",
+        "observe_not_available",
       ]),
       /** Human-readable detail, e.g. which display a refused anchor captured. */
       message: z.string().min(1).max(256).optional(),
@@ -1318,13 +1327,28 @@ export const ScreenDisplay = z
   .strict();
 export type ScreenDisplay = z.infer<typeof ScreenDisplay>;
 
-/** A window's frame in its display's points; minimized windows report zero extents. */
+/** The stable identity of the app that owns a window: its bundle id, if any, and its executable path (#1689). */
+export const AppIdentity = z.object({ bundleId: z.string().min(1).max(256).nullable(), path: z.string().min(1).max(4096) }).strict();
+export type AppIdentity = z.infer<typeof AppIdentity>;
+/** An observation id as the peer mints it (#1689). */
+export const ObservationId = z.string().regex(/^o\d+$/).max(32);
+/** `role[i]` segments joined by `/`; `i` counts same-role siblings (#1689). */
+export const ObservedRef = z.string().regex(/^[^/[\]]*\[\d+\](?:\/[^/[\]]*\[\d+\])*$/).max(256);
+
+/**
+ * A window's frame in its display's points; minimized windows report zero
+ * extents. A contract-3 client adds the owning `pid` (an observation
+ * target's pid) and `app` whenever its platform names them (#1689); both stay
+ * optional so contract-2 rows still decode.
+ */
 export const ScreenWindow = z
   .object({
     windowId: WindowId,
     display: DisplayIndex,
     title: z.string().max(256),
     owner: z.string().max(256),
+    pid: z.number().int().min(1).optional(),
+    app: AppIdentity.optional(),
     bounds: z
       .object({
         x: z.number().int().min(-COMPUTER_MAX_DIMENSION).max(COMPUTER_MAX_DIMENSION),
@@ -1413,12 +1437,24 @@ export const ScreenCaptureResult = z.discriminatedUnion("status", [
 export type ScreenCaptureResult = z.infer<typeof ScreenCaptureResult>;
 
 /**
- * Pointer input in display points of the display `captureId` captured.
- * A stale anchor refuses `stale_capture` and nothing executes; the answer is
- * {@link InputWriteResult}, the legacy input vocabulary.
+ * Pointer input `at` either a point of the display `captureId` captured or
+ * the center of element `ref` of observation `observationId` (#1689). A
+ * stale anchor refuses `stale_capture` (`stale_observation`, `epoch_changed`,
+ * `ref_not_found`, `window_not_found` for the element form) and nothing
+ * executes; the answer is {@link InputWriteResult}.
  */
 const PointerButton = z.enum(["left", "right", "middle"]);
-const PointerAt = { captureId: CaptureId, x: Coordinate, y: Coordinate };
+const PointerAt = {
+  at: z.union([
+    z.object({ captureId: CaptureId, x: Coordinate, y: Coordinate }).strict(),
+    z
+      .object({
+        observationId: ObservationId,
+        ref: ObservedRef,
+      })
+      .strict(),
+  ]),
+};
 const ScrollDelta = z.number().int().min(-INPUT_SCROLL_MAX_DELTA).max(INPUT_SCROLL_MAX_DELTA);
 export const InputPointerRequest = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("move"), ...PointerAt }).strict(),

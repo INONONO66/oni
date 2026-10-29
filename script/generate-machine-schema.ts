@@ -22,10 +22,11 @@
  *   CellOutput, CellResult, CellState, PeekResult, PeekAnswer
  *                                                      refine: per-stream byte bound
  *   ScreenReadResult, ScreenCaptureResult              refine: accessibility tree byte bound
+ *   ScreenObserveResult                                refine: element list byte bound
  * Regex grammars (CapabilityId, ExportName, KeyFingerprint, PtySessionName,
  * base64 fields) are carried as `pattern`.
  */
-import { readdirSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { z } from "zod";
 import { Machine, type PlainValue } from "../packages/protocol/src/index.js";
 
@@ -87,12 +88,8 @@ export function renderMachineSchemas(): Map<string, string> {
 }
 
 function existingFiles(dir: URL): string[] {
-  try {
-    return readdirSync(dir).filter((file) => file.endsWith(".json"));
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
-    throw error;
-  }
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((file) => file.endsWith(".json"));
 }
 
 async function staleFiles(dir: URL, expected: Map<string, string>): Promise<string[]> {

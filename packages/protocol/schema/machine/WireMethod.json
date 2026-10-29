@@ -35,7 +35,9 @@
     "machine.stream.close",
     "machine.cdp.open",
     "machine.cdp.chunk",
-    "machine.cdp.close"
+    "machine.cdp.close",
+    "machine.screen.observe",
+    "machine.input.action"
   ],
   "type": "string"
 }

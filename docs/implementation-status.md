@@ -164,6 +164,42 @@ The npm artifact remains platform-independent and does not contain
 location before booting. The Resident service command `oni daemon` is
 separate from the machine client.
 
+## #1689 window-bound observation and ref-targeted actions (machine contract 3, PR pending)
+
+On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target
+contract: `docs/machines-and-delegation.md` 2.2.2.
+
+**Wire.** `packages/protocol/src/machine/observe.ts` holds `WindowTarget`,
+`AppIdentity`, `ObservedElement`, `ScreenObserveRequest|Result` and
+`InputActionRequest`; `schema.ts` appends `WireMethod.ScreenObserve`
+(`machine.screen.observe`), `WireMethod.InputAction`
+(`machine.input.action`) and the `InputWriteResult` reasons
+`window_not_found`, `epoch_changed`, `stale_observation`, `ref_not_found`,
+`action_not_supported`, `observe_not_available`. `Machine.contractVersion`
+is 3; the JSON Schema export and the valid/invalid fixtures cover every new
+shape and refusal.
+
+**Client.** `clients/machine-client/src/screen/ax/` (the bounded walk, ref
+resolver and `Observer` trait; `fixture.rs` the headless observer;
+`native.rs`, macOS only, AXUIElement reads and actions),
+`src/screen/observe.rs` (epoch table, ref minting, diff, action
+revalidation) and `src/input/action.rs`. `handlers.rs` serves both methods
+under `computer.use`.
+
+**Host and code mode.** `packages/machines/src/observe.ts` refuses
+`observe_not_available` for a peer below contract 3; `ComputerHandle`
+gains `observe` and `action`, both through the captured `tool.pre` port
+(`captureInput` is now generic over `InputWriteResult |
+ScreenObserveResult`). Code mode exposes `computer.screen.observe` and
+`computer.input.action`. `script/conformance/computer/` drives a full
+observe, an empty diff, a recorded press, `stale_observation` and
+`epoch_changed` against the built client, then a ref-anchored click and
+its `epoch_changed` refusal. `machine.input.pointer` now takes a nested
+`at` (`{captureId, x, y}` or `{observationId, ref}`).
+
+**Not shipped.** Windows mechanics and a live macOS run with
+Accessibility granted.
+
 ## #1662 machine client P5: computer use on the client peer (epic #1622, PR pending)
 
 On `feat/1662-machine-client-p5-computer-use` (2026-10-25, base

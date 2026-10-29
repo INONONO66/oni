@@ -176,11 +176,13 @@ export function createCodemode(options: CodemodeOptions) {
         screen: {
           list: (request?: Machine.ScreenListRequest) => use((computer) => computer.list(request)),
           capture: (request: Machine.ScreenCaptureRequest) => use((computer) => computer.capture(request)),
+          observe: (request: Machine.ScreenObserveRequest) => use((computer) => computer.observe(request)),
         },
         input: {
           pointer: (request: Machine.InputPointerRequest) => use((computer) => computer.pointer(request)),
           key: (request: Machine.InputKeyRequest) => use((computer) => computer.key(request)),
           text: (request: Machine.InputTextRequest) => use((computer) => computer.text(request)),
+          action: (request: Machine.InputActionRequest) => use((computer) => computer.action(request)),
         },
         stream: {
           open: (request: Omit<Machine.StreamOpenRequest, "streamId">, listeners: StreamListeners) =>

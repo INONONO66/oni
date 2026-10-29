@@ -46,6 +46,10 @@ tempfile = "3"
 # Screen capture backend (#1662): macOS only; on Linux it needs pipewire,
 # libclang and xcb, so Linux builds use no native capture backend.
 xcap = { version = "=0.9.8", default-features = false }
+# Window accessibility trees (#1689), pinned 2026-10-29 to the newest
+# published versions: AXUIElement walks and actions, CF value conversion.
+accessibility-sys = "=0.2.0"
+core-foundation = "=0.10.1"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 # Input injection (#1662), pinned 2026-10-25: macOS posts CGEvents behind the

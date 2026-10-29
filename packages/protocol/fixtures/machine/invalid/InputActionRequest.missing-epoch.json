@@ -1,0 +1,9 @@
+{
+  "observationId": "o1",
+  "target": {
+    "pid": 4242,
+    "windowId": 7
+  },
+  "ref": "AXButton[0]",
+  "action": "press"
+}

@@ -111,7 +111,7 @@ impl<E: Mouse + Keyboard + Send> Driver for Native<E> {
 
     fn inject(&mut self, event: &Event) -> Result<(), String> {
         let done = match event {
-            Event::Move { x, y } => self.0.move_mouse(*x, *y, Coordinate::Abs),
+            Event::Move { x, y, .. } => self.0.move_mouse(*x, *y, Coordinate::Abs),
             Event::Button { button: b, down } => self.0.button(button(*b), direction(*down)),
             Event::Scroll { horizontal, delta } => {
                 let axis = if *horizontal {

@@ -1,9 +1,9 @@
-import { validateMachinePlane, type OniConfig } from "../src/config";
+import { type MachinePlane, validateMachinePlane, type OniConfig } from "../src/config";
 import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, realpathSync, writeFileSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { Effect, Exit, Scope } from "effect";
+import { Effect, Exit, Result, Scope } from "effect";
 import * as Machines from "@oni/machines";
 import { Machine } from "@oni/protocol";
 import { startOni } from "../src/index";
@@ -49,10 +49,16 @@ function fixtureConfig(machines: OniConfig["machines"]): OniConfig {
 const selfSettings = (root: string, id: string) =>
   join(root, "self", createHash("sha256").update(id).digest("hex"), "client.json");
 
+function machinePlane(machines: NonNullable<OniConfig["machines"]>): MachinePlane {
+  const plane = validateMachinePlane(machines);
+  if (Result.isFailure(plane)) throw plane.failure;
+  return plane.success;
+}
+
 async function selfFixture(enrolled = true, machineId = "self", root = directory()) {
   const events = testBus();
   const scope = await runEffect(Scope.make());
-  const plane = validateMachinePlane({
+  const plane = machinePlane({
     self: { ...testSelfMachine(root), id: machineId }, listen: { unix: socketPath() }, enrolled: [],
   });
   const host = await acquireEffect(Machines.createMachineHost({

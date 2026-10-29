@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import net from "node:net";
 import { connectIpcClient } from "./ipc/helpers/native";
-import { Machine } from "@oni/protocol";
+import { Ipc, Machine } from "@oni/protocol";
 import { createMachineHost, MachineRefusalError } from "./helpers/native";
 import { socketPath } from "./helpers/socket-path";
 import { eventCollector } from "./helpers/events";
@@ -42,8 +42,10 @@ describe("real machine consumer surface", () => {
       const proxyPath = socketPath();
       let proxy: Awaited<ReturnType<typeof startProxy>>;
       proxy = await startProxy(proxyPath, () => net.connect(host.endpoints.unix ?? ""), (line) => {
-        const frame = JSON.parse(line);
-        if (frame.type !== "response" || frame.result?.status !== "written") return false;
+        const response = Ipc.Response.safeParse(JSON.parse(line));
+        if (!response.success) return false;
+        const result = Machine.FsStreamResult.safeParse(response.data.result);
+        if (!result.success || result.data.status !== "written") return false;
         discarded.resolve();
         queueMicrotask(() => proxy.sever());
         return true;
@@ -350,7 +352,7 @@ test("the longest effective normalized root wins — an offered root the enrollm
     // (#1512 r2 L11 — the host routes by the roots the daemon negotiated), so the path resolves through `docs`.
     const client = await scripted(path);
     try {
-      await client.call("machine.attach", { ...offer(root, twoExports), peer: { kind: "daemon", contractVersion: 2 } });
+      await client.call("machine.attach", { ...offer(root, twoExports), peer: { kind: "daemon", contractVersion: 3 } });
       expect(await host.get("m-1").fs.stat(join(nested, "file"))).toMatchObject({ op: "stat", kind: "file", size: 1 });
       expect(routed).toEqual(["docs:nested/file"]);
     } finally {
@@ -366,7 +368,7 @@ test("the longest effective normalized root wins — an offered root the enrollm
     });
     const bothClient = await scripted(bothPath);
     try {
-      await bothClient.call("machine.attach", { ...offer(root, twoExports), peer: { kind: "daemon", contractVersion: 2 } });
+      await bothClient.call("machine.attach", { ...offer(root, twoExports), peer: { kind: "daemon", contractVersion: 3 } });
       expect(await both.get("m-1").fs.stat(join(nested, "file"))).toMatchObject({ op: "stat", kind: "file", size: 1 });
       expect(routed).toEqual(["docs:nested/file", "private:file"]);
     } finally {

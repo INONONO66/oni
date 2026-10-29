@@ -126,6 +126,8 @@ describe("Ipc.Methods param schemas", () => {
         Machine.WireMethod.CdpOpen,
         Machine.WireMethod.CdpChunk,
         Machine.WireMethod.CdpClose,
+        Machine.WireMethod.ScreenObserve,
+        Machine.WireMethod.InputAction,
       ].sort(),
     );
   });

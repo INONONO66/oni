@@ -1,0 +1,10 @@
+{
+  "target": {
+    "pid": 4242,
+    "windowId": 7,
+    "epoch": 0
+  },
+  "since": "o1",
+  "screenshot": true,
+  "maxElements": 2000
+}

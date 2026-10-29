@@ -32,7 +32,13 @@
             "unsupported_action",
             "input_failed",
             "spawn_failed",
-            "probe_timeout"
+            "probe_timeout",
+            "epoch_changed",
+            "stale_observation",
+            "ref_not_found",
+            "action_not_supported",
+            "window_not_found",
+            "observe_not_available"
           ],
           "type": "string"
         },

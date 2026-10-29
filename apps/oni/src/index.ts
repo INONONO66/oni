@@ -1,4 +1,4 @@
-import { type Cause, Effect, Result } from "effect";
+import { type Cause, Effect, Exit, Result } from "effect";
 import { ThrownError } from "./thrown";
 import { AppInvariantError } from "./invariant";
 import { retryableOnce } from "./retryable-once";
@@ -66,6 +66,8 @@ import {
   type MachineError,
   type MachineHost,
   type MachineInputCapture,
+  type CapturedResult,
+  type CaptureRefusal,
 } from "@oni/machines";
 import {
   Alarm,
@@ -208,13 +210,11 @@ async function composeMachinePlane(
   readonly defaultMachine: string;
   readonly inbox?: string;
 }> {
-  const plane = Result.getOrThrowWith(
-    Result.try({
-      try: () => validateMachinePlane(machines),
-      catch: (cause) => (cause instanceof Error ? cause.message : String(cause)),
-    }),
-    (cause) => selfAttachFailure(`machine configuration invalid: ${cause}`),
-  );
+  const validated = validateMachinePlane(machines);
+  if (Result.isFailure(validated)) {
+    throw selfAttachFailure(`machine configuration invalid: ${validated.failure.message}`);
+  }
+  const plane = validated.success;
   // r1 L1: the self enrollment is one record stamped at composition time,
   // not re-stamped on every lookup.
   const selfRecord = selfEnrollment(plane, deps.now());
@@ -1014,8 +1014,7 @@ export async function startOni(options: StartOptions = {}) {
     // path as an `action` row carrying its call-time `after` cursor; a stale
     // cursor (before the compaction head) folds to `turn.consumed.stale`.
     const deliverLate = (sessionId: string, payload: PlainValue, after: number | undefined): void => {
-      runAppEffect(
-        runtime,
+      void runtime.runPromiseExit(
         entityClient(sessionId).Deliver({
           kind: "action",
           body: JSON.stringify({
@@ -1025,7 +1024,9 @@ export async function startOni(options: StartOptions = {}) {
           source: JSON.stringify({ kind: "hook.late" }),
           idempotencyKey: `hook-late:${services.entropy.id()}`,
         }),
-      ).catch((error) => incident(`late hook result for ${sessionId} dropped`, error));
+      ).then((exit) => {
+        if (Exit.isFailure(exit)) incident(`late hook result for ${sessionId} dropped`, exit.cause);
+      });
     };
     const generationDefinitions: GenerationDefinitions = { resident: [], child: [], deliverLate };
     await runAppBoot(runtime, services.generations.initialize(generationDefinitions));
@@ -1654,17 +1655,14 @@ function withWsParts(parts: WsParts, { sender, facts }: Channel.InboundMessage):
  * executed body; a pre refusal, a missing invocation or any other terminal
  * sends nothing and answers `permission_denied`.
  */
-function captureInput(
+function captureInput<R extends CapturedResult>(
   request: MachineInputCapture,
-  forward: Effect.Effect<Machine.InputWriteResult, MachineError>,
-): Effect.Effect<Machine.InputWriteResult, MachineError> {
+  forward: Effect.Effect<R, MachineError>,
+): Effect.Effect<R | CaptureRefusal, MachineError> {
   return Effect.gen(function* () {
-    const executor = yield* Core.executorContext.pipe(
-      Effect.map((value): Core.Executor | undefined => value),
-      Effect.catchDefect((defect) => (defect instanceof Core.ExecutorContextError ? Effect.succeed(undefined) : Effect.die(defect))),
-    );
+    const executor = yield* Core.optionalExecutor;
     if (executor === undefined) return { status: "refused", reason: "permission_denied", message: "machine input requires an active tool invocation" } as const;
-    let sent: Result.Result<Machine.InputWriteResult, MachineError> | undefined;
+    let sent: Result.Result<R, MachineError> | undefined;
     const outcome = yield* executor.run(
       {
         kind: "tool",

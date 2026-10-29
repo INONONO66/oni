@@ -5,6 +5,7 @@ import { z } from "zod";
 import { machineSchemas } from "../../../script/generate-machine-schema.ts";
 import { Machine } from "../src/machine/index.js";
 import { Ipc } from "../src/ipc/index.js";
+import { PlainValueSchema } from "../src/json.js";
 
 const repoRoot = join(import.meta.dir, "../../..");
 const schemaDir = join(import.meta.dir, "../schema/machine");
@@ -35,8 +36,8 @@ describe("machine wire contract fixtures", () => {
     const parsed = await parseFixture("valid", file);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    const fixture = await Bun.file(join(fixtureDir, "valid", file)).json();
-    expect(JSON.parse(JSON.stringify(parsed.data))).toEqual(fixture);
+    const fixture = PlainValueSchema.parse(await Bun.file(join(fixtureDir, "valid", file)).json());
+    expect(parsed.data).toEqual(fixture);
   });
 
   test.each(fixtures("invalid"))("invalid/%s is refused", async (file) => {
@@ -69,6 +70,12 @@ describe("machine wire contract fixtures", () => {
       "PtyReadParams.missing-name.json",
       "WireMethod.unknown-method.json",
       "StreamId.empty.json",
+      "ScreenObserveResult.elements-and-diff.json",
+      "ScreenObserveResult.missing-elements.json",
+      "ScreenObserveResult.missing-window.json",
+      "ScreenObserveResult.private-true.json",
+      "ScreenObserveResult.unknown-reason.json",
+      "WindowTarget.unknown-field.json",
     ];
     const rootFailure = rootFailures.includes(file);
     expect(issue?.path.length).toBeGreaterThan(rootFailure ? -1 : 0);
@@ -89,7 +96,7 @@ describe("machine JSON Schema export", () => {
       .filter((file) => file.endsWith(".json") && file !== "index.json")
       .sort();
     expect(index.contractVersion).toBe(Machine.contractVersion);
-    expect(Machine.supportedContractVersions).toEqual([Machine.contractVersion]);
+    expect(Machine.supportedContractVersions).toEqual([2, Machine.contractVersion]);
     expect(index.schemas.map((entry) => entry.file).sort()).toEqual(onDisk);
     expect(onDisk).toEqual([...schemas.keys()].map((name) => `${name}.json`).sort());
   });

@@ -1,0 +1,23 @@
+{
+  "status": "ok",
+  "observationId": "o1",
+  "lineage": "w4242-7-0",
+  "target": {
+    "pid": 4242,
+    "windowId": 7,
+    "epoch": 0
+  },
+  "window": {
+    "pid": 4242,
+    "windowId": 7,
+    "epoch": 0,
+    "title": "Notes",
+    "app": {
+      "bundleId": "com.example.notes",
+      "path": "/Applications/Notes.app"
+    }
+  },
+  "complete": true,
+  "private": true,
+  "elements": []
+}

@@ -1,0 +1,9 @@
+{
+  "kind": "click",
+  "at": {
+    "observationId": "o3",
+    "ref": "AXGroup[0]/AXButton[1]"
+  },
+  "button": "left",
+  "count": 1
+}

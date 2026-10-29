@@ -200,3 +200,26 @@ describe("computer-use wire round trips", () => {
     expect(Machine.InputWriteRequest.parse(JSON.parse(JSON.stringify(request)))).toEqual(request);
   });
 });
+
+describe("Machine.ScreenObserveResult", () => {
+  test("rejects an element list above the serialized ceiling", () => {
+    const element = {
+      ref: "AXStaticText[0]", role: "AXStaticText", value: "x".repeat(Machine.OBSERVE_MAX_VALUE_CHARS),
+      actions: [], frame: { x: 0, y: 0, width: 1, height: 1 }, secure: false,
+    };
+    const result = Machine.ScreenObserveResult.safeParse({
+      status: "ok", observationId: "o1", lineage: "w1-1-0", target: { pid: 1, windowId: 1, epoch: 0 },
+      window: { pid: 1, windowId: 1, epoch: 0, title: "", app: { bundleId: null, path: "/bin/app" } }, complete: true, private: false, elements: Array.from({ length: 65 }, () => element),
+    });
+    expect(result.success).toBe(false);
+    expect(Machine.ScreenObserveResult.safeParse({
+      status: "ok", observationId: "o1", lineage: "w1-1-0", target: { pid: 1, windowId: 1, epoch: 0 },
+      window: { pid: 1, windowId: 1, epoch: 0, title: "", app: { bundleId: null, path: "/bin/app" } }, complete: true, private: false, elements: Array.from({ length: 60 }, () => element),
+    }).success).toBe(true);
+  });
+
+  test("the ipc method table carries the observation contracts", () => {
+    expect(Ipc.Methods[Machine.WireMethod.ScreenObserve].result).toBe(Machine.ScreenObserveResult);
+    expect(Ipc.Methods[Machine.WireMethod.InputAction].params).toBe(Machine.InputActionRequest);
+  });
+});

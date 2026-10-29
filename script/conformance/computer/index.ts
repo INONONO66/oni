@@ -14,6 +14,8 @@ import { join, resolve } from "node:path";
 import { Effect, Result } from "effect";
 import { z } from "zod";
 import type {
+  CapturedResult,
+  CaptureRefusal,
   ComputerChannel,
   ComputerHandle,
   ComputerStream,
@@ -63,7 +65,7 @@ const Layout = z.object({ displays: z.array(DisplayRow), windows: z.array(Window
 type Layout = z.infer<typeof Layout>;
 
 const RecordedEvent = z.discriminatedUnion("event", [
-  z.object({ event: z.literal("move"), x: z.number().int(), y: z.number().int() }).strict(),
+  z.object({ event: z.literal("move"), x: z.number().int(), y: z.number().int(), ref: z.string().optional() }).strict(),
   z
     .object({
       event: z.literal("button"),
@@ -78,6 +80,21 @@ const RecordedEvent = z.discriminatedUnion("event", [
   z.object({ event: z.literal("text"), text: z.string() }).strict(),
 ]);
 type RecordedEvent = z.infer<typeof RecordedEvent>;
+const ActionLine = z
+  .object({
+    kind: z.literal("action"),
+    pid: z.number().int(),
+    windowId: z.number().int(),
+    ref: z.string(),
+    action: z.enum(["press", "setValue", "perform"]),
+    value: z.string().optional(),
+    name: z.string().optional(),
+  })
+  .strict();
+const RecorderLine = z.union([RecordedEvent, ActionLine]);
+type RecorderLine = z.infer<typeof RecorderLine>;
+const OBSERVED_PID = 4242;
+const BUTTON = "AXButton[0]";
 
 const MetricsLine = z.object({
   at: z.number().int(),
@@ -110,14 +127,14 @@ export function inputRecorder(): InputRecorder {
 }
 
 export function captureInput(recorder: InputRecorder) {
-  return (
+  return <R extends CapturedResult>(
     request: MachineInputCapture,
-    forward: Effect.Effect<Machine.InputWriteResult, MachineError>,
-  ): Effect.Effect<Machine.InputWriteResult, MachineError> =>
-    Effect.suspend(() => {
+    forward: Effect.Effect<R, MachineError>,
+  ): Effect.Effect<R | CaptureRefusal, MachineError> =>
+    Effect.suspend((): Effect.Effect<R | CaptureRefusal, MachineError> => {
       recorder.captured.push(request);
       if (recorder.allow) return forward;
-      return Effect.succeed<Machine.InputWriteResult>({
+      return Effect.succeed<CaptureRefusal>({
         status: "refused",
         reason: "permission_denied",
         message: "tool.pre refused the captured input",
@@ -139,6 +156,7 @@ export function prepareComputer(setup: ComputerSetup): {
   readonly devtools: FakeDevtools;
 } {
   const layout = Layout.parse(JSON.parse(readFileSync(LAYOUT, "utf8")));
+  writeFileSync(observedLayout(setup), observableLayout(layout, 0));
   const devtools = startFakeDevtools();
   const tap = startReportTap(setup.tapSocket, setup.hostSocket);
   writeFileSync(join(setup.directory, "cdp.json"), JSON.stringify({ ports: [devtools.port] }));
@@ -150,13 +168,33 @@ export function prepareComputer(setup: ComputerSetup): {
     JSON.stringify({
       ...config,
       unix: tap.socket,
-      computer: { layout: LAYOUT, recorder: setup.recorder },
+      computer: { layout: observedLayout(setup), recorder: setup.recorder },
     }),
   );
   return { layout, tap, devtools };
 }
 
-function recorded(path: string): RecordedEvent[] {
+function observedLayout(setup: ComputerSetup): string {
+  return join(setup.directory, "layout.json");
+}
+
+/** The tracked layout with its first window made observable; a new `epoch` token is a recreation. */
+function observableLayout(layout: Layout, epoch: number): string {
+  const [window, ...rest] = layout.windows;
+  check(window !== undefined, "fixture layout has no window");
+  const observable = {
+    ...window,
+    pid: OBSERVED_PID,
+    app: { bundleId: "com.example.conformance", path: "/Applications/Conformance.app" },
+    epoch,
+    elements: [
+      { role: "AXButton", label: "Save", actions: ["AXPress"], frame: { x: 4, y: 4, width: 40, height: 16 } },
+    ],
+  };
+  return JSON.stringify({ ...layout, windows: [observable, ...rest] });
+}
+
+function recorded(path: string): RecorderLine[] {
   let text = "";
   try {
     text = readFileSync(path, "utf8");
@@ -166,7 +204,7 @@ function recorded(path: string): RecordedEvent[] {
   return text
     .split("\n")
     .filter((line) => line.length > 0)
-    .map((line) => RecordedEvent.parse(JSON.parse(line)));
+    .map((line) => RecorderLine.parse(JSON.parse(line)));
 }
 
 function pngSize(data: Buffer): { readonly width: number; readonly height: number } | undefined {
@@ -300,7 +338,7 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
   check(primary !== undefined, "fixture layout has no display");
   const before = recorded(setup.recorder).length;
   const click = await run(
-    computer.pointer({ kind: "click", captureId, x: 40, y: 30, button: "left", count: 1 }),
+    computer.pointer({ kind: "click", at: { captureId, x: 40, y: 30 }, button: "left", count: 1 }),
   );
   check(click.status === "ok", `pointer click answered ${JSON.stringify(click)}`);
   const key = await run(
@@ -338,7 +376,7 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
     `input pointer/key/text captured as tool.pre [${methods.join(", ")}] and recorded ${events.length} events by the built client into its recorder file`,
   );
   recorder.allow = false;
-  const denied = await run(computer.pointer({ kind: "move", captureId, x: 1, y: 1 }));
+  const denied = await run(computer.pointer({ kind: "move", at: { captureId, x: 1, y: 1 } }));
   recorder.allow = true;
   check(
     denied.status === "refused" && denied.reason === "permission_denied",
@@ -350,7 +388,7 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
     "denied input reached the recorder",
   );
   harness.grant(false);
-  const revoked = await run(computer.pointer({ kind: "move", captureId, x: 1, y: 1 }));
+  const revoked = await run(computer.pointer({ kind: "move", at: { captureId, x: 1, y: 1 } }));
   const revokedList = await run(computer.list());
   const revokedStream = await run(
     computer.stream.open(streamRequest(primary.id), {
@@ -394,7 +432,7 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
     }),
   );
   check(fresh.status === "ok", "re-granted capture refused");
-  const stale = await run(computer.pointer({ kind: "move", captureId, x: 1, y: 1 }));
+  const stale = await run(computer.pointer({ kind: "move", at: { captureId, x: 1, y: 1 } }));
   check(
     stale.status === "refused" && stale.reason === "stale_capture",
     `stale anchor answered ${JSON.stringify(stale)}`,
@@ -406,6 +444,63 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
   harness.record(
     "input refusals: tool.pre denial permission_denied, revoked grant refuses input/list/stream/cdp before the port, stale anchor stale_capture; recorder unchanged",
   );
+}
+
+async function exerciseObservation(context: Context): Promise<void> {
+  const { harness, recorder, setup, layout } = context;
+  const computer = computerOf(context);
+  const [window] = layout.windows;
+  check(window !== undefined, "fixture layout has no window");
+  const target = { pid: OBSERVED_PID, windowId: window.id };
+  const full = await run(computer.observe({ target, screenshot: false }));
+  check(
+    full.status === "ok" && "elements" in full && full.elements.map((element) => element.ref).join(",") === BUTTON,
+    `full observe answered ${JSON.stringify(full)}`,
+  );
+  const diff = await run(computer.observe({ target, screenshot: false, since: full.observationId }));
+  check(
+    diff.status === "ok" && "diff" in diff && diff.diff.added.length + diff.diff.changed.length + diff.diff.removed.length === 0,
+    `unchanged diff answered ${JSON.stringify(diff)}`,
+  );
+  const pinned = { ...target, epoch: diff.target.epoch };
+  const press = { observationId: diff.observationId, target: pinned, ref: BUTTON, action: "press" } as const;
+  const before = recorded(setup.recorder).length;
+  const pressed = await run(computer.action(press));
+  check(pressed.status === "ok", `press answered ${JSON.stringify(pressed)}`);
+  const at = { observationId: diff.observationId, ref: BUTTON };
+  const clicked = await run(computer.pointer({ kind: "click", at, button: "left", count: 1 }));
+  check(clicked.status === "ok", `ref click answered ${JSON.stringify(clicked)}`);
+  const lines = recorded(setup.recorder).slice(before);
+  const expected: RecorderLine[] = [
+    { kind: "action", pid: OBSERVED_PID, windowId: window.id, ref: BUTTON, action: "press" },
+    { event: "move", x: window.x + 24, y: window.y + 12, ref: BUTTON },
+    { event: "button", button: "left", down: true },
+    { event: "button", button: "left", down: false },
+  ];
+  check(JSON.stringify(lines) === JSON.stringify(expected), `action recorder ${JSON.stringify(lines)}`);
+  harness.record(
+    `observe full (${full.observationId}, lineage ${full.lineage}) then since-diff empty; press ${BUTTON} recorded ${JSON.stringify(lines[0])}; ref click moved to ${JSON.stringify(lines[1])}`,
+  );
+  const stale = await run(computer.observe({ target, screenshot: false, since: full.observationId }));
+  check(stale.status === "refused" && stale.reason === "stale_observation", `stale since answered ${JSON.stringify(stale)}`);
+  writeFileSync(observedLayout(setup), observableLayout(layout, 1));
+  const recreated = await run(computer.action(press));
+  check(
+    recreated.status === "refused" && recreated.reason === "epoch_changed",
+    `press after recreation answered ${JSON.stringify(recreated)}`,
+  );
+  const moved = await run(computer.pointer({ kind: "move", at }));
+  check(moved.status === "refused" && moved.reason === "epoch_changed", `ref move after recreation answered ${JSON.stringify(moved)}`);
+  check(recorded(setup.recorder).length === before + expected.length, "a refused action reached the recorder");
+  const methods = recorder.captured.slice(-7).map((entry) => entry.method);
+  const observe = Machine.WireMethod.ScreenObserve;
+  const act = Machine.WireMethod.InputAction;
+  const point = Machine.WireMethod.InputPointer;
+  check(
+    methods.join(",") === [observe, observe, act, point, observe, act, point].join(","),
+    `captured observation calls ${methods.join(",")}`,
+  );
+  harness.record("observation refusals: superseded since stale_observation, recreated window epoch_changed for action and ref pointer; recorder unchanged, every call captured as tool.pre");
 }
 
 function streamRequest(display: number): Omit<Machine.StreamOpenRequest, "streamId"> {
@@ -726,6 +821,7 @@ export async function exerciseComputer(
     const context: Context = { harness, host, machineId, layout, tap, devtools, recorder, setup };
     const anchor = await exerciseScreen(context);
     await exerciseInput(context, anchor);
+    await exerciseObservation(context);
     await exerciseStream(context);
     await exerciseCdp(context);
     await exerciseOverflowAndRelease(context);

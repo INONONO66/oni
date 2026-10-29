@@ -20,6 +20,8 @@ const script: Record<string, Responder> = {
   [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }),
   [Machine.WireMethod.InputKey]: () => ({ status: "ok" }),
   [Machine.WireMethod.InputText]: () => ({ status: "ok" }),
+  [Machine.WireMethod.ScreenObserve]: () => ({ status: "refused", reason: "window_not_found" }),
+  [Machine.WireMethod.InputAction]: () => ({ status: "ok" }),
   [Machine.WireMethod.StreamOpen]: opened("streamId"),
   [Machine.WireMethod.StreamSignal]: accepted,
   [Machine.WireMethod.StreamClose]: (params) => ({ status: "closed", streamId: (params as { streamId: string }).streamId }),
@@ -51,7 +53,7 @@ async function fixture(run: (context: { mode: ReturnType<typeof createCodemode>;
   const attached = events.next(Machine.Events.Attached.name);
   await client.call(Machine.WireMethod.Attach, {
     machineId: "desk", daemonVersion: "test", platform: "darwin-arm64", offeredAt: 0,
-    peer: { kind: "client", contractVersion: 2 }, offeredCapabilities: [COMPUTER],
+    peer: { kind: "client", contractVersion: 3 }, offeredCapabilities: [COMPUTER],
   });
   await attached;
   const mode = createCodemode({ machines: options.stripComputer
@@ -68,11 +70,14 @@ test("the code-mode handle reaches screen and input under the wire op names, inp
     const shot = await run(computer.screen.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } }));
     if (shot.status !== "ok") throw new Error(`capture refused: ${shot.reason}`);
     expect(shot.data.toString("utf8")).toBe("png");
-    expect(await run(computer.input.pointer({ kind: "move", captureId: "cap-1", x: 1, y: 1 }))).toEqual({ status: "ok" });
+    expect(await run(computer.input.pointer({ kind: "move", at: { captureId: "cap-1", x: 1, y: 1 } }))).toEqual({ status: "ok" });
     expect(await run(computer.input.key({ captureId: "cap-1", key: "a", action: "press" }))).toEqual({ status: "ok" });
     expect(await run(computer.input.text({ captureId: "cap-1", text: "hi" }))).toEqual({ status: "ok" });
-    expect(captured.map((entry) => entry.method)).toEqual([Machine.WireMethod.InputPointer, Machine.WireMethod.InputKey, Machine.WireMethod.InputText]);
-    expect(received).toEqual([Machine.WireMethod.ScreenList, Machine.WireMethod.ScreenCapture, Machine.WireMethod.InputPointer, Machine.WireMethod.InputKey, Machine.WireMethod.InputText]);
+    expect(await run(computer.screen.observe({ target: { pid: 42, windowId: 7 }, screenshot: false }))).toEqual({ status: "refused", reason: "window_not_found" });
+    expect(await run(computer.input.action({ observationId: "o1", target: { pid: 42, windowId: 7, epoch: 0 }, ref: "AXButton[0]", action: "press" }))).toEqual({ status: "ok" });
+    const sent = [Machine.WireMethod.InputPointer, Machine.WireMethod.InputKey, Machine.WireMethod.InputText, Machine.WireMethod.ScreenObserve, Machine.WireMethod.InputAction];
+    expect(captured.map((entry) => entry.method)).toEqual(sent);
+    expect(received).toEqual([Machine.WireMethod.ScreenList, Machine.WireMethod.ScreenCapture, ...sent]);
   });
 });
 

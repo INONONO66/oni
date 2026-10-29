@@ -16,7 +16,7 @@ export * from "./ports/ports";
 export type { RetryAlarmPort, RetryAlarmDeps } from "./ports/alarm";
 export type { CompactionOptions, CompactionPortService } from "./ports/compaction-ports";
 export {
-  createExecutor, ExecutionApprovalError, ExecutorContext, executorContext, ExecutorContextError,
+  createExecutor, ExecutionApprovalError, ExecutorContext, executorContext, optionalExecutor, ExecutorContextError,
   currentInvocation, forkInvocation,
   type InvocationFrame, type ExecutionApprovalRequest, type Executor,
 } from "./loop/executor";
