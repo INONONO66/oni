@@ -304,7 +304,7 @@ test("a second real client cannot replace the protected self attachment", async 
     });
     // A one-shot stale generation is refused without displacing the incumbent.
     writeFileSync(join(fixture.root, "impostor", "state.json"), '{"generation":999}');
-    const impostor = Bun.spawn([await mclientBinary(), "run", "--once", "--config", path], {
+    const impostor = Bun.spawn([await mclientBinary(), "run", "--allow-unpinned", "--once", "--config", path], {
       stdin: "ignore", stdout: "ignore", stderr: "pipe",
     });
     const [exitCode, stderr] = await Promise.all([

@@ -2142,7 +2142,12 @@ async fn service_reprobes_configuration_error_on_retry_and_stops_on_term() {
     std::fs::write(directory.path().join("cdp.json"), b"{\"ports\":[0]}").expect("manifest");
     let path = directory.path().join("client.json");
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
-        .args(["run", "--config", path.to_str().expect("utf8 path")])
+        .args([
+            "run",
+            "--allow-unpinned",
+            "--config",
+            path.to_str().expect("utf8 path"),
+        ])
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
@@ -2205,7 +2210,7 @@ async fn run_without_config_uses_the_home_client_path() {
 
     let home = tempfile::tempdir().expect("home");
     let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
-        .args(["run", "--once"])
+        .args(["run", "--allow-unpinned", "--once"])
         .env("HOME", home.path())
         .output()
         .await
@@ -2218,7 +2223,7 @@ async fn run_without_config_uses_the_home_client_path() {
         .starts_with("configuration I/O:"));
 
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
-        .arg("run")
+        .args(["run", "--allow-unpinned"])
         .env("HOME", home.path())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)

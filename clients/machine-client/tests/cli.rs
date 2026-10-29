@@ -486,7 +486,7 @@ fn run_admits_a_saved_offline_pin_before_loading_config() {
     )
     .expect("offline pin");
     let file = directory.path().join("client.json");
-    let output = mclient(&["run", "--config", file.to_str().expect("path")]);
+    let output = mclient(&["run", "--once", "--config", file.to_str().expect("path")]);
     assert_eq!(output.status.code(), Some(2));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("refusal");
     assert!(error["reason"]
@@ -557,7 +557,7 @@ async fn retry_signals_the_running_service_for_an_immediate_reprobe() {
     let home = tempfile::tempdir().expect("isolated home");
     let mut service = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
         .env("HOME", home.path())
-        .arg("run")
+        .args(["run", "--allow-unpinned"])
         .stderr(Stdio::piped())
         .spawn()
         .expect("service starts");
