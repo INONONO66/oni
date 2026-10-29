@@ -1,5 +1,23 @@
 # Implementation Status
 
+## #1693 human-input and session facts
+
+The macOS client uses a listen-only session event tap to classify untagged
+pointer and keyboard input. Its cfg-free detector discards client-tagged input,
+counts the remaining events by source per heartbeat, and sends an immediate
+`machine.event.human_input` notification when input follows more than two
+seconds of quiet (at most one edge per 250 ms). The optional
+`Report.humanInput` carries the last event time, source and count;
+`Report.session` carries locked and asleep booleans. If Input Monitoring
+prevents the tap, the heartbeat omits `humanInput` and includes
+`humanInputUnavailable: "input_monitoring_not_granted"`. The host retains
+these optional facts per attachment, exposes them in `machine_list`, and
+publishes an authenticated `machine.human_input` bus event. It makes no
+admission or lease decision from them. The app subscriber belongs to #1697.
+Linux clients omit the human-input fact; native Linux and Windows input
+adapters are tracked in #1700. Live grant-dependent
+acceptance is tracked in #1702.
+
 ## #1682 npm package host/client report compatibility
 
 `apps/oni` rebuilds `@oni/protocol` before staging its npm bundle. Staging

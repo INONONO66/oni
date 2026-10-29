@@ -1,0 +1,6 @@
+[
+  { "atMs": 1000, "kind": "pointer", "tagged": false },
+  { "atMs": 1200, "kind": "keyboard", "tagged": true },
+  { "atMs": 1300, "kind": "pointer", "tagged": false },
+  { "atMs": 3401, "kind": "keyboard", "tagged": false }
+]

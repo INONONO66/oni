@@ -20,6 +20,7 @@ use oni_machine_client::{
     budget::{self, Budget, BudgetAction, Metrics, NoRetention, Pressure, Retained, StreamTotals},
     config::{self, ClientConfig, Export, JoinOptions},
     handlers::{available, Service},
+    input::watch::{InputEvent, Kind, TapState},
     pty::ops::Pty,
     report::{append_metrics, Load, Probe},
     transport::{
@@ -1448,6 +1449,128 @@ impl attach::Session for Uplinked {
     fn uplink(&self, uplink: attach::Uplink) {
         *self.0.lock().expect("uplink slot") = Some(uplink);
     }
+}
+
+#[tokio::test]
+async fn reconnect_discards_old_edges_but_reports_folded_human_counts() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = unix_settings(&host, directory.path()).await;
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let feed = attachment.input_feed();
+    feed.transition(TapState::Running);
+    feed.accept(InputEvent {
+        at: 1_000,
+        kind: Kind::Pointer,
+        tagged: false,
+    });
+    let exchange = async move {
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(attached(&request, 1)).await;
+        let report = expect(&mut host, "machine.report").await;
+        assert_eq!(report["params"]["humanInput"]["events"], 1);
+        assert_eq!(report["params"]["humanInput"]["source"], "pointer");
+        drop(host);
+    };
+    let (outcome, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(attachment.once(), exchange)
+    })
+    .await
+    .expect("old edge is not replayed");
+    assert_eq!(outcome.expect("closed"), Outcome::Ended);
+}
+
+#[tokio::test]
+async fn human_edge_and_report_fact_arrive_while_heartbeat_reply_is_held() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = unix_settings(&host, directory.path()).await;
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let feed = attachment.input_feed();
+    feed.transition(TapState::Running);
+    let exchange = async move {
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(attached(&request, 1)).await;
+        let held = expect(&mut host, "machine.report").await;
+        let rows: Vec<InputEvent> =
+            serde_json::from_str(include_str!("fixtures/human.json")).expect("human fixture");
+        for row in rows {
+            feed.accept(row);
+        }
+        let edge = expect(&mut host, "machine.event.human_input").await;
+        assert_eq!(edge["params"]["source"], "pointer");
+        host.send(reply(&held, json!({"status":"accepted"}))).await;
+        let report = expect(&mut host, "machine.report").await;
+        assert_eq!(report["params"]["humanInput"]["events"], 3);
+        assert_eq!(report["params"]["humanInput"]["source"], "both");
+        drop(host);
+    };
+    let (outcome, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(attachment.once(), exchange)
+    })
+    .await
+    .expect("human notification precedes held heartbeat reply");
+    assert_eq!(outcome.expect("closed"), Outcome::Ended);
+}
+
+#[tokio::test]
+async fn human_edge_arrives_while_uplink_reply_is_held() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = unix_settings(&host, directory.path()).await;
+    let session = Arc::new(Uplinked(std::sync::Mutex::new(None)));
+    let mut hooks = hooks(Arc::new(NoRetention));
+    hooks.session = session.clone();
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let feed = attachment.input_feed();
+    feed.transition(TapState::Running);
+    let exchange = async move {
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(attached(&request, 1)).await;
+        let uplink = session
+            .0
+            .lock()
+            .expect("uplink slot")
+            .clone()
+            .expect("uplink");
+        let call = uplink.call("machine.cdp.chunk", json!({"channelId":"c"}));
+        let hosting = async {
+            loop {
+                let frame = host.incoming.recv().await.expect("frame");
+                if frame["method"] == "machine.cdp.chunk" {
+                    feed.accept(InputEvent {
+                        at: 1_000,
+                        kind: Kind::Keyboard,
+                        tagged: false,
+                    });
+                    let edge = expect(&mut host, "machine.event.human_input").await;
+                    assert_eq!(edge["params"]["source"], "keyboard");
+                    host.send(reply(&frame, json!({"status":"accepted"}))).await;
+                    break;
+                }
+                host.send(reply(&frame, json!({"status":"accepted"}))).await;
+            }
+        };
+        let (answer, ()) = tokio::join!(call, hosting);
+        assert_eq!(
+            answer.expect("uplink reply"),
+            Some(json!({"status":"accepted"}))
+        );
+    };
+    let (outcome, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(attachment.once(), exchange)
+    })
+    .await
+    .expect("human notification precedes held uplink reply");
+    assert_eq!(outcome.expect("closed"), Outcome::Ended);
 }
 
 #[tokio::test]

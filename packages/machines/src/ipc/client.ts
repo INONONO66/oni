@@ -1,7 +1,7 @@
 import { X509Certificate } from "node:crypto";
 import net from "node:net";
 import tls from "node:tls";
-import type { IdSource, Ipc, PlainValue } from "@oni/protocol";
+import { Ipc, type IdSource, type PlainValue } from "@oni/protocol";
 import { Effect, type Scope } from "effect";
 import { IpcConnectionError, IpcPeerKeyMismatchError, IpcProtocolError, type IpcError } from "./errors";
 import { decodeIpcFailure } from "../failure";
@@ -12,6 +12,7 @@ import { certificateKeyFingerprint, type IpcTlsIdentity } from "./tls";
 
 export interface IpcClient {
   call(method: string, params?: Ipc.Request["params"], timeoutMs?: number): Effect.Effect<Ipc.Response["result"], IpcError>;
+  notify(method: string, params?: Ipc.Notification["params"]): Effect.Effect<void, IpcError>;
   close(): Effect.Effect<void, IpcError>;
   readonly connected: boolean;
 }
@@ -205,6 +206,11 @@ function connectOverTransport(transport: ClientTransport, opts: ConnectIpcClient
       get connected() { return connected; },
       call(method, params, timeoutMs = 30_000) {
         return Effect.suspend(() => connected ? peer.call(undefined, method, params, timeoutMs) : new IpcConnectionError({ message: "not connected" }));
+      },
+      notify(method, params) {
+        return Effect.suspend(() => connected
+          ? Effect.sync(() => { socket?.write(encode(Ipc.createNotification(method, params))); })
+          : new IpcConnectionError({ message: "not connected" }));
       },
       close: () => close,
     };

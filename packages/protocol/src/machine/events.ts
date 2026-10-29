@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BusEvent } from "../bus/index.js";
 import { CapabilityId, Enrollment, LeaseRefusal, Load, MachineId, PtyCursor, PtySessionName, uniqueCapabilities } from "./schema.js";
 import { EpochMs } from "../time.js";
+import { HumanInputNotification } from "./facts.js";
 
 const EventBase = z.object({
   machineId: MachineId,
@@ -36,6 +37,9 @@ export const Events = {
    */
   Reported: BusEvent.define("machine.reported", EventBase.extend({ reportedAt: EpochMs, load: Load }), {
     visibility: "ephemeral",
+  }),
+  HumanInput: BusEvent.define("machine.human_input", HumanInputNotification.extend({ time: EpochMs }), {
+    visibility: "llm_reason",
   }),
   PtyOutput: BusEvent.define("machine.pty_output", EventBase.extend({
     name: PtySessionName,

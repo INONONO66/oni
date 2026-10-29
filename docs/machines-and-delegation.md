@@ -507,6 +507,19 @@ variant), `screen_read` answers `screen_not_available` and `input_write`
 answers `input_not_available`, each after its params decode; a host-served
 name (`attach`, `report`, `call_tool`, `pty_output`) is an invalid method.
 
+**Human-input facts.** An optional heartbeat `humanInput` fact contains only
+the last input time, pointer/keyboard/both source and count for that interval;
+`session` contains locked and asleep booleans. A macOS listen-only session
+event tap discards events bearing the client's `ONI_EVENT_TAG` user-data marker
+before counting input. An untagged event after more than 2 seconds without
+human input sends one `machine.event.human_input` edge notification, throttled
+to at most one per 250 ms. Without the Input Monitoring grant, no input fact
+is asserted: `humanInputUnavailable` reports
+`input_monitoring_not_granted`. The host stores the latest report per
+attachment and publishes authenticated edges as `machine.human_input` bus
+events; it never enforces computer-use policy from these facts. The lease
+consumer is a separate app concern.
+
 **Memory budget and metrics.** Every 5 s heartbeat appends one line to
 `metrics.jsonl` (`at`, `rssBytes`, `inFlight`, `retainedPtyBytes`,
 `transfers`) and samples RSS against `memoryBudgetMb` (default 96). The

@@ -22,6 +22,9 @@ mod macos;
 pub mod native;
 pub mod recorder;
 pub mod tag;
+#[cfg(target_os = "macos")]
+pub mod tap;
+pub mod watch;
 
 use std::sync::{Mutex, PoisonError};
 

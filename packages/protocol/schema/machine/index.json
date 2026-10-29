@@ -170,6 +170,10 @@
       "name": "EventEnrolled"
     },
     {
+      "file": "EventHumanInput.json",
+      "name": "EventHumanInput"
+    },
+    {
       "file": "EventLeaseRefused.json",
       "name": "EventLeaseRefused"
     },
@@ -212,6 +216,18 @@
     {
       "file": "FsStreamResult.json",
       "name": "FsStreamResult"
+    },
+    {
+      "file": "HumanInput.json",
+      "name": "HumanInput"
+    },
+    {
+      "file": "HumanInputNotification.json",
+      "name": "HumanInputNotification"
+    },
+    {
+      "file": "HumanInputUnavailable.json",
+      "name": "HumanInputUnavailable"
     },
     {
       "file": "Info.json",
@@ -432,6 +448,10 @@
     {
       "file": "ScreenWindow.json",
       "name": "ScreenWindow"
+    },
+    {
+      "file": "Session.json",
+      "name": "Session"
     },
     {
       "file": "StreamCloseRequest.json",

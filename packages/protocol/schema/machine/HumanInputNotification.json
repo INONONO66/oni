@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "at": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "machineId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "pointer",
+        "keyboard"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "machineId",
+    "at",
+    "source"
+  ],
+  "type": "object"
+}

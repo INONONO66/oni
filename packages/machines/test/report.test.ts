@@ -30,6 +30,8 @@ describe("machine.report heartbeat", () => {
         expect(first?.live?.screen?.permission === "granted" || first?.live?.screen?.permission === "denied").toBe(true);
       } else {
         expect(first?.live?.screen).toEqual({ permission: "unsupported" });
+        expect(first?.live?.humanInputUnavailable).toBeUndefined();
+        expect(first?.live?.humanInput).toBeUndefined();
       }
       hostNow = 1101;
       expect(host.list()[0]?.live?.stale).toBe(true);
@@ -86,6 +88,41 @@ describe("machine.report heartbeat", () => {
       })).toEqual({ status: "accepted" });
       expect(host.list()[0]?.live).toEqual({ reportedAt: 2, load, stale: false });
     } finally {
+      await peer.close();
+      await host.close();
+    }
+  });
+
+  test("only the attached peer's human-input notification publishes a content-free event", async () => {
+    const events = eventCollector();
+    const host = await createMachineHost({
+      listen: { unix: socketPath() }, enrollment: (id) => id === "w-1" ? mclientEnrollment(id) : undefined,
+      events: events.sink, now: () => 300,
+    });
+    const peer = await connectIpcClient(host.endpoints.unix ?? "");
+    const stranger = await connectIpcClient(host.endpoints.unix ?? "");
+    try {
+      expect(await peer.call(Machine.WireMethod.Attach, {
+        machineId: "w-1", daemonVersion: "simulated", platform: "darwin-arm64",
+        offeredCapabilities: ["kernel.py"], offeredAt: 1,
+        peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).toMatchObject({ status: "attached" });
+      const load = { loadAvg1: 0, memoryAvailableBytes: 0, inFlight: 0 };
+      await stranger.notify(Machine.WireMethod.EventHumanInput, { machineId: "w-1", at: 100, source: "keyboard" });
+      expect(await stranger.call(Machine.WireMethod.Report, { machineId: "w-1", reportedAt: 1, load }))
+        .toEqual({ status: "refused", reason: "machine_not_attached" });
+      expect(events.events.filter((event) => event.name === Machine.Events.HumanInput.name)).toHaveLength(0);
+      await peer.notify(Machine.WireMethod.EventHumanInput, { machineId: "wrong", at: 200, source: "keyboard" });
+      expect(await peer.call(Machine.WireMethod.Report, { machineId: "wrong", reportedAt: 2, load }))
+        .toEqual({ status: "refused", reason: "machine_mismatch" });
+      expect(events.events.filter((event) => event.name === Machine.Events.HumanInput.name)).toHaveLength(0);
+      const fact = { machineId: "w-1", at: 250, source: "pointer" } as const;
+      const delivered = events.next(Machine.Events.HumanInput.name);
+      await peer.notify(Machine.WireMethod.EventHumanInput, fact);
+      expect((await delivered).payload).toEqual({ ...fact, time: 300 });
+      expect(events.events.filter((event) => event.name === Machine.Events.HumanInput.name)).toHaveLength(1);
+    } finally {
+      await stranger.close();
       await peer.close();
       await host.close();
     }

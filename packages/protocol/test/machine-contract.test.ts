@@ -56,6 +56,8 @@ describe("machine wire contract fixtures", () => {
       "CapabilityId.wrong-type.json",
       "ExecRequest.positional-array.json",
       "ExportName.wrong-type.json",
+      "HumanInputNotification.content.json",
+      "HumanInputUnavailable.bad-reason.json",
       "KeyFingerprint.wrong-type.json",
       "MachineId.wrong-type.json",
       "PtySessionName.wrong-type.json",

@@ -34,6 +34,7 @@ function nativeClientOptions(options: ClientTestOptions) {
 function wrapClient(native: import("../../../src").IpcClient, close: () => Promise<void>) {
   return { native, get connected() { return native.connected; },
     call: (...args: Parameters<typeof native.call>) => run(native.call(...args)),
+    notify: (...args: Parameters<typeof native.notify>) => run(native.notify(...args)),
     close: async () => { await run(native.close()); await close(); },
   };
 }

@@ -430,6 +430,14 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       options.events.publish(Machine.Events.Reported, { machineId: incoming.machineId, time: receivedAt, reportedAt: incoming.reportedAt, load: incoming.load });
       return { status: "accepted" };
     }
+    function humanInput(incoming: Machine.HumanInputNotification, source: RequestSource): void {
+      const attachment = attachments.get(source.key);
+      if (attachment?.offer.machineId !== incoming.machineId) return;
+      options.events.publish(Machine.Events.HumanInput, {
+        ...incoming,
+        time: options.now(),
+      });
+    }
     function dispatchRequest(method: string, params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, source: RequestSource): Effect.Effect<void, MachinesFailure> {
       return Effect.gen(function* () {
         if (method === Machine.WireMethod.CallTool) {
@@ -467,7 +475,12 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       let api: HostListener;
       return {
         handler: (method: string, params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, _notify: (method: string, params?: Ipc.Notification["params"]) => void, rawId: string) =>
-          dispatchRequest(method, params, respond, { key: `${label}:${rawId}`, rawId, server: api }),
+          method === Machine.WireMethod.EventHumanInput
+            ? Effect.try({
+              try: () => humanInput(Machine.HumanInputNotification.parse(params), { key: `${label}:${rawId}`, rawId, server: api }),
+              catch: decodeMachineFailure("human_input.decode"),
+            }).pipe(Effect.mapError((error) => new MachinesFailure({ operation: "machine.request", cause: error.message })))
+            : dispatchRequest(method, params, respond, { key: `${label}:${rawId}`, rawId, server: api }),
         onDisconnect: (rawId: string) => Effect.sync(() => detach(`${label}:${rawId}`, "connection_closed")),
         bind<S extends HostListener>(server: S): S { api = server; return server; },
       };
@@ -874,7 +887,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     function list(): MachineInfo[] {
       return [...attachments.values()].map(({ enrollment, offer, generation, capabilities, key }): MachineInfo => {
         const latest = reports.get(key);
-        return {
+        const info: MachineInfo = {
           ...structuredClone(enrollment),
           tags: [...(enrollment.tags ?? [])],
           capabilities: [...capabilities],
@@ -884,8 +897,10 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           os: offer.platform.split("-")[0] ?? offer.platform,
           arch: offer.platform.split("-").slice(1).join("-"),
           ...(offer.resources === undefined ? {} : { resources: { ...offer.resources } }),
-          ...(latest === undefined ? {} : { live: { reportedAt: latest.report.reportedAt, load: { ...latest.report.load }, ...(latest.report.screen === undefined ? {} : { screen: { ...latest.report.screen } }), stale: options.now() - latest.receivedAt > staleAfterMs } }),
         };
+        if (latest === undefined) return info;
+        const { machineId: _machineId, streams: _streams, ...facts } = latest.report;
+        return { ...info, live: { ...structuredClone(facts), stale: options.now() - latest.receivedAt > staleAfterMs } };
       }).sort((a, b) => a.machineId.localeCompare(b.machineId));
     }
     /** The effective roots a consumer may resolve a path against: a root two allowed exports share is one `location` refuses as ambiguous, so it is not offered here either. */

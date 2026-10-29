@@ -9,19 +9,21 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use oni_protocol::{AttachResult, ReportResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::{JoinError, JoinSet};
 
 use crate::{
     agent::{hook, launcher::HookTarget},
     budget::{self, Budget, BudgetAction, Metrics, Pressure},
     config::{self, ClientConfig, JoinOptions},
     handlers::{AgentOptions, Service},
+    input::watch::{InputProducer, InputWatch, Source},
     pty::ops::Pty,
     report::{self, Probe},
     transport::{
@@ -336,6 +338,31 @@ pub struct Attachment<'a, P> {
     budget: Budget,
     in_flight: Arc<AtomicUsize>,
     restricted: Arc<AtomicBool>,
+    human: InputWatch,
+    input_producer: InputProducer,
+    watch_start: Instant,
+}
+
+fn join_failure(error: JoinError) -> AttachError {
+    AttachError::Terminal(error.to_string())
+}
+
+async fn notify_human_edge(
+    machine_id: &str,
+    watch_start: Instant,
+    client: &Client,
+    at: u64,
+    source: Source,
+) -> Result<(), AttachError> {
+    let elapsed = u64::try_from(watch_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let at = now_ms().saturating_sub(elapsed.saturating_sub(at));
+    client
+        .notify(
+            "machine.event.human_input",
+            Some(json!({"machineId": machine_id, "at": at, "source": source})),
+        )
+        .await?;
+    Ok(())
 }
 
 impl<'a, P: Probe> Attachment<'a, P> {
@@ -346,6 +373,10 @@ impl<'a, P: Probe> Attachment<'a, P> {
         hooks: &'a Hooks,
         probe: &'a P,
     ) -> Result<Self, AttachError> {
+        let watch_start = Instant::now();
+        let (human, input_producer) = InputWatch::new();
+        #[cfg(target_os = "macos")]
+        crate::input::tap::start(watch_start, input_producer.clone());
         Ok(Self {
             config,
             directory,
@@ -356,10 +387,19 @@ impl<'a, P: Probe> Attachment<'a, P> {
             budget: Budget::new(config.memory_budget_mb),
             in_flight: Arc::new(AtomicUsize::new(0)),
             restricted: Arc::new(AtomicBool::new(false)),
+            human,
+            input_producer,
+            watch_start,
         })
     }
 
+    /// Fixture feeds use the same bounded producer as the native callback.
+    pub fn input_feed(&self) -> InputProducer {
+        self.input_producer.clone()
+    }
+
     pub async fn once(&mut self) -> Result<Outcome, AttachError> {
+        self.human.discard_edges();
         let Some(mut client) = self.connect().await? else {
             return Ok(Outcome::Unreachable);
         };
@@ -422,7 +462,7 @@ impl<'a, P: Probe> Attachment<'a, P> {
         }
     }
 
-    async fn beat(&mut self, client: &Client) -> Result<bool, AttachError> {
+    fn beat(&mut self) -> Result<Value, AttachError> {
         let at = now_ms();
         let in_flight = self.in_flight.load(Ordering::Relaxed);
         let rss_bytes = self.probe.rss()?;
@@ -453,14 +493,23 @@ impl<'a, P: Probe> Attachment<'a, P> {
             "load": self.probe.load(in_flight)?,
             "screen": {"permission": report::screen_permission(self.hooks.screen.probe())}
         });
-        report::with_streams(&mut report, streams);
-        match client.call("machine.report", Some(report)).await {
-            Ok(Some(response)) => Ok(matches!(
-                oni_protocol::decode::<ReportResult>(response)?,
-                ReportResult::Accepted
-            )),
-            _ => Ok(true),
+        #[cfg(target_os = "macos")]
+        {
+            let (locked, asleep) = crate::input::tap::session();
+            report["session"] = json!({ "locked": locked, "asleep": asleep });
         }
+        #[cfg(target_os = "macos")]
+        if !self.human.available() {
+            report["humanInputUnavailable"] = json!("input_monitoring_not_granted");
+        }
+        if let Some(input) = self.human.consume(
+            at,
+            u64::try_from(self.watch_start.elapsed().as_millis()).unwrap_or(u64::MAX),
+        ) {
+            report["humanInput"] = json!(input);
+        }
+        report::with_streams(&mut report, streams);
+        Ok(report)
     }
 
     async fn heartbeat(
@@ -469,16 +518,46 @@ impl<'a, P: Probe> Attachment<'a, P> {
         calls: &mut mpsc::Receiver<UplinkCall>,
     ) -> Result<(), AttachError> {
         let mut tick = tokio::time::interval(self.hooks.heartbeat);
+        let mut reports = JoinSet::new();
+        let mut uplinks = JoinSet::new();
         loop {
             tokio::select! {
-                _ = client.closed() => return Ok(()),
-                Some(call) = calls.recv() => {
-                    let answer = client.call(&call.method, Some(call.params.clone())).await;
-                    call.answer(answer);
+                _ = client.closed() => break Ok(()),
+                Some((at, source)) = self.human.next_edge() =>
+                    notify_human_edge(&self.config.machine_id, self.watch_start, client, at, source).await?,
+                Some(call) = calls.recv(), if uplinks.len() < UPLINK_BOUND => {
+                    let caller = client.caller();
+                    uplinks.spawn(async move {
+                        let answer = caller.call_with_timeout(
+                            &call.method, Some(call.params.clone()),
+                            crate::transport::request_table::CALL_TIMEOUT,
+                        ).await;
+                        call.answer(answer);
+                    });
                 },
-                _ = tick.tick() => if !self.beat(client).await? {
-                    return Ok(());
-                },
+                Some(finished) = reports.join_next(), if !reports.is_empty() => {
+                    if let Ok(Some(response)) = finished.map_err(join_failure)? {
+                        if !matches!(
+                            oni_protocol::decode::<ReportResult>(response)?,
+                            ReportResult::Accepted
+                        ) {
+                            break Ok(());
+                        }
+                    }
+                }
+                Some(finished) = uplinks.join_next(), if !uplinks.is_empty() => {
+                    finished.map_err(join_failure)?;
+                }
+                _ = tick.tick(), if reports.is_empty() => {
+                    let report = self.beat()?;
+                    let caller = client.caller();
+                    reports.spawn(async move {
+                        caller.call_with_timeout(
+                            "machine.report", Some(report),
+                            crate::transport::request_table::CALL_TIMEOUT,
+                        ).await
+                    });
+                }
             }
         }
     }
@@ -643,9 +722,68 @@ impl Uplink {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
+    use serde_json::json;
+
+    use crate::{
+        input::watch::Source,
+        transport::{
+            client::{Client, TransportError},
+            framing::Framed,
+        },
+    };
+
+    use super::{join_failure, notify_human_edge, AttachError};
+
     #[tokio::test]
     async fn inbound_requests_before_attachment_are_refused() {
         let refusal = super::refuse_inbound()("machine.exec".to_owned(), None).await;
         assert_eq!(refusal, Err("machine_not_attached".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn human_edge_notification_after_disconnect_is_a_call_error() {
+        let (stream, peer) = tokio::io::duplex(64);
+        let mut client = Client::from_stream(stream, super::refuse_inbound());
+        drop(peer);
+        assert!(matches!(client.closed().await, Err(TransportError::Closed)));
+
+        let error = notify_human_edge("test", Instant::now(), &client, 1_000, Source::Keyboard)
+            .await
+            .expect_err("notification failed");
+        assert!(matches!(
+            error,
+            AttachError::Call(crate::transport::request_table::CallError::Disconnected)
+        ));
+    }
+
+    #[tokio::test]
+    async fn human_edge_notification_reaches_the_host() {
+        let (stream, peer) = tokio::io::duplex(1024);
+        let client = Client::from_stream(stream, super::refuse_inbound());
+
+        notify_human_edge("test", Instant::now(), &client, 1_000, Source::Keyboard)
+            .await
+            .expect("notification queued");
+        let frame = tokio::time::timeout(Duration::from_secs(5), Framed::new(peer).next())
+            .await
+            .expect("notification arrived")
+            .expect("valid frame")
+            .expect("notification frame");
+        assert_eq!(frame["method"], "machine.event.human_input");
+        assert_eq!(frame["params"]["machineId"], "test");
+        assert_eq!(frame["params"]["source"], json!(Source::Keyboard));
+        assert!(frame["params"]["at"].is_u64());
+    }
+
+    #[tokio::test]
+    async fn panicked_join_task_maps_to_terminal_error() {
+        let error = tokio::spawn(async { panic!("task panic") })
+            .await
+            .expect_err("panicked task");
+        assert!(
+            matches!(join_failure(error), AttachError::Terminal(message) if message.contains("panicked"))
+        );
     }
 }
