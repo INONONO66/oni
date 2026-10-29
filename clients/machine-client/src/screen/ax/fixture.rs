@@ -372,6 +372,25 @@ mod tests {
     }
 
     #[test]
+    fn nested_focused_element_is_reported_by_the_fixture_observer() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let fixture = scripted(
+            directory.path(),
+            r#"{"windows":[{"id":9,"title":"Editor","pid":7,"elements":[
+                {"role":"AXGroup","frame":{"x":0,"y":0,"width":1,"height":1},
+                 "children":[{"role":"AXSecureTextField","secure":true,"focused":true,
+                   "frame":{"x":0,"y":0,"width":1,"height":1}}]}]}]}"#,
+        );
+        assert_eq!(
+            fixture.focused(&window()),
+            Ok(Some(Focused {
+                role: "AXSecureTextField".into(),
+                secure: true,
+            }))
+        );
+    }
+
+    #[test]
     fn a_missing_or_malformed_layout_fails_every_read() {
         let directory = tempfile::tempdir().expect("tempdir");
         let missing = Scripted {

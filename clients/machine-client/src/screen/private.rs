@@ -105,6 +105,37 @@ pub fn overlaps(left: Frame, right: Frame) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::screen::ax::{Attributes, Node};
+
+    #[test]
+    fn focused_reads_the_named_node_and_refuses_an_absent_focus() {
+        let walk = Walk {
+            nodes: vec![Node {
+                attributes: Attributes {
+                    role: "AXSecureTextField".into(),
+                    secure: true,
+                    ..Attributes::default()
+                },
+                parent: None,
+            }],
+            focused: Some(0),
+            complete: true,
+        };
+        assert_eq!(
+            focused(&walk),
+            Some(Focused {
+                role: "AXSecureTextField".into(),
+                secure: true,
+            })
+        );
+        assert_eq!(
+            focused(&Walk {
+                focused: None,
+                ..walk
+            }),
+            None
+        );
+    }
 
     #[test]
     fn secure_focus_fails_closed() {

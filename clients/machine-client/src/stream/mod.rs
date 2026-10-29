@@ -635,3 +635,89 @@ impl Stream {
         rows
     }
 }
+
+#[cfg(test)]
+mod private_tests {
+    use super::*;
+    use crate::screen::{ax::fixture::Scripted, fixture::Fixture, Window};
+
+    #[tokio::test]
+    async fn refreshed_focus_publishes_private_entry_and_exit() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = directory.path().join("layout.json");
+        let row = |secure| {
+            json!({
+                "windows":[{"id":9,"pid":7,"title":"Editor","elements":[{
+                    "role":"AXTextField","secure":secure,"focused":true,
+                    "frame":{"x":0,"y":0,"width":16,"height":16}
+                }]}]
+            })
+        };
+        std::fs::write(&layout, row(true).to_string()).expect("layout");
+        let source = Fixture {
+            windows: vec![Window {
+                id: 9,
+                display: 1,
+                title: "Editor".into(),
+                owner: "fixture".into(),
+                pid: Some(7),
+                app: None,
+                x: 0,
+                y: 0,
+                width: 16,
+                height: 16,
+            }],
+            ..Fixture::display(32, 16, 1.0)
+        };
+        let screen = Arc::new(
+            Screen::new(Box::new(source), 2).observing(Box::new(Scripted {
+                layout: layout.clone(),
+                recorder: directory.path().join("recorder.jsonl"),
+            })),
+        );
+        let request: StreamOpenRequest = oni_protocol::decode(json!({
+            "streamId":"private-focus","source":{"kind":"display","display":1},
+            "dataChannel":true,"lifetimeMs":60000,
+            "video":{"maxFps":30,"keyframeIntervalMs":1000,
+                "maxBitrateBps":1000000,"maxDimension":32,"maxFrameBytes":1048576}
+        }))
+        .expect("stream request");
+        let stream = Stream::new(IpAddr::V4(Ipv4Addr::LOCALHOST), "laptop".into());
+        let (mut pump, _) = stream.prepare(&request, &screen).await.expect("prepare");
+        let (uplink, mut calls) = Uplink::channel();
+        pump.uplink = Some(uplink);
+        let start = pump.started_at;
+        let refresh = pump.refresh_focus(start + Duration::from_millis(250));
+        let receive = async {
+            let call = calls.recv().await.expect("entry");
+            assert_eq!(call.method, "machine.event.private");
+            assert_eq!(
+                call.params,
+                json!({
+                    "machineId":"laptop","target":{"pid":7,"windowId":9,"epoch":0},"state":"entered"
+                })
+            );
+            call.answer(Ok(Some(json!({"status":"accepted"}))));
+        };
+        let (result, ()) = tokio::join!(refresh, receive);
+        result.expect("refresh entry");
+        assert!(pump.private);
+
+        std::fs::write(&layout, row(false).to_string()).expect("ordinary focus");
+        let refresh = pump.refresh_focus(start + Duration::from_millis(500));
+        let receive = async {
+            let call = calls.recv().await.expect("exit");
+            assert_eq!(call.method, "machine.event.private");
+            assert_eq!(
+                call.params,
+                json!({
+                    "machineId":"laptop","target":{"pid":7,"windowId":9,"epoch":0},"state":"left"
+                })
+            );
+            call.answer(Ok(Some(json!({"status":"accepted"}))));
+        };
+        let (result, ()) = tokio::join!(refresh, receive);
+        result.expect("refresh exit");
+        assert!(!pump.private);
+    }
+}

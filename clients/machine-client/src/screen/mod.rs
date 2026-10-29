@@ -957,10 +957,7 @@ impl Screen {
         match &target {
             Target::Window(_) if private => lease.slot.pixels.fill(0),
             Target::Window(_) => {}
-            Target::Display(_, _) => {
-                let Target::Display(_, region) = &target else {
-                    unreachable!()
-                };
+            Target::Display(_, region) => {
                 self.mask_private(
                     capture,
                     display,

@@ -1259,3 +1259,78 @@ impl Service {
         Ok(self.stream.close(&request))
     }
 }
+
+#[cfg(test)]
+mod private_tests {
+    use super::*;
+    use crate::{
+        screen::{ax::fixture::Scripted, fixture::Fixture},
+        transport::{
+            client::Client,
+            framing::{self, Framed},
+        },
+    };
+
+    #[tokio::test]
+    async fn publishes_private_window_entry_and_exit_with_exact_target() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = directory.path().join("layout.json");
+        let row = |secure| {
+            json!({
+                "windows":[{"id":9,"pid":7,"title":"Editor","elements":[{
+                    "role":"AXTextField","secure":secure,"focused":true,
+                    "frame":{"x":0,"y":0,"width":16,"height":16}
+                }]}]
+            })
+        };
+        std::fs::write(&layout, row(true).to_string()).expect("layout");
+        let screen =
+            Screen::new(Box::new(Fixture::display(32, 16, 1.0)), 1).observing(Box::new(Scripted {
+                layout: layout.clone(),
+                recorder: directory.path().join("recorder.jsonl"),
+            }));
+        let config = ClientConfig {
+            machine_id: "laptop".into(),
+            name: "Laptop".into(),
+            host: "127.0.0.1:7643".into(),
+            tags: vec![],
+            exports: vec![],
+            memory_budget_mb: 96,
+            unix: None,
+            tmux_socket: None,
+        };
+        let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
+        let service = Service::open_with(&config, pty, screen).expect("service");
+        let (client, host) = tokio::io::duplex(4096);
+        let client = Client::from_stream(client, handler(|_, _| async { Ok(Value::Null) }));
+        service.connected(client.caller());
+        let (reader, mut writer) = tokio::io::split(host);
+        let mut frames = Framed::new(reader);
+        for (secure, state) in [(true, "entered"), (false, "left")] {
+            std::fs::write(&layout, row(secure).to_string()).expect("focus");
+            let publish = service.publish_private_edges();
+            let respond = async {
+                let call = frames.next().await.expect("frame").expect("request");
+                assert_eq!(call["method"], "machine.event.private");
+                assert_eq!(
+                    call["params"],
+                    json!({
+                        "machineId":"laptop",
+                        "target":{"pid":7,"windowId":9,"epoch":0},
+                        "state":state,
+                    })
+                );
+                framing::write_frame(
+                    &mut writer,
+                    &json!({
+                        "v":2,"type":"response","id":call["id"],
+                        "result":{"status":"accepted"}
+                    }),
+                )
+                .await
+                .expect("reply");
+            };
+            let ((), ()) = tokio::join!(publish, respond);
+        }
+    }
+}
