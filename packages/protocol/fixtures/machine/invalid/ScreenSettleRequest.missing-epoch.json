@@ -1,0 +1,5 @@
+{
+  "target": { "pid": 42, "windowId": 7 },
+  "quietMs": 200,
+  "timeoutMs": 5000
+}

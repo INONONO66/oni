@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "quietMs": {
+      "default": 200,
+      "maximum": 2000,
+      "minimum": 50,
+      "type": "integer"
+    },
+    "target": {
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pid": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "windowId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pid",
+        "windowId",
+        "epoch"
+      ],
+      "type": "object"
+    },
+    "timeoutMs": {
+      "default": 5000,
+      "maximum": 30000,
+      "minimum": 100,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "target",
+    "quietMs",
+    "timeoutMs"
+  ],
+  "type": "object"
+}

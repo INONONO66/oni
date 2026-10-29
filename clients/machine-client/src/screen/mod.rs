@@ -11,12 +11,13 @@ pub mod fixture;
 pub mod native;
 pub mod observe;
 mod pool;
+pub mod settle;
 
 use std::{
     num::NonZeroU64,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Mutex, PoisonError,
+        Arc, Mutex, PoisonError,
     },
 };
 
@@ -177,7 +178,8 @@ pub struct Screen {
     pool: Pool,
     next: AtomicU64,
     latest: Mutex<Option<Anchor>>,
-    observer: Option<Box<dyn ax::Observer>>,
+    observer: Option<Arc<dyn ax::Observer>>,
+    notifications: Option<Box<dyn settle::Notifications>>,
     observations: Observations,
 }
 
@@ -191,6 +193,7 @@ impl Screen {
             next: AtomicU64::new(0),
             latest: Mutex::new(None),
             observer: None,
+            notifications: None,
             observations: Observations::default(),
         }
     }
@@ -205,13 +208,19 @@ impl Screen {
             next: AtomicU64::new(0),
             latest: Mutex::new(None),
             observer: None,
+            notifications: None,
             observations: Observations::default(),
         }
     }
 
     /// Serves `machine.screen.observe` and `machine.input.action` through `observer`.
     pub fn observing(mut self, observer: Box<dyn ax::Observer>) -> Self {
-        self.observer = Some(observer);
+        self.observer = Some(Arc::from(observer));
+        self
+    }
+
+    pub fn notifying(mut self, notifications: Box<dyn settle::Notifications>) -> Self {
+        self.notifications = Some(notifications);
         self
     }
 
@@ -236,7 +245,9 @@ impl Screen {
 
     #[cfg(target_os = "macos")]
     pub fn platform() -> Self {
-        Self::new(Box::new(native::Native), CAPTURES).observing(Box::new(ax::native::Native))
+        Self::new(Box::new(native::Native), CAPTURES)
+            .observing(Box::new(ax::native::Native))
+            .notifying(Box::new(ax::observer::Native))
     }
 
     /// No native backend off macOS: the screen is absent.

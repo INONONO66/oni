@@ -458,6 +458,14 @@
       "name": "ScreenRegion"
     },
     {
+      "file": "ScreenSettleRequest.json",
+      "name": "ScreenSettleRequest"
+    },
+    {
+      "file": "ScreenSettleResult.json",
+      "name": "ScreenSettleResult"
+    },
+    {
       "file": "ScreenWindow.json",
       "name": "ScreenWindow"
     },

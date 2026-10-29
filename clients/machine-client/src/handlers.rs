@@ -25,7 +25,9 @@ use oni_protocol::{
 };
 use oni_protocol::{CdpChunk, CdpCloseRequest, CdpOpenRequest};
 use oni_protocol::{InputKeyRequest, InputPointerRequest, InputTextRequest};
-use oni_protocol::{ScreenCaptureRequest, ScreenListRequest, ScreenObserveRequest};
+use oni_protocol::{
+    ScreenCaptureRequest, ScreenListRequest, ScreenObserveRequest, ScreenSettleRequest,
+};
 use oni_protocol::{StreamCloseRequest, StreamOpenRequest, StreamSignalRequest};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -1009,6 +1011,14 @@ impl Service {
             | WireMethod::MachineScreenCapture
             | WireMethod::MachineScreenRead
             | WireMethod::MachineScreenObserve => self.serve_screen(method, params).await,
+            WireMethod::MachineScreenSettle => {
+                let request: ScreenSettleRequest = decode(params)?;
+                let screen = self.screen.clone();
+                self.capture(COMPUTER_USE, "permission_denied", move || {
+                    screen.settle(&request)
+                })
+                .await
+            }
             WireMethod::MachineInputPointer
             | WireMethod::MachineInputKey
             | WireMethod::MachineInputText

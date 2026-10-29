@@ -162,6 +162,8 @@ macro_rules! decode_fixture {
                 ObservedElement,
                 ScreenObserveRequest,
                 ScreenObserveResult,
+                ScreenSettleRequest,
+                ScreenSettleResult,
                 WindowTarget,
                 AppLaunchRequest,
                 AppLaunchResult,
