@@ -1,12 +1,12 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Core } from "@oni/agent";
 import { Machine } from "@oni/protocol";
 import { z } from "zod";
-import { hostClient, hostEndpoint, releaseVersion, requestSupervisor, startSupervisor, type Supervisor } from "../src/cli/supervise";
+import { deployClient, hostClient, hostEndpoint, releaseVersion, requestSupervisor, startSupervisor, supervise, type Supervisor } from "../src/cli/supervise";
 import type { SuperviseAnswer } from "../src/cli/supervise-wire";
 
 /**
@@ -193,6 +193,68 @@ test("a candidate that dies is stopped, its rows rolled back and the previous re
   supervisor.stop();
   expect(await supervisor.done).toBe(0);
   expect(gone(restarted.pid)).toBe(true);
+});
+
+test("reload chooses the newest staged release and replaces the running host", async () => {
+  const { root, previous, next, probes, supervisor } = installation(versionAnswer);
+  utimesSync(previous, 100, 100);
+  utimesSync(next, 200, 200);
+  await probes.next("started", "0.1.0");
+  expect(await requestSupervisor(join(root, "supervise.sock"), { op: "reload" })).toEqual({ ok: true, instanceId: instanceOf("0.2.0") });
+  expect(readlinkSync(join(root, "current"))).toBe(next);
+  supervisor.stop();
+  expect(await supervisor.done).toBe(0);
+});
+
+test("a failed candidate restores a missing previous release link", async () => {
+  const { root, probes, supervisor, deploy } = installation(versionAnswer, "fail");
+  await probes.next("started", "0.1.0");
+  rmSync(join(root, "current"));
+  expect(await deploy()).toEqual({ ok: false, class: "candidate_failed", step: "start" });
+  expect(existsSync(join(root, "current"))).toBe(false);
+  supervisor.stop();
+  expect(await supervisor.done).toBe(0);
+});
+
+test("the supervise entrypoint stops its host on SIGTERM", async () => {
+  const home = mkdtempSync(join(tmpdir(), "oni-supervise-entry-"));
+  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const root = join(home, ".oni");
+  const probes = probeServer(versionAnswer);
+  const port = freePort();
+  const storage = { catalogPath: join(root, "catalog.sqlite"), sessionsDir: join(root, "sessions") };
+  const entry = writeRelease(join(root, "releases", "oni-0.1.0"), "0.1.0", "serve", {
+    ...storage, port, token: TOKEN, probe: probes.url, contractVersion: Machine.contractVersion,
+  });
+  const originalTerm = process.listeners("SIGTERM");
+  const originalInt = process.listeners("SIGINT");
+  const done = supervise({
+    home, bunPath: process.execPath, selfEntry: join(entry, "dist", "app", "main.js"),
+    config: { host: "127.0.0.1", wsPort: port, wsToken: TOKEN, ...storage, entityIdleMs: undefined },
+  });
+  try {
+    await probes.next("started", "0.1.0");
+    process.emit("SIGTERM");
+    expect(await done).toBe(0);
+  } finally {
+    for (const listener of process.listeners("SIGTERM")) if (!originalTerm.includes(listener)) process.removeListener("SIGTERM", listener);
+    for (const listener of process.listeners("SIGINT")) if (!originalInt.includes(listener)) process.removeListener("SIGINT", listener);
+  }
+});
+
+test("staging a dependency-free archive unpacks, installs offline and probes its version", async () => {
+  const home = mkdtempSync(join(tmpdir(), "oni-supervise-stage-"));
+  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const packageDir = join(home, "package");
+  mkdirSync(join(packageDir, "dist", "app"), { recursive: true });
+  writeFileSync(join(packageDir, "package.json"), JSON.stringify({ name: "oni-stage-fixture", version: "0.4.0", private: true }));
+  writeFileSync(join(packageDir, "dist", "app", "main.js"), 'console.log("0.4.0");\n');
+  const tgz = join(home, "fixture.tgz");
+  expect(await Bun.spawn(["tar", "-czf", tgz, "-C", home, "package"], { stdout: "ignore", stderr: "inherit" }).exited).toBe(0);
+  const client = deployClient(home, process.execPath, { stdout: () => undefined, stderr: () => undefined });
+  const staged = await client.stage(tgz);
+  expect(staged.version).toBe("0.4.0");
+  expect(readFileSync(join(staged.artifact, "package.json"), "utf8")).toContain('"oni-stage-fixture"');
 });
 
 test("shutdown during the drain cancels the replacement before any snapshot or candidate", async () => {

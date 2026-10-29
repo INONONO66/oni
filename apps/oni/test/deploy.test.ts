@@ -435,4 +435,38 @@ describe("supervisor socket", () => {
   test("a missing socket answers supervisor_unavailable", async () => {
     expect(await requestSupervisor(join(scratch(), "absent.sock"), { op: "reload" })).toEqual({ ok: false, class: "supervisor_unavailable", step: "request" });
   });
+
+  test("a handler rejection answers recovery_failed and releases the busy slot", async () => {
+    const sockPath = join(scratch(), "s.sock");
+    const server = serveSupervisor({
+      sockPath,
+      token: "secret",
+      handle: async () => {
+        throw new Error("handler failed");
+      },
+    });
+    try {
+      expect(await requestSupervisor(sockPath, { op: "reload" })).toEqual({ ok: false, class: "recovery_failed", step: "request" });
+      expect(await requestSupervisor(sockPath, { op: "reload" })).toEqual({ ok: false, class: "recovery_failed", step: "request" });
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("an invalid supervisor response answers unavailable", async () => {
+    const sockPath = join(scratch(), "s.sock");
+    const listener = Bun.listen({
+      unix: sockPath,
+      socket: {
+        data(socket) {
+          socket.end("not json\n");
+        },
+      },
+    });
+    try {
+      expect(await requestSupervisor(sockPath, { op: "reload" })).toEqual({ ok: false, class: "supervisor_unavailable", step: "request" });
+    } finally {
+      listener.stop(true);
+    }
+  });
 });

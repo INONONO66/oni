@@ -12,9 +12,9 @@ type SessionEntityPorts = Core.SessionEntityPorts;
 type SessionEntityTurnInput = Core.SessionEntityTurnInput;
 type ObservationPublishFailure = Core.ObservationPublishFailure;
 import type { Delivery, ObservationSink } from "@oni/protocol";
-import { Effect, Fiber } from "effect";
+import { Context, Effect, Fiber } from "effect";
 import { gatewayRuntime, runAppEffect } from "../src/gateway";
-import { createSessionEntityPortsSlot, interruptFailureCause, withChannelStores } from "../src/composition/cluster-runtime";
+import { createSessionEntityPortsSlot, createSessionLivePlane, interruptFailureCause, withChannelStores } from "../src/composition/cluster-runtime";
 import { AdmissionFailure, DeliverRefused } from "../../../packages/agent/src/core/journal/messages";
 import { createAppLedger } from "./helpers/ledger";
 import { runEffect } from "./helpers/effect";
@@ -22,6 +22,8 @@ import { requestFixture } from "../../../packages/agent/test/store/helpers/reque
 import { materializeSession } from "../../../packages/agent/test/store/helpers/session";
 import { testClock } from "./helpers/test-entropy";
 import { Bus } from "./helpers/bus";
+import { fixtureStopEvidence } from "../../../packages/agent/test/helpers/chat-services";
+import type { RunnerServices } from "../../../packages/agent/src/core/ports/ports";
 
 /** A sink that refuses every post-commit publish. */
 const REFUSING_SINK: ObservationSink = {
@@ -372,4 +374,57 @@ test("the facade interrupt names a typed door refusal by its code and stringifie
   const boundary = new Core.AgentFailure({ operation: "session.prompt", cause: "denied" });
   expect(interruptFailureCause(boundary)).toBe(String(boundary));
   expect(interruptFailureCause(boundary)).not.toContain(":denied");
+});
+
+test("a live turn waits for its held interrupt before removing its published entry", async () => {
+  const plane = createAppLedger({ now: testClock() });
+  const live = createSessionLivePlane();
+  const entered = Promise.withResolvers<void>();
+  const removed = Promise.withResolvers<void>();
+  const unsubscribe = live.subscribe(() => removed.resolve());
+  let release: (() => void) | undefined;
+  const signal = new AbortController().signal;
+  const input: Core.SessionRunnerInput = {
+    sessionId: "held-session",
+    kernel: plane.openKernel("held-session"),
+    role: "resident",
+    turnId: "turn-1",
+    actionId: "action-1",
+    ledger: { commit: () => Effect.die(new Error("unused commit")) },
+    stopEvidence: fixtureStopEvidence,
+    resultId: "result-1",
+    parentActionId: null,
+    boundaryActionId: null,
+    messages: [],
+    tools: [],
+    toolsGeneration: 1,
+    toolsHash: "tools",
+    system: "",
+    systemHash: "system",
+    policyGeneration: 1,
+    resumeCount: 0,
+    signal,
+    boundary: () => Effect.die(new Error("unused boundary")),
+  };
+  try {
+    const result = runEffect(Effect.provide(live.wrapRunner(input.sessionId, () => Effect.sync(() => {
+      const entry = live.get(input.sessionId);
+      if (entry === undefined) throw new Error("live entry missing");
+      release = entry.hold();
+      entered.resolve();
+      return { kind: "result" as const, text: "done" };
+    }))(input), Context.empty() as Context.Context<RunnerServices>));
+    await entered.promise;
+    expect(live.ids()).toEqual(["held-session"]);
+    if (release === undefined) throw new Error("held interrupt missing");
+    release();
+    release();
+    expect(await result).toEqual({ kind: "result", text: "done" });
+    await removed.promise;
+    expect(live.ids()).toEqual([]);
+  } finally {
+    release?.();
+    unsubscribe();
+    plane.close();
+  }
 });

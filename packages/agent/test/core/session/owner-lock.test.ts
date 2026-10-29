@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireOwnerLock, inheritOwnerLock, OwnerLockHeld, ownersSince } from "../../../src/core/session/owner-lock";
@@ -105,4 +105,14 @@ test("ownersSince names exactly the owners between two log offsets", () => {
   expect(ownersSince(catalog, before.logEnd, restore.logStart)).toEqual(["oni:candidate", "oni:stray"]);
   expect(ownersSince(catalog, before.logEnd)).toEqual(["oni:candidate", "oni:stray", "oni:restore"]);
   restore.release();
+});
+
+test("a failed owners-log append releases the catalog lock for the next owner", () => {
+  const catalog = catalogOf("append-failed");
+  mkdirSync(`${catalog}.owners`, { recursive: true });
+  expect(() => acquireOwnerLock(catalog, "oni:failed")).toThrow(/EISDIR/);
+  rmSync(`${catalog}.owners`, { recursive: true });
+  const next = acquireOwnerLock(catalog, "oni:next");
+  expect(next.logStart).toBe(0);
+  next.release();
 });
