@@ -18,6 +18,46 @@ test("captured tool.pre refuses missing and expired leases before forwarding", a
   } finally { f.close(); }
 });
 
+test("the 1500th admitted input succeeds and the 1501st carries its sliding reset time", async () => {
+  const f = computerFixture();
+  try {
+    f.grant({ admittedAt: Array.from({ length: 1499 }, () => 100) });
+    expect(await f.call()).toEqual({ status: "ok" });
+    expect(await f.call()).toEqual({ status: "refused", reason: "budget_exhausted", resetAt: 3_600_100 });
+    const listed = f.policy.store.get("resident", "desk");
+    expect(listed?.admittedAt).toHaveLength(1500);
+    f.setClock(3_600_100);
+    // A fresh lease keeps this fixture's scope valid while the hour rolls forward.
+    f.grant({ expiresAt: 4_000_000, admittedAt: listed?.admittedAt ?? [] });
+    expect(await f.call()).toEqual({ status: "ok" });
+  } finally { f.close(); }
+});
+
+test("an enrollment ceiling caps a larger approved lease without charging observation", async () => {
+  const f = computerFixture();
+  try {
+    f.plane.policyState.put("computer_use.enrollmentCeiling", { key: "desk", revision: 0, value: 2 });
+    f.grant({ budget: { actionsPerHour: 5000 } });
+    const observe = { ...textInput, method: Machine.WireMethod.ScreenObserve, params: { target, screenshot: false } };
+    expect(await f.call(observe)).toEqual({ status: "ok" });
+    expect(await f.call()).toEqual({ status: "ok" });
+    expect(await f.call()).toEqual({ status: "ok" });
+    expect(await f.call(observe)).toEqual({ status: "ok" });
+    expect(await f.call()).toEqual({ status: "refused", reason: "budget_exhausted", resetAt: 3_600_100 });
+  } finally { f.close(); }
+});
+
+test("a native refusal after admission still consumes one input attempt", async () => {
+  const f = computerFixture();
+  try {
+    f.grant({ budget: { actionsPerHour: 1 } });
+    const refusal = { status: "refused", reason: "input_not_available" } as const;
+    expect(await runEffect(f.capture(textInput, Effect.succeed(refusal))
+      .pipe(Effect.provideService(Core.ExecutorContext, f.executor)))).toEqual(refusal);
+    expect(await f.call()).toEqual({ status: "refused", reason: "budget_exhausted", resetAt: 3_600_100 });
+  } finally { f.close(); }
+});
+
 test("app scope, target binding, exclusions and foreground grants are enforced by compiled rows", async () => {
   const f = computerFixture();
   try {

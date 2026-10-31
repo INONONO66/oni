@@ -138,9 +138,14 @@
             "paused:takeover",
             "paused:private",
             "paused:locked",
-            "paused:asleep"
+            "paused:asleep",
+            "budget_exhausted"
           ],
           "type": "string"
+        },
+        "resetAt": {
+          "minimum": 0,
+          "type": "number"
         },
         "retryAfterMs": {
           "maximum": 9007199254740991,

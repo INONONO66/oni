@@ -3,6 +3,8 @@
   "machineId": "desk",
   "apps": "any",
   "expiresAt": 600000,
+  "budget": { "actionsPerHour": 1500 },
+  "admittedAt": [],
   "revision": 2,
   "state": "paused",
   "pauseReason": "locked"
