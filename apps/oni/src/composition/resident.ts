@@ -14,7 +14,11 @@ export type ResidentOptions = Omit<ResidentBundleOptions, "presets" | "id" | "cl
 /** The composing app supplies prompt data; tool faces come from the composed bundles. */
 export function createResident(options: ResidentOptions) {
   const { tools: ports, ...resident } = options;
-  const computerTools = options.composed?.current().generation.bundles.includes("computer") ?? false;
+  const composed = options.composed?.current();
+  const computerPack = composed?.manifest.bundles.find((bundle) => bundle.name === "computer");
+  const computerTools = computerPack !== undefined &&
+    composed?.generation.bundles.includes(computerPack.name) &&
+    computerPack.tools.some((tool) => composed.generation.tools.some((offered) => offered.name === tool.name));
   return createResidentBundle({
     ...resident,
     presets: {

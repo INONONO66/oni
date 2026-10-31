@@ -44,6 +44,8 @@ test("a configured skill is present in resident and child system prompts", () =>
 
 test("computer guidance follows the composed tool pack for both roles", () => {
   const base = toolComposition(testToolPorts);
+  const toolBundle = base.manifest.bundles.find((bundle) => bundle.name === "eval");
+  if (toolBundle === undefined) throw new Error("tool fixture must include eval");
   const options = {
     model: { provider: "fixture", id: "fixture" },
     apiKey: "fixture",
@@ -56,7 +58,20 @@ test("computer guidance follows the composed tool pack for both roles", () => {
     ...options,
     composed: composedHolderOf({
       ...base,
+      manifest: { ...base.manifest, bundles: [...base.manifest.bundles, { ...toolBundle, name: "computer" }] },
       generation: { ...base.generation, bundles: [...base.generation.bundles, "computer"] },
+    }, alarmPortsSlot()),
+  });
+  const disabled = createResident({
+    ...options,
+    composed: composedHolderOf({
+      ...base,
+      manifest: { ...base.manifest, bundles: [...base.manifest.bundles, { ...toolBundle, name: "computer" }] },
+      generation: {
+        ...base.generation,
+        bundles: [...base.generation.bundles, "computer"],
+        tools: base.generation.tools.filter((tool) => !toolBundle.tools.some((entry) => entry.name === tool.name)),
+      },
     }, alarmPortsSlot()),
   });
 
@@ -65,5 +80,6 @@ test("computer guidance follows the composed tool pack for both roles", () => {
     const offered = systemPrompt(withPack, role).split("\n\n");
     expect(offered.length).toBe(plain.length + 1);
     expect(offered.filter((section) => plain.includes(section))).toEqual(plain);
+    expect(systemPrompt(disabled, role)).toBe(systemPrompt(without, role));
   }
 });
