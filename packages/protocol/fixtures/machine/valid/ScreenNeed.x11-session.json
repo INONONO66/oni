@@ -1,0 +1,1 @@
+{"step":"x11_session","action":"Start an X11 session or Xvfb for the client's user; Wayland portals are not supported yet.","onScreen":false,"blocker":"wayland_only_no_x"}

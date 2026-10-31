@@ -148,6 +148,63 @@
           ],
           "type": "object"
         },
+        "needs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "blocker": {
+                "enum": [
+                  "screen_recording_denied",
+                  "accessibility_denied",
+                  "no_console_user",
+                  "other_console_user",
+                  "display_asleep",
+                  "no_x_display",
+                  "x_auth_refused",
+                  "x_display_forwarded",
+                  "wayland_only_no_x",
+                  "missing_x_libs",
+                  "no_atspi_bus",
+                  "observer_unavailable",
+                  "session_zero",
+                  "window_manager_missing",
+                  "input_monitoring_not_granted",
+                  "no_screen_backend",
+                  "input_backend_unavailable",
+                  "accessibility_unavailable"
+                ],
+                "type": "string"
+              },
+              "onScreen": {
+                "type": "boolean"
+              },
+              "step": {
+                "enum": [
+                  "screen_recording_grant",
+                  "accessibility_grant",
+                  "portal_consent",
+                  "service_install",
+                  "linger_enable",
+                  "uinput_group",
+                  "console_login",
+                  "x11_session"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "step",
+              "action",
+              "onScreen"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
         "verdict": {
           "enum": [
             "available",

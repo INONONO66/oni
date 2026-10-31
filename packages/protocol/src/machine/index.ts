@@ -124,6 +124,10 @@ export namespace Machine {
   export type Report = Schema.Report;
   export const Screen = Probe.Screen;
   export type Screen = Probe.Screen;
+  export const ScreenNeed = Probe.ScreenNeed;
+  export type ScreenNeed = Probe.ScreenNeed;
+  export const ScreenNeedStep = Probe.ScreenNeedStep;
+  export type ScreenNeedStep = Probe.ScreenNeedStep;
   export const ScreenBlocker = Probe.ScreenBlocker;
   export type ScreenBlocker = Probe.ScreenBlocker;
   export const HumanInput = Facts.HumanInput;

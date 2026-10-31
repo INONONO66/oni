@@ -29,6 +29,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Join(Box<JoinOptions>),
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
     Run {
         #[arg(long)]
         config: Option<PathBuf>,
@@ -74,6 +78,10 @@ async fn main() -> ExitCode {
     }
     let result = match cli.command {
         Some(Command::Join(options)) => join(&options).await,
+        Some(Command::Status { json }) => {
+            status(json);
+            Ok(())
+        }
         Some(Command::Run {
             config,
             allow_unpinned,
@@ -94,7 +102,7 @@ async fn main() -> ExitCode {
             return ExitCode::from(outcome.code);
         }
         None => {
-            eprintln!("usage: mclient --version | join <host> | run | update | probe");
+            eprintln!("usage: mclient --version | join <host> | status | run | update | probe");
             return ExitCode::from(2);
         }
     };
@@ -264,9 +272,11 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
     let enrollment = attach::join(options, &config::root(), &handlers::SUPPORTED).await?;
     let layout = Layout::new(config::root());
     let path = layout.client().join("client.json");
-    eprint!("{}", enrollment.notice());
-    println!("{}", enrollment.receipt);
-    println!("config: {}", path.display());
+    if !options.json {
+        eprint!("{}", enrollment.notice());
+        println!("{}", enrollment.receipt);
+        println!("config: {}", path.display());
+    }
     let hosted = hosted_release(&layout.client()).await;
     let previous = std::fs::read_link(layout.current()).ok();
     let previous_pin = release::load_pin(&layout.client())?;
@@ -280,14 +290,47 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
             error,
         )
     })?;
-    println!("service: {} ({})", state.name, state.state);
-    println!("offered capabilities: {}", handlers::SUPPORTED.join(", "));
-    println!(
-        "{}",
-        service::screen(options.no_open, &std::env::current_exe()?)?
-    );
-    println!("{}", pin_line(&pin));
+    if options.json {
+        print_status(true, options.service_dir.as_deref(), options.no_service);
+    } else {
+        println!("service: {} ({})", state.name, state.state);
+        println!("offered capabilities: {}", handlers::SUPPORTED.join(", "));
+        println!(
+            "{}",
+            service::screen(options.no_open, &std::env::current_exe()?)?
+        );
+        println!("{}", pin_line(&pin));
+        print_status(false, options.service_dir.as_deref(), options.no_service);
+    }
     Ok(())
+}
+
+fn status(json: bool) {
+    print_status(json, None, false);
+}
+
+fn print_status(json: bool, service_dir: Option<&Path>, no_service: bool) {
+    let (screen, input) = oni_machine_client::computer::platform();
+    let mut verdict = screen.capability(input.ready());
+    service::setup_needs(&mut verdict, &config::home(), service_dir, no_service);
+    let record = serde_json::json!({
+        "ok": !verdict.needs.iter().any(|row| !row.on_screen),
+        "version": VERSION,
+        "os": OS,
+        "verdict": verdict.verdict,
+        "blockers": verdict.blockers,
+        "needs": verdict.needs,
+    });
+    if json {
+        println!("{record}");
+    } else {
+        println!("screen: {} ({})", record["verdict"], record["blockers"]);
+        if let Some(needs) = record["needs"].as_array() {
+            for need in needs {
+                println!("setup: {} — {}", need["step"], need["action"]);
+            }
+        }
+    }
 }
 
 fn selected_binary(
