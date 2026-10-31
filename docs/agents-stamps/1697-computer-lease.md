@@ -1,0 +1,1 @@
+#1697 (#1688) | feat/1697-computer-lease | 2026-10-31 | base 18c473f88 | PR #1738 | Approval-policy computer leases, scoped captured operations, foreground consent, pause/stop/detach transitions and epoch-fenced turn cleanup; receipt: .omo/ulw-loop/01a17b2e-ef29-70f2-86db-62b24bbcf847/waves/cu-p4-r2/impl.md.

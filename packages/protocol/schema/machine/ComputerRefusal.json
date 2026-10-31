@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "reason": {
+      "enum": [
+        "permission_denied",
+        "lease_missing",
+        "lease_expired",
+        "target_unbound",
+        "app_out_of_scope",
+        "foreground_not_granted",
+        "excluded",
+        "paused:human_input",
+        "paused:takeover",
+        "paused:private",
+        "paused:locked",
+        "paused:asleep"
+      ],
+      "type": "string"
+    },
+    "status": {
+      "const": "refused",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "reason"
+  ],
+  "type": "object"
+}

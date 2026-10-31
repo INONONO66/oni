@@ -4,6 +4,7 @@ import { boundTool, ToolCapabilityPort } from "../seams";
 const defineTool = Core.defineTool;
 import { AutomationOperation, AutomationResult } from "./automation-schema";
 import { MachineOperation, MachineResult } from "./machine-schema";
+import { ComputerOperation, ComputerResult } from "./computer-schema";
 import { ContactOperation, ContactResult } from "./contact-mutations";
 import {
   PERSON_DECLARE_INPUT,
@@ -23,6 +24,7 @@ const ProvisionOperation = z.discriminatedUnion("op", [
   ...BundleOperation.options,
   ...AutomationOperation.options,
   ...MachineOperation.options,
+  ...ComputerOperation.options,
   z.object({ op: z.literal("status"), args: EMPTY_INPUT }).strict(),
 ]);
 export const ProvisionInput = z.object({ operation: ProvisionOperation }).strict();
@@ -34,6 +36,7 @@ export const ProvisionOutput = z.discriminatedUnion("op", [
   ...BundleResult.options,
   ...AutomationResult.options,
   ...MachineResult.options,
+  ...ComputerResult.options,
   ProvisionStatusOutput.extend({ op: z.literal("status") }),
 ]);
 
@@ -44,7 +47,7 @@ export function createProvisionTool(port: ProvisionPort | undefined, now: () => 
       name: "provision",
       category: "mutation",
       description:
-        "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_grant|machine_deny|machine_remove|machine_list|status. Authority changes, machine public keys, Owner-account channel instances, their outbound grant and a channel's declared default tier require Owner consent. A contact with reach: true is one the Resident may write to cold. Session-created automations remain disabled until the Owner enables them.",
+        "Administer contacts, channels, credentials, automations, machines, computer leases, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_grant|machine_deny|machine_remove|machine_list|computer_request|computer_list|computer_end|computer_exclude|computer_keep|status. Authority changes, computer lease requests and exclusions, machine public keys, Owner-account channel instances, their outbound grant and a channel's declared default tier require Owner consent. computer_request names app identities, minutes (5-120), and an optional foreground purpose. computer_keep retains a target launched in this turn as a deliverable or handoff. A contact with reach: true is one the Resident may write to cold. Session-created automations remain disabled until the Owner enables them.",
       input: ProvisionInput,
       output: ProvisionOutput,
       visibility: { model: ["resident"], cell: ["resident"] },

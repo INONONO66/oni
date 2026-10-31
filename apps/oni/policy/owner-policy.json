@@ -648,6 +648,26 @@
       }
     },
     {
+      "id": "provision-computer-request-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": { "op": "provision", "operation": "computer_request" },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.computer_request requires Owner consent"
+      }
+    },
+    {
+      "id": "provision-computer-exclude-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": { "op": "provision", "operation": "computer_exclude" },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.computer_exclude requires Owner consent"
+      }
+    },
+    {
       "id": "delegation-policy/tool.pre#1",
       "point": "tool.pre",
       "order": 910,

@@ -34,6 +34,12 @@ import { dirname, join } from "node:path";
 import { compactionOptions } from "./bundles/compaction/index";
 import { readHooksJson } from "./bundles/hooks-json/index";
 import { ownerPolicy } from "./composition/policy";
+import { ComputerPolicy } from "./bundles/approval-policy/computer-policy";
+import { computerStore } from "./bundles/approval-policy/computer-store";
+import { computerCapture } from "./bundles/approval-policy/computer-capture";
+import { computerTurn } from "./bundles/approval-policy/computer-turn";
+import { computerEvents } from "./bundles/approval-policy/computer-events";
+import computerExclusions from "../policy/computer-exclusions.json";
 import { gateRowPolicySeeds } from "./bundles/core-policy/index";
 import { seedKernelPolicyRows } from "./composition/policy";
 import { AppPointTable } from "./composition/point-table";
@@ -67,9 +73,6 @@ import {
   MachinesFailure,
   type MachineError,
   type MachineHost,
-  type MachineInputCapture,
-  type CapturedResult,
-  type CaptureRefusal,
 } from "@oni/machines";
 import {
   Alarm,
@@ -207,6 +210,7 @@ async function composeMachinePlane(
     readonly release: () => Machine.Release | undefined;
     readonly id: () => string;
     readonly now: () => number;
+    readonly computer: ComputerPolicy;
     readonly callTool: (
       call: Machine.ToolCall,
     ) => Effect.Effect<Machine.ToolCallResult, MachineError>;
@@ -269,7 +273,7 @@ async function composeMachinePlane(
         callTool: deps.callTool,
         // r1 M3: the live self attachment is never superseded by a reattach.
         neverSupersede: [plane.self.id],
-        captureInput,
+        captureInput: computerCapture(deps.computer),
       });
     }).pipe(
       Effect.mapError((error) => selfAttachFailure(`host listener failed: ${String(error)}`)),
@@ -499,6 +503,15 @@ export async function startOni(options: StartOptions = {}) {
     const channelStores = createChannelStores(channelStoreSource(plane, services.now));
     const automations = { store: channelStores.automations, id: services.entropy.id };
     const enrollments = plane.stores.machineEnrollments;
+    const mclientBin = config.mclientBin ?? resolveMclientBin();
+    const computerScheduler = await acquire(
+      Effect.sync(() => effectScheduler(services.context)),
+      (scheduler) => Effect.sync(() => scheduler.close()),
+    );
+    const computer = new ComputerPolicy(computerStore(plane.policyState), {
+      now: services.now, host: () => host, scheduler: computerScheduler,
+      exclusions: [...computerExclusions, mclientBin],
+    });
     const incident = (msg: string, error: Error | Cause.Cause<Error>): void =>
       services.observations.publish(Operational.Events.Error, {
         traceId: traceIdFromUuid(services.entropy.id()),
@@ -544,6 +557,7 @@ export async function startOni(options: StartOptions = {}) {
     cancelDoor = (input) => (input.contact.startsWith("cli:") ? cancelCliChild(input) : cancelChildSession(input));
 
     const domainRevisions = createRequestDomainRevisions({
+      computer,
       machineEnrollments: enrollments,
       automations,
       actors: plane.stores.actors,
@@ -708,6 +722,7 @@ export async function startOni(options: StartOptions = {}) {
     const machineKnown = (machineId: string): boolean =>
       machineId === machineProvision.selfId || enrollments.get(machineId)?.removedAt === null;
     const provisioningPort: ProvisionPort = {
+      computer,
       // #1512: `channel_add` with provider `cli` is judged by the contact's own door.
       cli: {
         declare: (settings) =>
@@ -773,11 +788,12 @@ export async function startOni(options: StartOptions = {}) {
     const clientRelease = () => readClientRelease(releasePath);
     const machinery = await composeMachinePlane(runtime, machinesConfig, resolveMachineGenerationsPath(config), {
       enrollments,
-      events: services.observations,
-      mclientBin: config.mclientBin ?? resolveMclientBin(),
+      events: computerEvents(computer, services.observations),
+      mclientBin,
       release: clientRelease,
       id: services.entropy.id,
       now: services.now,
+      computer,
       callTool: (call) =>
         cells === undefined
           ? Effect.succeed({ status: "failed" as const, error: "codemode is not composed" })
@@ -791,6 +807,7 @@ export async function startOni(options: StartOptions = {}) {
               ),
     });
     const host: MachineHost = machinery.host;
+    computer.initialize();
     const machineProvision: MachinePort = {
       enrollments,
       host,
@@ -1319,7 +1336,12 @@ export async function startOni(options: StartOptions = {}) {
     // runner over the activation's kernel + fence; process-runner sessions
     // delegate to the child transport without committing under this fence.
     const turns = await runAppBoot(runtime, sessionRuntime.turns);
-    const runTool = bindSessionToolTurn(turns, sessionRuntime.options, services.scope, liveTurns);
+    const computerTurns = {
+      ...liveTurns,
+      wrapRunner: (sessionId: string, runner: Core.SessionRunner) =>
+        liveTurns.wrapRunner(sessionId, computerTurn(computer, policy.approval, runner)),
+    };
+    const runTool = bindSessionToolTurn(turns, sessionRuntime.options, services.scope, computerTurns);
     services.entityPorts.bind({
       approvalPolicy: sessionRuntime.options.approvalPolicy, dispatchOutbound: turns.dispatchOutbound,
       runTool: (input) => work.track(input.authority.sessionId, runTool(input)),
@@ -1333,7 +1355,7 @@ export async function startOni(options: StartOptions = {}) {
               catch: foreignFailure((fields) => new AgentFailure(fields), "process.wake"),
             }).pipe(Effect.asVoid)
           : turns.run(
-              liveTurns.wrapRunner(
+              computerTurns.wrapRunner(
                 input.authority.sessionId,
                 resident.runnerFor(Core.sessionReadModel(input.kernel).row(input.authority.sessionId)),
               ),
@@ -1519,9 +1541,10 @@ export async function startOni(options: StartOptions = {}) {
         },
         interrupt: () =>
           Effect.gen(function* () {
+            computer.stop(id);
             const entry = liveTurns.get(id);
-            // The durable interrupt row first (cancellation is chain evidence),
-            // then the turn's own boundary drain consumes it and aborts the wave.
+            // Computer cancellation is requested before the boundary aborts the wave;
+            // the interrupt itself still enters through the durable signal door.
             // #1346: the row lands through the session's one `Deliver` door as
             // a control `signal`; the entity's single writer owns the revision
             // CAS and the `running -> interrupted` transition, so the app
@@ -1699,42 +1722,6 @@ function inboundMedia(
 function withWsParts(parts: WsParts, { sender, facts }: Channel.InboundMessage): Channel.InboundMessage {
   const taken = sender.kind === "external" ? parts.take(sender.externalId, facts.eventId) : undefined;
   return taken === undefined ? { sender, facts } : { sender, facts: { ...facts, attachments: taken } };
-}
-
-/**
- * #1662: every typed machine input is one captured kernel `tool.pre` effect
- * of the invocation that issued it. The host forwards only from inside the
- * executed body; a pre refusal, a missing invocation or any other terminal
- * sends nothing and answers `permission_denied`.
- */
-function captureInput<R extends CapturedResult>(
-  request: MachineInputCapture,
-  forward: Effect.Effect<R, MachineError>,
-): Effect.Effect<R | CaptureRefusal, MachineError> {
-  return Effect.gen(function* () {
-    const executor = yield* Core.optionalExecutor;
-    if (executor === undefined) return { status: "refused", reason: "permission_denied", message: "machine input requires an active tool invocation" } as const;
-    let sent: Result.Result<R, MachineError> | undefined;
-    const outcome = yield* executor.run(
-      {
-        kind: "tool",
-        op: request.method,
-        intent: JSON.parse(canonicalJson({ machineId: request.machineId, generation: request.generation, params: request.params })) as PlainValue,
-        effect: { category: "execution" },
-      },
-      () => forward.pipe(
-        Effect.result,
-        Effect.map((result): PlainValue => {
-          sent = result;
-          return Result.isSuccess(result) ? result.success.status : "failed";
-        }),
-      ),
-    ).pipe(Effect.mapError((error) => new MachinesFailure({ operation: `${request.method}.capture`, cause: String(error) })));
-    if (outcome.terminal !== "executed" || sent === undefined) {
-      return { status: "refused", reason: "permission_denied", message: `machine input not executed: ${outcome.terminal}` } as const;
-    }
-    return Result.isSuccess(sent) ? sent.success : yield* Effect.fail(sent.failure);
-  });
 }
 
 function processSessionPromptOptions(

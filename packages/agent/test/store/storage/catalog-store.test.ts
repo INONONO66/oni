@@ -17,7 +17,7 @@ test("ledger error contracts are runtime values", () => {
   expect(new StorageUnavailable({ capability: "sessions" })._tag).toBe("StorageUnavailable");
 });
 
-test("openCatalogStore bootstraps a fresh catalog: exactly the two agent-owned tables (#1317)", () => {
+test("openCatalogStore bootstraps only the agent-owned catalog tables", () => {
   const directory = mkdtempSync(join(tmpdir(), "catalog-store-"));
   const path = join(directory, "catalog.sqlite");
   const store = openCatalogStore(path, { now: testNow });
@@ -31,7 +31,7 @@ test("openCatalogStore bootstraps a fresh catalog: exactly the two agent-owned t
              WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
           )
           .all(),
-      ).toEqual([{ name: "policy" }, { name: "session_index" }]);
+      ).toEqual([{ name: "policy" }, { name: "policy_state" }, { name: "session_index" }]);
     } finally {
       raw.close();
     }

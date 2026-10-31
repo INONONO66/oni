@@ -1,0 +1,9 @@
+{
+  "pid": 42,
+  "windowId": 7,
+  "app": {
+    "bundleId": "com.example.Editor",
+    "path": "/Applications/Editor.app"
+  },
+  "epoch": 0
+}

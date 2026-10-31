@@ -1059,6 +1059,10 @@ impl Service {
 impl Service {
     async fn serve_computer(&self, method: WireMethod, params: Value) -> Result<Value, String> {
         match method {
+            WireMethod::MachineComputerClose => Ok(crate::computer_close::serve_computer_close(
+                &self.input.ledger(),
+                &decode(params)?,
+            )),
             WireMethod::MachineScreenList
             | WireMethod::MachineScreenCapture
             | WireMethod::MachineScreenRead

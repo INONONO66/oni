@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { WindowTarget } from "./target.js";
 import { InputRequestId } from "./dispatch.js";
+import { ComputerCancelled } from "./lease.js";
 export { WindowTarget } from "./target.js";
 import { AppIdentity, COMPUTER_MAX_DIMENSION, MachineId, ObservationId, ObservedRef, SCREEN_AX_MAX_BYTES, SCREEN_PNG_MAX_BYTES } from "./schema.js";
 
@@ -101,6 +102,7 @@ const Observed = z.object({
  * cut). `private` is reserved and always false here.
  */
 export const ScreenObserveResult = z.xor([
+  ComputerCancelled,
   Observed.extend({ elements: Elements }).strict(),
   Observed.extend({
     diff: z
@@ -129,6 +131,9 @@ export const ScreenObserveResult = z.xor([
         "epoch_changed",
         "stale_observation",
         "observe_failed",
+        "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
+        "foreground_not_granted", "excluded", "paused:human_input", "paused:takeover",
+        "paused:private", "paused:locked", "paused:asleep",
       ]),
       message: RefusalMessage.optional(),
     })

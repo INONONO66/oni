@@ -7,8 +7,12 @@ import { AutomationOperation } from "../bundles/provision/automation-schema";
 import { automationDomainRevisions, automationId, type AutomationPort } from "../bundles/provision/automation";
 import { MachineOperation } from "../bundles/provision/machine-schema";
 import { machineDomainRevisions, type MachinePort } from "../bundles/provision/machines";
+import { ComputerOperation } from "../bundles/provision/computer-schema";
+import { computerDomainRevisions } from "../bundles/provision/computer";
+import type { ComputerPort } from "../bundles/seams";
 
 export interface RequestDomainDeps {
+  readonly computer?: ComputerPort;
   readonly machineEnrollments?: MachinePort["enrollments"];
   readonly automations?: AutomationPort;
   readonly actors: ActorRegistry;
@@ -20,8 +24,11 @@ export interface RequestDomainDeps {
 function operationDomainRevisions(
   deps: RequestDomainDeps,
   operation: PlainValue | undefined,
+  sessionId: string,
 ): Readonly<Record<string, number>> | undefined {
   if (operation !== null && typeof operation === "object" && !Array.isArray(operation)) {
+    const computer = ComputerOperation.safeParse(operation);
+    if (computer.success) return computerDomainRevisions(deps.computer, sessionId, computer.data);
     const contact = ContactOperation.safeParse(operation);
     if (contact.success) return contactDomainRevisions(deps.actors, contact.data);
     if (operation.op === "contact_add") return personDomainRevisions(deps, operation.args);
@@ -73,7 +80,7 @@ export function createRequestDomainRevisions(deps: RequestDomainDeps) {
       const automation = AutomationOperation.safeParse(input.operation);
       if (automation.success)
         return automationDomainRevisions(deps.automations, automationId(automation.data, request));
-      const revisions = operationDomainRevisions(deps, input.operation);
+      const revisions = operationDomainRevisions(deps, input.operation, request.sessionId);
       if (revisions !== undefined) return revisions;
       // #1569 lane 8: a send_message consent is bound to the Person the letter goes to.
       const letter = sendTargetRevisions(deps, input.to);

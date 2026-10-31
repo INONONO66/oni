@@ -93,7 +93,7 @@ test("v3 key collision refuses upgrade with a typed error and rolls back every r
     };
     db.close();
     expect(() => openCatalogStore(path, options)).toThrow(expect.objectContaining({
-      _tag: "CatalogUpgradeRefused", fileVersion: 3, codeVersion: 5,
+      _tag: "CatalogUpgradeRefused", fileVersion: 3, codeVersion: 6,
     }));
     try {
       openCatalogStore(path, options).close();

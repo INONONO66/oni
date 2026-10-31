@@ -42,7 +42,7 @@ function refusal(run: () => object): AppInvariantError {
   throw new Error("expected AppInvariantError");
 }
 
-test("the shipped JSON preserves the pre-R3 app-owned policy row id and point set", () => {
+test("the shipped JSON contains the reviewed app-owned policy row and point inventory", () => {
   const expected: readonly (readonly [string, string])[] = [
     ["delegation-policy/tool.pre#1", "tool.pre"],
     ["delegation-policy/tool.pre#2", "tool.pre"],
@@ -75,6 +75,8 @@ test("the shipped JSON preserves the pre-R3 app-owned policy row id and point se
     ["provision-automation-enable-consent", "tool.pre"],
     ["provision-bundle-disable-consent", "tool.pre"],
     ["provision-bundle-enable-consent", "tool.pre"],
+    ["provision-computer-exclude-consent", "tool.pre"],
+    ["provision-computer-request-consent", "tool.pre"],
     ["provision-contact-merge-consent", "tool.pre"],
     ["provision-contact-promote-consent", "tool.pre"],
     ["provision-machine-add-consent", "tool.pre"],

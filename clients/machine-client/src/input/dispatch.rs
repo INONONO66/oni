@@ -12,6 +12,7 @@ const LIMIT: usize = 4096;
 
 pub struct Entry {
     generation: u64,
+    sequence: u64,
     cancelled: AtomicBool,
     started: AtomicBool,
     dispatched: AtomicBool,
@@ -30,6 +31,7 @@ impl Drop for Completion {
 struct Records {
     entries: HashMap<String, Arc<Entry>>,
     order: VecDeque<String>,
+    cancelled_through: Option<(u64, u64)>,
 }
 
 pub struct DispatchLedger {
@@ -44,6 +46,7 @@ impl Default for DispatchLedger {
             records: Mutex::new(Records {
                 entries: HashMap::new(),
                 order: VecDeque::new(),
+                cancelled_through: None,
             }),
         }
     }
@@ -60,6 +63,26 @@ impl DispatchLedger {
         let records = self.records.lock().unwrap_or_else(PoisonError::into_inner);
         for entry in records.entries.values() {
             if !entry.finished.load(Ordering::SeqCst) {
+                entry.cancelled.store(true, Ordering::SeqCst);
+            }
+        }
+    }
+
+    pub fn cancel_through(&self, generation: u64, through: u64) {
+        let mut records = self.records.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.current.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let prior = records
+            .cancelled_through
+            .filter(|(current, _)| *current == generation);
+        let through = prior.map_or(through, |(_, prior)| through.max(prior));
+        records.cancelled_through = Some((generation, through));
+        for entry in records.entries.values() {
+            if entry.generation == generation
+                && entry.sequence <= through
+                && !entry.finished.load(Ordering::SeqCst)
+            {
                 entry.cancelled.store(true, Ordering::SeqCst);
             }
         }
@@ -83,12 +106,19 @@ impl DispatchLedger {
                 records.entries.remove(&oldest);
             }
         }
+        let (generation, sequence) = request_id
+            .split_once('-')
+            .and_then(|(generation, sequence)| {
+                Some((generation.parse().ok()?, sequence.parse().ok()?))
+            })
+            .unwrap_or((0, 0));
+        let cancelled = records
+            .cancelled_through
+            .is_some_and(|(closed, through)| generation == closed && sequence <= through);
         let entry = Arc::new(Entry {
-            generation: request_id
-                .split_once('-')
-                .and_then(|(generation, _)| generation.parse().ok())
-                .unwrap_or(0),
-            cancelled: AtomicBool::new(false),
+            generation,
+            sequence,
+            cancelled: AtomicBool::new(cancelled),
             started: AtomicBool::new(false),
             dispatched: AtomicBool::new(false),
             delivered: AtomicUsize::new(0),
@@ -167,7 +197,20 @@ mod tests {
     struct CancellingDriver {
         ledger: Arc<DispatchLedger>,
         cancel_at: usize,
+        computer_only: bool,
         events: Vec<Event>,
+    }
+
+    impl CancellingDriver {
+        fn cancel(&self) {
+            if self.computer_only {
+                let request = oni_protocol::decode(json!({"generation":1,"through":1}))
+                    .expect("computer close request");
+                crate::computer_close::serve_computer_close(&self.ledger, &request);
+            } else {
+                self.ledger.cancel();
+            }
+        }
     }
 
     impl Driver for CancellingDriver {
@@ -177,7 +220,7 @@ mod tests {
         fn inject(&mut self, event: &Event) -> Result<(), String> {
             self.events.push(event.clone());
             if self.events.len() == self.cancel_at {
-                self.ledger.cancel();
+                self.cancel();
             }
             Ok(())
         }
@@ -189,13 +232,14 @@ mod tests {
         }
     }
 
-    fn cutoff(cancel_at: usize, expected: usize) {
+    fn cutoff(cancel_at: usize, expected: usize, computer_only: bool) {
         let ledger = Arc::new(DispatchLedger::default());
         ledger.attach(1);
         let entry = ledger.start("1-1").expect("first request");
         let mut driver = CancellingDriver {
             ledger: ledger.clone(),
             cancel_at,
+            computer_only,
             events: Vec::new(),
         };
         assert!(driver.permitted());
@@ -206,7 +250,7 @@ mod tests {
             Event::Text("c".into()),
         ];
         if cancel_at == 0 {
-            ledger.cancel();
+            driver.cancel();
         }
         let outcome = inject(
             &mut driver,
@@ -221,21 +265,26 @@ mod tests {
             Some("cancelled")
         );
         assert_eq!(entry.cancelled_result()["dispatched"], expected > 0);
+        entry.finish();
+        assert_eq!(ledger.status("1-1")["state"], "cancelled");
     }
 
     #[test]
     fn stops_before_any_native_event_when_cancelled() {
-        cutoff(0, 0);
+        cutoff(0, 0, false);
+        cutoff(0, 0, true);
     }
 
     #[test]
     fn stops_after_first_native_event_when_cancelled() {
-        cutoff(1, 1);
+        cutoff(1, 1, false);
+        cutoff(1, 1, true);
     }
 
     #[test]
     fn stops_before_last_native_event_when_cancelled() {
-        cutoff(2, 2);
+        cutoff(2, 2, false);
+        cutoff(2, 2, true);
     }
 
     #[test]

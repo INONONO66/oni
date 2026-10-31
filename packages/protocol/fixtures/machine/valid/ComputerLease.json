@@ -1,0 +1,9 @@
+{
+  "sessionId": "s1",
+  "machineId": "desk",
+  "apps": ["com.example.Editor"],
+  "foreground": { "purpose": "Review the result", "expiresAt": 600000 },
+  "expiresAt": 600000,
+  "revision": 1,
+  "state": "active"
+}
