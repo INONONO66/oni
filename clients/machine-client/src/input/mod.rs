@@ -129,6 +129,33 @@ pub trait Driver: Send {
     fn inject(&mut self, event: &Event) -> Result<(), String>;
     fn pid_delivery(&self) -> bool;
     fn post_to_pid(&mut self, pid: u32, event: &Event) -> Result<(), String>;
+    fn pointer_pid_delivery(&self) -> bool {
+        false
+    }
+    fn target_at(&self, screen: &Screen, display: &Display, x: i32, y: i32) -> Option<(u32, u32)> {
+        let listed = screen.list(&oni_protocol::ScreenListRequest {
+            windows: Some(true),
+        });
+        let (x, y) = (
+            i64::from(x) - i64::from(display.x),
+            i64::from(y) - i64::from(display.y),
+        );
+        listed["windows"].as_array()?.iter().find_map(|window| {
+            let bounds = &window["bounds"];
+            let (left, top) = (bounds["x"].as_i64()?, bounds["y"].as_i64()?);
+            let (width, height) = (bounds["width"].as_u64()?, bounds["height"].as_u64()?);
+            (window["display"].as_u64()? == u64::from(display.id)
+                && (left..left + i64::try_from(width).ok()?).contains(&x)
+                && (top..top + i64::try_from(height).ok()?).contains(&y))
+            .then(|| {
+                Some((
+                    u32::try_from(window["pid"].as_u64()?).ok()?,
+                    window["windowId"].as_str()?.parse().ok()?,
+                ))
+            })
+            .flatten()
+        })
+    }
 }
 
 const NAMED: [(&str, Named); 20] = [
@@ -308,6 +335,12 @@ struct Plan<'a> {
     display: &'a Display,
     events: Vec<Event>,
     typed: usize,
+}
+
+struct PointerTarget {
+    pid: u32,
+    window_id: u32,
+    source: &'static str,
 }
 
 impl Plan<'_> {
@@ -535,7 +568,13 @@ impl Input {
             InputPointerRequest::Button { delivery, .. } => delivery.to_string() == "foreground",
             InputPointerRequest::Scroll { delivery, .. } => delivery.to_string() == "foreground",
         };
-        if !foreground {
+        if !foreground
+            && cfg!(target_os = "macos")
+            && matches!(request, InputPointerRequest::Move { .. })
+        {
+            return refuse("unsupported_action").value();
+        }
+        if !foreground && cfg!(target_os = "linux") {
             return refuse("foreground_required").value();
         }
         let anchor = match request {
@@ -544,29 +583,36 @@ impl Input {
             InputPointerRequest::Button { at, .. } => at.into(),
             InputPointerRequest::Scroll { at, .. } => at.into(),
         };
-        self.run(screen, &anchor, false, Route::Foreground, guard, &|plan| {
-            match request {
-                InputPointerRequest::Move { .. } => {}
-                InputPointerRequest::Click {
-                    button: b, count, ..
-                } => {
-                    plan.press(button(&b.to_string()), count.get());
+        self.run(
+            screen,
+            &anchor,
+            false,
+            foreground.then_some(Route::Foreground),
+            guard,
+            &|plan| {
+                match request {
+                    InputPointerRequest::Move { .. } => {}
+                    InputPointerRequest::Click {
+                        button: b, count, ..
+                    } => {
+                        plan.press(button(&b.to_string()), count.get());
+                    }
+                    InputPointerRequest::Button {
+                        button: b, state, ..
+                    } => {
+                        plan.events.push(Event::Button {
+                            button: button(&b.to_string()),
+                            down: *state == InputPointerRequestButtonState::Down,
+                            click: 1,
+                        });
+                    }
+                    InputPointerRequest::Scroll {
+                        delta_x, delta_y, ..
+                    } => plan.scroll(*delta_x, *delta_y)?,
                 }
-                InputPointerRequest::Button {
-                    button: b, state, ..
-                } => {
-                    plan.events.push(Event::Button {
-                        button: button(&b.to_string()),
-                        down: *state == InputPointerRequestButtonState::Down,
-                        click: 1,
-                    });
-                }
-                InputPointerRequest::Scroll {
-                    delta_x, delta_y, ..
-                } => plan.scroll(*delta_x, *delta_y)?,
-            }
-            Ok(())
-        })
+                Ok(())
+            },
+        )
     }
 
     pub fn key(&self, screen: &Screen, request: &InputKeyRequest) -> Value {
@@ -590,7 +636,7 @@ impl Input {
             screen,
             &Anchor::Capture(&request.capture_id),
             false,
-            route,
+            Some(route),
             guard,
             &|plan| {
                 let pressed = key(&request.key).ok_or_else(|| unknown(&request.key))?;
@@ -637,7 +683,7 @@ impl Input {
             screen,
             &Anchor::Capture(&request.capture_id),
             false,
-            route,
+            Some(route),
             guard,
             &|plan| plan.text(&request.text),
         )
@@ -650,7 +696,7 @@ impl Input {
             screen,
             &Anchor::Capture(&request.capture_id),
             true,
-            Route::Foreground,
+            Some(Route::Foreground),
             None,
             &|plan| {
                 for action in &request.actions {
@@ -682,7 +728,7 @@ impl Input {
         screen: &Screen,
         anchor: &Anchor<'_>,
         main_only: bool,
-        route: Route,
+        route: Option<Route>,
         guard: Option<&Entry>,
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
     ) -> Value {
@@ -704,7 +750,10 @@ impl Input {
                 .expect("cancelled requires a dispatch entry")
                 .cancelled_result(),
             Err(refusal) => refusal.value(),
-            Ok(()) => json!({"status":"ok"}),
+            Ok(Some(target)) => json!({"status":"ok","target":{
+                "pid":target.pid,"windowId":target.window_id,"source":target.source
+            }}),
+            Ok(None) => json!({"status":"ok"}),
         }
     }
 
@@ -714,15 +763,62 @@ impl Input {
         screen: &Screen,
         anchor: &Anchor<'_>,
         main_only: bool,
-        (route, guard): (Route, Option<&Entry>),
+        (route, guard): (Option<Route>, Option<&Entry>),
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
-    ) -> Result<(), Refusal> {
+    ) -> Result<Option<PointerTarget>, Refusal> {
         let (display, aim) = resolve(screen, anchor)?;
+        let (route, target) = match route {
+            Some(route) => (route, None),
+            None => {
+                let Some(Event::Move { x, y, .. }) = &aim else {
+                    return Err(refuse("window_not_found"));
+                };
+                let ((pid, window_id), source) = match anchor {
+                    Anchor::Ref { observation, .. } => screen
+                        .observation_target(observation)
+                        .map_err(|error| Refusal {
+                            reason: error.reason(),
+                            message: error.message(),
+                        })
+                        .map(|target| (target, "window_capture"))?,
+                    Anchor::Point { capture, .. } => match screen.anchor_window(capture) {
+                        Some(target) => (target, "window_capture"),
+                        None => (
+                            driver
+                                .target_at(screen, &display, *x, *y)
+                                .ok_or_else(|| refuse("window_not_found"))?,
+                            "display_hit_test",
+                        ),
+                    },
+                    Anchor::Capture(_) => return Err(refuse("window_not_found")),
+                };
+                (
+                    Route::Background(pid),
+                    Some(PointerTarget {
+                        pid,
+                        window_id,
+                        source,
+                    }),
+                )
+            }
+        };
         let point = match &aim {
             Some(Event::Move { x, y, .. }) => Some((*x, *y)),
             _ => None,
         };
-        if !matches!(anchor, Anchor::Ref { .. }) && screen.input_private(point).unwrap_or(true) {
+        if let Some(target) = &target {
+            if target.source == "display_hit_test" && screen.input_private(point).unwrap_or(true) {
+                return Err(refuse("private"));
+            }
+            match screen.input_target_private(target.pid, target.window_id) {
+                Ok(false) => {}
+                Ok(true) => return Err(refuse("private")),
+                Err(Fault::WindowNotFound) => return Err(refuse("window_not_found")),
+                Err(_) => return Err(refuse("private")),
+            }
+        } else if !matches!(anchor, Anchor::Ref { .. })
+            && screen.input_private(point).unwrap_or(true)
+        {
             return Err(refuse("private"));
         }
         if !driver.permitted() {
@@ -741,8 +837,13 @@ impl Input {
             typed: 0,
         };
         build(&mut plan)?;
-        let delivery = delivery::Plan::classify(route, &plan.events, driver.pid_delivery())
-            .map_err(|_| refuse("foreground_required"))?;
+        let delivery = delivery::Plan::classify(
+            route,
+            &plan.events,
+            driver.pid_delivery(),
+            driver.pointer_pid_delivery(),
+        )
+        .map_err(|_| refuse("foreground_required"))?;
         driver
             .prepare(delivery.route, delivery.events)
             .map_err(|message| explain("unsupported_action", message))?;
@@ -752,7 +853,8 @@ impl Input {
             delivery.route,
             delivery.events,
             guard.map(|entry| (entry, self.dispatch.as_ref())),
-        )
+        )?;
+        Ok(target)
     }
 }
 

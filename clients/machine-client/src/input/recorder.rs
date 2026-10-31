@@ -16,9 +16,13 @@ pub struct Recorder {
     failing: Arc<Mutex<Vec<usize>>>,
     attempts: Arc<Mutex<usize>>,
     routes: Arc<Mutex<Vec<Option<u32>>>>,
+    cursor: Arc<Mutex<(i32, i32)>>,
 }
 
 impl Recorder {
+    pub fn cursor(&self) -> (i32, i32) {
+        *self.cursor.lock().unwrap_or_else(PoisonError::into_inner)
+    }
     pub fn routes(&self) -> Vec<Option<u32>> {
         self.routes
             .lock()
@@ -50,13 +54,12 @@ impl Driver for Recorder {
     fn pid_delivery(&self) -> bool {
         true
     }
+    fn pointer_pid_delivery(&self) -> bool {
+        true
+    }
 
     fn post_to_pid(&mut self, pid: u32, event: &Event) -> Result<(), String> {
-        self.inject(event)?;
-        let mut routes = self.routes.lock().unwrap_or_else(PoisonError::into_inner);
-        routes.pop();
-        routes.push(Some(pid));
-        Ok(())
+        self.record(event, Some(pid))
     }
 
     fn permitted(&self) -> bool {
@@ -64,12 +67,21 @@ impl Driver for Recorder {
     }
 
     fn inject(&mut self, event: &Event) -> Result<(), String> {
+        self.record(event, None)
+    }
+}
+
+impl Recorder {
+    fn record(&self, event: &Event, route: Option<u32>) -> Result<(), String> {
         let mut attempts = self.attempts.lock().unwrap_or_else(PoisonError::into_inner);
         let attempt = *attempts;
         *attempts += 1;
         let failing = self.failing.lock().unwrap_or_else(PoisonError::into_inner);
         if failing.contains(&attempt) {
             return Err(format!("scripted failure at attempt {attempt}"));
+        }
+        if let (None, Event::Move { x, y, .. }) = (route, event) {
+            *self.cursor.lock().unwrap_or_else(PoisonError::into_inner) = (*x, *y);
         }
         self.events
             .lock()
@@ -78,7 +90,7 @@ impl Driver for Recorder {
         self.routes
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push(None);
+            .push(route);
         Ok(())
     }
 }

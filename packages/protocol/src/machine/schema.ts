@@ -863,7 +863,14 @@ export const InputWriteRequest = z
 export type InputWriteRequest = z.infer<typeof InputWriteRequest>;
 
 export const InputWriteResult = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("ok") }).strict(),
+  z.object({
+    status: z.literal("ok"),
+    target: z.object({
+      pid: z.number().int().positive(),
+      windowId: z.number().int().nonnegative(),
+      source: z.enum(["window_capture", "display_hit_test"]),
+    }).strict().optional(),
+  }).strict(),
   z.object({
     status: z.literal("unverifiable"),
     reason: z.enum(["transport_lost", "cancelled", "detached", "driver_timeout"]),

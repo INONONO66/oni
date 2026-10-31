@@ -383,10 +383,17 @@ capture supersession; window capture refuses minimized and excluded owners.
 
 The host and codemode expose `computer.app.launch/quit` and
 `computer.window.close/park`, all through the captured operation port.
-Headless conformance asserts PID-targeted recorder rows, background pointer
-refusal, and lifecycle receipts. The macOS ignored `native_occlusion` test
-builds a fixture with two overlapping windows and verifies that the covered
-window's own pattern is captured.
+Headless conformance asserts PID-targeted recorder rows, background move
+refusal, and lifecycle receipts. On macOS, background clicks and scrolls use
+the observation window or captured-window PID, or hit-test the frontmost
+layer-0 window beneath a display point; the successful result records the
+resolved `{ pid, windowId, source }`. PID-bound pointers check the target's
+focused secure field rather than unrelated overlapping windows; display-point
+anchors keep the conservative overlap gate. Events post to that PID without
+moving the shared cursor. Controls reading global pointer position may ignore
+them despite an `ok` dispatch. Linux remains foreground-only. The macOS ignored
+`native_occlusion` test builds a fixture with two overlapping windows and
+verifies that the covered window's own pattern is captured.
 
 Grant-dependent acceptance remains #1702. Windows adapters and
 ScreenCaptureKit remain #1700. Cleanup policy and keep records are described

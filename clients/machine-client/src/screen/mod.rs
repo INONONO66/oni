@@ -178,6 +178,7 @@ struct Anchor {
     seq: u64,
     id: String,
     display: Display,
+    window: Option<(u32, u32)>,
 }
 
 enum Backend {
@@ -437,6 +438,17 @@ impl Screen {
         Ok(focused.len() != 1 || !focus_admits_input(&focused[0]))
     }
 
+    /// Check only the PID-addressed window's focused field, not overlapping windows.
+    pub fn input_target_private(&self, pid: u32, id: u32) -> Result<bool, Fault> {
+        let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
+        let window = observer
+            .windows()?
+            .into_iter()
+            .find(|window| window.owner_pid == pid && window.window_id == id)
+            .ok_or(Fault::WindowNotFound)?;
+        Ok(!focus_admits_input(&observer.focused(&window)))
+    }
+
     pub fn private_edges(&self) -> Result<Vec<(observe::Target, Edge)>, Fault> {
         let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
         let windows = observer.windows()?;
@@ -569,13 +581,14 @@ impl Screen {
     }
 
     /// Records capture `seq` as the anchor unless a later one already is.
-    fn anchor(&self, seq: u64, id: &str, display: &Display) {
+    fn anchor(&self, seq: u64, id: &str, display: &Display, window: Option<(u32, u32)>) {
         let mut latest = self.latest();
         if latest.as_ref().is_none_or(|anchor| anchor.seq < seq) {
             *latest = Some(Anchor {
                 seq,
                 id: id.to_owned(),
                 display: display.clone(),
+                window,
             });
         }
     }
@@ -594,6 +607,14 @@ impl Screen {
             .as_ref()
             .filter(|anchor| anchor.id == capture && current.contains(&anchor.display))
             .map(|anchor| anchor.display.clone()))
+    }
+
+    /// Owner PID and ID of the latest capture's window, if it was window-bound.
+    pub fn anchor_window(&self, capture: &str) -> Option<(u32, u32)> {
+        self.latest()
+            .as_ref()
+            .filter(|anchor| anchor.id == capture)
+            .and_then(|anchor| anchor.window)
     }
 
     /// Drops the anchor and every observation: no capture or observation
@@ -753,6 +774,7 @@ impl Screen {
             let Raw {
                 index: display,
                 display: anchor,
+                window,
                 size,
                 transform,
             } = raw(source, displays, target, &mut slot.pixels)?;
@@ -787,7 +809,7 @@ impl Screen {
                 data: &slot.encoded,
             });
             let publish = || {
-                self.anchor(seq, &id, anchor);
+                self.anchor(seq, &id, anchor, window);
                 value
             };
             let result = match &ticket {
@@ -840,6 +862,7 @@ struct Transform {
 struct Raw<'a> {
     index: usize,
     display: &'a Display,
+    window: Option<(u32, u32)>,
     size: (u32, u32),
     transform: Transform,
 }
@@ -875,6 +898,7 @@ fn raw<'a>(
             Ok(Raw {
                 index,
                 display,
+                window: None,
                 size,
                 transform: Transform {
                     original: source_size,
@@ -897,6 +921,7 @@ fn raw<'a>(
             Ok(Raw {
                 index: index + 1,
                 display: &displays[index],
+                window: window.pid.map(|pid| (pid, window.id)),
                 size,
                 transform: Transform {
                     original: size,

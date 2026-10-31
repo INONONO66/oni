@@ -21,12 +21,16 @@ impl<'a> Plan<'a> {
         route: Route,
         events: &'a [Event],
         pid_delivery: bool,
+        pointer_delivery: bool,
     ) -> Result<Self, Refusal> {
         if matches!(route, Route::Background(_))
             && (!pid_delivery
-                || events
-                    .iter()
-                    .any(|event| !matches!(event, Event::Key { .. } | Event::Text(_))))
+                || events.iter().any(|event| {
+                    matches!(
+                        event,
+                        Event::Move { .. } | Event::Button { .. } | Event::Scroll { .. }
+                    ) && !pointer_delivery
+                }))
         {
             return Err(Refusal::ForegroundRequired);
         }
@@ -55,11 +59,11 @@ mod tests {
                 down: true,
             },
         ];
-        let plan = Plan::classify(Route::Background(42), &events, true).expect("pid plan");
+        let plan = Plan::classify(Route::Background(42), &events, true, false).expect("pid plan");
         assert_eq!(plan.route, Route::Background(42));
         assert_eq!(plan.events, events);
         assert!(matches!(
-            Plan::classify(Route::Background(42), &events, false),
+            Plan::classify(Route::Background(42), &events, false, false),
             Err(Refusal::ForegroundRequired)
         ));
         for pointer in [
@@ -80,10 +84,11 @@ mod tests {
         ] {
             let mixed = [Event::Text("hello".into()), pointer];
             assert!(matches!(
-                Plan::classify(Route::Background(42), &mixed, true),
+                Plan::classify(Route::Background(42), &mixed, true, false),
                 Err(Refusal::ForegroundRequired)
             ));
-            assert!(Plan::classify(Route::Foreground, &mixed, false).is_ok());
+            assert!(Plan::classify(Route::Background(42), &mixed, true, true).is_ok());
+            assert!(Plan::classify(Route::Foreground, &mixed, false, false).is_ok());
         }
     }
 }

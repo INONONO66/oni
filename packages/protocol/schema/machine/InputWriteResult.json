@@ -7,6 +7,34 @@
         "status": {
           "const": "ok",
           "type": "string"
+        },
+        "target": {
+          "additionalProperties": false,
+          "properties": {
+            "pid": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "source": {
+              "enum": [
+                "window_capture",
+                "display_hit_test"
+              ],
+              "type": "string"
+            },
+            "windowId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pid",
+            "windowId",
+            "source"
+          ],
+          "type": "object"
         }
       },
       "required": [

@@ -265,18 +265,35 @@ offer `computer.use` is never sent the new methods.
 
 ### 2.2.3 Background delivery and window lifecycle (#1690)
 
-Pointer, key and text requests default to `delivery: "background"`. A
-pointer request always needs explicit `delivery: "foreground"`. Background
+Pointer, key and text requests default to `delivery: "background"`. On macOS,
+background click, button and scroll requests derive their target PID from
+the observation's window, a captured window, or the frontmost on-screen
+layer-0 window under a display-capture point (excluding the client's own
+process). Background `move` refuses `unsupported_action`; Linux pointer
+requests still need explicit `delivery: "foreground"`. Background
 key/text requests require a `target: { pid, windowId, epoch? }`; the client
 resolves that window and checks any supplied epoch before dispatch. The
 complete event plan is classified before its first event. A plan requiring
 the shared pointer, a missing target, or a backend without PID delivery
-refuses `foreground_required`. Ref actions (`machine.input.action`) are
+refuses `foreground_required`; a point with no eligible window refuses
+`window_not_found`. Ref actions (`machine.input.action`) are
 background by construction and have no delivery switch.
 
 macOS uses tagged CoreGraphics events: foreground delivery posts to HID,
-background delivery posts only to the target PID. Held-key releases retain
-the delivery route, including failure cleanup and detach. The headless
+background delivery posts only to the target PID. A successful background
+pointer result includes `target: { pid, windowId, source:
+"window_capture" | "display_hit_test" }`. A window capture retains its
+window identity for the point; a display point hit-tests the frontmost
+layer-0 window at dispatch. Overlapping windows remain a conservative
+`private` gate for display coordinates, while PID-bound window and observation
+points check only the target window's focused secure state. Pointer moves,
+down/up events with click state, and scroll-wheel events carry the translated
+screen point without moving the real cursor or activating the target. Some
+controls that read the global mouse position, including certain menus, drag
+sessions and tracking areas, may ignore the posted events; successful dispatch
+still returns `ok`, and settle/since show whether the window changed.
+Held-key releases retain the delivery route, including failure cleanup and
+detach. The headless
 recorder includes `delivery`, `pid` (null for foreground) and `tag` on every
 injected input event. Linux retains XTEST foreground input and refuses PID
 delivery.
