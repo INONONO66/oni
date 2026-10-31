@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -19,6 +20,8 @@ struct Fake {
     swap: Mutex<Option<Vec<Node>>>,
     /// Holds window 9's walk: signals entry, then waits for release.
     hold: Mutex<Option<(Sender<()>, Receiver<()>)>>,
+    walks: AtomicUsize,
+    resolves: AtomicUsize,
 }
 
 impl Fake {
@@ -33,6 +36,8 @@ impl Fake {
             acted: Mutex::new(Vec::new()),
             swap: Mutex::new(None),
             hold: Mutex::new(None),
+            walks: AtomicUsize::new(0),
+            resolves: AtomicUsize::new(0),
         }
     }
 }
@@ -89,6 +94,7 @@ impl Observer for Fake {
     }
 
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault> {
+        self.walks.fetch_add(1, Ordering::SeqCst);
         if window.window_id == 9 {
             if let Some((entered, release)) = self.hold.lock().expect("lock").take() {
                 entered.send(()).expect("entered");
@@ -107,6 +113,17 @@ impl Observer for Fake {
             focused,
             complete,
         })
+    }
+
+    fn resolve(&self, _: &WindowIdentity, path: &[Segment]) -> Result<Option<Attributes>, Fault> {
+        self.resolves.fetch_add(1, Ordering::SeqCst);
+        let path = path
+            .iter()
+            .map(Segment::to_string)
+            .collect::<Vec<_>>()
+            .join("/");
+        let nodes = self.walk.lock().expect("lock");
+        Ok(resolve(&nodes, &path).map(|node| node.attributes.clone()))
     }
 
     fn act(
@@ -136,6 +153,7 @@ impl Observer for Fake {
         let path: Vec<String> = path.iter().map(Segment::to_string).collect();
         let path = path.join("/");
         let nodes = self.walk.lock().expect("lock").clone();
+        self.resolves.fetch_add(1, Ordering::SeqCst);
         let found = resolve(&nodes, &path).ok_or(ActFault::NotFound)?;
         if !admit(&found.attributes) {
             return Err(ActFault::NotFound);
@@ -1168,6 +1186,62 @@ fn ambiguous_siblings_and_their_descendants_get_no_ref() {
     assert_eq!(elements[2].parent, None);
     assert!(elements[4].actions.is_empty());
     assert_eq!((focused, complete), (None, true));
+}
+
+#[test]
+fn identifiers_address_ten_unlabeled_siblings_without_a_fresh_action_walk() {
+    let nodes = (0..10)
+        .map(|index| {
+            let mut row = node("AXRow", None, None);
+            row.attributes.identifier = Some(format!("row-{index}"));
+            row
+        })
+        .collect();
+    let fake = Fake::new(nodes);
+    let observations = Observations::default();
+    let body = observe(&observations, &fake, None);
+    for index in 0..10 {
+        assert_eq!(body["elements"][index]["ref"], format!("AXRow[{index}]"));
+        assert_eq!(body["elements"][index]["id"], format!("row-{index}"));
+    }
+    let walks = fake.walks.load(Ordering::SeqCst);
+    let resolves = fake.resolves.load(Ordering::SeqCst);
+    observations
+        .act(&fake, &act("o1", "AXRow[5]", Action::Press))
+        .expect("identified row");
+    assert_eq!(fake.walks.load(Ordering::SeqCst), walks);
+    assert_eq!(fake.resolves.load(Ordering::SeqCst), resolves + 1);
+}
+
+#[test]
+fn identified_row_relocates_after_a_swap_and_refuses_an_absent_identifier() {
+    let mut first = node("AXRow", None, None);
+    first.attributes.identifier = Some("first".into());
+    let mut second = node("AXRow", None, None);
+    second.attributes.identifier = Some("second".into());
+    let fake = Fake::new(vec![first, second]);
+    let observations = Observations::default();
+    observe(&observations, &fake, None);
+    fake.walk.lock().expect("lock").swap(0, 1);
+    observations
+        .act(&fake, &act("o1", "AXRow[0]", Action::Press))
+        .expect("relocated");
+    assert_eq!(fake.acted.lock().expect("lock")[0].0, "AXRow[1] ");
+    fake.walk.lock().expect("lock")[1].attributes.identifier = Some("replacement".into());
+    assert_eq!(
+        observations.act(&fake, &act("o1", "AXRow[0]", Action::Press)),
+        Err(Refusal::RefNotFound)
+    );
+    fake.walk.lock().expect("lock")[1].attributes.identifier = Some("first".into());
+    fake.walk.lock().expect("lock")[1].attributes.label = Some("different".into());
+    let mut duplicate = node("AXRow", None, None);
+    duplicate.attributes.identifier = Some("first".into());
+    fake.walk.lock().expect("lock").push(duplicate);
+    assert_eq!(
+        observations.act(&fake, &act("o1", "AXRow[0]", Action::Press)),
+        Err(Refusal::RefNotFound),
+        "two elements with one identifier and role cannot be relocated"
+    );
 }
 
 #[test]

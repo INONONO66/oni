@@ -343,7 +343,8 @@ without a wire call, when the attached peer offered a contract below 3.
   accessibility elements. Each element carries a `ref` minted from its role
   path (`role[i]` segments joined by `/`, `i` counting same-role siblings;
   an element with an empty role has `ref: null` and no actions), `role`,
-  optional `label`/`value`, `actions`, a window-local `frame`, its `parent`
+  optional `label`/`value`/`id` (accessibility identifier, at most 256
+  characters), `actions`, a window-local `frame`, its `parent`
   ref, `secure` (a secure field's value is never sent) and the optional
   `enabled|selected|checked|expanded` states. The walk stops at 2000
   elements (or `maxElements`), 5000 visited nodes, 2.5 s and 256 KiB of
@@ -365,12 +366,15 @@ without a wire call, when the attached peer offered a contract below 3.
   role, ambiguous sibling or descendant, too-deep path, incomplete walk),
   the answer carries `elements` instead of a lossy `diff`. A walk cut by
   `maxElements` or the hard walk limit (`complete: false`) mints no refs,
-  and the fresh walk behind an action must be complete too.
+  and a full walk used to confirm an unidentified ref must be complete too.
 - **Action.** `machine.input.action` takes `{observationId, target: {pid,
   windowId, epoch}, ref, action: press|setValue|perform, value?, name?}`
   (value at most 65536 characters) and answers `InputWriteResult`. The peer
-  rechecks the lineage, re-resolves the ref on a fresh walk and requires the
-  same role, label and secure flag before it acts; nothing is executed on
+  rechecks the lineage and requires the same role, label, secure flag and
+  identifier before it acts. An identified ref resolves its role path
+  directly; if it moved, one bounded walk finds a unique matching
+  identifier and role or refuses `ref_not_found`. Unidentified refs retain
+  their complete-walk ambiguity check. Nothing is executed on
   any refusal. Refusals: `window_not_found`, `epoch_changed`,
   `stale_observation`, `ref_not_found`, `action_not_supported`,
   `permission_denied`, `input_not_available`, `input_failed`.

@@ -384,6 +384,16 @@ impl Observer for Native {
         walk(&Window { origin }, children, bounds)
     }
 
+    fn resolve(
+        &self,
+        window: &WindowIdentity,
+        path: &[Segment],
+    ) -> Result<Option<Attributes>, Fault> {
+        let (children, origin) = opened(window)?;
+        super::resolve(&Window { origin }, children, path)
+            .map(|found| found.map(|(_, attributes)| attributes))
+    }
+
     fn act(
         &self,
         window: &WindowIdentity,

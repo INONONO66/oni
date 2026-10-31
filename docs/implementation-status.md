@@ -441,6 +441,13 @@ remain #1700.
 
 ## #1689 window-bound observation and ref-targeted actions (machine contract 3, PR pending)
 
+The #1715 observation follow-up reads `AXIdentifier` and sends optional `id`
+(at most 256 characters). Sibling refs distinguish identifiers without
+changing the role-path grammar; identified ref actions resolve the path
+directly and use a bounded walk only when the identifier moved, refusing
+ambiguous or absent matches with `ref_not_found`. Unidentified refs retain
+the complete walk required to detect newly ambiguous siblings.
+
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target
 contract: `docs/machines-and-delegation.md` 2.2.2.
 

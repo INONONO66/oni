@@ -7,8 +7,8 @@
 //! cannot prove a ref unambiguous and mints none. A `since` naming the
 //! lineage's latest observation answers a diff by ref, or every element
 //! again when either side holds an element without a ref; anything else is
-//! stale. An action re-checks the lineage, re-resolves its ref on a fresh
-//! walk and requires the same unclipped role, label and secure flag, and
+//! stale. An action re-checks the lineage, resolves its ref by path
+//! and requires the same unclipped role, label, secure flag and identifier, and
 //! the observer dispatches only on the element it resolved and admitted
 //! against that identity; a pointer aimed at a ref passes the same fresh
 //! check and lands on the element's centre in global points. Operations on
@@ -58,6 +58,8 @@ pub struct Element {
     pub role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
     pub actions: Vec<String>,
@@ -239,6 +241,7 @@ struct Key {
     role: String,
     label: Option<String>,
     secure: bool,
+    identifier: Option<String>,
 }
 
 impl Key {
@@ -247,6 +250,7 @@ impl Key {
             role: attributes.role.clone(),
             label: attributes.label.clone(),
             secure: attributes.secure,
+            identifier: attributes.identifier.clone(),
         }
     }
 }
@@ -551,8 +555,8 @@ impl Observations {
         body
     }
 
-    /// Checks `act` against the lineage's latest observation and a fresh
-    /// walk, then has the observer perform it on the element it resolves
+    /// Checks `act` against the lineage's latest observation, then has the
+    /// observer perform it on the element it resolves
     /// and admits by the observed identity; nothing executes on a refusal.
     pub fn act(&self, observer: &dyn Observer, act: &Act) -> Result<(), Refusal> {
         self.act_guarded(observer, act, &|| true)
@@ -586,14 +590,30 @@ impl Observations {
         if !supported {
             return Err(Refusal::Unsupported);
         }
-        fresh(observer, &located, &act.reference, &key)?;
+        if key.identifier.is_none() {
+            fresh_unidentified(observer, &located, &act.reference, &key)?;
+        }
         let path = ax::segments(&act.reference).ok_or(Refusal::RefNotFound)?;
         let admit = |attributes: &Attributes| Key::of(attributes) == key;
-        Ok(observer.act_guarded(&located.window, &path, &admit, &act.action, before_dispatch)?)
+        match observer.act_guarded(&located.window, &path, &admit, &act.action, before_dispatch) {
+            Ok(()) => Ok(()),
+            Err(ActFault::NotFound) if key.identifier.is_some() => {
+                let relocated = relocate(observer, &located, &key)?;
+                let path = ax::segments(&relocated).ok_or(Refusal::RefNotFound)?;
+                Ok(observer.act_guarded(
+                    &located.window,
+                    &path,
+                    &admit,
+                    &act.action,
+                    before_dispatch,
+                )?)
+            }
+            Err(fault) => Err(fault.into()),
+        }
     }
 
     /// The global centre of `reference` in `observation`, which must be its
-    /// lineage's latest, re-resolved on a fresh walk of the window.
+    /// lineage's latest, re-resolved from the window root.
     pub fn point(
         &self,
         observer: &dyn Observer,
@@ -628,30 +648,97 @@ fn addressed(elements: &[Element]) -> bool {
     elements.iter().all(|element| element.reference.is_some())
 }
 
-/// The element `reference` names on a fresh walk of the located window,
-/// its unclipped identity unchanged.
+/// The element `reference` names from the window root, with the observed
+/// identity unchanged. An identified element can move to a different path.
 fn fresh(
     observer: &dyn Observer,
     located: &Located,
     reference: &str,
     key: &Key,
-) -> Result<Element, Refusal> {
+) -> Result<Attributes, Refusal> {
+    if key.identifier.is_none() {
+        return fresh_unidentified(observer, located, reference, key);
+    }
+    let path = ax::segments(reference).ok_or(Refusal::RefNotFound)?;
+    if let Some(attributes) = observer.resolve(&located.window, &path)? {
+        if Key::of(&attributes) == *key {
+            return Ok(attributes);
+        }
+    }
+    let relocated = relocate(observer, located, key)?;
+    let path = ax::segments(&relocated).ok_or(Refusal::RefNotFound)?;
+    observer
+        .resolve(&located.window, &path)?
+        .filter(|attributes| Key::of(attributes) == *key)
+        .ok_or(Refusal::RefNotFound)
+}
+
+/// An unidentified sibling cannot be distinguished after a reorder without
+/// the complete census that established its original ref.
+fn fresh_unidentified(
+    observer: &dyn Observer,
+    located: &Located,
+    reference: &str,
+    key: &Key,
+) -> Result<Attributes, Refusal> {
+    let bounds = Bounds {
+        max_elements: MAX_ELEMENTS,
+        max_visits: MAX_VISITS,
+        budget: BUDGET,
+    };
+    let walk = observer.walk(&located.window, &bounds)?;
+    if !walk.complete {
+        return Err(Refusal::RefNotFound);
+    }
+    let attributes: Vec<_> = walk
+        .nodes
+        .iter()
+        .map(|node| node.attributes.clone())
+        .collect();
+    let minted = mint(walk);
+    let element = minted
+        .elements
+        .iter()
+        .zip(&minted.keys)
+        .position(|(element, found)| {
+            element.reference.as_deref() == Some(reference) && found == key
+        });
+    if !minted.complete {
+        return Err(Refusal::RefNotFound);
+    }
+    element
+        .and_then(|index| attributes.get(index).cloned())
+        .ok_or(Refusal::RefNotFound)
+}
+
+/// Search only after an identified element's old path stops matching.
+fn relocate(observer: &dyn Observer, located: &Located, key: &Key) -> Result<String, Refusal> {
     let bounds = Bounds {
         max_elements: MAX_ELEMENTS,
         max_visits: MAX_VISITS,
         budget: BUDGET,
     };
     let minted = mint(observer.walk(&located.window, &bounds)?);
-    minted
+    if !minted.complete {
+        return Err(Refusal::RefNotFound);
+    }
+    let mut matches = minted
         .elements
         .into_iter()
         .zip(minted.keys)
-        .find(|(element, found)| element.reference.as_deref() == Some(reference) && found == key)
-        .map(|(element, _)| element)
-        .ok_or(Refusal::RefNotFound)
+        .filter(|(_, found)| found.identifier == key.identifier && found.role == key.role)
+        .map(|(element, found)| (element.reference, found));
+    let found = matches.next().ok_or(Refusal::RefNotFound)?;
+    if matches.next().is_some() {
+        return Err(Refusal::RefNotFound);
+    }
+    if found.1 != *key {
+        return Err(Refusal::RefNotFound);
+    }
+    found.0.ok_or(Refusal::RefNotFound)
 }
 
-type Identity = (Option<usize>, String, Option<String>, bool);
+type Identity = (Option<usize>, String, Option<String>, bool, Option<String>);
 
 fn identity(node: &Node) -> Identity {
     let attributes = &node.attributes;
@@ -660,6 +747,7 @@ fn identity(node: &Node) -> Identity {
         ax::slug(&attributes.role),
         attributes.label.clone(),
         attributes.secure,
+        attributes.identifier.clone(),
     )
 }
 
@@ -672,7 +760,7 @@ struct Minted {
 
 /// Mints refs over `walk` in document order, stopping (incomplete) before
 /// the element list would exceed [`MAX_BYTES`] serialized. Siblings that
-/// share `(role, label, secure)` cannot be told apart after a reorder, so
+/// share `(role, label, secure, identifier)` cannot be told apart after a reorder, so
 /// they and their descendants get no ref; an incomplete walk has not seen
 /// every sibling, so none of its elements gets one.
 fn mint(walk: Walk) -> Minted {
@@ -745,6 +833,7 @@ fn element(attributes: Attributes, reference: Option<String>, parent: Option<Str
         reference,
         role: clip(&attributes.role, MAX_ROLE),
         label: attributes.label.map(|label| clip(&label, MAX_LABEL)),
+        id: attributes.identifier,
         value: attributes
             .value
             .filter(|_| !secure)
@@ -770,7 +859,7 @@ fn frame(frame: Frame) -> Frame {
 }
 
 /// At most `max` UTF-16 code units, the unit the wire's string bounds count.
-fn clip(text: &str, max: usize) -> String {
+pub(super) fn clip(text: &str, max: usize) -> String {
     let mut units = 0;
     text.chars()
         .take_while(|character| {

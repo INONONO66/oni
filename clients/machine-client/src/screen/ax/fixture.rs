@@ -17,8 +17,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::{
-    target, walk, ActFault, Action, Admit, AppIdentity, Attributes, Bounds, Frame, Observer,
-    Segment, Tree, Walk, WindowIdentity,
+    resolve, target, walk, ActFault, Action, Admit, AppIdentity, Attributes, Bounds, Frame,
+    Observer, Segment, Tree, Walk, WindowIdentity,
 };
 use crate::screen::observe;
 use crate::screen::settle::{
@@ -34,6 +34,7 @@ use crate::{
 pub struct Element {
     role: String,
     label: Option<String>,
+    id: Option<String>,
     value: Option<String>,
     #[serde(default)]
     actions: Vec<String>,
@@ -192,6 +193,11 @@ impl<'a> Tree for Rows<'a> {
         let attributes = Attributes {
             role: item.role.clone(),
             label: item.label.clone(),
+            identifier: item
+                .id
+                .as_ref()
+                .filter(|id| !id.is_empty())
+                .map(|id| observe::clip(id, 256)),
             value: item.value.clone(),
             actions: item.actions.clone(),
             frame: item.frame,
@@ -296,6 +302,16 @@ impl Observer for Scripted {
         walk(&Rows(PhantomData), row.elements.iter().collect(), bounds)
     }
 
+    fn resolve(
+        &self,
+        window: &WindowIdentity,
+        path: &[Segment],
+    ) -> Result<Option<Attributes>, Fault> {
+        let row = self.row(window)?;
+        resolve(&Rows(PhantomData), row.elements.iter().collect(), path)
+            .map(|found| found.map(|(_, attributes)| attributes))
+    }
+
     fn act(
         &self,
         window: &WindowIdentity,
@@ -334,6 +350,9 @@ impl Observer for Scripted {
             "kind": "action", "pid": window.pid, "windowId": window.window_id,
             "ref": reference.join("/"), "action": verb,
         });
+        if let Some(id) = &element.id {
+            line["id"] = json!(id);
+        }
         if let Some((key, text)) = argument {
             line[key] = json!(text);
         }
@@ -492,6 +511,91 @@ mod tests {
                 json!({"kind": "action", "pid": 7, "windowId": 9, "ref": "AXButton[0]", "action": "setValue", "value": "b"}),
                 json!({"kind": "action", "pid": 7, "windowId": 9, "ref": "AXButton[0]", "action": "perform", "name": "AXShowMenu"}),
             ]
+        );
+    }
+
+    #[test]
+    fn identified_siblings_relocate_in_the_fixture_and_unidentified_siblings_have_no_refs() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let elements: Vec<Value> = (0..10)
+            .map(|index| {
+                json!({
+                    "role": "AXRow", "id": format!("row-{index}"), "actions": ["AXPress"],
+                    "frame": {"x": 0, "y": 0, "width": 1, "height": 1}
+                })
+            })
+            .collect();
+        let mut layout = json!({"windows": [{
+            "id": 9, "title": "Editor", "pid": 7, "elements": elements
+        }]});
+        let fixture = scripted(directory.path(), &layout.to_string());
+        let observations = observe::Observations::default();
+        let request = observe::Request {
+            target: observe::Target {
+                pid: 7,
+                window_id: 9,
+                epoch: Some(0),
+            },
+            since: None,
+            max_elements: 2000,
+        };
+        let observed = observations
+            .observe(&fixture, &request, |_| Ok(None))
+            .expect("observe");
+        for index in 0..10 {
+            assert_eq!(
+                observed["elements"][index]["ref"],
+                format!("AXRow[{index}]")
+            );
+        }
+        let rows = layout["windows"][0]["elements"]
+            .as_array_mut()
+            .expect("rows");
+        rows.swap(0, 1);
+        fs::write(&fixture.layout, layout.to_string()).expect("reorder");
+        let action = observe::Act {
+            target: request.target,
+            observation: "o1".into(),
+            reference: "AXRow[0]".into(),
+            action: Action::Press,
+        };
+        observations
+            .act(&fixture, &action)
+            .expect("relocated press");
+        let recorded = fs::read_to_string(&fixture.recorder).expect("recorded");
+        assert_eq!(
+            serde_json::from_str::<Value>(recorded.trim()).expect("line"),
+            json!({"kind": "action", "pid": 7, "windowId": 9,
+                "ref": "AXRow[1]", "id": "row-0", "action": "press"})
+        );
+        layout["windows"][0]["elements"][1]["id"] = json!("replacement");
+        fs::write(&fixture.layout, layout.to_string()).expect("replace");
+        assert_eq!(
+            observations.act(&fixture, &action),
+            Err(observe::Refusal::RefNotFound)
+        );
+        for row in layout["windows"][0]["elements"]
+            .as_array_mut()
+            .expect("rows")
+        {
+            row.as_object_mut().expect("row").remove("id");
+        }
+        fs::write(&fixture.layout, layout.to_string()).expect("without ids");
+        let without = observations
+            .observe(&fixture, &request, |_| Ok(None))
+            .expect("observe");
+        assert!(without["elements"]
+            .as_array()
+            .expect("elements")
+            .iter()
+            .all(|element| element["ref"].is_null()));
+        let unaddressable = observe::Act {
+            observation: "o2".into(),
+            ..action
+        };
+        assert_eq!(
+            observations.act(&fixture, &unaddressable),
+            Err(observe::Refusal::RefNotFound)
         );
     }
 }

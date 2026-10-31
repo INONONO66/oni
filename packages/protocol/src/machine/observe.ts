@@ -35,6 +35,7 @@ export const ObservedElement = z
     ref: Ref.nullable(),
     role: z.string().max(128),
     label: z.string().max(OBSERVE_MAX_LABEL_CHARS).optional(),
+    id: z.string().max(256).optional(),
     value: z.string().max(OBSERVE_MAX_VALUE_CHARS).optional(),
     actions: z.array(ActionName).max(OBSERVE_MAX_ACTIONS),
     frame: z.object({ x: Position, y: Position, width: Extent, height: Extent }).strict(),
