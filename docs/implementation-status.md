@@ -4,6 +4,17 @@
 
 Ref-targeted press and perform check disabled, zero-size, off-window and hit-test occlusion before dispatch, setValue checks disabled, and blocked actions wait at most two seconds by default before a typed `not_actionable` refusal.
 
+## #1725 macOS screen grant restart
+
+While the running macOS client reports Screen Recording denied, its five-second
+report tick watches the preflight grant. Once granted, it sends the updated
+screen fact before exiting with code 75; launchd KeepAlive restarts it to
+apply the permission to a fresh process. At most three such restarts per hour
+are recorded in `~/.oni/state/grant-restarts.json`. Beyond that limit the
+client stays attached and reports `restart_bound`. Linux has no grant restart.
+`mclient join` describes the automatic restart; manual kickstart remains in
+its help. MacBook live grant acceptance remains tracked in #1702.
+
 ## #1735 computer-use prompt guidance
 
 When the composed catalog includes the computer tool pack, resident and child
@@ -347,6 +358,11 @@ The npm artifact remains platform-independent and does not contain
 `ONI_MCLIENT_BIN`. The pack smoke test copies the built binary to that
 location before booting. The Resident service command `oni daemon` is
 separate from the machine client.
+
+The #1675 follow-up tests malformed stream acknowledgements and out-of-order
+signals on the Rust client, and checks fixture screen-capture pixels against
+the encoded PNG without requiring screen permission. Machine-side prose uses
+"machine client"; existing `Offer.daemon` wire names remain unchanged.
 
 ## #1692 unverifiable input and dispatch reservation (machine contract 3, PR pending)
 

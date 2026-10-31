@@ -71,6 +71,7 @@ pub fn classify(error: &AttachError) -> FailureClass {
         | AttachError::Json(_)
         | AttachError::Computer(_)
         | AttachError::Update(_)
+        | AttachError::GrantRestart
         | AttachError::ServiceUnavailable => FailureClass::Configuration,
         AttachError::Once(class) => *class,
         AttachError::Transport(
