@@ -32,6 +32,8 @@ export function executeComputer(
       const expiresAt = port.now() + request.minutes * 60_000;
       const lease = port.store.put({
         sessionId, machineId, apps: request.apps, expiresAt,
+        budget: { actionsPerHour: Math.min(request.budget?.actionsPerHour ?? 1500, port.store.ceiling(machineId)) },
+        admittedAt: [],
         ...(request.foreground === undefined ? {} : { foreground: { ...request.foreground, expiresAt } }),
         state: "active", revision: (prior?.revision ?? 0) + 1,
       });
@@ -39,7 +41,11 @@ export function executeComputer(
       return { op: operation.op, result: lease };
     }
     case "computer_list":
-      return { op: operation.op, result: { leases: port.store.list().filter((lease) => lease.sessionId === sessionId), exclusions: port.store.exclusions() } };
+      return { op: operation.op, result: {
+        leases: port.store.list().filter((lease) => lease.sessionId === sessionId)
+          .map((lease) => ({ ...lease, usage: port.store.usage(lease, port.now()) })),
+        exclusions: port.store.exclusions(),
+      } };
     case "computer_end":
       port.end(sessionId, operation.args.machineId);
       return { op: operation.op, result: port.store.get(sessionId, operation.args.machineId) ?? null };
