@@ -44,6 +44,37 @@ fn absent_block_keeps_the_platform_backends() {
     assert!(computer::open(&path).expect("open").is_none());
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn invalid_virtual_display_refuses_before_starting_a_process() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = client(
+        directory.path(),
+        Some(json!({
+            "display": { "kind": "unsupported", "width": 320, "height": 200, "dpi": 96 }
+        })),
+    );
+    assert!(matches!(
+        refusal(&path),
+        ComputerError::Display(oni_machine_client::display::Error::Unavailable)
+    ));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn virtual_display_rejects_a_fixture_layout_before_startup() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = client(
+        directory.path(),
+        Some(json!({
+            "layout": "layout.json", "recorder": "input.jsonl",
+            "display": { "kind": "xvfb", "width": 320, "height": 200, "dpi": 96 }
+        })),
+    );
+    assert!(matches!(refusal(&path), ComputerError::Config(message)
+        if message == "virtual display cannot use a fixture layout"));
+}
+
 #[test]
 fn fixture_block_serves_frames_and_records_input() {
     let directory = tempfile::tempdir().expect("tempdir");

@@ -59,7 +59,11 @@ export async function fixture(capacity?: Machine.CapacityRow[], offered: Machine
   return {
     host, time, events, attach,
     report: (memoryAvailableBytes: number) => client.call(Machine.WireMethod.Report, {
-      machineId: "w", reportedAt: time.now(), screen: { permission: "unsupported" }, load: { loadAvg1: 0, inFlight: 0, memoryAvailableBytes },
+      machineId: "w", reportedAt: time.now(), screen: {
+        verdict: "unavailable", blockers: [{ kind: "no_screen_backend" }],
+        display: { kind: "none", isolated: false },
+        grants: { capture: false, accessibility: false, input: false },
+      }, load: { loadAvg1: 0, inFlight: 0, memoryAvailableBytes },
     }),
     async close() { for (const peer of clients) await peer.close(); await host.close(); },
   };

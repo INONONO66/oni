@@ -14,9 +14,6 @@ export const Session = z.object({
 }).strict();
 export type Session = z.infer<typeof Session>;
 
-export const HumanInputUnavailable = z.enum(["input_monitoring_not_granted"]);
-export type HumanInputUnavailable = z.infer<typeof HumanInputUnavailable>;
-
 export const HumanInputNotification = z.object({
   machineId: z.string().min(1),
   at: EpochMs,

@@ -20,7 +20,8 @@
         "reason": {
           "enum": [
             "machine_not_attached",
-            "machine_mismatch"
+            "machine_mismatch",
+            "invalid_report"
           ],
           "type": "string"
         },

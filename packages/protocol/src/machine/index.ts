@@ -9,6 +9,8 @@ import * as Facts from "./facts.js";
 import * as ReleaseContract from "./release.js";
 import * as Dispatch from "./dispatch.js";
 import * as Settle from "./settle.js";
+import * as Probe from "./probe.js";
+import { decodeReport } from "./report-v3.js";
 
 /**
  * Machine domain (docs/machines-and-delegation.md): attached devices as the
@@ -22,6 +24,7 @@ export namespace Machine {
   export type InputStatusRequest = Dispatch.InputStatusRequest;
   export const InputStatusResult = Dispatch.InputStatusResult;
   export type InputStatusResult = Dispatch.InputStatusResult;
+  export const reportForVersion = decodeReport;
   export const AppLaunchRequest = App.AppLaunchRequest;
   export type AppLaunchRequest = App.AppLaunchRequest;
   export const AppLaunchResult = App.AppLaunchResult;
@@ -100,12 +103,14 @@ export namespace Machine {
   export type Load = Schema.Load;
   export const Report = Schema.Report;
   export type Report = Schema.Report;
+  export const Screen = Probe.Screen;
+  export type Screen = Probe.Screen;
+  export const ScreenBlocker = Probe.ScreenBlocker;
+  export type ScreenBlocker = Probe.ScreenBlocker;
   export const HumanInput = Facts.HumanInput;
   export type HumanInput = Facts.HumanInput;
   export const Session = Facts.Session;
   export type Session = Facts.Session;
-  export const HumanInputUnavailable = Facts.HumanInputUnavailable;
-  export type HumanInputUnavailable = Facts.HumanInputUnavailable;
   export const HumanInputNotification = Facts.HumanInputNotification;
   export type HumanInputNotification = Facts.HumanInputNotification;
   export const TransportFailureClass = Facts.TransportFailureClass;

@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Queue } from "effect";
 import { run } from "./ipc/helpers/effects";
+import v3Report from "../../protocol/fixtures/machine/report-v3.json";
+import foldedReport from "../../protocol/fixtures/machine/valid/Report.v3-folded.json";
 
 beforeAll(mclientBinary, 300_000);
 
@@ -142,10 +144,10 @@ describe("machine.report heartbeat", () => {
       expect(first?.resources?.cpus).toBeGreaterThan(0);
       expect(first?.live?.stale).toBe(false);
       if (process.platform === "darwin") {
-        expect(first?.live?.screen?.permission === "granted" || first?.live?.screen?.permission === "denied").toBe(true);
+        expect(first?.live?.screen?.display.isolated).toBe(false);
+        expect(first?.live?.screen?.display.kind).toBe("console");
       } else {
-        expect(first?.live?.screen).toEqual({ permission: "unsupported" });
-        expect(first?.live?.humanInputUnavailable).toBeUndefined();
+        expect(first?.live?.screen?.grants.accessibility).toBe(false);
         expect(first?.live?.humanInput).toBeUndefined();
       }
       hostNow = 1101;
@@ -160,7 +162,7 @@ describe("machine.report heartbeat", () => {
     }
   });
 
-  test("the host rejects unattached and wrong-machine reports", async () => {
+  test("the host folds v3 heartbeats and preserves live facts on malformed reports", async () => {
     const events = eventCollector();
     const host = await createMachineHost({
       listen: { unix: socketPath() }, enrollment: (id) => id === "w-1" ? mclientEnrollment(id) : undefined,
@@ -168,22 +170,45 @@ describe("machine.report heartbeat", () => {
     });
     const peer = await connectIpcClient(host.endpoints.unix ?? "");
     const load = { loadAvg1: 0, memoryAvailableBytes: 0, inFlight: 0 };
-    const screen = { permission: "denied" } as const;
+    const screen = { verdict: "unavailable", blockers: [{ kind: "screen_recording_denied" }],
+      display: { kind: "console", isolated: false },
+      grants: { capture: false, accessibility: false, input: false } } satisfies Machine.Screen;
     const report = (machineId: string) => peer.call(Machine.WireMethod.Report, { machineId, reportedAt: 1, load, screen });
     try {
       expect(await report("w-1")).toEqual({ status: "refused", reason: "machine_not_attached" });
+      expect(await peer.call(Machine.WireMethod.Report, {
+        machineId: "w-1", reportedAt: 1, load, screen: { permission: "denied" },
+      })).toEqual({ status: "refused", reason: "machine_not_attached" });
       expect(await peer.call(Machine.WireMethod.Attach, {
         machineId: "w-1", daemonVersion: "simulated", platform: "darwin-arm64", offeredCapabilities: ["kernel.py"],
-        offeredAt: 1, peer: { kind: "client", contractVersion: Machine.contractVersion },
+        offeredAt: 1, peer: { kind: "client", contractVersion: 3 },
       })).toMatchObject({ status: "attached" });
-      expect(await report("other")).toEqual({ status: "refused", reason: "machine_mismatch" });
+      expect(await peer.call(Machine.WireMethod.Report, { ...v3Report, machineId: "other" }))
+        .toEqual({ status: "refused", reason: "machine_mismatch" });
       expect(host.list()[0]?.live).toBeUndefined();
-      expect(await report("w-1")).toEqual({ status: "accepted" });
-      expect(host.list()[0]?.live).toEqual({ reportedAt: 1, load, screen, stale: false });
-      expect(await peer.call(Machine.WireMethod.Report, {
-        machineId: "w-1", reportedAt: 2, load, transport: { lastFailure: "timeout", attempts: 3 },
-      })).toEqual({ status: "accepted" });
-      expect(host.list()[0]?.live?.transport).toEqual({ lastFailure: "timeout", attempts: 3 });
+      expect(await peer.call(Machine.WireMethod.Report, v3Report)).toEqual({ status: "accepted" });
+      const { machineId: _machineId, streams: _streams, ...live } = Machine.Report.parse(foldedReport);
+      expect(host.list()[0]?.live).toEqual({ ...live, stale: false });
+      await expect(peer.call(Machine.WireMethod.Report, {
+        ...v3Report, screen: { permission: "invalid" },
+      })).rejects.toMatchObject({ _tag: "IpcRemoteError", method: Machine.WireMethod.Report, code: 1000, message: "IPC error 1000: invalid_report" });
+      expect(host.list()[0]?.live).toEqual({ ...live, stale: false });
+      await peer.close();
+      const current = await connectIpcClient(host.endpoints.unix ?? "");
+      try {
+        expect(await current.call(Machine.WireMethod.Attach, {
+          machineId: "w-1", daemonVersion: "simulated", platform: "darwin-arm64", offeredCapabilities: ["kernel.py"],
+          offeredAt: 1, peer: { kind: "client", contractVersion: 4 },
+        })).toMatchObject({ status: "attached" });
+        expect(await current.call(Machine.WireMethod.Report, v3Report)).toEqual({ status: "refused", reason: "invalid_report" });
+        expect(await current.call(Machine.WireMethod.Report, {
+          machineId: "w-1", reportedAt: 2, load, screen, transport: { lastFailure: "timeout", attempts: 3 },
+        }))
+          .toEqual({ status: "accepted" });
+        expect(host.list()[0]?.live?.transport).toEqual({ lastFailure: "timeout", attempts: 3 });
+      } finally {
+        await current.close();
+      }
     } finally {
       await peer.close();
       await host.close();

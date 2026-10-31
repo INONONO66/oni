@@ -55,6 +55,7 @@ export interface MclientSettings {
   readonly tags: readonly string[];
   readonly memoryBudgetMb: number;
   readonly tmuxSocket?: string;
+  readonly computer?: { readonly layout: string; readonly recorder: string };
 }
 
 function writeMclientSettings(path: string, settings: MclientSettings): void {
@@ -122,6 +123,7 @@ export async function attachMclient(options: {
   readonly exports?: MclientSettings["exports"];
   readonly tags?: readonly string[];
   readonly tmuxSocket?: string;
+  readonly computer?: MclientSettings["computer"];
   /** Optional forwarding endpoint; admission still comes from the real host. */
   readonly unix?: string;
 }): Promise<AttachedMclient> {
@@ -135,6 +137,7 @@ export async function attachMclient(options: {
     exports: options.exports ?? [{ name: "workspace", path: options.root }],
     tags: options.tags ?? [], memoryBudgetMb: 96,
     ...(options.tmuxSocket === undefined ? {} : { tmuxSocket: options.tmuxSocket }),
+    ...(options.computer === undefined ? {} : { computer: options.computer }),
   });
   const pending = admission({ list: options.host.list, events: options.events, machineId: options.machineId });
   const child = Bun.spawn([binary, "run", "--allow-unpinned", "--config", configPath], {

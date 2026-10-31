@@ -35,6 +35,7 @@ struct Tenant {
     users: AtomicU32,
 }
 
+#[derive(Clone)]
 struct Running {
     stop: watch::Sender<bool>,
     output: Arc<Mutex<Captured>>,
@@ -181,23 +182,19 @@ impl Code {
                 })
                 .clone()
         };
-        let output = Arc::new(Mutex::new(Captured::default()));
-        let (stop, mut cancelled) = watch::channel(false);
-        let active = Arc::new(AtomicBool::new(false));
+        let (stop, cancelled) = watch::channel(false);
+        let running_cell = Running {
+            stop,
+            output: Arc::new(Mutex::new(Captured::default())),
+            pid: tenant.pid.clone(),
+            active: Arc::new(AtomicBool::new(false)),
+        };
         {
             let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
             if running.contains_key(&cell_id) {
                 return Err(CodeError::Duplicate(cell_id));
             }
-            running.insert(
-                cell_id.clone(),
-                Running {
-                    stop,
-                    output: output.clone(),
-                    pid: tenant.pid.clone(),
-                    active: active.clone(),
-                },
-            );
+            running.insert(cell_id.clone(), running_cell.clone());
         }
         tenant.users.fetch_add(1, Ordering::AcqRel);
         let _running_guard = RunningGuard {
@@ -205,6 +202,22 @@ impl Code {
             cell_id: cell_id.clone(),
             tenant: tenant.clone(),
         };
+        self.run_registered(request, caller, tenant_id, tenant, running_cell, cancelled)
+            .await
+    }
+
+    async fn run_registered(
+        &self,
+        request: CellRequest,
+        caller: Caller,
+        tenant_id: String,
+        tenant: Arc<Tenant>,
+        running: Running,
+        mut cancelled: watch::Receiver<bool>,
+    ) -> Result<Value, CodeError> {
+        let cell_id = request.cell_id.to_string();
+        let output = running.output;
+        let active = running.active;
         let result = async {
             let deadline = Instant::now() + Duration::from_millis(request.timeout_ms.get());
             // Cancellation wins over a lock that becomes free in the same poll,
@@ -285,28 +298,7 @@ impl Code {
             // a stopped, timed-out or broken one takes the tenant down with it.
             if matches!(&answer, Ok(value) if value["status"] == "completed" || value["status"] == "raised") {
                 *guard = Some(driver);
-                let mut tenants = self.tenants.lock().unwrap_or_else(PoisonError::into_inner);
-                let mut idle = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
-                // A tenant can finish while a later cell is queued for its lock.
-                // The queue is cleared when that run begins, so retire only
-                // drivers whose mutex is actually free.
-                if tenant.users.load(Ordering::Acquire) == 1 {
-                    idle.push_back(tenant_id.clone());
-                }
-                while idle.len() > 8 {
-                    let retired = idle.pop_front().and_then(|id| {
-                        let candidate = tenants.get(&id)?.clone();
-                        let mut state = candidate.driver.try_lock().ok()?;
-                        let old = state.take();
-                        drop(state);
-                        tenants.remove(&id);
-                        Some(old)
-                    });
-                    if let Some(Some(old)) = retired {
-                        self.cleanup.lock().unwrap_or_else(PoisonError::into_inner)
-                            .push(tokio::spawn(old.reap(STOP_GRACE)));
-                    }
-                }
+                self.retire_idle(&tenant_id, &tenant);
                 drop(guard);
             } else {
                 Driver::signal(&tenant.pid, Signal::SIGINT);
@@ -316,6 +308,33 @@ impl Code {
             answer
         }.await;
         result
+    }
+
+    fn retire_idle(&self, tenant_id: &str, tenant: &Tenant) {
+        let mut tenants = self.tenants.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut idle = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
+        // A tenant can finish while a later cell is queued for its lock.
+        // The queue is cleared when that run begins, so retire only
+        // drivers whose mutex is actually free.
+        if tenant.users.load(Ordering::Acquire) == 1 {
+            idle.push_back(tenant_id.to_owned());
+        }
+        while idle.len() > 8 {
+            let retired = idle.pop_front().and_then(|id| {
+                let candidate = tenants.get(&id)?.clone();
+                let mut state = candidate.driver.try_lock().ok()?;
+                let old = state.take();
+                drop(state);
+                tenants.remove(&id);
+                Some(old)
+            });
+            if let Some(Some(old)) = retired {
+                self.cleanup
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(tokio::spawn(old.reap(STOP_GRACE)));
+            }
+        }
     }
 }
 

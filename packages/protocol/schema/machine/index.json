@@ -1,5 +1,5 @@
 {
-  "contractVersion": 3,
+  "contractVersion": 4,
   "schemas": [
     {
       "file": "AbsolutePath.json",
@@ -230,10 +230,6 @@
       "name": "HumanInputNotification"
     },
     {
-      "file": "HumanInputUnavailable.json",
-      "name": "HumanInputUnavailable"
-    },
-    {
       "file": "Info.json",
       "name": "Info"
     },
@@ -440,6 +436,14 @@
     {
       "file": "Response.json",
       "name": "Response"
+    },
+    {
+      "file": "Screen.json",
+      "name": "Screen"
+    },
+    {
+      "file": "ScreenBlocker.json",
+      "name": "ScreenBlocker"
     },
     {
       "file": "ScreenCaptureRequest.json",

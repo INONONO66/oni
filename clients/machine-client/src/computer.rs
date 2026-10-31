@@ -36,6 +36,9 @@ pub enum ComputerError {
     LayoutInvalid(String),
     #[error("computer_config_invalid: {0}")]
     Config(String),
+    #[cfg(target_os = "linux")]
+    #[error(transparent)]
+    Display(#[from] crate::display::xvfb::Error),
 }
 
 /// The part of `client.json` this module reads; every other key is the
@@ -53,6 +56,8 @@ struct Block {
     recorder: Option<PathBuf>,
     #[serde(default)]
     excluded_owners: Vec<String>,
+    #[cfg(target_os = "linux")]
+    display: Option<crate::display::xvfb::Config>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,12 +117,22 @@ pub fn open(path: &Path) -> Result<Option<(Screen, Input)>, ComputerError> {
     let Some(block) = file.computer else {
         return Ok(None);
     };
+    #[cfg(target_os = "linux")]
+    if let Some(display) = &block.display {
+        if block.layout.is_some() || block.recorder.is_some() {
+            return Err(ComputerError::Config(
+                "virtual display cannot use a fixture layout".into(),
+            ));
+        }
+        let owned = crate::display::xvfb::open(display)?;
+        let id = owned.id.clone();
+        let screen = Screen::platform_on(Some(&id));
+        return virtual_pair(owned, screen, block.excluded_owners).map(Some);
+    }
     let (layout, recorder) = match (block.layout, block.recorder) {
         (None, None) => {
-            return Ok(Some((
-                Screen::platform().excluding(block.excluded_owners),
-                Input::platform(),
-            )))
+            let (screen, input) = platform();
+            return Ok(Some((screen.excluding(block.excluded_owners), input)));
         }
         (Some(layout), Some(recorder)) => (layout, recorder),
         _ => {
@@ -172,6 +187,63 @@ pub fn open(path: &Path) -> Result<Option<(Screen, Input)>, ComputerError> {
             .excluding(block.excluded_owners),
         Input::new(Recorder(recorder)),
     )))
+}
+
+#[cfg(target_os = "linux")]
+fn virtual_pair(
+    owned: crate::display::xvfb::Owned,
+    screen: Screen,
+    excluded_owners: Vec<String>,
+) -> Result<(Screen, Input), ComputerError> {
+    if !screen.available() {
+        return Err(crate::display::Error::Unavailable.into());
+    }
+    let input = Input::platform_on(Some(&owned.id));
+    Ok((screen.virtualizing(owned).excluding(excluded_owners), input))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod virtual_tests {
+    use super::*;
+
+    #[test]
+    fn missing_capture_after_display_start_refuses_the_pair() {
+        let config = crate::display::Config {
+            kind: "xvfb".into(),
+            width: 32,
+            height: 24,
+            dpi: 96,
+            window_manager: Some(crate::display::Manager {
+                path: "/bin/true".into(),
+                args: vec![],
+            }),
+        };
+        let owned = crate::display::xvfb::open(&config).expect("display");
+        assert!(matches!(
+            virtual_pair(owned, Screen::absent(), vec![]),
+            Err(ComputerError::Display(_))
+        ));
+        let owned = crate::display::xvfb::open(&config).expect("display");
+        let id = owned.id.clone();
+        let screen = Screen::platform_on(Some(&id));
+        let (screen, input) = virtual_pair(owned, screen, vec![]).expect("native pair");
+        assert_eq!(screen.virtual_display().expect("owned display").0, id);
+        assert!(screen.available() && input.ready());
+    }
+}
+
+pub fn platform() -> (Screen, Input) {
+    #[cfg(target_os = "linux")]
+    {
+        let display =
+            crate::screen::probe::linux_display(&crate::screen::probe::linux::System, None);
+        let input = Input::platform_selected(display.as_deref());
+        (Screen::platform_selected(display), input)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        (Screen::platform(), Input::platform())
+    }
 }
 
 fn display(row: DisplayRow) -> Display {

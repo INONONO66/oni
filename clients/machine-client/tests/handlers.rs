@@ -671,6 +671,13 @@ async fn unpermitted_native_source_is_offered_but_refuses_capture() {
         exports: vec![],
     });
     let hooks = service.hooks(Duration::from_secs(60));
+    let reported = hooks.screen.capability(hooks.input.ready());
+    assert!(!reported.grants.capture);
+    assert!(!reported.grants.input);
+    assert!(reported
+        .blockers
+        .iter()
+        .any(|blocker| blocker.kind == "screen_recording_denied"));
     for (method, params) in [
         ("machine.screen.list", json!({})),
         (

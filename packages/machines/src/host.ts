@@ -8,7 +8,7 @@ import { type BusEvent, type Ipc, Machine } from "@oni/protocol";
 import { Deferred, Effect, Exit, Fiber, Semaphore, type Scope } from "effect";
 import { MachinesFailure, MachineCellError, MachineRefusalError, TransportFailure, type MachineError } from "./errors";
 import { decodeMachineFailure } from "./failure";
-import { answersObservation, legacyPointer, OBSERVE_NOT_AVAILABLE, observeRefusal } from "./observe";
+import { observeRefusal } from "./observe";
 import { onAbort } from "./interrupt-on";
 import { PingLiveness } from "./ping-liveness";
 import { Reservations } from "./reservation";
@@ -17,17 +17,7 @@ import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
 import type { AttachGenerationStore } from "./generation-store";
 import type { StreamingMachineHandle, StreamWriteOptions, StreamWriteReceipt } from "./stream-write";
-import { z } from "zod";
-
-/** A negotiated v2 peer reports stream load without a privacy observation. */
-const LegacyReport = Machine.Report.extend({
-  streams: z.array(Machine.StreamObservation.omit({ private: true })).max(Machine.STREAM_MAX_CONCURRENT).optional(),
-});
-
-function decodeReport(params: Ipc.Request["params"], contractVersion?: number) {
-  return (contractVersion === 2 ? LegacyReport : Machine.Report).parse(params);
-}
-
+import type { z } from "zod";
 interface MachineHostOptions {
   /**
    * The additive listener set (#1270): at least one of `unix` or `tcp`. Both
@@ -345,7 +335,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     const lastGeneration = new Map<string, number>();
     let closed = false;
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
-    const reports = new Map<string, { readonly report: Machine.Report | z.infer<typeof LegacyReport>; readonly receivedAt: number }>();
+    const reports = new Map<string, { readonly report: Machine.Report; readonly receivedAt: number }>();
     const pings = new PingLiveness();
     const staleAfterMs = options.staleAfterMs ?? REPORT_STALE_AFTER_MS;
     const capacity = createCapacity({ ...options, rows, list });
@@ -467,16 +457,23 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
      * and only for the machine it attached as; anything else is a typed
      * refusal and the host keeps nothing from it.
      */
-    function report(incoming: Machine.Report | z.infer<typeof LegacyReport>, source: RequestSource, respond: (result: Machine.ReportResult) => void): Effect.Effect<void> {
+    function report(params: Ipc.Request["params"], source: RequestSource, respond: (result: Machine.ReportResult) => void): Effect.Effect<void, MachinesFailure> {
       return Effect.gen(function* () {
         const attachment = attachments.get(source.key);
         if (attachment === undefined) { respond({ status: "refused", reason: "machine_not_attached" }); return; }
+        const parsed = Machine.reportForVersion(attachment.offer.peer.contractVersion, params);
+        if (!parsed.success) {
+          if (attachment.offer.peer.contractVersion === 3) return yield* new MachinesFailure({ operation: "report.decode", cause: "invalid_report" });
+          respond({ status: "refused", reason: "invalid_report" });
+          return;
+        }
+        const incoming = parsed.data;
         if (attachment.offer.machineId !== incoming.machineId) { respond({ status: "refused", reason: "machine_mismatch" }); return; }
         const receivedAt = options.now();
         reports.set(source.key, { report: incoming, receivedAt });
         respond({ status: "accepted" });
         options.events.publish(Machine.Events.Reported, { machineId: incoming.machineId, time: receivedAt, reportedAt: incoming.reportedAt, load: incoming.load });
-        if (answersObservation(attachment.offer)) yield* recoverInputs(attachment);
+        yield* recoverInputs(attachment);
       });
     }
     function humanInput(incoming: Machine.HumanInputNotification, source: RequestSource): void {
@@ -492,10 +489,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         Effect.try({ try: () => Machine.ToolCall.parse(params), catch: decodeMachineFailure("tool.decode") })
           .pipe(Effect.flatMap((call) => callTool(call, source.key)), Effect.map(respond))],
       [Machine.WireMethod.Report, (params, respond, source) =>
-        Effect.try({
-          try: () => decodeReport(params, attachments.get(source.key)?.offer.peer.contractVersion),
-          catch: decodeMachineFailure("report.decode"),
-        }).pipe(Effect.flatMap((incoming) => report(incoming, source, respond)))],
+        report(params, source, respond)],
       [Machine.WireMethod.AgentPermission, (params, respond, source) =>
         Effect.try({ try: () => Machine.AgentPermissionRequest.parse(params), catch: decodeMachineFailure("agent.permission.request") })
           .pipe(Effect.flatMap((request) => decidePermission(request, source)), Effect.map(respond))],
@@ -1076,25 +1070,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       const peer = key === undefined ? undefined : attachments.get(key);
       return options.captureInput({ machineId: id, generation: peer?.generation ?? null, method, params }, forwardCaptured(id, peer, method, refuse, send));
     }
-    function legacyInput(peer: Attachment, method: InputMethod | typeof Machine.WireMethod.InputAction, params: InputParams | Machine.InputActionRequest): Effect.Effect<Machine.InputWriteResult, MachineError> {
-      if (method === Machine.WireMethod.InputAction) return Effect.succeed(OBSERVE_NOT_AVAILABLE);
-      if ("delivery" in params && params.delivery !== "foreground") return Effect.succeed({ status: "refused", reason: "foreground_required" });
-      if ("kind" in params) {
-        const legacy = legacyPointer(params);
-        return legacy === undefined ? Effect.succeed(OBSERVE_NOT_AVAILABLE) : computerCall(peer, method, legacy, Machine.InputWriteResult);
-      }
-      if ("captureId" in params) {
-        const { requestId: _id, delivery: _delivery, target: _target, ...legacy } = params;
-        return computerCall(peer, method, legacy, Machine.InputWriteResult);
-      }
-      return Effect.succeed(OBSERVE_NOT_AVAILABLE);
-    }
     function sendInput(peer: Attachment, method: InputMethod | typeof Machine.WireMethod.InputAction, params: InputParams | Machine.InputActionRequest): Effect.Effect<Machine.InputWriteResult, MachineError> {
-      if (!answersObservation(peer.offer)) return legacyInput(peer, method, params).pipe(
-        Effect.catchIf((error) => error instanceof TransportFailure ||
-          (error instanceof MachineRefusalError && error.reason === "disconnected"),
-        () => Effect.succeed({ status: "unverifiable", reason: "transport_lost", dispatched: "unknown", hint: "re_observe" } as const)),
-      );
       return Effect.suspend(() => {
         peer.server.useConnection(peer.rawId);
         return peer.server.call(method, params, Machine.EXEC_TIMEOUT_MS + 1000);
@@ -1130,14 +1106,11 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         });
       });
     }
-    /** A contract-2 peer reads the flat capture form and answers no element form. */
     function pointer(id: string, request: PointerCall): Effect.Effect<Machine.InputWriteResult, MachineError> {
       return dispatchInput(id, Machine.WireMethod.InputPointer, Machine.InputPointerRequest, { ...request, delivery: request.delivery ?? "background" });
     }
-    function observation<P extends Machine.ScreenObserveRequest | Machine.InputActionRequest, R extends CapturedResult>(id: string, method: (typeof Machine.WireMethod)["ScreenObserve" | "InputAction"], schema: z.ZodType<P>, request: P, answer: z.ZodType<R>, refuse: (grant: "permission_denied" | "not_available") => R, unavailable: R): Effect.Effect<R | CaptureRefusal, MachineError> {
-      return decode(schema, request, `${method}.request`).pipe(Effect.flatMap((params) => captured(id, method, params, refuse, (peer) => (answersObservation(peer.offer)
-        ? computerCall(peer, method, params, answer)
-        : Effect.succeed(unavailable)))));
+    function observation<P extends Machine.ScreenObserveRequest | Machine.InputActionRequest, R extends CapturedResult>(id: string, method: (typeof Machine.WireMethod)["ScreenObserve" | "InputAction"], schema: z.ZodType<P>, request: P, answer: z.ZodType<R>, refuse: (grant: "permission_denied" | "not_available") => R): Effect.Effect<R | CaptureRefusal, MachineError> {
+      return decode(schema, request, `${method}.request`).pipe(Effect.flatMap((params) => captured(id, method, params, refuse, (peer) => computerCall(peer, method, params, answer))));
     }
     function screenGate(id: string, operation: string): Effect.Effect<Attachment | "permission_denied" | "not_available", MachineError> {
       return attached(id, operation).pipe(Effect.map((peer) => {
@@ -1149,7 +1122,6 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     function lifecycle<P extends LifecycleParams, R extends LifecycleResult>(id: string, method: LifecycleMethod, schema: z.ZodType<P>, request: P, answer: z.ZodType<R>): Effect.Effect<R | CaptureRefusal | Extract<LifecycleResult, { status: "refused" }>, MachineError> {
       const refused = (grant: "permission_denied" | "not_available") => ({ status: "refused", reason: grant === "permission_denied" ? grant : "machine_not_attached" }) as const;
       return decode(schema, request, `${method}.request`).pipe(Effect.flatMap((params) => captured<R | Extract<LifecycleResult, { status: "refused" }>>(id, method, params, refused, (peer) => {
-        if (!answersObservation(peer.offer)) return Effect.succeed({ status: "refused", reason: "unsupported", blocker: "platform" } as const);
         const timeout = "app" in params ? Math.min(30_000, Math.max(1, params.timeoutMs ?? 10_000)) + 1000 : 3000;
         return computerCall(peer, method, params, answer, timeout);
       })));
@@ -1356,20 +1328,18 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         pointer: (request) => pointer(id, request),
         key: (request) => dispatchInput(id, Machine.WireMethod.InputKey, Machine.InputKeyRequest, request),
         text: (request) => dispatchInput(id, Machine.WireMethod.InputText, Machine.InputTextRequest, request),
-        observe: (request) => observation(id, Machine.WireMethod.ScreenObserve, Machine.ScreenObserveRequest, request, Machine.ScreenObserveResult, observeRefusal, OBSERVE_NOT_AVAILABLE),
+        observe: (request) => observation(id, Machine.WireMethod.ScreenObserve, Machine.ScreenObserveRequest, request, Machine.ScreenObserveResult, observeRefusal),
         settle: (request) => decode(Machine.ScreenSettleRequest, request, "screen.settle.request").pipe(
           Effect.flatMap((params) => captured(id, Machine.WireMethod.ScreenSettle, params, (grant): Machine.ScreenSettleResult => grant === "permission_denied"
             ? { status: "refused", reason: grant }
-            : { status: "unsupported", blocker: "no_observer" }, (peer) => answersObservation(peer.offer)
-            ? computerCall(peer, Machine.WireMethod.ScreenSettle, params, Machine.ScreenSettleResult, params.timeoutMs)
-            : Effect.succeed({ status: "unsupported", blocker: "no_observer" } as const))),
+            : { status: "unsupported", blocker: "no_observer" }, (peer) => computerCall(peer, Machine.WireMethod.ScreenSettle, params, Machine.ScreenSettleResult, params.timeoutMs))),
           Effect.catchTag("MachineRefusalError", (error) => error.reason === "machine_not_attached" || error.reason === "disconnected"
             ? Effect.succeed({ status: "refused", reason: "machine_not_attached" } as const)
             : Effect.fail(error)),
         ),
         action: (request) => dispatchInput(id, Machine.WireMethod.InputAction, Machine.InputActionRequest, request),
         status: (request) => decode(Machine.InputStatusRequest, request, "input.status.request").pipe(Effect.flatMap((params) =>
-          screenGate(id, "input.status.connection").pipe(Effect.flatMap((peer) => typeof peer === "string" || !answersObservation(peer.offer)
+          screenGate(id, "input.status.connection").pipe(Effect.flatMap((peer) => typeof peer === "string"
             ? Effect.succeed({ status: "refused", reason: "request_unknown" } as const)
             : computerCall(peer, Machine.WireMethod.InputStatus, params, Machine.InputStatusResult).pipe(
               Effect.tap((result) => Effect.sync(() => {

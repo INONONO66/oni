@@ -129,6 +129,7 @@ pub struct Hooks {
     pub pressure: Arc<dyn Pressure>,
     pub session: Arc<dyn Session>,
     pub screen: Arc<crate::screen::Screen>,
+    pub input: Arc<crate::input::Input>,
     pub heartbeat: Duration,
 }
 
@@ -553,7 +554,7 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         }
     }
 
-    fn beat(&mut self) -> Result<Value, AttachError> {
+    fn beat(&mut self, screen: crate::screen::probe::Verdict) -> Result<Value, AttachError> {
         let at = now_ms();
         let in_flight = self.in_flight.load(Ordering::Relaxed);
         let rss_bytes = self.probe.rss()?;
@@ -582,7 +583,7 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         let mut report = json!({
             "machineId": self.config.machine_id, "reportedAt": at,
             "load": self.probe.load(in_flight)?,
-            "screen": {"permission": report::screen_permission(self.hooks.screen.probe())},
+            "screen": screen,
             "transport": {"lastFailure": self.last_failure, "attempts": self.attempts}
         });
         #[cfg(target_os = "macos")]
@@ -592,7 +593,13 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         }
         #[cfg(target_os = "macos")]
         if !self.human.available() {
-            report["humanInputUnavailable"] = json!("input_monitoring_not_granted");
+            report["screen"]["blockers"]
+                .as_array_mut()
+                .expect("screen blockers")
+                .push(json!({"kind":"input_monitoring_not_granted"}));
+            if report["screen"]["verdict"] == "available" {
+                report["screen"]["verdict"] = json!("partial");
+            }
         }
         if let Some(input) = self.human.consume(
             at,
@@ -611,6 +618,7 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
     ) -> Result<(), AttachError> {
         let mut tick = tokio::time::interval(self.hooks.heartbeat);
         let mut reports = JoinSet::new();
+        let mut probes = JoinSet::new();
         let mut uplinks = JoinSet::new();
         let mut frames = client.frames();
         let silence = async move {
@@ -655,8 +663,8 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
                 Some(finished) = uplinks.join_next(), if !uplinks.is_empty() => {
                     finished.map_err(join_failure)?;
                 }
-                _ = tick.tick(), if reports.is_empty() => {
-                    let report = self.beat()?;
+                Some(finished) = probes.join_next(), if !probes.is_empty() => {
+                    let report = self.beat(finished.map_err(join_failure)?)?;
                     let caller = client.caller();
                     reports.spawn(async move {
                         caller.call_with_timeout(
@@ -664,6 +672,11 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
                             crate::transport::request_table::CALL_TIMEOUT,
                         ).await
                     });
+                }
+                _ = tick.tick(), if reports.is_empty() && probes.is_empty() => {
+                    let screen = self.hooks.screen.clone();
+                    let input = self.hooks.input.clone();
+                    probes.spawn_blocking(move || screen.capability(input.ready()));
                 }
             }
         }
@@ -852,12 +865,7 @@ async fn run_default_with_screen(
     let manifest =
         crate::cdp::manifest::Manifest::load(&directory.join(crate::cdp::manifest::FILE))
             .map_err(io::Error::other)?;
-    let (screen, input) = crate::computer::open(path)?.unwrap_or_else(|| {
-        (
-            crate::screen::Screen::platform(),
-            crate::input::Input::platform(),
-        )
-    });
+    let (screen, input) = crate::computer::open(path)?.unwrap_or_else(crate::computer::platform);
     let service = Service::open_full(
         &config,
         pty,

@@ -5,6 +5,8 @@
 //! and the native backend stop at the same bounds.
 
 pub mod fixture;
+#[cfg(target_os = "linux")]
+pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod native;
 #[cfg(target_os = "macos")]

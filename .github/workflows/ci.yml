@@ -78,7 +78,7 @@ jobs:
     needs: [plan]
     if: needs.plan.outputs.clients == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -96,6 +96,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: clients
+      - name: Prepare isolated X11 fixture
+        run: sudo apt-get update -qq && sudo apt-get install -y xvfb openbox libx11-6 libxi6 libxkbcommon0
       - run: bun run --cwd packages/protocol build
       - run: bun run script/generate-machine-schema.ts --check
       - run: bun run clients:lint

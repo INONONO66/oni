@@ -20,6 +20,40 @@ The protocol contracts for both belong together because they meet in the tool ca
 
 ## 2. Machine contracts (`protocol/src/machine/`)
 
+### 2.0 Screen capability and selection
+
+Tier 1 is the person's console with its actual grants; tier 2 is an owned
+virtual display; tier 3 is selection among those machines from report facts.
+Each v4 heartbeat reports `screen: { verdict, blockers, display, grants }`.
+`grants` names capture, accessibility and input separately; display has
+`kind: console | virtual | none`, an optional id, and `isolated`. `partial`
+means only some screen operations work. An Xvfb-backed Linux display reports
+`virtual` and `isolated: true`; capture, input and a live window manager
+make it available. Accessibility stays false until
+an observer is implemented, and a console without observation remains partial.
+Missing X authorization, display sockets, libraries and
+accessibility buses are distinct blockers; an absent window manager adds
+`window_manager_missing`. macOS uses its real console user, capture and
+Accessibility checks and never claims an isolated display. A peer sending
+an old screen permission fact on an admitted v3 attachment has its capture
+grant folded into v4 facts; input, accessibility and isolation are never inferred.
+
+Use `machine(tag="...", prefer="computer")` to select a computer-capable
+member: the placement fold requires effective `computer.use` and the latest capture and input grants,
+prefers `available` over `partial`, then an isolated display, then existing
+spread credit. Explicit machine ids and the other placement preferences
+retain their original selection behavior. Linux virtual display startup
+owns Xvfb and passes only the declared session environment variables to
+launched apps; it shuts the display down when the client exits.
+
+The client's `client.json` selects an owned display with
+`"computer": {"display": {"kind": "xvfb", "width": 1280,
+"height": 800, "dpi": 96}}`. The optional `windowManager` object supplies
+`{"path": "...", "args": []}`; otherwise openbox is launched when present.
+Xvfb startup failure is `display_unavailable`. A missing window manager
+leaves capture and input usable but adds `window_manager_missing`.
+Linux text retains dynamic key mappings for the driver's lifetime, preflights the whole string and returns `input_failed` without emitting text when the unused keycode pool is exhausted, preserving held keys and restoring the original mappings on shutdown.
+
 - `Machine.Enrollment` — Owner-side admission record: the capability allowlist
   for one machine. Never empty (an enrolled machine with nothing allowed is a
   contradiction).

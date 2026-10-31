@@ -8,13 +8,18 @@
           "enum": [
             "spread",
             "pack",
-            "exclusive"
+            "exclusive",
+            "computer"
           ],
           "type": "string"
         },
         {
           "additionalProperties": false,
           "properties": {
+            "mode": {
+              "const": "computer",
+              "type": "string"
+            },
             "sticky": {
               "minLength": 1,
               "type": "string"

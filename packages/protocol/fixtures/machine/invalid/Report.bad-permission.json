@@ -1,6 +1,8 @@
 {
   "machineId": "mac-0",
   "reportedAt": 1,
-  "screen": { "permission": "pending" },
+  "screen": {
+    "permission": "granted"
+  },
   "load": { "loadAvg1": 0, "memoryAvailableBytes": 1024, "inFlight": 0 }
 }

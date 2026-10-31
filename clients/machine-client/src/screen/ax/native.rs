@@ -208,7 +208,7 @@ impl Tree for Window {
     }
 }
 
-fn trusted() -> bool {
+pub(crate) fn trusted() -> bool {
     // SAFETY: an argument-free query with no preconditions.
     unsafe { AXIsProcessTrusted() }
 }

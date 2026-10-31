@@ -1,0 +1,6 @@
+{
+  "verdict": "partial",
+  "blockers": [{ "kind": "input_backend_unavailable" }],
+  "display": { "kind": "virtual", "id": ":48", "isolated": true },
+  "grants": { "capture": true, "accessibility": false, "input": false }
+}
