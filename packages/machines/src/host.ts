@@ -11,6 +11,7 @@ import { decodeMachineFailure } from "./failure";
 import { observeRefusal } from "./observe";
 import { onAbort } from "./interrupt-on";
 import { PingLiveness } from "./ping-liveness";
+import { ClockSamples, capturedAt, clockSample } from "./clock-samples";
 import { Reservations } from "./reservation";
 import { ComputerWindows } from "./computer-windows";
 import { ComputerRelay } from "./computer-relay";
@@ -176,6 +177,8 @@ export interface ChannelListeners {
 export interface ComputerStream {
   readonly streamId: string;
   readonly expiresAt: number;
+  /** Host wall-clock milliseconds for a sidecar's client-monotonic timestamp. */
+  capturedAt(capturedAtUs: number): number | undefined;
   signal(signal: Machine.StreamSignalRequest["signal"]): Effect.Effect<Machine.StreamSignalResult, MachineError>;
   close(): Effect.Effect<Machine.StreamCloseResult, MachineError>;
 }
@@ -346,6 +349,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
     const reports = new Map<string, { readonly report: Machine.Report; readonly receivedAt: number }>();
     const pings = new PingLiveness();
+    const clocks = new Map<string, ClockSamples>();
     const staleAfterMs = options.staleAfterMs ?? REPORT_STALE_AFTER_MS;
     const capacity = createCapacity({ ...options, rows, list });
     function detach(key: string, reason: DetachReason): void {
@@ -360,6 +364,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       computerWindows.delete(attachment.offer.machineId);
       computerRelays.delete(attachment.offer.machineId);
       pings.detach(key);
+      clocks.delete(key);
       endRelays(key);
       capacity.detach(attachment.offer.machineId, reason === "superseded" ? "stale_generation" : "disconnected");
       if (connectionByMachine.get(attachment.offer.machineId) === key) connectionByMachine.delete(attachment.offer.machineId);
@@ -523,11 +528,22 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         }
         if (!pings.begin(peer.key)) return;
         yield* Effect.gen(function* () {
+          const sentAt = options.now();
           const answer = yield* peer.server.callConnection(peer.rawId, Machine.WireMethod.Ping, {}, PING_TIMEOUT_MS).pipe(
             Effect.flatMap((raw) => Effect.try({ try: () => Machine.PingResult.parse(raw), catch: decodeMachineFailure("ping.decode") })),
             Effect.option,
           );
-          pings.finish(peer.key, options.now(), answer._tag === "Some" && attachments.get(peer.key) === peer);
+          const receivedAt = options.now();
+          const accepted = answer._tag === "Some" && attachments.get(peer.key) === peer;
+          pings.finish(peer.key, receivedAt, accepted);
+          if (accepted && answer._tag === "Some") {
+            const sample = clockSample(answer.value, sentAt, receivedAt);
+            if (sample !== undefined) {
+              const history = clocks.get(peer.key) ?? new ClockSamples();
+              history.add(sample);
+              clocks.set(peer.key, history);
+            }
+          }
         }).pipe(Effect.ensuring(Effect.sync(() => pings.finish(peer.key, options.now(), false))));
       });
     }
@@ -993,9 +1009,11 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         };
         if (latest === undefined) return info;
         const { machineId: _machineId, streams: _streams, ...facts } = latest.report;
+        const offset = clocks.get(key)?.best()?.clockOffsetMs;
         const windows = computerWindows.get(offer.machineId)?.windows;
         return { ...info, live: {
           ...structuredClone(facts),
+          ...(offset === undefined || facts.transport === undefined ? {} : { transport: { ...facts.transport, clockOffsetMs: offset } }),
           ...(windows === undefined || windows.size === 0 ? {} : { windows: Object.fromEntries(windows) }),
           stale: options.now() - latest.receivedAt > staleAfterMs,
         } };
@@ -1267,6 +1285,10 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     function streamOf(peer: Attachment, streamId: string, relay: Extract<Relay, { kind: "stream" }>, expiresAt: number): ComputerStream {
       return {
         streamId, expiresAt,
+        capturedAt: (capturedAtUs) => {
+          const offset = clocks.get(peer.key)?.best()?.clockOffsetMs;
+          return offset === undefined ? undefined : capturedAt(capturedAtUs, offset);
+        },
         signal: (signal) => relay.lock.withPermits(1)(Effect.gen(function* () {
           const refusal = signalRefusal(peer.key, streamId, relay.outbound, expiresAt);
           if (refusal !== undefined) return refusal;

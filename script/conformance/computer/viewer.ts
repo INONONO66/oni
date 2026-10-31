@@ -11,7 +11,7 @@ import { z } from "zod";
 export const MASKED_PIXEL_SUM = 12;
 
 const PAGE = `(window.__viewer = (() => {
-  const state = { count: 0, keys: 0, bytes: 0, head: [], waiters: [], pc: undefined, remote: [], video: undefined };
+  const state = { count: 0, keys: 0, bytes: 0, head: [], sidecars: [], waiters: [], pc: undefined, remote: [], video: undefined };
   const worker = "onrtctransform = (event) => { const t = event.transformer; const r = t.readable.getReader(); const w = t.writable.getWriter(); (async () => { for (;;) { const { value, done } = await r.read(); if (done) break; postMessage({ type: value.type, data: value.data.slice(0, 8), size: value.data.byteLength }); await w.write(value); } })(); };";
   function frame(type, data, size) {
     state.count += 1;
@@ -53,6 +53,13 @@ const PAGE = `(window.__viewer = (() => {
     const pc = new RTCPeerConnection({ encodedInsertableStreams: typeof RTCRtpScriptTransform !== "function" });
     state.pc = pc;
     pc.ontrack = received;
+    pc.ondatachannel = (event) => {
+      event.channel.binaryType = "arraybuffer";
+      event.channel.onmessage = (message) => {
+        state.sidecars.push(JSON.parse(new TextDecoder().decode(message.data)));
+        settle();
+      };
+    };
     const candidates = [];
     const gathered = new Promise((resolve) => {
       pc.onicecandidate = (event) => {
@@ -82,7 +89,7 @@ const PAGE = `(window.__viewer = (() => {
     return new Promise((resolve) => {
       state.waiters.push({ frames, keys, resolve });
       settle();
-    }).then(() => ({ count: state.count, keys: state.keys, bytes: state.bytes, head: state.head, connection: state.pc.connectionState }));
+    }).then(() => ({ count: state.count, keys: state.keys, bytes: state.bytes, head: state.head, sidecars: state.sidecars, connection: state.pc.connectionState }));
   }
   async function diagnose(samples) {
     const video = state.video;
@@ -152,6 +159,7 @@ const Frames = z
     keys: z.number().int(),
     bytes: z.number().int(),
     head: z.array(z.number().int()),
+    sidecars: z.array(z.object({ seq: z.number().int().nonnegative(), capturedAtUs: z.number().int().nonnegative() }).strict()),
     connection: z.string(),
   })
   .strict();

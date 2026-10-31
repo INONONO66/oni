@@ -30,6 +30,3 @@ export const TransportFacts = z.object({
   attempts: z.number().int().nonnegative(),
 }).strict();
 export type TransportFacts = z.infer<typeof TransportFacts>;
-
-export const PingResult = z.object({ status: z.literal("alive") }).strict();
-export type PingResult = z.infer<typeof PingResult>;

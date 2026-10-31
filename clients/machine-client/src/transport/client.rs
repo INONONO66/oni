@@ -29,6 +29,14 @@ enum Outbound {
     Close,
 }
 
+fn ping_reply(received_at_us: u64, now: impl FnOnce() -> u64) -> Value {
+    serde_json::json!({
+        "status": "alive",
+        "receivedAtUs": received_at_us,
+        "sentAtUs": now(),
+    })
+}
+
 type HandlerFuture = Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>;
 pub type Handler = Arc<dyn Fn(String, Option<Value>) -> HandlerFuture + Send + Sync>;
 
@@ -265,7 +273,19 @@ async fn read_frames(
                             outbound.send(Outbound::Frame(envelope::error(&id, 1000, "invalid machine.ping params")))
                                 .await.map_err(|_| TransportError::Closed)?;
                         } else if controls.len() < CONTROLS {
-                            spawn_request(&mut controls, id, method, params, outbound.clone(), handler.clone());
+                            let received_at_us = crate::stream::monotonic_us();
+                            let outbound = outbound.clone();
+                            let handler = handler.clone();
+                            controls.spawn(async move {
+                                let frame = match handler(method, params).await {
+                                    Ok(_) => envelope::response(
+                                        &id,
+                                        ping_reply(received_at_us, crate::stream::monotonic_us),
+                                    ),
+                                    Err(message) => envelope::error(&id, 1000, &message),
+                                };
+                                let _sent = outbound.send(Outbound::Frame(frame)).await;
+                            });
                         } else {
                             outbound.send(Outbound::Frame(envelope::error(&id, 4001, "IPC inbound control limit reached")))
                                 .await.map_err(|_| TransportError::Closed)?;
@@ -361,7 +381,23 @@ mod tests {
             .await
             .expect("valid answer")
             .expect("valid frame");
-        assert_eq!(answer["result"], json!({}));
+        assert_eq!(answer["result"]["status"], "alive");
+        assert!(
+            answer["result"]["sentAtUs"]
+                .as_u64()
+                .expect("send timestamp")
+                >= answer["result"]["receivedAtUs"]
+                    .as_u64()
+                    .expect("receive timestamp")
+        );
+    }
+
+    #[test]
+    fn ping_reply_uses_the_injected_monotonic_send_clock() {
+        assert_eq!(
+            ping_reply(2_000_000, || 2_000_123),
+            json!({"status":"alive","receivedAtUs":2_000_000,"sentAtUs":2_000_123})
+        );
     }
 
     #[tokio::test]
@@ -411,7 +447,7 @@ mod tests {
         release.send(true).expect("controls still subscribed");
         for _ in 0..CONTROLS {
             let answer = frames.next().await.expect("answer").expect("frame");
-            assert_eq!(answer["result"], json!({}));
+            assert_eq!(answer["result"]["status"], "alive");
         }
         drop(client);
     }

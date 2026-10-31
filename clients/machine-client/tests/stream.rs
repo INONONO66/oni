@@ -380,7 +380,11 @@ impl Pair {
                 let side = self.session.dimension();
                 let size = (side, side * 3 / 4 / 2 * 2);
                 let frame = noise(size.0, size.1, seed + sent);
-                if self.session.frame(self.now, &frame, size).expect("frame") {
+                if self
+                    .session
+                    .frame(self.now, 1000 + u64::from(sent), &frame, size)
+                    .expect("frame")
+                {
                     sent += 1;
                 }
             }
@@ -497,6 +501,46 @@ fn the_data_channel_carries_relayed_bytes() {
 }
 
 #[test]
+fn scripted_frames_deliver_monotonic_sidecars_before_video() {
+    let mut pair = Pair::new(capped(10, Duration::from_secs(1)), true);
+    pair.until(|pair| {
+        pair.session.live()
+            && pair
+                .events
+                .iter()
+                .any(|event| matches!(event, Event::ChannelOpen(_, label) if label == CHANNEL))
+    });
+    let sent = pair.stream(Duration::from_millis(350), 17);
+    pair.until(|pair| pair.media().count() >= sent as usize);
+    let sidecars: Vec<Value> = pair
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            Event::ChannelData(data) => {
+                Some(serde_json::from_slice(&data.data).expect("frame sidecar"))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sidecars.len(), sent as usize);
+    for (seq, sidecar) in sidecars.iter().enumerate() {
+        assert_eq!(sidecar, &json!({"seq": seq, "capturedAtUs": 1000 + seq}));
+    }
+    let mut preceding = 0;
+    let mut media = 0;
+    for event in &pair.events {
+        match event {
+            Event::ChannelData(_) => preceding += 1,
+            Event::MediaData(_) => {
+                media += 1;
+                assert!(preceding >= media, "each frame has a preceding sidecar");
+            }
+            _ => {}
+        }
+    }
+}
+
+#[test]
 fn an_oversized_unit_is_a_dropped_frame_in_the_session() {
     let bounds = Bounds {
         max_frame_bytes: 1,
@@ -507,7 +551,7 @@ fn an_oversized_unit_is_a_dropped_frame_in_the_session() {
     let frame = noise(32, 24, 9);
     let sent = pair
         .session
-        .frame(pair.now, &frame, (32, 24))
+        .frame(pair.now, 1000, &frame, (32, 24))
         .expect("encodes");
     assert!(!sent, "a unit above max_frame_bytes is not sent");
     assert_eq!(pair.session.stats().dropped, 1);
@@ -601,7 +645,7 @@ fn negotiation_inputs_are_validated() {
         "a malformed answer keeps the offer"
     );
     let error = session
-        .frame(now, &noise(16, 16, 1), (16, 16))
+        .frame(now, 1000, &noise(16, 16, 1), (16, 16))
         .expect_err("no answered track");
     assert_eq!(error, "video track not negotiated");
     assert!(session.candidate("candidate:nonsense").is_err());
@@ -989,7 +1033,7 @@ async fn a_stream_negotiates_and_delivers_h264_over_udp() {
     assert_eq!(machine.signal("s-1", 4, data).await, accepted(4));
     let relayed = viewer
         .until(|event| match event {
-            Event::ChannelData(data) => Some(data.data.clone()),
+            Event::ChannelData(data) if data.data == b"ping" => Some(data.data.clone()),
             _ => None,
         })
         .await;

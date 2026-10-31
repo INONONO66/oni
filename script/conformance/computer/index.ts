@@ -629,7 +629,7 @@ function streamRequest(display: number): Omit<Machine.StreamOpenRequest, "stream
       maxDimension: 640,
       maxFrameBytes: 1_000_000,
     },
-    dataChannel: false,
+    dataChannel: true,
     lifetimeMs: 120_000,
   };
 }
@@ -713,6 +713,13 @@ async function exerciseStream(context: Context): Promise<void> {
       viewer.until(STREAM_FRAMES, STREAM_KEYFRAMES),
       "encoded stream frames",
     );
+    check(frames.sidecars.length >= STREAM_FRAMES &&
+      frames.sidecars.every((sidecar, index) => {
+        const previous = frames.sidecars[index - 1];
+        return previous === undefined ||
+          (sidecar.seq === previous.seq + 1 && sidecar.capturedAtUs >= previous.capturedAtUs);
+      }),
+    `each encoded frame must carry an ordered monotonic sidecar: video=${frames.count}, sidecars=${frames.sidecars.length}, first=${JSON.stringify(frames.sidecars.slice(0, 3))}`);
     check(
       ANNEX_B.every((byte, index) => frames.head[index] === byte),
       `first keyframe head ${frames.head.join(",")}`,

@@ -135,8 +135,8 @@ export namespace Machine {
   export const TransportFailureClass = Facts.TransportFailureClass;
   export const TransportFacts = Facts.TransportFacts;
   export type TransportFacts = Facts.TransportFacts;
-  export const PingResult = Facts.PingResult;
-  export type PingResult = Facts.PingResult;
+  export const PingResult = Schema.PingResult;
+  export type PingResult = Schema.PingResult;
   export const ReportResult = Schema.ReportResult;
   export type ReportResult = Schema.ReportResult;
   export const CellRequest = Schema.CellRequest;

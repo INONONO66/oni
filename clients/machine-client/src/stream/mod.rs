@@ -16,7 +16,7 @@ pub mod session;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -42,6 +42,18 @@ use session::{Datagram, Session};
 pub const MAX_STREAMS: usize = 4;
 pub const MAX_FPS: u32 = 60;
 pub const MAX_ENCODE_MS: f64 = 60_000.0;
+static MONOTONIC_ORIGIN: OnceLock<Instant> = OnceLock::new();
+
+/// Process-monotonic microseconds shared by capture and ping replies.
+pub fn monotonic_us() -> u64 {
+    u64::try_from(
+        MONOTONIC_ORIGIN
+            .get_or_init(Instant::now)
+            .elapsed()
+            .as_micros(),
+    )
+    .unwrap_or(u64::MAX)
+}
 /// Inbound signals queued for one stream before `signal_limit`.
 pub const SIGNAL_QUEUE: usize = 32;
 const DATAGRAM: usize = 2048;
@@ -251,9 +263,12 @@ impl Pump {
     async fn capture(&mut self, now: Instant) -> Result<(), String> {
         let (screen, source) = (self.screen.clone(), self.source.clone());
         let (dimension, mut frame) = (self.session.dimension(), std::mem::take(&mut self.frame));
-        let (frame, captured) = tokio::task::spawn_blocking(move || {
+        let (frame, captured, captured_at_us) = tokio::task::spawn_blocking(move || {
+            // The capture call's entry is the closest timestamp available at
+            // the stream boundary, before capture, resampling and masking.
+            let captured_at_us = monotonic_us();
             let captured = screen.frame_private(&source, dimension, &mut frame);
-            (frame, captured)
+            (frame, captured, captured_at_us)
         })
         .await
         .map_err(failure)?;
@@ -261,7 +276,9 @@ impl Pump {
         match captured {
             Ok((size, private)) => {
                 self.private = private;
-                self.session.frame(now, &self.frame, size).map(drop)
+                self.session
+                    .frame(now, captured_at_us, &self.frame, size)
+                    .map(drop)
             }
             Err(Fault::Failed(_)) => {
                 self.session.skipped();
