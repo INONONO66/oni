@@ -332,10 +332,11 @@ fn print_status(json: bool, service_dir: Option<&Path>, no_service: bool) {
         println!("{record}");
     } else {
         println!("screen: {} ({})", record["verdict"], record["blockers"]);
-        if let Some(needs) = record["needs"].as_array() {
-            for need in needs {
-                println!("setup: {} — {}", need["step"], need["action"]);
-            }
+        for need in record["needs"]
+            .as_array()
+            .expect("needs is serialized as an array")
+        {
+            println!("setup: {} — {}", need["step"], need["action"]);
         }
     }
 }

@@ -134,7 +134,7 @@ mod tests {
     use crate::{
         input::{recorder::Recorder, Input},
         screen::{
-            ax::{self, Attributes, Node, WindowIdentity},
+            ax::{self, Attributes, Node, Observer, WindowIdentity},
             fixture::Fixture,
             Screen, Window,
         },
@@ -250,6 +250,22 @@ mod tests {
         ] {
             assert_eq!(focus_state(focused), state);
         }
+    }
+
+    #[test]
+    fn unreadable_focus_observer_refuses_walk_and_action() {
+        let observer = UnreadableFocus(Arc::new(AtomicBool::new(true)));
+        let window = observer.windows().expect("fixture window").remove(0);
+        let bounds = ax::Bounds {
+            max_elements: 1,
+            max_visits: 1,
+            budget: Duration::from_secs(1),
+        };
+        assert_eq!(observer.walk(&window, &bounds), Err(Fault::Permission));
+        assert_eq!(
+            observer.act(&window, &[], &|_| true, &ax::Action::Press),
+            Err(ax::ActFault::Permission)
+        );
     }
 
     #[test]

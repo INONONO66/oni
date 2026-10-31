@@ -299,6 +299,9 @@ pub fn screen(_no_open: bool, _binary: &Path) -> io::Result<String> {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
+    static LINGER_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn setup_skips_service_needs_when_service_is_disabled() {
         let home = tempfile::tempdir().expect("home");
@@ -405,5 +408,196 @@ mod tests {
                 .kind(),
             io::ErrorKind::InvalidInput
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn non_root_service_reports_missing_linger_and_uses_user_unit_directory() {
+        use std::os::unix::{fs::PermissionsExt, process::CommandExt};
+
+        const CASE: &str = "ONI_NON_ROOT_SERVICE_FIXTURE";
+        if let Some(home) = std::env::var_os(CASE) {
+            let home = PathBuf::from(home);
+            let directory = unit_directory(&home, false, None);
+            if !directory.exists() {
+                fs::create_dir_all(&directory).expect("unit directory");
+                fs::set_permissions(&directory, fs::Permissions::from_mode(0o777))
+                    .expect("fixture directory shared by test users");
+            }
+            if !directory.join(NAME).exists() {
+                fs::write(directory.join(NAME), "existing service").expect("installed unit");
+            }
+            let mut verdict = crate::screen::probe::fold(
+                crate::screen::probe::Display {
+                    kind: "virtual",
+                    id: None,
+                    isolated: true,
+                },
+                crate::screen::probe::Grants {
+                    capture: true,
+                    accessibility: true,
+                    input: true,
+                },
+                vec![],
+            );
+            setup_needs(&mut verdict, &home, None, false);
+            let needs_linger = nix::unistd::User::from_uid(nix::unistd::getuid())
+                .expect("user lookup")
+                .is_some_and(|user| {
+                    !Path::new("/var/lib/systemd/linger")
+                        .join(user.name)
+                        .exists()
+                });
+            assert_eq!(
+                verdict
+                    .needs
+                    .iter()
+                    .any(|need| need.step == "linger_enable"),
+                needs_linger
+            );
+            assert_eq!(
+                verdict.verdict,
+                if needs_linger { "partial" } else { "available" }
+            );
+            if needs_linger {
+                setup_needs(&mut verdict, &home, None, false);
+                assert_eq!(verdict.verdict, "partial");
+            }
+            let options = JoinOptions {
+                host: "localhost".into(),
+                json: false,
+                name: None,
+                tags: vec![],
+                exports: vec![],
+                no_service: false,
+                service_dir: None,
+                no_open: true,
+                host_cert: None,
+                host_pin: None,
+                trust_on_first_use: false,
+                unix: None,
+                memory_budget_mb: 96,
+            };
+            if needs_linger {
+                let state = install(
+                    &options,
+                    &home,
+                    &home.join("client.json"),
+                    Path::new("/opt/oni/mclient"),
+                )
+                .expect("user service installed");
+                assert_eq!(state.name, NAME);
+                assert!(fs::read_to_string(directory.join(NAME))
+                    .expect("unit")
+                    .contains("WantedBy=default.target"));
+            }
+            return;
+        }
+        let _serial = LINGER_TEST.lock().expect("linger fixture");
+        let home = tempfile::tempdir().expect("isolated home");
+        fs::set_permissions(home.path(), fs::Permissions::from_mode(0o777))
+            .expect("child can create unit");
+        let manager = home.path().join("systemctl");
+        fs::write(&manager, "#!/bin/sh\nexit 0\n").expect("fake service manager");
+        fs::set_permissions(&manager, fs::Permissions::from_mode(0o755))
+            .expect("executable manager");
+        for uid in if nix::unistd::getuid().as_raw() == 0 {
+            vec![65534, 60000]
+        } else {
+            vec![nix::unistd::getuid().as_raw()]
+        } {
+            let mut child = Command::new(std::env::current_exe().expect("test binary"));
+            child
+                .args([
+                    "--exact",
+                    "service::tests::non_root_service_reports_missing_linger_and_uses_user_unit_directory",
+                ])
+                .env(CASE, home.path())
+                .env("PATH", home.path())
+                .env_remove("XDG_CONFIG_HOME");
+            if nix::unistd::getuid().as_raw() == 0 {
+                child.uid(uid);
+            }
+            let output = child.output().expect("non-root service test");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(0), "{stdout}\n{stderr}");
+        }
+        if nix::unistd::getuid().as_raw() == 0
+            && std::env::var_os("ONI_NON_ROOT_SERVICE_PARENT").is_none()
+        {
+            let output = Command::new(std::env::current_exe().expect("test binary"))
+                .args([
+                    "--exact",
+                    "service::tests::non_root_service_reports_missing_linger_and_uses_user_unit_directory",
+                ])
+                .env("ONI_NON_ROOT_SERVICE_PARENT", "1")
+                .uid(65534)
+                .output()
+                .expect("unprivileged parent test");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert_eq!(output.status.code(), Some(0), "{stdout}");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn installed_linger_does_not_request_service_setup() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _serial = LINGER_TEST.lock().expect("linger fixture");
+        let marker = Path::new("/var/lib/systemd/linger/nobody");
+        assert!(
+            !marker.exists(),
+            "fixture must not replace an existing linger grant"
+        );
+        let home = tempfile::tempdir().expect("isolated home");
+        fs::set_permissions(home.path(), fs::Permissions::from_mode(0o777))
+            .expect("nobody can access fixture");
+        let directory = marker.parent().expect("linger directory");
+        assert!(Command::new("sudo")
+            .args([
+                "-n",
+                "install",
+                "-d",
+                directory.to_str().expect("directory")
+            ])
+            .status()
+            .expect("prepare linger directory")
+            .success());
+        assert!(Command::new("sudo")
+            .args(["-n", "touch", marker.to_str().expect("marker")])
+            .status()
+            .expect("enable fixture linger")
+            .success());
+        let case = format!("ONI_NON_ROOT_SERVICE_FIXTURE={}", home.path().display());
+        let profile_file = home.path().join("linger.profraw");
+        let profile = format!("LLVM_PROFILE_FILE={}", profile_file.display());
+        let binary = std::env::current_exe().expect("test binary");
+        let output = Command::new("sudo")
+            .args(["-n", "-u", "nobody", "env", &case, &profile])
+            .arg(binary)
+            .args([
+                "--exact",
+                "service::tests::non_root_service_reports_missing_linger_and_uses_user_unit_directory",
+            ])
+            .output()
+            .expect("unprivileged service probe");
+        let cleanup = Command::new("sudo")
+            .args(["-n", "rm", marker.to_str().expect("marker")])
+            .status()
+            .expect("remove fixture linger");
+        assert!(cleanup.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(0), "{stdout}\n{stderr}");
+        if profile_file.exists() {
+            let inherited =
+                PathBuf::from(std::env::var_os("LLVM_PROFILE_FILE").unwrap_or_default());
+            let directory = inherited.parent().unwrap_or(Path::new("."));
+            fs::copy(&profile_file, directory.join("linger-nobody.profraw"))
+                .expect("include unprivileged coverage");
+        }
+        assert!(!marker.exists());
     }
 }

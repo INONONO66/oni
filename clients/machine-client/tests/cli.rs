@@ -752,6 +752,69 @@ fn rejoin_preserves_enrolled_identity_and_receipt() {
 }
 
 #[test]
+fn json_join_reports_setup_without_human_join_output() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args([
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--json",
+            "--no-service",
+            "--no-open",
+        ])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("single JSON status");
+    assert!(status["needs"].as_array().is_some());
+    assert!(status["verdict"].as_str().is_some());
+    assert!(home.path().join(".oni/machine-client/client.json").exists());
+}
+
+#[test]
+fn human_status_prints_missing_service_setup_action() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["status"])
+        .output()
+        .expect("mclient status");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).expect("status text");
+    assert!(stdout.contains("screen:"));
+    assert!(stdout.contains("setup: \"service_install\""), "{stdout}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn wayland_only_status_prints_each_required_setup_action() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let _socket = std::os::unix::net::UnixListener::bind(home.path().join("wayland-0"))
+        .expect("Wayland socket");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("XDG_RUNTIME_DIR", home.path())
+        .env("WAYLAND_DISPLAY", "wayland-0")
+        .env_remove("DISPLAY")
+        .args(["status"])
+        .output()
+        .expect("mclient status");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).expect("status text");
+    assert!(stdout.contains("setup: \"x11_session\""), "{stdout}");
+    assert!(stdout.contains("setup: \"service_install\""), "{stdout}");
+}
+
+#[test]
 fn rejoin_refuses_incomplete_identity_without_rotating_key() {
     let home = tempfile::tempdir().expect("isolated home");
     let first = Command::new(env!("CARGO_BIN_EXE_mclient"))
