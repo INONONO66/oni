@@ -233,6 +233,118 @@ fn listing_caps_windows_at_the_wire_limit() {
 }
 
 #[test]
+fn listing_routes_transient_surfaces_to_displays_and_parent_epochs() {
+    let directory = tempfile::tempdir().expect("layout directory");
+    let layout = directory.path().join("layout.json");
+    std::fs::write(
+        &layout,
+        json!({"windows": [
+            {"id": 7, "pid": 42, "title": "Editor", "x": 10, "y": 10, "width": 20, "height": 20, "epoch": 3},
+            {"id": 8, "pid": 42, "title": "Save", "kind": "sheet", "parent": 7,
+             "x": 110, "y": 5, "width": 30, "height": 20},
+            {"id": 9, "pid": 42, "title": "Actions", "kind": "menu",
+             "x": 15, "y": 15, "width": 20, "height": 10},
+            {"id": 10, "pid": 42, "title": "Help", "kind": "popover", "parent": 7,
+             "x": 25, "y": 20, "width": 15, "height": 10},
+            {"id": 11, "pid": 42, "title": "Outside", "kind": "alert",
+             "x": 300, "y": 5, "width": 10, "height": 10}
+        ]})
+        .to_string(),
+    )
+    .expect("layout");
+    let source = Fixture {
+        displays: vec![display(1, 0, 100, 80, 1.0), display(2, 100, 100, 80, 1.0)],
+        windows: vec![window(7, 1, 10, 10, 20, 20)],
+        ..Fixture::default()
+    };
+    let screen = Screen::new(Box::new(source), 2).observing(Box::new(
+        oni_machine_client::screen::ax::fixture::Scripted {
+            layout,
+            recorder: directory.path().join("input.jsonl"),
+        },
+    ));
+
+    let listed = list(&screen, json!({"windows": true}));
+
+    assert_eq!(listed["status"], "ok");
+    assert_eq!(listed["truncated"], true);
+    assert_eq!(listed["windows"].as_array().expect("windows").len(), 4);
+    assert_eq!(
+        listed["windows"][1],
+        json!({"windowId":"8","kind":"sheet","display":2,"title":"Save",
+               "owner":"/fixture/42","pid":42,
+               "app":{"bundleId":null,"path":"/fixture/42"},
+               "bounds":{"x":10,"y":5,"width":30,"height":20},
+               "parent":{"pid":42,"windowId":7,"epoch":0}})
+    );
+    assert_eq!(listed["windows"][2]["kind"], "menu");
+    assert_eq!(listed["windows"][3]["kind"], "popover");
+    assert_eq!(listed["windows"][3]["parent"]["windowId"], 7);
+}
+
+#[test]
+fn listing_truncates_transient_surfaces_after_full_window_roster() {
+    let directory = tempfile::tempdir().expect("layout directory");
+    let layout = directory.path().join("layout.json");
+    std::fs::write(
+        &layout,
+        json!({"windows": [
+            {"id": 600, "pid": 42, "title": "Menu", "kind": "menu",
+             "x": 5, "y": 5, "width": 10, "height": 10}
+        ]})
+        .to_string(),
+    )
+    .expect("layout");
+    let source = Fixture {
+        windows: (1..=512).map(|id| window(id, 1, 0, 0, 1, 1)).collect(),
+        ..Fixture::display(100, 80, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 2).observing(Box::new(
+        oni_machine_client::screen::ax::fixture::Scripted {
+            layout,
+            recorder: directory.path().join("input.jsonl"),
+        },
+    ));
+
+    let listed = list(&screen, json!({"windows": true}));
+
+    let windows = listed["windows"].as_array().expect("windows");
+    assert_eq!(windows.len(), 512);
+    assert_eq!(listed["truncated"], true);
+    assert!(windows.iter().all(|row| row["kind"] == "window"));
+}
+
+#[test]
+fn listing_preserves_capture_windows_when_surface_observer_refuses() {
+    let source = Fixture {
+        windows: vec![window(7, 1, 5, 5, 10, 10)],
+        ..Fixture::display(100, 80, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 2).observing(Box::new(DeniedAx(Fault::Permission)));
+
+    let listed = list(&screen, json!({"windows": true}));
+
+    assert_eq!(listed["windows"][0]["windowId"], "7");
+    assert_eq!(listed["windows"][0]["kind"], "window");
+    assert_eq!(listed["truncated"], false);
+}
+
+#[test]
+fn listing_preserves_capture_windows_without_surface_observer() {
+    let source = Fixture {
+        windows: vec![window(7, 1, 5, 5, 10, 10)],
+        ..Fixture::display(100, 80, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 2);
+
+    let listed = list(&screen, json!({"windows": true}));
+
+    assert_eq!(listed["windows"][0]["windowId"], "7");
+    assert_eq!(listed["windows"][0]["kind"], "window");
+    assert_eq!(listed["truncated"], false);
+}
+
+#[test]
 fn captures_target_displays_windows_and_regions_in_pixels() {
     let fixture = Fixture {
         displays: vec![display(1, 0, 40, 30, 2.0), display(2, 40, 20, 10, 1.5)],
