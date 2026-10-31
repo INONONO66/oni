@@ -1,10 +1,10 @@
 # packages/protocol/src/ipc
 
-JSON-RPC 2.0-style IPC protocol for machine host ↔ machine daemon communication over Unix Domain Sockets.
+JSON-RPC 2.0-style IPC protocol for machine host ↔ machine client communication over Unix Domain Sockets.
 
 ## Purpose
 
-Defines the locked-in wire contract between a machine host and an attached machine daemon. All messages are JSON-serializable. The fixed version field (`v: 2`) rejects mixed-version traffic; generic envelopes remain permissive while `Ipc.Methods` records the current same-version parameter/result schemas.
+Defines the locked-in wire contract between a machine host and an attached machine client. All messages are JSON-serializable. The fixed version field (`v: 2`) rejects mixed-version traffic; generic envelopes remain permissive while `Ipc.Methods` records the current same-version parameter/result schemas.
 
 ## Message Types
 
@@ -18,11 +18,11 @@ Defines the locked-in wire contract between a machine host and an attached machi
 
 | Method | Direction | Description |
 |--------|-----------|-------------|
-| `machine.attach` | Machine daemon → Machine host | Offer a capability set; the host answers with the enrollment∩offer effective set or a typed refusal. |
-| `machine.report` | Machine daemon → Machine host | One load observation (`loadAvg1`, `memoryAvailableBytes`, `inFlight`) from an attached daemon; the host answers `accepted` or a typed refusal (`machine_not_attached`, `machine_mismatch`). Static capacity (`cpus`, `memoryBytes`) rides the attach offer as `resources`. (#1555) |
-| `machine.run_cell` | Machine host → Machine daemon | Run one code cell on the attachment's persistent interpreter under a required deadline. |
-| `machine.call_tool` | Machine daemon → Machine host | A `tool.<name>()` call made from inside a running cell, answered by the host's injected tool port. |
-| `machine.fs_stream` | Machine host → Machine daemon | Begin a bounded confined transfer, read or write 256 KiB chunks by transfer id and sequence, finish after the final SHA-256 digest, or abort to release resources. Repeating the latest chunk sequence is idempotent; the host does not transparently retry lost replies. |
+| `machine.attach` | Machine client → Machine host | Offer a capability set; the host answers with the enrollment∩offer effective set or a typed refusal. |
+| `machine.report` | Machine client → Machine host | One load observation (`loadAvg1`, `memoryAvailableBytes`, `inFlight`) from an attached client; the host answers `accepted` or a typed refusal (`machine_not_attached`, `machine_mismatch`). Static capacity (`cpus`, `memoryBytes`) rides the attach offer as `resources`. (#1555) |
+| `machine.run_cell` | Machine host → Machine client | Run one code cell on the attachment's persistent interpreter under a required deadline. |
+| `machine.call_tool` | Machine client → Machine host | A `tool.<name>()` call made from inside a running cell, answered by the host's injected tool port. |
+| `machine.fs_stream` | Machine host → Machine client | Begin a bounded confined transfer, read or write 256 KiB chunks by transfer id and sequence, finish after the final SHA-256 digest, or abort to release resources. Repeating the latest chunk sequence is idempotent; the host does not transparently retry lost replies. |
 
 The former `coordinator.*`/`worker.*` method rows were removed with their runtime (coordinator/worker processes deleted in #792/#797; no live peer ever spoke them on the machine wire). The `machine.*` frames — the only frames any shipped peer sends — are byte-identical, so the version stays `2`; removing a never-spoken method row is not a wire change.
 
