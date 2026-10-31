@@ -39,6 +39,7 @@ import { computerStore } from "./bundles/approval-policy/computer-store";
 import { computerCapture } from "./bundles/approval-policy/computer-capture";
 import { computerTurn } from "./bundles/approval-policy/computer-turn";
 import { computerEvents } from "./bundles/approval-policy/computer-events";
+import { consentOrigin } from "./bundles/approval-policy/consent-origin";
 import computerExclusions from "../policy/computer-exclusions.json";
 import { gateRowPolicySeeds } from "./bundles/core-policy/index";
 import { seedKernelPolicyRows } from "./composition/policy";
@@ -508,7 +509,8 @@ export async function startOni(options: StartOptions = {}) {
       Effect.sync(() => effectScheduler(services.context)),
       (scheduler) => Effect.sync(() => scheduler.close()),
     );
-    const computer = new ComputerPolicy(computerStore(plane.policyState), {
+    let wsHandler: WebSocketHandler | undefined;
+    const computer = new ComputerPolicy(computerStore(plane.policyState, (frame) => wsHandler?.broadcast(frame)), {
       now: services.now, host: () => host, scheduler: computerScheduler,
       exclusions: [...computerExclusions, mclientBin],
     });
@@ -1109,7 +1111,6 @@ export async function startOni(options: StartOptions = {}) {
       }
     }, inboxStreamWriter(machinery.host, machinery.defaultMachine, (effect) => runAppEffect(runtime, effect)),
     inboxShutdown.signal);
-    let wsHandler: WebSocketHandler | undefined;
     const wsRoute = async (externalId: string, payload: Outbound.Payload, idempotencyKey: string) => {
       if (wsHandler === undefined)
         throw new AppInvariantError("ws delivery used before composition finished");
@@ -1240,6 +1241,8 @@ export async function startOni(options: StartOptions = {}) {
     const requestPorts = channelRequests(requests);
     const requestsWithDeadlines: typeof requestPorts = {
       ...requestPorts,
+      answer: consentOrigin(computer, requestPorts, services.now, services.entropy.id,
+        plane.session(GATEWAY_INGRESS_SESSION).decisions),
       open: (input) =>
         requestPorts.open(input).pipe(
           Effect.tap((request) =>
@@ -1463,7 +1466,7 @@ export async function startOni(options: StartOptions = {}) {
         now: services.now,
         id: services.entropy.id,
         ...(config.wsToken === undefined ? {} : { token: config.wsToken }),
-        onRequestAnswer: (sender, answer) => messages.ingest(sender, answer),
+        onRequestAnswer: (sender, answer, context) => messages.ingest(sender, answer, context),
       },
     );
 

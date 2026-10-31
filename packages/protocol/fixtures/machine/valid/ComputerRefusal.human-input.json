@@ -1,0 +1,6 @@
+{
+  "status": "refused",
+  "reason": "paused:human_input",
+  "humanActiveMs": 3500,
+  "retryAfterMs": 1500
+}
