@@ -338,7 +338,7 @@ test(
         if (error instanceof Error && "code" in error && error.code === "ESRCH") break;
         throw error;
       }
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await Bun.sleep(25);
     }
     expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
     expect(existsSync(profiles.closing)).toBe(true);
