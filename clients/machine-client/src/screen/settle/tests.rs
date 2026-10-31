@@ -199,7 +199,7 @@ fn settle_commits_fresh_observation_usable_as_since() {
     let (screen, model) = setup(Model::default(), 0, vec![], None);
     assert_eq!(
         screen.settle(&request(50, 100)),
-        json!({"status":"settled", "observationId":"o2"})
+        json!({"status":"settled", "method":"accessibility", "observationId":"o2"})
     );
     assert_eq!(model.lock().expect("model").walks, 2);
     assert_eq!(since(&screen, "o2")["diff"]["since"], "o2");
@@ -218,7 +218,7 @@ fn settle_private_focus_commits_only_empty_observations_without_walking() {
     );
     assert_eq!(
         screen.settle(&request(50, 100)),
-        json!({"status":"settled", "observationId":"o2"})
+        json!({"status":"settled", "method":"accessibility", "observationId":"o2"})
     );
     assert_eq!(model.lock().expect("model").walks, 0);
     let observation = since(&screen, "o2");
@@ -232,7 +232,7 @@ fn delayed_readiness_never_counts_unobserved_time_as_quiet() {
     let (screen, _) = setup(Model::default(), 70, vec![], None);
     assert_eq!(
         screen.settle(&request(50, 100)),
-        json!({"status":"pending", "observationId":"o2", "changesInWindow":0})
+        json!({"status":"pending", "method":"accessibility", "observationId":"o2", "changesInWindow":0})
     );
 }
 
@@ -346,7 +346,7 @@ fn event_armed_before_baseline_is_counted() {
     let (screen, _) = setup(model, 0, vec![], None);
     assert_eq!(
         screen.settle(&request(200, 100)),
-        json!({"status":"pending", "observationId":"o2", "changesInWindow":1})
+        json!({"status":"pending", "method":"accessibility", "observationId":"o2", "changesInWindow":1})
     );
 }
 

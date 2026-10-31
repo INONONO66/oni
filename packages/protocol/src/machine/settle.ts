@@ -5,15 +5,17 @@ import { ComputerCancelled } from "./lease.js";
 
 export const ScreenSettleRequest = z.object({
   target: WindowTarget.required({ epoch: true }),
-  quietMs: z.number().int().min(50).max(2000).default(200),
+  quietMs: z.number().int().min(50).max(2000).optional(),
   timeoutMs: z.number().int().min(100).max(30_000).default(5000),
 }).strict();
 export type ScreenSettleRequest = z.input<typeof ScreenSettleRequest>;
 
-export const ScreenSettleResult = z.discriminatedUnion("status", [
+export const ScreenSettleResult = z.union([
   ComputerCancelled,
-  z.object({ status: z.literal("settled"), observationId: ObservationId }).strict(),
-  z.object({ status: z.literal("pending"), observationId: ObservationId, changesInWindow: z.number().int().nonnegative() }).strict(),
+  z.object({ status: z.literal("settled"), method: z.literal("accessibility"), observationId: ObservationId }).strict(),
+  z.object({ status: z.literal("settled"), method: z.literal("pixels"), captureId: z.string().min(1) }).strict(),
+  z.object({ status: z.literal("pending"), method: z.literal("accessibility"), observationId: ObservationId, changesInWindow: z.number().int().nonnegative() }).strict(),
+  z.object({ status: z.literal("pending"), method: z.literal("pixels"), changesInWindow: z.number().int().nonnegative() }).strict(),
   z.object({ status: z.literal("unsupported"), blocker: z.enum(["accessibility_not_granted", "no_observer"]) }).strict(),
   z.object({ status: z.literal("destroyed") }).strict(),
   z.object({ status: z.literal("refused"), reason: z.enum([
