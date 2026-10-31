@@ -1,0 +1,1 @@
+Issue #1739 on `fix/1739-x11-readiness` (2026-10-31, base `84aca7be4`, PR pending): Xvfb waits for the window manager's EWMH property notification before reporting readiness; Linux fixture receipts in `clients/machine-client/src/display/xvfb.rs`.

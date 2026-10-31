@@ -58,6 +58,8 @@ installed). Xvfb allocates its display through `-displayfd`; launches cannot
 inherit or restore the human session's compositor, bus or runtime bindings.
 Both app and window-manager launches clear the inherited environment before
 applying the allowlist and selected display binding.
+Window-manager startup observes the X11 EWMH property notification before
+reporting readiness, with a bounded wait if the manager never publishes it.
 An isolated X11 desktop with capture, input and a live window manager
 reports available; accessibility remains false
 until observation is implemented. A console without an observer is partial.

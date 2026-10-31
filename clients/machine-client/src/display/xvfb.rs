@@ -99,22 +99,7 @@ pub fn open(config: &Config) -> Result<Owned, Error> {
     owned.id = format!(":{number}");
     await_ready(&mut owned)?;
     owned.manager = spawn_manager(config, &owned.id).map(Mutex::new);
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while owned.window_manager_missing() {
-        let running = owned.manager.as_ref().is_some_and(|manager| {
-            matches!(
-                manager
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .try_wait(),
-                Ok(None)
-            )
-        });
-        if !running || Instant::now() >= deadline {
-            break;
-        }
-        std::thread::park_timeout(Duration::from_millis(10));
-    }
+    wait_manager_ready(&owned);
     Ok(owned)
 }
 
@@ -179,6 +164,81 @@ fn manager_property(
         .value32()
         .and_then(|mut values| values.next())
         .is_some())
+}
+
+fn wait_manager_ready(owned: &Owned) {
+    use rustix::event::{PollFd, PollFlags, Timespec};
+    use x11rb::{
+        connection::Connection,
+        protocol::{
+            xproto::{ChangeWindowAttributesAux, ConnectionExt, EventMask},
+            Event,
+        },
+    };
+
+    if owned.manager.is_none() || !owned.window_manager_missing() {
+        return;
+    }
+    let Ok((connection, index)) = x11rb::connect(Some(&owned.id)) else {
+        return;
+    };
+    let root = connection.setup().roots[index].root;
+    if connection
+        .change_window_attributes(
+            root,
+            &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+        )
+        .ok()
+        .and_then(|cookie| cookie.check().ok())
+        .is_none()
+        || connection.flush().is_err()
+    {
+        return;
+    }
+    // Subscribe before reading the property, so a manager starting between
+    // those operations cannot leave the readiness transition unobserved.
+    if !owned.window_manager_missing() {
+        return;
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        if owned.manager.as_ref().is_none_or(|manager| {
+            !matches!(
+                manager
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .try_wait(),
+                Ok(None)
+            )
+        }) {
+            return;
+        }
+        // Replies to the property probe can queue notifications in x11rb even
+        // after the socket stops being readable; drain those before polling.
+        loop {
+            match connection.poll_for_event() {
+                Ok(Some(Event::PropertyNotify(change))) if change.window == root => {
+                    if manager_property(&connection, root).unwrap_or(false) {
+                        return;
+                    }
+                }
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => break,
+            }
+        }
+        let Ok(timeout) = Timespec::try_from(remaining.min(Duration::from_millis(100))) else {
+            return;
+        };
+        if !matches!(
+            rustix::event::poll(
+                &mut [PollFd::new(connection.stream(), PollFlags::IN)],
+                Some(&timeout)
+            ),
+            Ok(count) if count > 0
+        ) {
+            continue;
+        }
+    }
 }
 
 fn spawn_manager(config: &Config, display: &str) -> Option<Child> {
