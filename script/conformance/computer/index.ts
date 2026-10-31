@@ -993,7 +993,7 @@ async function exerciseBackground(context: Context): Promise<void> {
   const shot = await run(computer.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } }));
   check(shot.status === "ok", `background capture ${JSON.stringify(shot)}`);
   const pointer = await run(computer.pointer({ delivery: "background", kind: "move", at: { captureId: shot.captureId, x: 1, y: 1 } }));
-  check(pointer.status === "refused" && pointer.reason === (process.platform === "darwin" ? "unsupported_action" : "foreground_required"),
+  check(pointer.status === "refused" && pointer.reason === "unsupported_action",
     `background pointer ${JSON.stringify(pointer)}`);
   const typed = await run(computer.text({ delivery: "background", captureId: shot.captureId, text: "background", target }));
   check(typed.status === "ok", `background text ${JSON.stringify(typed)}`);

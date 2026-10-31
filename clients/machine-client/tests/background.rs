@@ -63,7 +63,7 @@ fn background_pointer_and_missing_targets_refuse_before_delivery() {
     let refused = json!({"status":"refused","reason":"foreground_required"});
     assert_eq!(
         input.pointer(&screen, &pointer),
-        json!({"status":"refused","reason":if cfg!(target_os = "macos") {"unsupported_action"} else {"foreground_required"}})
+        json!({"status":"refused","reason":"unsupported_action"})
     );
     assert_eq!(input.key(&screen, &key), refused);
     assert_eq!(input.text(&screen, &text), refused);

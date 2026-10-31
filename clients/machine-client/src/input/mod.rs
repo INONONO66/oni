@@ -624,14 +624,8 @@ impl Input {
             InputPointerRequest::Button { delivery, .. } => delivery.to_string() == "foreground",
             InputPointerRequest::Scroll { delivery, .. } => delivery.to_string() == "foreground",
         };
-        if !foreground
-            && cfg!(target_os = "macos")
-            && matches!(request, InputPointerRequest::Move { .. })
-        {
+        if !foreground && matches!(request, InputPointerRequest::Move { .. }) {
             return refuse("unsupported_action").value();
-        }
-        if !foreground && cfg!(target_os = "linux") {
-            return refuse("foreground_required").value();
         }
         let anchor = match request {
             InputPointerRequest::Move { at, .. } => at.into(),
