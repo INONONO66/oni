@@ -183,7 +183,7 @@
   },
   {
     "name": "bash",
-    "description": "Run a shell command on a machine daemon: the named machine, or the configured default when machine is omitted. cwd must be an absolute path inside an offered export (default /). Execution time is bounded by the daemon. No persistent cwd state. With machine+session, the command is typed into a named persistent terminal (survives daemon restarts; same session name reattaches) and stdout carries terminal output since the previous call; an empty command just reads.",
+    "description": "Run a shell command on a machine client: the named machine, or the configured default when machine is omitted. cwd must be an absolute path inside an offered export (default /). Execution time is bounded by the client. No persistent cwd state. With machine+session, the command is typed into a named persistent terminal (survives client restarts; same session name reattaches) and stdout carries terminal output since the previous call; an empty command just reads.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -201,7 +201,7 @@
           "minLength": 1
         },
         "session": {
-          "description": "Named persistent terminal on the machine. Survives between calls and daemon restarts; same name reattaches.",
+          "description": "Named persistent terminal on the machine. Survives between calls and client restarts; same name reattaches.",
           "type": "string",
           "maxLength": 64,
           "pattern": "^[a-z0-9][a-z0-9_-]*$"

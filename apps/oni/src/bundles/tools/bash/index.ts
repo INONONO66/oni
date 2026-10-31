@@ -18,7 +18,7 @@ const Input = z
       .optional()
       .describe("Absolute working directory inside an offered export; defaults to /."),
     session: Machine.PtySessionName.optional().describe(
-      "Named persistent terminal on the machine. Survives between calls and daemon restarts; same name reattaches.",
+      "Named persistent terminal on the machine. Survives between calls and client restarts; same name reattaches.",
     ),
   })
   .strict();
@@ -33,9 +33,9 @@ const Output = z.object({
 });
 
 /**
- * Every command runs on a machine daemon (#1271): the named machine, or the
+ * Every command runs on a machine client (#1271): the named machine, or the
  * configured default when `machine` is omitted. There is no process-local
- * execution path; the daemon bounds execution time and confines cwd to its
+ * execution path; the client bounds execution time and confines cwd to its
  * offered exports.
  */
 function machineTarget(machine: string, cwd: string, ports: FilePorts) {
@@ -227,7 +227,7 @@ async function drainSession(target: SessionTarget, session: string, state: Sessi
 
 /**
  * First touch of a session in this process: open (reattach-or-create under
- * the daemon's export confinement) and synchronize with the shell using a
+ * the client's export confinement) and synchronize with the shell using a
  * readiness nonce, so a fresh shell cannot swallow the first real command.
  * A command whose sentinel has not arrived by the deadline stays pending;
  * later calls keep draining it, and a new command is refused until then.
@@ -276,7 +276,7 @@ async function sessionBash(args: z.output<typeof Input>, ports: FilePorts, sessi
 
 function routeBash(args: z.output<typeof Input>, ports: FilePorts, sessions: Map<string, SessionState>) {
   if (args.session !== undefined) {
-    if (args.machine === undefined) throw new ToolRefused("bash", "session requires machine: persistent terminals live on the daemon");
+    if (args.machine === undefined) throw new ToolRefused("bash", "session requires machine: persistent terminals live on the client");
     if (args.cwd !== undefined) throw new ToolRefused("bash", "cwd applies to one-shot commands; sessions open at /");
     return sessionBash(args, ports, sessions);
   }
@@ -290,7 +290,7 @@ function createBashTool(ports: FilePorts) {
   return defineTool({
     name: "bash",
     description:
-      "Run a shell command on a machine daemon: the named machine, or the configured default when machine is omitted. cwd must be an absolute path inside an offered export (default /). Execution time is bounded by the daemon. No persistent cwd state. With machine+session, the command is typed into a named persistent terminal (survives daemon restarts; same session name reattaches) and stdout carries terminal output since the previous call; an empty command just reads.",
+      "Run a shell command on a machine client: the named machine, or the configured default when machine is omitted. cwd must be an absolute path inside an offered export (default /). Execution time is bounded by the client. No persistent cwd state. With machine+session, the command is typed into a named persistent terminal (survives client restarts; same session name reattaches) and stdout carries terminal output since the previous call; an empty command just reads.",
     category: "execution",
     sequential: true,
     input: Input,
@@ -305,7 +305,7 @@ function createBashTool(ports: FilePorts) {
   });
 }
 
-/** The `bash` bundle (#1561): shell commands on a machine daemon. */
+/** The `bash` bundle (#1561): shell commands on a machine client. */
 export function bashBundle(ports: MachineToolPortsSource): Bundle.BundleContract<"bash"> {
   return Bundle.define({
     name: "bash",
