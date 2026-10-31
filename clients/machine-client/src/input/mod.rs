@@ -1066,9 +1066,13 @@ fn track(held: &mut Vec<(Route, Event)>, route: Route, event: &Event) {
 
 #[cfg(test)]
 mod tests {
-    use super::{recorder::Recorder, Anchor, Input};
+    use super::{recorder::Recorder, Anchor, Event, Input, Plan, Refusal, Route};
     use crate::screen::{fixture::Fixture, Screen};
     use serde_json::json;
+
+    fn scroll(plan: &mut Plan<'_>) -> Result<(), Refusal> {
+        plan.scroll(0, 1)
+    }
 
     #[test]
     fn background_route_refuses_a_capture_without_a_pointer_target() {
@@ -1088,12 +1092,58 @@ mod tests {
             &Anchor::Capture(anchor),
             false,
             (None, None),
-            &|_| Ok(()),
+            &scroll,
         );
         assert_eq!(
             result.err().map(|refusal| refusal.reason),
             Some("window_not_found")
         );
         assert!(recorder.events().is_empty());
+    }
+
+    #[test]
+    fn foreground_route_builds_and_delivers_a_scroll() {
+        let directory = tempfile::tempdir().expect("fixture directory");
+        let layout = directory.path().join("layout.json");
+        std::fs::write(
+            &layout,
+            r#"{"windows":[{"id":9,"title":"Editor","pid":7,"elements":[
+                {"role":"AXButton","focused":true,
+                 "frame":{"x":0,"y":0,"width":1,"height":1}}]}]}"#,
+        )
+        .expect("layout");
+        let screen = Screen::new(Box::new(Fixture::display(16, 16, 1.0)), 1).observing(Box::new(
+            crate::screen::ax::fixture::Scripted {
+                layout,
+                recorder: directory.path().join("actions.jsonl"),
+            },
+        ));
+        let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target":{"kind":"display","display":1},"encoding":{"format":"png"}
+        }))
+        .expect("capture request");
+        let capture = screen.capture(&request);
+        let anchor = capture["captureId"].as_str().expect("capture id");
+        let recorder = Recorder::default();
+        let mut driver = recorder.clone();
+        let input = Input::new(recorder.clone());
+
+        let result = input.attempt(
+            (&mut driver, &mut Vec::new()),
+            &screen,
+            &Anchor::Capture(anchor),
+            false,
+            (Some(Route::Foreground), None),
+            &scroll,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(
+            recorder.events(),
+            vec![Event::Scroll {
+                horizontal: false,
+                delta: 1,
+            }]
+        );
     }
 }

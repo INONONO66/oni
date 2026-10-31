@@ -1520,6 +1520,27 @@ fn identified_point_follows_its_element_and_refuses_ambiguous_relocation() {
 }
 
 #[test]
+fn identified_point_follows_an_element_moved_out_of_its_parent() {
+    let group = node("AXGroup", None, None);
+    let mut row = node("AXRow", None, Some(0));
+    row.attributes.identifier = Some("first".into());
+    row.attributes.frame.x = 8;
+    let fake = Fake::new(vec![group, row]);
+    let observations = Observations::default();
+    observe(&observations, &fake, None);
+    assert_eq!(
+        observations.point(&fake, "o1", "AXGroup[0]/AXRow[0]"),
+        Ok((108, 50))
+    );
+
+    fake.walk.lock().expect("lock")[1].parent = None;
+    assert_eq!(
+        observations.point(&fake, "o1", "AXGroup[0]/AXRow[0]"),
+        Ok((108, 50))
+    );
+}
+
+#[test]
 fn identified_ref_refuses_relocation_when_fresh_walk_is_incomplete() {
     let mut original = node("AXRow", None, None);
     original.attributes.identifier = Some("original".into());
@@ -1595,6 +1616,39 @@ fn screen_pointer_resolves_only_a_point_on_an_active_display() {
         assert_eq!(screen.observe(&request)["observationId"], "o1");
         assert_eq!(screen.point("o1", "AXButton[0]"), Err(Refusal::OffScreen));
     }
+}
+
+#[test]
+fn background_ref_refuses_a_window_removed_after_point_resolution() {
+    let fake = Fake::new(tree());
+    let reads = Arc::clone(&fake.window_reads);
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
+        1,
+    )
+    .observing(Box::new(fake));
+    let request: ScreenObserveRequest = oni_protocol::decode(json!({
+        "target":{"pid":7,"windowId":9},"screenshot":false
+    }))
+    .expect("observe request");
+    let observed = screen.observe(&request);
+    reads
+        .lock()
+        .expect("lock")
+        .extend([Ok(vec![window(0)]), Ok(vec![])]);
+    let pointer: oni_protocol::InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"background","kind":"click",
+        "at":{"observationId":observed["observationId"],"ref":"AXButton[0]"},
+        "button":"left","count":1
+    }))
+    .expect("pointer request");
+    let recorder = crate::input::recorder::Recorder::default();
+
+    assert_eq!(
+        crate::input::Input::new(recorder.clone()).pointer(&screen, &pointer),
+        json!({"status":"refused","reason":"window_not_found"})
+    );
+    assert!(recorder.events().is_empty());
 }
 
 #[test]
@@ -1928,6 +1982,9 @@ impl Subscription for RefusalTick {
     }
 
     fn sample(&mut self, _: Instant) -> Result<super::super::settle::Sample, Refusal> {
+        if self.refusal == Refusal::Permission {
+            return Err(Refusal::Permission);
+        }
         let bounds = Bounds {
             max_elements: MAX_ELEMENTS,
             max_visits: MAX_VISITS,
@@ -1977,5 +2034,27 @@ fn blocked_action_refuses_destroyed_private_and_recreated_targets_on_tick() {
             Err(refusal)
         );
     }
+    assert!(fake.acted.lock().expect("lock").is_empty());
+}
+
+#[test]
+fn blocked_action_propagates_a_failed_settle_sample() {
+    let fake = Arc::new(Fake::new(tree()));
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    let observations = Observations::default();
+    observe(&observations, fake.as_ref(), None);
+    let mut action = act("o1", "AXButton[0]", Action::Press);
+    action.wait_ms = 2000;
+
+    assert_eq!(
+        observations.act_waiting(fake.as_ref(), &action, &|| true, &|start, _| {
+            Some(Box::new(RefusalTick {
+                fake: Arc::clone(&fake),
+                now: start,
+                refusal: Refusal::Permission,
+            }))
+        }),
+        Err(Refusal::Permission)
+    );
     assert!(fake.acted.lock().expect("lock").is_empty());
 }
