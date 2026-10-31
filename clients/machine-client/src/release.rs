@@ -67,6 +67,10 @@ impl Layout {
         self.root.join("bin/current")
     }
 
+    pub fn executable(&self) -> PathBuf {
+        self.root.join("bin/mclient")
+    }
+
     pub fn previous(&self) -> PathBuf {
         self.root.join("bin/previous")
     }
@@ -248,6 +252,18 @@ pub fn switch(link: &Path, target: &Path) -> io::Result<()> {
     }
     symlink(target, &staging)?;
     fs::rename(&staging, link)
+}
+
+/// Publish the selected binary at a real, version-independent path for macOS TCC.
+pub fn publish_executable(layout: &Layout) -> io::Result<()> {
+    let executable = layout.executable();
+    let staging = executable.with_file_name(format!(".mclient.{}", std::process::id()));
+    match fs::remove_file(&staging) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    fs::copy(layout.current(), &staging)?;
+    fs::rename(staging, executable)
 }
 
 fn run(program: &Path, args: &[&str]) -> Result<Vec<u8>, UpdateError> {
@@ -473,8 +489,21 @@ pub fn restart(argv: &[String]) -> Result<(), UpdateError> {
 
 pub fn rollback(layout: &Layout, current: Option<&Path>, pin: Option<&Pin>) -> io::Result<()> {
     match current {
-        Some(binary) => switch(&layout.current(), binary)?,
-        None => fs::remove_file(layout.current())?,
+        Some(binary) => {
+            switch(&layout.current(), binary)?;
+            if cfg!(target_os = "macos") {
+                publish_executable(layout)?;
+            }
+        }
+        None => {
+            fs::remove_file(layout.current())?;
+            if cfg!(target_os = "macos") {
+                match fs::remove_file(layout.executable()) {
+                    Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+                    _ => {}
+                }
+            }
+        }
     }
     match pin {
         Some(pin) => save_pin(&layout.client(), pin),
@@ -561,6 +590,7 @@ mod tests {
             Path::new("/h/.oni/machine-client/versions/1.2.0")
         );
         assert_eq!(layout.current(), Path::new("/h/.oni/bin/current"));
+        assert_eq!(layout.executable(), Path::new("/h/.oni/bin/mclient"));
         assert_eq!(layout.previous(), Path::new("/h/.oni/bin/previous"));
     }
 
@@ -766,6 +796,41 @@ mod tests {
         fs::write(staging.join("f"), "x").expect("non-empty");
         assert!(switch(&link, Path::new("/three")).is_err());
         assert_eq!(fs::read_link(&link).expect("link"), Path::new("/two"));
+    }
+
+    #[test]
+    fn published_executable_keeps_a_real_path_across_version_switches() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = layout(directory.path());
+        let first = directory.path().join("first");
+        let second = directory.path().join("second");
+        fs::write(&first, b"first").expect("first binary");
+        fs::write(&second, b"second").expect("second binary");
+        switch(&layout.current(), &first).expect("first version");
+        publish_executable(&layout).expect("first publication");
+        let original = fs::canonicalize(layout.executable()).expect("real executable");
+        assert_eq!(original, layout.executable());
+        switch(&layout.current(), &second).expect("next version");
+        publish_executable(&layout).expect("next publication");
+        assert_eq!(
+            fs::canonicalize(layout.executable()).expect("real path"),
+            original
+        );
+        assert_eq!(
+            fs::read(layout.executable()).expect("next binary"),
+            b"second"
+        );
+        let pin = Pin {
+            pinned_version: "first".to_owned(),
+            pinned: true,
+        };
+        fs::create_dir_all(layout.client()).expect("client directory");
+        rollback(&layout, Some(&first), Some(&pin)).expect("restore selection");
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            fs::read(layout.executable()).expect("restored binary"),
+            b"first"
+        );
     }
 
     #[test]
@@ -1172,7 +1237,9 @@ mod tests {
                 pinned: true,
             };
             if had_original {
-                switch(&layout.current(), Path::new("/old/mclient")).expect("old");
+                let old = directory.path().join("old");
+                fs::write(&old, b"old binary").expect("old binary");
+                switch(&layout.current(), &old).expect("old");
                 save_pin(&layout.client(), &original).expect("old pin");
             }
             let current = fs::read_link(layout.current()).ok();

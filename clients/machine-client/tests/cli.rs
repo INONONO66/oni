@@ -61,6 +61,8 @@ fn update_fixture(home: &std::path::Path) -> (std::path::PathBuf, std::path::Pat
     std::fs::write(&old, "#!/bin/sh\nprintf '{\"version\":\"old\"}\\n'\n").expect("old");
     std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o755)).expect("old executable");
     symlink(&old, root.join("bin/current")).expect("current");
+    #[cfg(target_os = "macos")]
+    std::fs::copy(&old, root.join("bin/mclient")).expect("old service executable");
     std::fs::write(
         root.join("machine-client/pin.json"),
         r#"{"pinnedVersion":"old","pinned":true}"#,
@@ -77,7 +79,12 @@ fn update_manager(home: &std::path::Path) -> (String, std::path::PathBuf) {
     } else {
         "systemctl"
     });
-    std::fs::write(&command, "#!/bin/sh\nif [ -f \"$MCLIENT_FAIL_ONCE\" ]; then\n  rm \"$MCLIENT_FAIL_ONCE\"\n  exit 1\nfi\n\"$HOME/.oni/bin/current\" --version --json >> \"$MCLIENT_SERVICE_LOG\"\n").expect("manager");
+    let service_binary = if cfg!(target_os = "macos") {
+        "mclient"
+    } else {
+        "current"
+    };
+    std::fs::write(&command, format!("#!/bin/sh\nif [ -f \"$MCLIENT_FAIL_ONCE\" ]; then\n  rm \"$MCLIENT_FAIL_ONCE\"\n  exit 1\nfi\n\"$HOME/.oni/bin/{service_binary}\" --version --json >> \"$MCLIENT_SERVICE_LOG\"\n")).expect("manager");
     std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755))
         .expect("manager executable");
     (
@@ -118,6 +125,18 @@ fn successful_update_restarts_and_records_the_selected_binary() {
         serde_json::from_slice(&std::fs::read(root.join("machine-client/pin.json")).expect("pin"))
             .expect("pin json");
     assert_eq!(pin["pinnedVersion"], env!("CARGO_PKG_VERSION"));
+    #[cfg(target_os = "macos")]
+    {
+        let executable = root.join("bin/mclient");
+        assert_eq!(
+            std::fs::canonicalize(&executable).expect("real path"),
+            executable
+        );
+        assert_eq!(
+            std::fs::read(&executable).expect("installed binary"),
+            std::fs::read(root.join("bin/current")).expect("selected binary")
+        );
+    }
     let receipt: serde_json::Value = serde_json::from_slice(
         &std::fs::read(root.join("machine-client/metrics.jsonl")).expect("receipt"),
     )
@@ -153,6 +172,11 @@ fn failed_restart_recovers_previous_service_and_records_refusal() {
         serde_json::from_slice(&std::fs::read(&log).expect("old client ran"))
             .expect("recovered service");
     assert_eq!(version["version"], "old");
+    #[cfg(target_os = "macos")]
+    assert_eq!(
+        std::fs::read(root.join("bin/mclient")).expect("restored executable"),
+        std::fs::read(&old).expect("previous executable")
+    );
     let receipt: serde_json::Value = serde_json::from_slice(
         &std::fs::read(root.join("machine-client/metrics.jsonl")).expect("receipt"),
     )
@@ -181,6 +205,8 @@ fn failed_restart_without_previous_selection_removes_new_link() {
     let refusal: serde_json::Value = serde_json::from_slice(&output.stderr).expect("refusal");
     assert_eq!(refusal["class"], "io");
     assert!(!current.exists());
+    #[cfg(target_os = "macos")]
+    assert!(!home.path().join(".oni/bin/mclient").exists());
     assert!(!log.exists());
 }
 
@@ -966,13 +992,17 @@ fn join_installs_restarts_and_reports_manager_failure() {
     #[cfg(target_os = "linux")]
     let unit = service.join("oni-machine-client.service");
     let contents = std::fs::read_to_string(&unit).expect("service file");
-    assert!(contents.contains(
-        &directory
-            .path()
-            .join(".oni/bin/current")
-            .display()
-            .to_string()
-    ));
+    let installed = directory.path().join(if cfg!(target_os = "macos") {
+        ".oni/bin/mclient"
+    } else {
+        ".oni/bin/current"
+    });
+    assert!(contents.contains(&installed.display().to_string()));
+    #[cfg(target_os = "macos")]
+    assert_eq!(
+        std::fs::canonicalize(&installed).expect("real service path"),
+        installed
+    );
     assert!(contents.contains(
         &directory
             .path()

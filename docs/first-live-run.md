@@ -22,6 +22,13 @@ what it records becomes the first live evidence. Shipped state is in
   `mclient update --from URL` or `--file PATH` to select a different manifest.
   Hosted release records require absolute archive URLs; relative archive
   paths are supported only for explicit `--file` or `--from` documents.
+  On macOS the service runs the regular file `~/.oni/bin/mclient`, replaced
+  atomically from the selected release, rather than the versioned target of
+  `current`. Once the certificate secrets in #1724 are set, releases carry
+  a stable signing requirement. The first change from an ad-hoc signature
+  requires granting Screen Recording and Accessibility once more; subsequent
+  pin updates should retain those grants. Until then the release job announces
+  ad-hoc signing and grants may need to be renewed after each update.
   The host-self supervisor deployment and update recipe is tracked in #1699;
   live MacBook grant retention and PVE bootstrap are tracked in #1702.
 - The daemon's socket stays on loopback for every step below: a login and a

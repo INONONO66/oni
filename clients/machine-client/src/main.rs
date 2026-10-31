@@ -202,6 +202,9 @@ async fn update(from: Option<String>, file: Option<PathBuf>) -> Result<(), Attac
                 release::update(&layout, document, &base, release::platform(OS, ARCH), host)
             })
             .and_then(|release| {
+                if cfg!(target_os = "macos") {
+                    release::publish_executable(&layout)?;
+                }
                 release::restart(&release::restart_argv(OS, nix::unistd::getuid().as_raw()))?;
                 Ok(release)
             }),
@@ -271,21 +274,33 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
     let previous = std::fs::read_link(layout.current()).ok();
     let previous_pin = release::load_pin(&layout.client())?;
     let (binary, pin) = selected_binary(&layout, &std::env::current_exe()?, hosted)?;
-    let state = service::install(options, &config::home(), &path, &binary).map_err(|error| {
-        recover_join_install(
-            &layout,
-            previous.as_deref(),
-            previous_pin.as_ref(),
-            options.no_service,
-            error,
-        )
-    })?;
+    let service_binary = if cfg!(target_os = "macos") {
+        release::publish_executable(&layout).map_err(|error| {
+            recover_join_install(
+                &layout,
+                previous.as_deref(),
+                previous_pin.as_ref(),
+                options.no_service,
+                error,
+            )
+        })?;
+        layout.executable()
+    } else {
+        binary
+    };
+    let state =
+        service::install(options, &config::home(), &path, &service_binary).map_err(|error| {
+            recover_join_install(
+                &layout,
+                previous.as_deref(),
+                previous_pin.as_ref(),
+                options.no_service,
+                error,
+            )
+        })?;
     println!("service: {} ({})", state.name, state.state);
     println!("offered capabilities: {}", handlers::SUPPORTED.join(", "));
-    println!(
-        "{}",
-        service::screen(options.no_open, &std::env::current_exe()?)?
-    );
+    println!("{}", service::screen(options.no_open, &service_binary)?);
     println!("{}", pin_line(&pin));
     Ok(())
 }
