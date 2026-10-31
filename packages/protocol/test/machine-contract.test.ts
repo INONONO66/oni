@@ -79,6 +79,7 @@ describe("machine wire contract fixtures", () => {
       "ScreenObserveResult.missing-window.json",
       "ScreenObserveResult.private-true.json",
       "ScreenObserveResult.unknown-reason.json",
+      "ScreenNeedStep.json",
       "WindowTarget.unknown-field.json",
       "TransportFailureClass.unsupported.json",
     ];

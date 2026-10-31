@@ -1,5 +1,16 @@
 # Implementation Status
 
+## #1722 setup needs on screen verdicts
+
+The Rust client derives actionable `Report.screen.needs` from the screen
+blockers it probes and its service and linger facts. The eight stable step ids
+include reserved `portal_consent` and `uinput_group` for the unshipped Linux
+backends tracked in #1700; neither is emitted today. Wayland without X11
+instead reports `x11_session`. Available screens omit `needs`. `mclient
+join --json` and `mclient status --json` print the same setup verdict fields,
+and the host preserves reported needs in `Machine.Info.live.screen` for
+`machine_list`.
+
 ## #1735 computer-use prompt guidance
 
 When the composed catalog includes the computer tool pack, resident and child

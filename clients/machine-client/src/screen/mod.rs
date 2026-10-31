@@ -366,6 +366,7 @@ impl Screen {
             });
             verdict = probe::fold(verdict.display, verdict.grants, verdict.blockers);
         }
+        verdict.refresh_needs();
         verdict
     }
 
@@ -388,6 +389,7 @@ impl Screen {
             });
             verdict.verdict = "partial";
         }
+        verdict.refresh_needs();
         verdict
     }
 

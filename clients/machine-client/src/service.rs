@@ -9,6 +9,7 @@ use std::{
 };
 
 use crate::config::JoinOptions;
+use crate::screen::probe::{Need, Verdict};
 
 pub const NAME: &str = "oni-machine-client.service";
 
@@ -96,6 +97,67 @@ pub fn unit_directory(home: &Path, root: bool, xdg_config_home: Option<&Path>) -
             .map_or_else(|| home.join(".config"), Path::to_path_buf)
             .join("systemd/user")
     }
+}
+
+/// Add only setup work the installed service can actually use.
+pub fn setup_needs(
+    verdict: &mut Verdict,
+    home: &Path,
+    service_dir: Option<&Path>,
+    no_service: bool,
+) {
+    if no_service {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    let installed = service_dir
+        .map_or_else(|| home.join("Library/LaunchAgents"), Path::to_path_buf)
+        .join("ai.oni.machine.plist")
+        .exists();
+    #[cfg(target_os = "linux")]
+    let installed = {
+        let root = nix::unistd::getuid().as_raw() == 0;
+        let xdg = std::env::var_os("XDG_CONFIG_HOME");
+        service_dir
+            .map_or_else(
+                || unit_directory(home, root, xdg.as_deref().map(Path::new)),
+                Path::to_path_buf,
+            )
+            .join(NAME)
+            .exists()
+    };
+    if !installed {
+        if verdict.verdict == "available" {
+            verdict.verdict = "partial";
+        }
+        verdict.add_need(Need {
+            step: "service_install",
+            action: "Run mclient join <host> to install and start the machine service.",
+            on_screen: false,
+            blocker: None,
+        });
+    }
+    #[cfg(target_os = "linux")]
+    if nix::unistd::getuid().as_raw() != 0 && installed {
+        if let Ok(Some(user)) = nix::unistd::User::from_uid(nix::unistd::getuid()) {
+            if !Path::new("/var/lib/systemd/linger")
+                .join(&user.name)
+                .exists()
+            {
+                if verdict.verdict == "available" {
+                    verdict.verdict = "partial";
+                }
+                verdict.add_need(Need {
+                    step: "linger_enable",
+                    action: "Run sudo loginctl enable-linger \"$(id -un)\".",
+                    on_screen: false,
+                    blocker: None,
+                });
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let _ = (verdict, home, service_dir);
 }
 
 pub fn install(
@@ -230,6 +292,55 @@ pub fn screen(_no_open: bool, _binary: &Path) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn setup_skips_service_needs_when_service_is_disabled() {
+        let home = tempfile::tempdir().expect("home");
+        let mut screen = crate::screen::probe::fold(
+            crate::screen::probe::Display {
+                kind: "virtual",
+                id: None,
+                isolated: true,
+            },
+            crate::screen::probe::Grants {
+                capture: true,
+                accessibility: true,
+                input: true,
+            },
+            vec![],
+        );
+        setup_needs(&mut screen, home.path(), Some(home.path()), true);
+        assert_eq!(screen.verdict, "available");
+        assert!(screen.needs.is_empty());
+    }
+
+    #[test]
+    fn setup_only_requests_install_for_an_absent_service() {
+        let directory = tempfile::tempdir().expect("service directory");
+        let mut verdict = crate::screen::probe::fold(
+            crate::screen::probe::Display {
+                kind: "virtual",
+                id: None,
+                isolated: true,
+            },
+            crate::screen::probe::Grants {
+                capture: true,
+                accessibility: true,
+                input: true,
+            },
+            vec![],
+        );
+        setup_needs(
+            &mut verdict,
+            directory.path(),
+            Some(directory.path()),
+            false,
+        );
+        assert_eq!(verdict.verdict, "partial");
+        assert_eq!(verdict.needs.len(), 1);
+        assert_eq!(verdict.needs[0].step, "service_install");
+        assert!(!verdict.needs[0].on_screen);
+    }
 
     #[test]
     fn service_documents_include_binary_config_and_restart_policy() {

@@ -593,9 +593,29 @@ fn no_arguments_reports_usage_and_exits_two() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("utf-8 stderr"),
-        "usage: mclient --version | join <host> | run | update | probe\n"
+        "usage: mclient --version | join <host> | status | run | update | probe\n"
     );
     assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn status_json_reports_setup_work_for_an_uninstalled_service() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["status", "--json"])
+        .output()
+        .expect("status");
+    assert!(output.status.success());
+    let record: serde_json::Value = serde_json::from_slice(&output.stdout).expect("status JSON");
+    assert_eq!(record["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(record["os"], std::env::consts::OS);
+    assert_eq!(record["ok"], false);
+    assert!(record["needs"]
+        .as_array()
+        .expect("needs")
+        .iter()
+        .any(|row| row["step"] == "service_install" && row["onScreen"] == false));
 }
 
 #[test]
@@ -928,7 +948,8 @@ fn join_installs_restarts_and_reports_manager_failure() {
         serde_json::from_str::<serde_json::Value>(stdout.lines().next().expect("receipt")).is_ok()
     );
     let lines = stdout.lines().skip(1).collect::<Vec<_>>();
-    assert_eq!(lines.len(), 5);
+    assert!(lines.len() >= 6);
+    assert!(lines[5].starts_with("screen: "));
     assert_eq!(
         lines[0],
         format!(
