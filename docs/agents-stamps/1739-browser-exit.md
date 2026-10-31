@@ -1,0 +1,1 @@
+Issue #1739 on `fix/1739-browser-exit` (2026-10-31, base `84aca7be4`, PR #1745): the browser integration test waits for Chromium's actual exit after the tmux close notification; receipt in `packages/codemode/test/codemode/browser.test.ts`.
