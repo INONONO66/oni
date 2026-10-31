@@ -167,10 +167,10 @@ fn manager_property<S: x11rb::rust_connection::Stream>(
 }
 
 fn wait_manager_ready(owned: &Owned) {
-    wait_manager_ready_with(owned, manager_ready);
+    wait_manager_ready_with(owned, &manager_ready);
 }
 
-fn wait_manager_ready_with(owned: &Owned, ready: impl Fn(&str) -> bool) {
+fn wait_manager_ready_with(owned: &Owned, ready: &dyn Fn(&str) -> bool) {
     use x11rb::connection::Connection;
 
     if owned.manager.is_none() || !manager_running(owned) || ready(&owned.id) {
@@ -184,8 +184,8 @@ fn wait_manager_ready_with(owned: &Owned, ready: impl Fn(&str) -> bool) {
         owned,
         &connection,
         root,
-        &ready,
-        poll_manager_event(&connection),
+        ready,
+        &mut poll_manager_event(&connection),
     );
 }
 
@@ -212,9 +212,11 @@ fn wait_manager_events(
     owned: &Owned,
     connection: &x11rb::rust_connection::RustConnection<x11rb::rust_connection::DefaultStream>,
     root: u32,
-    ready: &impl Fn(&str) -> bool,
-    mut next_event: impl FnMut()
-        -> Result<Option<x11rb::protocol::Event>, x11rb::errors::ConnectionError>,
+    ready: &dyn Fn(&str) -> bool,
+    next_event: &mut dyn FnMut() -> Result<
+        Option<x11rb::protocol::Event>,
+        x11rb::errors::ConnectionError,
+    >,
 ) {
     use rustix::event::{PollFd, PollFlags, Timespec};
     use x11rb::{
@@ -432,7 +434,7 @@ mod tests {
         let mut owned = waiting_manager();
         owned.id = "not-a-display".into();
         let calls = std::cell::Cell::new(0);
-        wait_manager_ready_with(&owned, |_| {
+        wait_manager_ready_with(&owned, &|_| {
             calls.set(calls.get() + 1);
             false
         });
@@ -449,7 +451,7 @@ mod tests {
             &connection,
             0,
             &ready_on_call(&calls, 1),
-            poll_manager_event(&connection),
+            &mut poll_manager_event(&connection),
         );
         assert_eq!(calls.get(), 0);
     }
@@ -458,7 +460,7 @@ mod tests {
     fn readiness_probe_sees_manager_after_event_subscription() {
         let owned = waiting_manager();
         let calls = std::cell::Cell::new(0);
-        wait_manager_ready_with(&owned, ready_on_call(&calls, 2));
+        wait_manager_ready_with(&owned, &ready_on_call(&calls, 2));
         assert_eq!(calls.get(), 2);
     }
 
@@ -509,7 +511,7 @@ mod tests {
                 calls.set(calls.get() + 1);
                 calls.get() == 3
             },
-            || Ok(events.borrow_mut().pop_front()),
+            &mut || Ok(events.borrow_mut().pop_front()),
         );
         assert_eq!(calls.get(), 3);
         assert!(events.borrow().is_empty());
@@ -522,7 +524,7 @@ mod tests {
         let (connection, index) = x11rb::connect(Some(&owned.id)).expect("display connection");
         let root = connection.setup().roots[index].root;
         let polls = std::cell::Cell::new(0);
-        wait_manager_events(&owned, &connection, root, &|_| false, || {
+        wait_manager_events(&owned, &connection, root, &|_| false, &mut || {
             polls.set(polls.get() + 1);
             let mut manager = owned
                 .manager
