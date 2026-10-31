@@ -693,7 +693,8 @@ fn observable(directory: &Path, epoch: u64) {
     layout["windows"][0]["epoch"] = json!(epoch);
     layout["windows"][0]["elements"] = json!([
         { "role": "AXButton", "label": "OK", "actions": ["AXPress"], "frame": frame },
-        { "role": "AXTextField", "label": "Name", "value": "ada", "frame": frame, "focused": true },
+        { "role": "AXTextField", "label": "Name", "value": "ada",
+          "frame": { "x": 50, "y": 3, "width": 40, "height": 12 }, "focused": true },
     ]);
     fs::write(directory.join("layout.json"), layout.to_string()).expect("write layout");
 }
@@ -923,5 +924,13 @@ fn actions_missing_their_argument_are_invalid_params() {
     perform["action"] = json!("perform");
     perform["name"] = json!("AXShowMenu");
     let request: InputActionRequest = oni_protocol::decode(perform).expect("action request");
-    assert!(action::parse(&request).is_ok());
+    assert_eq!(action::parse(&request).expect("parsed").wait_ms, 2000);
+    let mut zero_wait = json!({ "requestId":"1-1", "observationId": "o1",
+        "target": { "pid": 1, "windowId": 2, "epoch": 0 },
+        "ref": "AXButton[0]", "action": "press", "waitMs": 0 });
+    let request: InputActionRequest = oni_protocol::decode(zero_wait.clone()).expect("zero wait");
+    assert_eq!(action::parse(&request).expect("parsed").wait_ms, 0);
+    zero_wait["waitMs"] = json!(10_000);
+    let request: InputActionRequest = oni_protocol::decode(zero_wait).expect("maximum wait");
+    assert_eq!(action::parse(&request).expect("parsed").wait_ms, 10_000);
 }

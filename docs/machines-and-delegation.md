@@ -368,7 +368,7 @@ without a wire call, when the attached peer offered a contract below 3.
   `maxElements` or the hard walk limit (`complete: false`) mints no refs,
   and a full walk used to confirm an unidentified ref must be complete too.
 - **Action.** `machine.input.action` takes `{observationId, target: {pid,
-  windowId, epoch}, ref, action: press|setValue|perform, value?, name?}`
+  windowId, epoch}, ref, action: press|setValue|perform, value?, name?, waitMs?}`
   (value at most 65536 characters) and answers `InputWriteResult`. The peer
   rechecks the lineage and requires the same role, label, secure flag and
   identifier before it acts. An identified ref resolves its role path
@@ -378,6 +378,14 @@ without a wire call, when the attached peer offered a contract below 3.
   any refusal. Refusals: `window_not_found`, `epoch_changed`,
   `stale_observation`, `ref_not_found`, `action_not_supported`,
   `permission_denied`, `input_not_available`, `input_failed`.
+  For `press` and `perform`, the client first refuses a disabled element,
+  zero-size frame, frame center outside the window, another window over the
+  center, or an in-window overlay (in that order); `setValue` checks only
+  disabled. Missing enabled state passes. A blocked action waits on the
+  settle sampler's quiet ticks for up to `waitMs` milliseconds (default 2000,
+  range 0–10000; zero disables waiting), then refuses `not_actionable` with
+  the first remaining blocker in `message`. The action is never dispatched
+  while blocked.
 - **Host.** Both methods enter the same captured `tool.pre` port as input
   (`captureInput`), so observation is an Owner-visible effect too, and both
   recheck attachment, generation and grant at forward time.

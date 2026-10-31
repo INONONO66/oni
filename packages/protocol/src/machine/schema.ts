@@ -887,6 +887,7 @@ export const InputWriteResult = z.discriminatedUnion("status", [
         "stale_observation",
         "ref_not_found",
         "action_not_supported",
+        "not_actionable",
         "window_not_found",
         "observe_not_available",
         "foreground_required",
