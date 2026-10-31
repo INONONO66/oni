@@ -70,6 +70,8 @@ struct Row {
     epoch: u64,
     #[serde(default)]
     elements: Vec<Element>,
+    #[serde(default, rename = "focusError")]
+    focus_error: bool,
     #[serde(default)]
     minimized: bool,
     #[serde(default)]
@@ -263,7 +265,11 @@ impl Observer for Scripted {
             }
             None
         }
-        Ok(find(&self.row(window)?.elements))
+        let row = self.row(window)?;
+        if row.focus_error {
+            return Err(Fault::Permission);
+        }
+        Ok(find(&row.elements))
     }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         Ok(self
@@ -388,6 +394,18 @@ mod tests {
                 secure: true,
             }))
         );
+    }
+
+    #[test]
+    fn focus_query_failure_is_distinct_from_an_absent_element() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let fixture = scripted(directory.path(), LAYOUT);
+        assert_eq!(fixture.focused(&window()), Ok(None));
+        let mut layout: Value = serde_json::from_str(LAYOUT).expect("layout");
+        layout["windows"][0]["focusError"] = json!(true);
+        fs::write(&fixture.layout, layout.to_string()).expect("failed focus");
+        assert_eq!(fixture.focused(&window()), Err(Fault::Permission));
+        assert_eq!(fixture.windows().expect("windows").len(), 1);
     }
 
     #[test]

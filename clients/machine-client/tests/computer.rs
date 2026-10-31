@@ -149,7 +149,7 @@ fn secure_focus_hides_observation_capture_and_input() {
         .expect("anchor")
         .to_owned();
     let text: InputTextRequest = oni_protocol::decode(
-        json!({ "delivery": "foreground", "captureId": anchor, "text": "secret" }),
+        json!({ "requestId": "1-1", "delivery": "foreground", "captureId": anchor, "text": "secret" }),
     )
     .expect("text");
     assert_eq!(
@@ -198,32 +198,189 @@ fn secure_focus_hides_observation_capture_and_input() {
 }
 
 #[test]
+fn input_without_observable_windows_is_private() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let mut layout: Value = serde_json::from_str(LAYOUT).expect("layout");
+    layout["windows"] = json!([]);
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("layout");
+    let path = client(
+        directory.path(),
+        Some(json!({"layout":"layout.json","recorder":"input.jsonl"})),
+    );
+    let (screen, _) = computer::open(&path).expect("open").expect("fixture");
+    assert_eq!(screen.input_private(None), Ok(true));
+}
+
+#[test]
+fn overlapping_pointer_windows_are_private() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let mut layout: Value = serde_json::from_str(LAYOUT).expect("layout");
+    layout["windows"][0]["pid"] = json!(4242);
+    layout["windows"]
+        .as_array_mut()
+        .expect("windows")
+        .push(json!({
+            "id":8, "display":1, "title":"Overlapping", "owner":"fixture",
+            "pid":4243, "x":10, "y":20, "width":120, "height":80
+        }));
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("layout");
+    let path = client(
+        directory.path(),
+        Some(json!({"layout":"layout.json","recorder":"input.jsonl"})),
+    );
+    let (screen, _) = computer::open(&path).expect("open").expect("fixture");
+    assert_eq!(screen.input_private(Some((20, 30))), Ok(true));
+}
+
+#[test]
+fn lost_observer_refuses_display_capture_and_stream_frame() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let mut layout: Value = serde_json::from_str(LAYOUT).expect("layout");
+    layout["windows"][0]["pid"] = json!(4242);
+    fs::write(directory.path().join("layout.json"), layout.to_string()).expect("layout");
+    let path = client(
+        directory.path(),
+        Some(json!({"layout":"layout.json","recorder":"input.jsonl"})),
+    );
+    let (screen, _) = computer::open(&path).expect("open").expect("fixture");
+    fs::remove_file(directory.path().join("layout.json")).expect("remove layout");
+    let request: ScreenCaptureRequest = oni_protocol::decode(json!({
+        "target":{"kind":"display","display":1},"encoding":{"format":"png"}
+    }))
+    .expect("request");
+    let refused = screen.capture(&request);
+    assert_eq!(refused["reason"], "capture_failed");
+    let source = serde_json::from_value(json!({"kind":"display","display":1})).expect("source");
+    let mut frame = Vec::new();
+    assert!(matches!(
+        screen.frame_private(&source, 320, &mut frame),
+        Err(oni_machine_client::screen::Fault::Failed(_))
+    ));
+}
+
+#[test]
 fn unknown_focus_refuses_text_without_injection() {
+    for focus_error in [false, true] {
+        let directory = tempfile::tempdir().expect("tempdir");
+        observable(directory.path(), 0);
+        let path = client(
+            directory.path(),
+            Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
+        );
+        let (screen, input) = computer::open(&path).expect("open").expect("fixture");
+        let capture: ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target": { "kind": "display", "display": 1 }, "encoding": { "format": "png" }
+        }))
+        .expect("capture");
+        let anchor = screen.capture(&capture)["captureId"]
+            .as_str()
+            .expect("anchor")
+            .to_owned();
+        let layout_path = directory.path().join("layout.json");
+        let mut layout: Value =
+            serde_json::from_slice(&fs::read(&layout_path).expect("layout")).expect("json");
+        layout["windows"][0]["elements"][1]["focused"] = json!(focus_error);
+        layout["windows"][0]["focusError"] = json!(focus_error);
+        fs::write(&layout_path, layout.to_string()).expect("unknown focus");
+        let text: InputTextRequest = oni_protocol::decode(
+            json!({ "requestId": "1-1", "delivery": "foreground", "captureId": anchor, "text": "secret" }),
+        )
+        .expect("text");
+        assert_eq!(
+            input.text(&screen, &text),
+            json!({ "status": "refused", "reason": "private" })
+        );
+        assert!(!directory.path().join("input.jsonl").exists());
+    }
+}
+
+#[test]
+fn un_aimed_text_requires_exactly_one_focused_window() {
+    for focus_count in [1, 0, 2] {
+        let directory = tempfile::tempdir().expect("tempdir");
+        observable(directory.path(), 0);
+        let layout_path = directory.path().join("layout.json");
+        let mut layout: Value =
+            serde_json::from_slice(&fs::read(&layout_path).expect("layout")).expect("json");
+        let mut background = layout["windows"][0].clone();
+        background["id"] = json!(8);
+        background["x"] = json!(160);
+        background["elements"][1]["focused"] = json!(focus_count == 2);
+        layout["windows"][0]["elements"][1]["focused"] = json!(focus_count > 0);
+        layout["windows"]
+            .as_array_mut()
+            .expect("windows")
+            .push(background);
+        fs::write(&layout_path, layout.to_string()).expect("two windows");
+        let path = client(
+            directory.path(),
+            Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
+        );
+        let (screen, input) = computer::open(&path).expect("open").expect("fixture");
+        let capture: ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target": { "kind": "display", "display": 1 }, "encoding": { "format": "png" }
+        }))
+        .expect("capture");
+        let frame = screen.capture(&capture);
+        let text: InputTextRequest = oni_protocol::decode(json!({
+            "requestId": "1-1", "delivery": "foreground",
+            "captureId": frame["captureId"], "text": "hello"
+        }))
+        .expect("text");
+        let result = input.text(&screen, &text);
+        let recorder = directory.path().join("input.jsonl");
+        if focus_count == 1 {
+            assert_eq!(result, json!({ "status": "ok" }));
+            assert_eq!(
+                lines(&recorder),
+                vec![json!({
+                    "delivery": "foreground", "pid": null, "tag": true,
+                    "event": "text", "text": "hello"
+                })]
+            );
+        } else {
+            assert_eq!(result, json!({ "status": "refused", "reason": "private" }));
+            assert!(!recorder.exists());
+        }
+    }
+}
+
+#[test]
+fn ref_action_on_a_secure_node_is_refused_private_while_absent_focus_is_not() {
     let directory = tempfile::tempdir().expect("tempdir");
     observable(directory.path(), 0);
+    let layout_path = directory.path().join("layout.json");
+    let mut layout: Value =
+        serde_json::from_slice(&fs::read(&layout_path).expect("layout")).expect("json");
+    layout["windows"][0]["elements"][1]["focused"] = json!(false);
+    fs::write(&layout_path, layout.to_string()).expect("no focus");
     let path = client(
         directory.path(),
         Some(json!({ "layout": "layout.json", "recorder": "input.jsonl" })),
     );
-    let (screen, input) = computer::open(&path).expect("open").expect("fixture");
-    let capture: ScreenCaptureRequest = oni_protocol::decode(json!({
-        "target": { "kind": "display", "display": 1 }, "encoding": { "format": "png" }
-    }))
-    .expect("capture");
-    let anchor = screen.capture(&capture)["captureId"]
-        .as_str()
-        .expect("anchor")
-        .to_owned();
-    fs::write(directory.path().join("layout.json"), LAYOUT).expect("empty focus layout");
-    let text: InputTextRequest = oni_protocol::decode(
-        json!({ "delivery": "foreground", "captureId": anchor, "text": "secret" }),
-    )
-    .expect("text");
+    let (screen, _) = computer::open(&path).expect("open").expect("fixture");
+    let target = json!({ "pid": 4242, "windowId": 7 });
+    let observed = observe(&screen, json!({ "target": target, "screenshot": false }));
+    assert_eq!(observed["private"], false);
+    assert_eq!(observed["elements"][0]["ref"], "AXButton[0]");
+    assert_eq!(observed["elements"][1]["ref"], "AXTextField[0]");
+    let press = |observation: &Value| {
+        json!({
+            "observationId": observation["observationId"], "target": observation["target"],
+            "ref": "AXButton[0]", "action": "press"
+        })
+    };
+    assert_eq!(act(&screen, press(&observed)), json!({ "status": "ok" }));
+    assert_eq!(lines(&directory.path().join("input.jsonl")).len(), 1);
+
+    layout["windows"][0]["elements"][0]["secure"] = json!(true);
+    fs::write(&layout_path, layout.to_string()).expect("secure button");
+    let secure = observe(&screen, json!({ "target": target, "screenshot": false }));
     assert_eq!(
-        input.text(&screen, &text),
+        act(&screen, press(&secure)),
         json!({ "status": "refused", "reason": "private" })
     );
-    assert!(!directory.path().join("input.jsonl").exists());
+    assert_eq!(lines(&directory.path().join("input.jsonl")).len(), 1);
 }
 
 #[test]
@@ -255,7 +412,7 @@ fn ref_click_targets_ordinary_window_despite_unrelated_private_focus() {
         }),
     );
     let pointer: InputPointerRequest = oni_protocol::decode(json!({
-        "delivery": "foreground", "kind": "click", "button": "left", "count": 1,
+        "requestId": "1-1", "delivery": "foreground", "kind": "click", "button": "left", "count": 1,
         "at": { "observationId": observed["observationId"], "ref": "AXButton[0]" }
     }))
     .expect("pointer");
@@ -692,7 +849,7 @@ fn fixture_windows_observe_diff_and_act_by_ref() {
     layout["windows"]
         .as_array_mut()
         .expect("windows")
-        .push(json!({ "id": 9, "title": "Late", "pid": 4243 }));
+        .push(json!({ "id": 9, "title": "Late", "pid": 4243, "focusError": true }));
     fs::write(directory.path().join("layout.json"), layout.to_string()).expect("write layout");
     let late = json!({ "pid": 4243, "windowId": 9 });
     assert_eq!(

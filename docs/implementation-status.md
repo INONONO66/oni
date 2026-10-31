@@ -309,8 +309,8 @@ Native grant-dependent behavior awaits the MacBook live acceptance.
 
 ## #1695 private mode (PR pending)
 
-On `feat/1695-private-mode` (2026-10-29, rebased on `8065ecdb2` after
-#1689). Target contract: `docs/machines-and-delegation.md` 2.2.3.
+On `feat/1695-private-mode` (2026-10-31, rebased on `1a6c4c923` after
+#1689). Target contract: `docs/machines-and-delegation.md` 2.2.5.
 
 **Wire and host.** `ScreenObserveResult` admits only an empty, complete
 successful private observation; `ScreenCaptureResult` and
@@ -321,12 +321,16 @@ accepts it only from the attached matching machine and publishes
 `Machine.Events.Private` with host receipt time. The generated schema and
 valid/invalid fixtures cover each shape.
 
-**Client.** `screen/private.rs` owns the cfg-free fail-closed focus fold,
+**Client.** `screen/private.rs` owns the cfg-free focus folds,
 epoch-scoped transition state, 250 ms refresh cadence, rectangle intersection
-and pixel blanking. Observe resolves the window and epoch before returning an
-empty private result; action and ref-targeted pointer resolve before refusing;
-window capture refuses before capture; capture-anchored input refuses before
-dispatch. Display captures and streams blank only intersecting private window
+and pixel blanking. A failed focus query is private; an absent focused element
+is not. Text and key input require a known non-secure focus, with exactly one
+focused window for un-aimed input. Observe resolves the window and epoch before
+returning an empty private result that issues no refs. Ref actions require an
+issued ref and check the node's secure attribute or secure-text role;
+ref-targeted pointers check the window's current private focus. Window capture
+refuses before capture; capture-anchored input refuses before dispatch.
+Display captures and streams blank only intersecting private window
 rectangles, while private window streams blank the whole frame. Open streams
 refresh focus every 250 ms and report their current private fact.
 

@@ -94,7 +94,7 @@ pub fn sample(
         .iter()
         .find(|row| row.pid == pid && row.window_id == window)
         .ok_or(observe::Refusal::WindowNotFound)?;
-    let private = focus_is_secure(observer.focused(target).ok().flatten());
+    let private = focus_is_secure(observer.focused(target));
     if private {
         return Ok(Sample {
             windows,

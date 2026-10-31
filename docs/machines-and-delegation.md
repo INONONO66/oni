@@ -392,17 +392,23 @@ native event on the current attach generation and cancellation state;
 
 ### 2.2.5 Private focus (#1695)
 
-Private mode is a client-side fact, not an app policy. Before walking,
-capturing or dispatching against a resolved window, the client reads its
+Private mode is a client-side fact, not an app policy. Before observing or
+capturing a resolved window, the client queries its
 focused accessibility element. A secure attribute or the native secure-text
-role makes the window private; an unavailable focus fails closed.
+role makes the window private. A failed focus query fails closed; a window
+without a focused element is not private.
 
 - **Observation and effects.** Observing a private window succeeds with its
   identity and `{private: true, complete: true, elements: []}` but no diff,
-  focused ref or screenshot. Window capture and every input path refuse
-  `private` before reading or dispatching content. Display capture remains
+  focused ref or screenshot. Window capture, text and key input, and
+  coordinate input refuse `private` before dispatching. Display capture remains
   available and blanks each private window rectangle, including the
   intersecting part of a display-region capture.
+  Text and key input require a known non-secure focus; un-aimed input
+  requires exactly one window with such a focus and no other focused window.
+  A ref action against a private observation refuses `private`; otherwise
+  it checks the referenced node's secure attribute or secure-text role
+  instead of the focused element.
 - **Streams.** Window streams replace the whole frame while private; display
   streams blank private rectangles. `Report.streams[]` requires
   `private: boolean`, indicating whether the stream source currently

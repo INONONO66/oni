@@ -685,6 +685,25 @@ mod private_tests {
     }
 
     #[tokio::test]
+    async fn focus_refresh_before_deadline_retains_previous_state() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = directory.path().join("layout.json");
+        std::fs::write(&layout, row(false).to_string()).expect("layout");
+        let mut pump = private_focus_pump(&layout).await;
+        std::fs::write(&layout, row(true).to_string()).expect("private focus");
+
+        pump.refresh_focus(pump.started_at + Duration::from_millis(100))
+            .await
+            .expect("early refresh");
+        assert!(!pump.private);
+
+        pump.refresh_focus(pump.started_at + Duration::from_millis(250))
+            .await
+            .expect("due refresh");
+        assert!(pump.private);
+    }
+
+    #[tokio::test]
     async fn refreshed_focus_without_uplink_updates_private_state_without_publishing() {
         let directory = tempfile::tempdir().expect("directory");
         let layout = directory.path().join("layout.json");

@@ -3,6 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use super::{
     ax::{Frame, Walk},
     observe::Target,
+    Fault,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,8 +20,16 @@ pub fn focused(walk: &Walk) -> Option<Focused> {
     })
 }
 
-pub fn focus_is_secure(focused: Option<Focused>) -> bool {
-    focused.is_none_or(|focused| focused.secure || focused.role == "AXSecureTextField")
+pub fn focus_is_secure(focused: Result<Option<Focused>, Fault>) -> bool {
+    match focused {
+        Err(_) => true,
+        Ok(None) => false,
+        Ok(Some(focused)) => focused.secure || focused.role == "AXSecureTextField",
+    }
+}
+
+pub fn focus_admits_input(focused: &Result<Option<Focused>, Fault>) -> bool {
+    matches!(focused, Ok(Some(focused)) if !focused.secure && focused.role != "AXSecureTextField")
 }
 
 pub struct FocusRefresh {
@@ -139,19 +148,37 @@ mod tests {
 
     #[test]
     fn secure_focus_fails_closed() {
-        assert!(focus_is_secure(None));
-        assert!(focus_is_secure(Some(Focused {
-            role: "AXTextField".into(),
-            secure: true
-        })));
-        assert!(focus_is_secure(Some(Focused {
-            role: "AXSecureTextField".into(),
-            secure: false
-        })));
-        assert!(!focus_is_secure(Some(Focused {
-            role: "AXButton".into(),
-            secure: false
-        })));
+        for (focused, private, admitted) in [
+            (Err(Fault::Permission), true, false),
+            (Ok(None), false, false),
+            (
+                Ok(Some(Focused {
+                    role: "AXTextField".into(),
+                    secure: true,
+                })),
+                true,
+                false,
+            ),
+            (
+                Ok(Some(Focused {
+                    role: "AXSecureTextField".into(),
+                    secure: false,
+                })),
+                true,
+                false,
+            ),
+            (
+                Ok(Some(Focused {
+                    role: "AXButton".into(),
+                    secure: false,
+                })),
+                false,
+                true,
+            ),
+        ] {
+            assert_eq!(focus_is_secure(focused.clone()), private);
+            assert_eq!(focus_admits_input(&focused), admitted);
+        }
     }
 
     #[test]

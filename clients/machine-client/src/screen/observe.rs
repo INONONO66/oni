@@ -254,6 +254,7 @@ impl Key {
 struct Snapshot {
     id: String,
     target: Target,
+    private: bool,
     elements: Vec<Element>,
     keys: HashMap<String, Key>,
 }
@@ -422,7 +423,7 @@ impl Observations {
         request: &Request,
         located: Located,
     ) -> Result<Prepared, Refusal> {
-        if focus_is_secure(observer.focused(&located.window).ok().flatten()) {
+        if focus_is_secure(observer.focused(&located.window)) {
             return Ok(Prepared::new(
                 located,
                 None,
@@ -510,6 +511,7 @@ impl Observations {
                         window_id: window.window_id.into(),
                         epoch: Some(epoch),
                     },
+                    private: true,
                     elements: Vec::new(),
                     keys: HashMap::new(),
                 },
@@ -541,6 +543,7 @@ impl Observations {
                 window_id: window.window_id.into(),
                 epoch: Some(epoch),
             },
+            private: false,
             elements,
             keys,
         };
@@ -564,12 +567,16 @@ impl Observations {
         let located = self.locate(observer, act.target)?;
         let window = self.window(&located);
         let _serial = lock(&window);
-        if focus_is_secure(observer.focused(&located.window).ok().flatten()) {
+        let snapshots = lock(&self.state);
+        let snapshot = snapshots.latest(&located.lineage, &act.observation)?;
+        if snapshot.private {
             return Err(Refusal::Private);
         }
-        let (observed, key) = lock(&self.state)
-            .latest(&located.lineage, &act.observation)?
-            .element(&act.reference)?;
+        let (observed, key) = snapshot.element(&act.reference)?;
+        drop(snapshots);
+        if observed.secure || observed.role == "AXSecureTextField" {
+            return Err(Refusal::Private);
+        }
         let listed = |name: &str| observed.actions.iter().any(|action| action == name);
         let supported = match &act.action {
             Action::Press => listed("AXPress"),
@@ -605,7 +612,7 @@ impl Observations {
         let located = self.locate(observer, target)?;
         let window = self.window(&located);
         let _serial = lock(&window);
-        if focus_is_secure(observer.focused(&located.window).ok().flatten()) {
+        if focus_is_secure(observer.focused(&located.window)) {
             return Err(Refusal::Private);
         }
         let frame = fresh(observer, &located, reference, &key)?.frame;

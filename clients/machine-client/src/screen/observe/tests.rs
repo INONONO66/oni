@@ -165,6 +165,21 @@ fn unreadable_focus_returns_empty_private_observation_without_tree_walk() {
 }
 
 #[test]
+fn private_observation_issues_no_refs_for_actions() {
+    let fake = Fake::new(tree());
+    fake.walk.lock().expect("lock")[3].attributes.secure = true;
+    let observations = Observations::default();
+    let result = observe(&observations, &fake, None);
+    assert_eq!(result["private"], true);
+    assert_eq!(result["elements"], json!([]));
+    assert_eq!(
+        observations.act(&fake, &act("o1", "AXButton[0]", Action::Press)),
+        Err(Refusal::Private)
+    );
+    assert!(fake.acted.lock().expect("lock").is_empty());
+}
+
+#[test]
 fn empty_accessibility_window_set_is_private_for_input() {
     let fake = Fake::new(tree());
     *fake.windows.lock().expect("lock") = Ok(Vec::new());
@@ -255,6 +270,22 @@ fn capture_guard_defers_to_capture_permission_when_observation_is_denied() {
     };
     let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
     assert_eq!(screen.capture_guard(9), Ok(()));
+}
+
+#[test]
+fn capture_guard_refuses_excluded_and_minimized_windows() {
+    let fake = Fake::new(tree());
+    let screen = Screen::absent()
+        .observing(Box::new(fake))
+        .excluding(vec!["com.example.editor".into()]);
+    assert_eq!(screen.capture_guard(9), Err(Fault::OwnWindow));
+
+    let fake = Fake::new(tree());
+    let mut minimized = window(0);
+    minimized.minimized = true;
+    *fake.windows.lock().expect("lock") = Ok(vec![minimized]);
+    let screen = Screen::absent().observing(Box::new(fake));
+    assert_eq!(screen.capture_guard(9), Err(Fault::WindowMinimized));
 }
 
 #[test]
@@ -442,7 +473,7 @@ fn private_edge_lookup_failure_preserves_prior_edges() {
 }
 
 #[test]
-fn private_refusals_block_actions_and_points_after_observation() {
+fn private_focus_blocks_points_but_not_unrelated_ref_actions() {
     let fake = Fake::new(tree());
     let observations = Observations::default();
     let first = observe(&observations, &fake, None);
@@ -450,14 +481,33 @@ fn private_refusals_block_actions_and_points_after_observation() {
     fake.walk.lock().expect("lock")[3].attributes.secure = true;
     assert_eq!(
         observations.act(&fake, &act("o1", "AXButton[0]", Action::Press)),
-        Err(Refusal::Private)
+        Ok(())
     );
+    assert_eq!(fake.acted.lock().expect("lock").len(), 1);
     assert_eq!(
         observations.point(&fake, "o1", "AXButton[0]"),
         Err(Refusal::Private)
     );
     assert_eq!(Refusal::Private.reason(), "private");
     assert_eq!(Refusal::Private.observed()["reason"], "observe_failed");
+}
+
+#[test]
+fn ref_actions_refuse_secure_attributes_and_secure_text_roles() {
+    for (role, secure) in [("AXButton", true), ("AXSecureTextField", false)] {
+        let mut nodes = tree();
+        nodes[0].attributes.role = role.into();
+        nodes[0].attributes.secure = secure;
+        let fake = Fake::new(nodes);
+        let observations = Observations::default();
+        let first = observe(&observations, &fake, None);
+        assert_eq!(first["private"], false);
+        assert_eq!(
+            observations.act(&fake, &act("o1", &format!("{role}[0]"), Action::Press)),
+            Err(Refusal::Private)
+        );
+        assert!(fake.acted.lock().expect("lock").is_empty());
+    }
 }
 
 #[test]

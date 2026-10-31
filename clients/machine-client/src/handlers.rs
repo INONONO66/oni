@@ -1345,10 +1345,32 @@ mod private_tests {
         let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
         let screen = Screen::new(Box::new(Fixture::display(32, 16, 1.0)), 1).observing(observer);
         let service = Service::open_with(&config, pty, screen).expect("service");
-        let (client, _host) = tokio::io::duplex(4096);
+        let (client, host) = tokio::io::duplex(4096);
         let client = Client::from_stream(client, handler(|_, _| async { Ok(Value::Null) }));
         service.connected(client.caller());
+        let (reader, mut writer) = tokio::io::split(host);
+        framing::write_frame(
+            &mut writer,
+            &json!({"v":2,"type":"request","id":"probe","method":"machine.ping","params":{}}),
+        )
+        .await
+        .expect("probe written");
+        assert_eq!(
+            Framed::new(reader)
+                .next()
+                .await
+                .expect("probe response")
+                .expect("frame")["result"],
+            Value::Null
+        );
         service
+    }
+
+    #[tokio::test]
+    async fn private_edge_without_caller_never_queries_observer() {
+        let service = service_with_observer(Box::new(PanicWindows)).await;
+        *service.caller() = None;
+        service.publish_private_edges().await;
     }
 
     #[tokio::test]
@@ -1403,6 +1425,16 @@ mod private_tests {
         service.connected(client.caller());
         let (reader, mut writer) = tokio::io::split(host);
         let mut frames = Framed::new(reader);
+        framing::write_frame(
+            &mut writer,
+            &json!({"v":2,"type":"request","id":"probe","method":"machine.ping","params":{}}),
+        )
+        .await
+        .expect("probe written");
+        assert_eq!(
+            frames.next().await.expect("probe response").expect("frame")["result"],
+            Value::Null
+        );
         for (secure, state) in [(true, "entered"), (false, "left")] {
             std::fs::write(&layout, row(secure).to_string()).expect("focus");
             let publish = service.publish_private_edges();

@@ -175,7 +175,9 @@ async fn connected_ungranted_computer_requests_never_query_accessibility() {
     assert_eq!(refused, refusal("screen_not_available"));
     let input = (hooks.service)(
         "machine.input.text".into(),
-        Some(json!({"delivery":"foreground","captureId":"cap-1","text":"secret"})),
+        Some(
+            json!({"requestId":"1-1","delivery":"foreground","captureId":"cap-1","text":"secret"}),
+        ),
     )
     .await
     .expect("input refusal");

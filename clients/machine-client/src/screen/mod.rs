@@ -33,7 +33,7 @@ use crate::attach::now_ms;
 use encode::{Encoding, Format};
 use observe::Observations;
 use pool::Pool;
-use private::{blank_rect, focus_is_secure, overlaps, Edge, States};
+use private::{blank_rect, focus_admits_input, focus_is_secure, overlaps, Edge, States};
 
 pub const MAX_BYTES: usize = 4_194_304;
 pub const MAX_DIMENSION: u32 = 16_384;
@@ -322,15 +322,14 @@ impl Screen {
             return Ok(windows
                 .into_iter()
                 .find(|identity| identity.window_id == window.id)
-                .is_none_or(|identity| {
-                    focus_is_secure(observer.focused(&identity).ok().flatten())
-                }));
+                .is_none_or(|identity| !focus_admits_input(&observer.focused(&identity))));
         }
         let focused: Vec<_> = windows
             .into_iter()
-            .map(|window| observer.focused(&window).ok().flatten())
+            .map(|window| observer.focused(&window))
+            .filter(|focused| matches!(focused, Ok(Some(_))))
             .collect();
-        Ok(focused.len() != 1 || focused.into_iter().any(focus_is_secure))
+        Ok(focused.len() != 1 || !focus_admits_input(&focused[0]))
     }
 
     pub fn private_edges(&self) -> Result<Vec<(observe::Target, Edge)>, Fault> {
@@ -350,7 +349,7 @@ impl Screen {
                 }
                 Err(_) => break,
             };
-            let private = focus_is_secure(observer.focused(window).ok().flatten());
+            let private = focus_is_secure(observer.focused(window));
             if let Some(edge) = states.update(target, private) {
                 edges.push((target, edge));
             }
@@ -365,7 +364,7 @@ impl Screen {
             .into_iter()
             .find(|window| window.window_id == window_id)
             .ok_or(Fault::WindowNotFound)?;
-        Ok(focus_is_secure(observer.focused(&window).ok().flatten()))
+        Ok(focus_is_secure(observer.focused(&window)))
     }
 
     fn mask_private(
