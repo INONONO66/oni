@@ -472,22 +472,19 @@ async function e2eHost(callTool: Parameters<typeof createMachineHost>[0]["callTo
  * serve a call under another cell's id gets the daemon's stamp instead.
  */
 test("a cell cannot present another cell's id when calling back", async () => {
-  const served: string[] = [];
-
-  // AAA (tenant one) blocks inside a tool call the host holds until BBB
-  // (tenant two — a separate interpreter, so the two genuinely overlap) has
-  // been served. No sleeps: the deferred IS the overlap proof.
-  let announceServed!: () => void;
-  const forgingServed = new Promise<void>((resolve) => {
-    announceServed = resolve;
-  });
+  // Subscribe to both host calls before either cell starts. AAA stays in its
+  // callback until BBB's own callback supplies the release receipt.
+  const held = Promise.withResolvers<string>();
+  const forged = Promise.withResolvers<string>();
+  const forgingServed = Promise.withResolvers<void>();
   const { socketPath, host } = await e2eHost((call) => Effect.promise(async () => {
-    served.push(`${call.name}@${call.cellId}`);
     if (call.name === "hold") {
-      await forgingServed;
+      held.resolve(`${call.name}@${call.cellId}`);
+      await forgingServed.promise;
       return { status: "completed" as const, value: "held" };
     }
-    announceServed();
+    forged.resolve(`${call.name}@${call.cellId}`);
+    forgingServed.resolve();
     return { status: "completed" as const, value: call.cellId };
   }));
   await attachClient({ socketPath });
@@ -498,6 +495,7 @@ test("a cell cannot present another cell's id when calling back", async () => {
     timeoutMs: 15_000,
     tenant: "tenant-one",
   }));
+  const heldReceipt = await held.promise;
   const forging = await runEffect(host.get(MACHINE_ID).runCode({
     cellId: "BBB",
     // The call carries no id of its own; naming one changes nothing.
@@ -505,11 +503,9 @@ test("a cell cannot present another cell's id when calling back", async () => {
     timeoutMs: 15_000,
     tenant: "tenant-two",
   }));
-  await slow;
+  const [forgedReceipt] = await Promise.all([forged.promise, slow]);
 
-  // Completion itself proves the overlap: on one interpreter AAA's hold would
-  // wait forever for a BBB that cannot start until AAA settles.
-  expect([...served].sort()).toEqual(["hold@AAA", "send_message@BBB"]);
+  expect([heldReceipt, forgedReceipt]).toEqual(["hold@AAA", "send_message@BBB"]);
   expect(forging.status).toBe("completed");
 }, 40_000);
 
