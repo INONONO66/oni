@@ -131,8 +131,13 @@ async function closeSession(
     return;
   }
   session.stream = undefined;
+  const closed = await stream.close();
+  if (closed.status !== "closed") {
+    session.reconnect = "unavailable";
+    send(ws, { type: "stream_probe_refused", requestId: input.requestId, reason: closed.reason });
+    return;
+  }
   if (input.reconnect) session.reconnectAt = now();
-  await stream.close();
   send(ws, { type: "stream_probe_closed", requestId: input.requestId });
 }
 

@@ -96,6 +96,25 @@ test("failed reopen preserves first-stream measurements and marks reconnection u
   await probe.close(ws);
 });
 
+test("a refused close cannot be reported as a successful reconnect", async () => {
+  const frames: StreamProbeResponse[] = [];
+  const probe = createStreamProbe({
+    now: () => 100,
+    open: async () => ({
+      streamId: "first",
+      capturedAt: (us: number) => us,
+      signal: async () => ({ status: "accepted" as const, seq: 0 }),
+      close: async () => ({ status: "refused" as const, reason: "machine_not_attached" as const, message: "gone" }),
+    }),
+  });
+  const ws = { send: (line: string) => frames.push(StreamProbeResponse.parse(JSON.parse(line))) };
+  await probe.handle(ws, JSON.stringify({ type: "stream_probe_open", requestId: "p", machineId: "macbook", display: 1 }), true);
+  await probe.handle(ws, JSON.stringify({ type: "stream_probe_close", requestId: "p", reconnect: true }), true);
+  expect(frames.at(-1)).toMatchObject({ type: "stream_probe_refused", reason: "machine_not_attached" });
+  await probe.handle(ws, JSON.stringify({ type: "stream_probe_report", requestId: "p" }), true);
+  expect(frames.at(-1)).toMatchObject({ reconnect: "unavailable", reconnectFirstFreshFrameMs: null });
+});
+
 test("CLI probe negotiates and forwards decoded frames through the injected stream source", async () => {
   const queue: StreamProbeResponse[] = [];
   const listeners: Array<{ readonly match: (frame: StreamProbeResponse) => boolean; readonly resolve: (frame: StreamProbeResponse) => void }> = [];
