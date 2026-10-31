@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Machine } from "../../src/machine/index.js";
 import { Ipc } from "../../src/ipc/index.js";
 import { expectIssue } from "../helpers/schema.js";
+import v3Report from "../../fixtures/machine/report-v3.json";
+import foldedReport from "../../fixtures/machine/valid/Report.v3-folded.json";
 
 const enrollment = {
   machineId: "mac-0",
@@ -24,7 +26,11 @@ describe("managed machine enrollment", () => {
   test("gateway rows preserve capacity and load, refusing invented fields", () => {
     const row = { ...enrollment, tags: ["pool"], capabilities: ["fs.read"], pendingCapabilities: ["screen.read"], os: "darwin", arch: "arm64",
       resources: { cpus: 4, memoryBytes: 8192 },
-      live: { reportedAt: 4, stale: false, screen: { permission: "denied" as const }, load: { loadAvg1: 0.5, memoryAvailableBytes: 4096, inFlight: 1 } } };
+       live: { reportedAt: 4, stale: false, screen: {
+         verdict: "unavailable" as const, blockers: [{ kind: "screen_recording_denied" as const }],
+         display: { kind: "console" as const, isolated: false },
+         grants: { capture: false, accessibility: false, input: false },
+       }, load: { loadAvg1: 0.5, memoryAvailableBytes: 4096, inFlight: 1 } } };
     const reply = { type: "machine_listed", requestId: "list", rows: [row] } satisfies Machine.Response;
     expect(Machine.Response.parse(reply)).toEqual(reply);
     expect(Machine.Info.safeParse({ ...row, leases: 1 }).success).toBe(false);
@@ -126,6 +132,31 @@ describe("Machine.Offer", () => {
 describe("machine.report heartbeat (#1555)", () => {
   const load = { loadAvg1: 0.5, memoryAvailableBytes: 1024, inFlight: 2 };
 
+  test("v3 adaptation proves only the reported capture grant", () => {
+    expect(Machine.reportForVersion(3, v3Report).data).toEqual(Machine.Report.parse(foldedReport));
+    for (const permission of ["denied", "unsupported"]) {
+      const parsed = Machine.reportForVersion(3, { ...v3Report, screen: { permission } });
+      expect(parsed.success).toBe(true);
+      expect(parsed.data?.screen?.grants).toEqual({ capture: false, accessibility: false, input: false });
+      expect(parsed.data?.screen?.verdict).toBe("unavailable");
+    }
+    const { screen: _screen, humanInputUnavailable: _monitor, ...withoutScreen } = v3Report;
+    expect(Machine.reportForVersion(3, withoutScreen).data).toEqual(withoutScreen);
+    const monitoringOnly = Machine.reportForVersion(3, {
+      ...withoutScreen, humanInputUnavailable: "input_monitoring_not_granted",
+    }).data;
+    expect(monitoringOnly?.screen).toEqual({
+      verdict: "unavailable",
+      blockers: [{ kind: "no_screen_backend" }, { kind: "input_monitoring_not_granted" }],
+      display: { kind: "none", isolated: false },
+      grants: { capture: false, accessibility: false, input: false },
+    });
+    expect(monitoringOnly).not.toHaveProperty("humanInputUnavailable");
+    expect(Machine.reportForVersion(4, v3Report).success).toBe(false);
+    expect(Machine.reportForVersion(3, { ...v3Report, screen: { permission: "invalid" } }).success).toBe(false);
+    expect(Machine.reportForVersion(3, { ...v3Report, humanInputUnavailable: "permission_denied" }).success).toBe(false);
+  });
+
   test("the wire method is registered with the report and result schemas", () => {
     expect(Machine.WireMethod.Report).toBe("machine.report");
     expect(Ipc.Methods["machine.report"].params).toBe(Machine.Report);
@@ -133,7 +164,10 @@ describe("machine.report heartbeat (#1555)", () => {
   });
 
   test("a report round-trips, refuses a negative load average, and the event carries the same load", () => {
-    const report = { machineId: "mac-0", reportedAt: 3, load, screen: { permission: "granted" as const } };
+    const report = { machineId: "mac-0", reportedAt: 3, load, screen: {
+      verdict: "available" as const, blockers: [], display: { kind: "console" as const, isolated: false },
+      grants: { capture: true, accessibility: true, input: true },
+    } };
     expect(Machine.Report.parse(report)).toEqual(report);
     expect(Machine.Report.safeParse({ ...report, load: { ...load, loadAvg1: -1 } }).success).toBe(false);
     expect(Machine.Events.Reported.name).toBe("machine.reported");
@@ -242,7 +276,7 @@ describe("Machine.place", () => {
   const member = (machineId: string, leases = 0, resources: Machine.Resources | undefined = { cpus: 4, memoryBytes: 100 }) => ({
     machineId,
     tags: ["worker"],
-    capabilities: ["kernel.py"],
+    capabilities: ["kernel.py", "computer.use"],
     resources,
     leases,
   });
@@ -271,6 +305,25 @@ describe("Machine.place", () => {
     ])).toEqual({ kind: "placed", machineId: "known" });
   });
 
+  test("exclusive placement keeps idle unknown capacity ahead of leased known capacity", () => {
+    expect(Machine.place({ tag: "worker", prefer: "exclusive" }, [
+      member("known", 1), { ...member("unknown"), resources: undefined },
+    ])).toEqual({ kind: "placed", machineId: "unknown" });
+  });
+
+  test("computer placement requires effective capability and preserves caller requirements", () => {
+    const live = { stale: false, screen: { verdict: "available" as const,
+      display: { isolated: true }, grants: { capture: true, input: true } } };
+    const members = [
+      { ...member("a-fs-only"), capabilities: ["fs.read"], live },
+      { ...member("z-computer"), live },
+    ];
+    for (const prefer of ["computer", { sticky: "key", mode: "computer" }] as const) {
+      expect(Machine.place({ tag: "worker", prefer }, members)).toEqual({ kind: "placed", machineId: "z-computer" });
+      expect(Machine.place({ tag: "worker", prefer, requires: ["fs.read"] }, members)).toEqual({ kind: "no_member" });
+    }
+  });
+
   test("skips stale members and reports all stale", () => {
     expect(Machine.place({ tag: "worker", prefer: "spread" }, [{ ...member("a"), live: { stale: true } }, member("b")])).toEqual({ kind: "placed", machineId: "b" });
     expect(Machine.place({ tag: "worker", prefer: "spread" }, [{ ...member("a"), live: { stale: true } }, { ...member("b"), live: { stale: true } }])).toEqual({ kind: "all_stale" });
@@ -285,5 +338,47 @@ describe("Machine.place", () => {
 
   test("breaks equal scores by machine id", () => {
     expect(Machine.place({ tag: "worker", prefer: "spread" }, [member("z"), member("a")])).toEqual({ kind: "placed", machineId: "a" });
+  });
+
+  test("computer selection excludes peers without capture or input", () => {
+    const screen = (capture: boolean, input: boolean) => ({
+      verdict: "partial" as const, display: { isolated: true }, grants: { capture, input },
+    });
+    expect(Machine.place({ tag: "worker", prefer: "computer" }, [
+      { ...member("no-capture"), live: { stale: false, screen: screen(false, true) } },
+      { ...member("no-input"), live: { stale: false, screen: screen(true, false) } },
+      { ...member("ready"), live: { stale: false, screen: screen(true, true) } },
+    ])).toEqual({ kind: "placed", machineId: "ready" });
+    expect(Machine.place({ tag: "worker", prefer: "computer" }, [
+      { ...member("no-capture"), live: { stale: false, screen: screen(false, true) } },
+    ])).toEqual({ kind: "no_member" });
+  });
+
+  test("computer selection ranks verdict then isolation before spread", () => {
+    const screen = (verdict: "available" | "partial", isolated: boolean) => ({
+      verdict, display: { isolated }, grants: { capture: true, input: true },
+    });
+    const candidates = [
+      { ...member("partial", 0), live: { stale: false, screen: screen("partial", true) } },
+      { ...member("console", 0), live: { stale: false, screen: screen("available", false) } },
+      { ...member("isolated", 2), live: { stale: false, screen: screen("available", true) } },
+    ];
+    expect(Machine.place({ tag: "worker", prefer: "computer" }, candidates)).toEqual({ kind: "placed", machineId: "isolated" });
+    expect(Machine.place({ tag: "worker", prefer: { sticky: "session", mode: "computer" } }, candidates))
+      .toEqual({ kind: "placed", machineId: "isolated" });
+    expect(Machine.place({ tag: "worker", prefer: "spread" }, candidates)).toEqual({ kind: "placed", machineId: "console" });
+    expect(Machine.place({ tag: "worker", prefer: "pack" }, candidates)).toEqual({ kind: "placed", machineId: "isolated" });
+    expect(Machine.place({ tag: "worker", prefer: "exclusive" }, candidates)).toEqual({ kind: "placed", machineId: "console" });
+  });
+
+  test("computer verdict outranks known capacity before the spread tie break", () => {
+    const screen = (verdict: "available" | "partial", isolated: boolean) => ({
+      verdict, display: { isolated }, grants: { capture: true, input: true },
+    });
+    expect(Machine.place({ tag: "worker", prefer: "computer" }, [
+      { ...member("available", 0, undefined), resources: undefined,
+        live: { stale: false, screen: screen("available", false) } },
+      { ...member("partial", 0), live: { stale: false, screen: screen("partial", true) } },
+    ])).toEqual({ kind: "placed", machineId: "available" });
   });
 });

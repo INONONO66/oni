@@ -2413,6 +2413,7 @@ dependencies = [
  "enigo",
  "hex",
  "image",
+ "libloading",
  "nix",
  "objc2",
  "objc2-app-kit",
@@ -2433,8 +2434,12 @@ dependencies = [
  "time",
  "tokio",
  "tokio-rustls",
+ "x11rb",
+ "x11rb-protocol",
  "x509-parser",
  "xcap",
+ "xkeysym",
+ "zbus",
 ]
 
 [[package]]

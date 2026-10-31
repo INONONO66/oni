@@ -529,9 +529,10 @@ async function conformance(setup: Fixture): Promise<void> {
     const first = await attach(setup, events.next(Machine.Events.Attached));
     await within(firstReported, "first client report");
     if (process.platform === "linux") {
-      const permission = host.list().find((entry) => entry.machineId === MACHINE)?.live?.screen?.permission;
-      check(permission === "unsupported", `Linux client screen permission is ${permission}`);
-      record("Linux mclient run reports unsupported screen permission over the unix host");
+      const screen = host.list().find((entry) => entry.machineId === MACHINE)?.live?.screen;
+      check(screen?.grants.accessibility === false, "Linux client does not claim accessibility without an observer");
+      check(screen?.display.isolated === false, "headless Linux fixture does not claim display isolation");
+      record("Linux mclient reports its screen verdict and blockers over the unix host");
     }
     await exercise(host, attachedInfo(host, "first attach"), setup);
     const second = await reconnect(host, setup, events, first);

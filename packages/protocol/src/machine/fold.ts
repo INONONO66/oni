@@ -72,8 +72,8 @@ export const PlacementRequest = z
     tag: z.string().min(1),
     requires: z.array(CapabilityIdSchema).optional(),
     prefer: z.union([
-      z.enum(["spread", "pack", "exclusive"]),
-      z.object({ sticky: z.string().min(1) }).strict(),
+      z.enum(["spread", "pack", "exclusive", "computer"]),
+      z.object({ sticky: z.string().min(1), mode: z.literal("computer").optional() }).strict(),
     ]),
   })
   .strict();
@@ -92,7 +92,15 @@ export interface PlacementMachine {
   readonly tags: readonly string[];
   readonly capabilities: readonly string[];
   readonly resources?: z.infer<typeof Resources>;
-  readonly live?: { readonly stale: boolean; readonly load?: { readonly memoryAvailableBytes?: number } };
+  readonly live?: {
+    readonly stale: boolean;
+    readonly load?: { readonly memoryAvailableBytes?: number };
+    readonly screen?: {
+      readonly verdict: "available" | "partial" | "unavailable";
+      readonly display: { readonly isolated: boolean };
+      readonly grants: { readonly capture: boolean; readonly input: boolean };
+    };
+  };
   readonly leases: number;
   readonly slots?: number;
 }
@@ -111,15 +119,29 @@ function slotsOf(machine: PlacementMachine): number | undefined {
   return machine.slots ?? machine.resources?.cpus;
 }
 
-function freeMemoryOf(machine: PlacementMachine): number {
-  return machine.live?.load?.memoryAvailableBytes ?? machine.resources?.memoryBytes ?? -1;
+function preferKnownCapacity(machines: readonly PlacementMachine[]): readonly PlacementMachine[] {
+  const known = machines.filter((machine) => slotsOf(machine) !== undefined);
+  return known.length > 0 ? known : machines;
+}
+
+function freeMemoryOf(machine: PlacementMachine, prefer: "spread" | "pack" | "exclusive"): number {
+  return prefer === "spread" ? machine.live?.load?.memoryAvailableBytes ?? machine.resources?.memoryBytes ?? -1 : 0;
+}
+
+function computerRank(machine: PlacementMachine, computer = true): number {
+  return Number(computer) * (((machine.live?.screen?.verdict === "available" ? 2 : 1) * 2
+    + Number(machine.live?.screen?.display.isolated === true)) * 2
+    + Number(slotsOf(machine) !== undefined));
 }
 
 function compareCandidates(
   prefer: "spread" | "pack" | "exclusive",
   best: PlacementMachine,
   machine: PlacementMachine,
+  computer = false,
 ): PlacementMachine {
+  if (computerRank(best, computer) !== computerRank(machine, computer))
+    return computerRank(machine) > computerRank(best) ? machine : best;
   const bestSlots = slotsOf(best);
   const machineSlots = slotsOf(machine);
   if (prefer === "pack" && machine.leases !== best.leases)
@@ -130,8 +152,8 @@ function compareCandidates(
     if (machineRatio !== bestRatio) return machineRatio < bestRatio ? machine : best;
   }
   if (machine.leases !== best.leases) return machine.leases < best.leases ? machine : best;
-  if (prefer === "spread" && freeMemoryOf(machine) !== freeMemoryOf(best))
-    return freeMemoryOf(machine) > freeMemoryOf(best) ? machine : best;
+  if (freeMemoryOf(machine, prefer) !== freeMemoryOf(best, prefer))
+    return freeMemoryOf(machine, prefer) > freeMemoryOf(best, prefer) ? machine : best;
   return machine.machineId.localeCompare(best.machineId) < 0 ? machine : best;
 }
 
@@ -147,27 +169,33 @@ export function place(
   const required = parsed.requires ?? [];
   const capable = live.filter((machine) => required.every((capability) => machine.capabilities.includes(capability)));
   if (capable.length === 0) return { kind: "no_member" };
-  const credited = capable.filter(hasCredit);
+  const computer = parsed.prefer === "computer" || (typeof parsed.prefer === "object" && parsed.prefer.mode === "computer");
+  const matching = computer
+    ? capable.filter((machine) => machine.capabilities.includes("computer.use")
+      && machine.live?.screen?.grants.capture === true && machine.live.screen.grants.input)
+    : capable;
+  if (matching.length === 0) return { kind: "no_member" };
+  const credited = matching.filter(hasCredit);
   if (credited.length === 0) return { kind: "machine_saturated" };
-  const known = credited.filter((machine) => slotsOf(machine) !== undefined);
-  const candidates = known.length > 0 ? known : credited;
+  const candidates = computer ? credited : preferKnownCapacity(credited);
 
   if (typeof parsed.prefer === "object" && parsed.prefer !== null) {
     const sticky = parsed.prefer.sticky;
     const selected = candidates.reduce((best, machine) =>
-      best === undefined || hashScore(sticky, machine.machineId) > hashScore(sticky, best.machineId)
+      best === undefined || (computer && computerRank(machine) > computerRank(best))
+        || ((!computer || computerRank(machine) === computerRank(best))
+          && hashScore(sticky, machine.machineId) > hashScore(sticky, best.machineId))
         ? machine
         : best, undefined as PlacementMachine | undefined);
     return selected === undefined ? { kind: "machine_saturated" } : { kind: "placed", machineId: selected.machineId };
   }
 
-  const exclusive = parsed.prefer === "exclusive" ? credited.filter((machine) => machine.leases === 0) : credited;
+  const exclusive = parsed.prefer === "exclusive" ? credited.filter((machine) => machine.leases === 0) : candidates;
   if (exclusive.length === 0) return { kind: "machine_saturated" };
-  const exclusiveKnown = exclusive.filter((machine) => slotsOf(machine) !== undefined);
-  const exclusiveCandidates = exclusiveKnown.length > 0 ? exclusiveKnown : exclusive;
-  const prefer = parsed.prefer as "spread" | "pack" | "exclusive";
+  const exclusiveCandidates = computer ? exclusive : preferKnownCapacity(exclusive);
+  const prefer = parsed.prefer === "computer" ? "spread" : parsed.prefer as "spread" | "pack" | "exclusive";
   const selected = exclusiveCandidates.reduce((best, machine) =>
-    best === undefined ? machine : compareCandidates(prefer, best, machine),
+    best === undefined ? machine : compareCandidates(prefer, best, machine, computer),
   undefined as PlacementMachine | undefined);
   return selected === undefined ? { kind: "machine_saturated" } : { kind: "placed", machineId: selected.machineId };
 }

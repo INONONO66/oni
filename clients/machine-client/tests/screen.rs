@@ -585,21 +585,26 @@ fn a_failed_or_malformed_capture_frees_its_buffers() {
 #[cfg(target_os = "macos")]
 #[test]
 fn the_native_backend_offers_before_permission_but_serves_only_when_ready() {
-    let screen = Screen::platform();
-    assert!(screen.available());
-    let listed = list(&screen, json!({"windows":true}));
-    if listed["status"] == "ok" {
-        assert_eq!(listed["status"], "ok");
-        let shot = capture(
-            &screen,
-            json!({"target":{"kind":"display","display":1},"encoding":{"format":"jpeg","quality":50},"maxDimension":64}),
-        );
-        assert_eq!(shot["status"], "ok");
-    } else {
-        assert!(
-            listed == refusal("permission_denied") || listed == refusal("screen_not_available"),
-            "{listed}"
-        );
-        assert_eq!(capture(&screen, whole(1)), listed);
+    assert!(Screen::platform().available());
+    // Capture permission does not imply permission to inspect private focus.
+    // Keep readiness assertions independent of this Mac's current grants.
+    for denied in [false, true] {
+        let screen = screen(Fixture {
+            denied,
+            ..Fixture::display(16, 16, 1.0)
+        });
+        assert!(screen.available());
+        let listed = list(&screen, json!({"windows":true}));
+        if denied {
+            assert_eq!(listed, refusal("permission_denied"));
+            assert_eq!(capture(&screen, whole(1)), listed);
+        } else {
+            assert_eq!(listed["status"], "ok");
+            let shot = capture(
+                &screen,
+                json!({"target":{"kind":"display","display":1},"encoding":{"format":"jpeg","quality":50},"maxDimension":64}),
+            );
+            assert_eq!(shot["status"], "ok");
+        }
     }
 }

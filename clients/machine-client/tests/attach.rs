@@ -117,6 +117,7 @@ fn hooks(pressure: Arc<dyn Pressure>) -> Hooks {
         pressure,
         session: Arc::new(Unobserved),
         screen: Arc::new(oni_machine_client::screen::Screen::absent()),
+        input: Arc::new(oni_machine_client::input::Input::absent()),
         heartbeat: Duration::from_millis(1),
     }
 }
@@ -228,7 +229,7 @@ fn reconnect_offer_contains_generation_and_exact_supplied_capabilities() {
         value["offeredCapabilities"],
         json!(["fs.read", "pty.session"])
     );
-    assert_eq!(value["peer"], json!({"kind":"client","contractVersion":3}));
+    assert_eq!(value["peer"], json!({"kind":"client","contractVersion":4}));
     assert_eq!(value["resources"], json!({"cpus":4,"memoryBytes":1024}));
     assert_eq!(value["exports"], json!([{"name":"home","path":"/home/me"}]));
     assert!(attach::now_ms() > 0);
@@ -767,10 +768,8 @@ async fn unix_attach_saves_generation_heartbeats_and_offers_it_on_reconnect() {
                 report["params"]["load"],
                 json!({"loadAvg1":0.5,"memoryAvailableBytes":1024,"inFlight":0})
             );
-            assert_eq!(
-                report["params"]["screen"],
-                json!({"permission":"unsupported"})
-            );
+            assert_eq!(report["params"]["screen"]["grants"]["capture"], false);
+            assert_eq!(report["params"]["screen"]["display"]["isolated"], false);
             let carried = oni_protocol::decode::<oni_protocol::Report>(report["params"].clone())
                 .expect("report with stream observations validates");
             let streams = carried.streams.expect("streams");

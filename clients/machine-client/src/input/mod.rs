@@ -452,9 +452,32 @@ impl Input {
 
     /// The native driver, or absent when the platform has none or refused
     /// the connection (no display server, no Accessibility grant).
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     pub fn platform() -> Self {
-        native::open().map_or_else(|_| Self::absent(), Self::new)
+        Self::new(native::Native::default())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn platform() -> Self {
+        Self::platform_on(None)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn platform_on(display: Option<&str>) -> Self {
+        let selected =
+            crate::screen::probe::linux_display(&crate::screen::probe::linux::System, display);
+        Self::platform_selected(selected.as_deref())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn platform_selected(selected: Option<&str>) -> Self {
+        if selected
+            .and_then(crate::screen::probe::local_display)
+            .is_none()
+        {
+            return Self::absent();
+        }
+        native::open_on(selected).map_or_else(|_| Self::absent(), Self::new)
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -464,6 +487,16 @@ impl Input {
 
     pub fn available(&self) -> bool {
         self.driver.is_some()
+    }
+
+    pub fn ready(&self) -> bool {
+        self.driver.as_ref().is_some_and(|driver| {
+            driver
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .driver
+                .permitted()
+        })
     }
 
     pub fn ledger(&self) -> Arc<DispatchLedger> {

@@ -1,0 +1,1 @@
+#1694 (epic #1688) on `feat/1694-screen-verdict` (2026-10-29, base `18c473f88`, PR #1737): version-four screen verdicts, complete v3 report folding, Linux X11 capture, owned virtual display and computer-preferring placement across protocol, machines, codemode and client with an Xvfb CI fixture; receipt in `docs/implementation-status.md`.

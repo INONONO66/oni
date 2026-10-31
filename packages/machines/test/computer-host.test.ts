@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { type Ipc, Machine } from "@oni/protocol";
 import { Effect, Fiber } from "effect";
-import { z } from "zod";
 import { createMemoryGenerationStore, type AttachGenerationStore, type ChannelListeners, type ComputerHandle, type MachineError, type MachineInputCapture, type RelayEnd, type StreamListeners } from "../src";
 import { createMachineHost } from "./helpers/native";
 import { eventCollector } from "./helpers/events";
@@ -133,10 +132,12 @@ test("private focus edges publish only from the attached machine identity", asyn
   }
 });
 
-test("a version 2 peer reports an active stream without a private fact", async () => {
+test("a version 2 peer cannot report an active stream without a private fact", async () => {
   const f = await fixture();
+  const client = await connectIpcClient(f.host.endpoints.unix ?? "");
   try {
-    const desk = await f.peer([COMPUTER], {}, undefined, 2);
+    expect(await client.call(Machine.WireMethod.Attach, offerOf([COMPUTER], undefined, 2)))
+      .toEqual({ status: "refused", reason: "unsupported_contract" });
     const report = {
       machineId: "desk", reportedAt: 100,
       load: { loadAvg1: 0, memoryAvailableBytes: 1024, inFlight: 0 },
@@ -144,9 +145,11 @@ test("a version 2 peer reports an active stream without a private fact", async (
         droppedFrames: 0, retainedBytes: 256 }],
     };
     expect(Machine.Report.safeParse(report).success).toBe(false);
-    expect(await desk.client.call(Machine.WireMethod.Report, report)).toEqual({ status: "accepted" });
-    expect(f.host.native.list()[0]?.live?.reportedAt).toBe(100);
+    expect(await client.call(Machine.WireMethod.Report, report))
+      .toEqual({ status: "refused", reason: "machine_not_attached" });
+    expect(f.host.native.list()).toEqual([]);
   } finally {
+    await client.close();
     await f.close();
   }
 });
@@ -424,15 +427,15 @@ test("interrupting the waiter after peer receipt retains the input reservation",
   } finally { await f.close(); }
 });
 
-test("a contract-two peer also leaves a lost input uncertain without replay", async () => {
+test("a v3 peer also leaves a lost input uncertain without replay", async () => {
   const f = await fixture();
   try {
     const sent = Promise.withResolvers<Ipc.Request["params"]>();
     const peer = await f.peer([COMPUTER], {
       [Machine.WireMethod.InputText]: (params) => { sent.resolve(params); return undefined; },
-    }, undefined, 2);
+    }, undefined, 3);
     const pending = run(f.machine().text({ captureId: "cap-1", text: "once", delivery: "foreground" }));
-    expect(await sent.promise).toEqual({ captureId: "cap-1", text: "once" });
+    expect(await sent.promise).toEqual({ requestId: "1-1", captureId: "cap-1", text: "once", delivery: "foreground" });
     const detached = f.events.next(Machine.Events.Detached.name);
     await peer.client.close();
     await detached;
@@ -711,7 +714,7 @@ test("settle is captured with normalized defaults and returns the peer observati
   } finally { await f.close(); }
 });
 
-test("settle is withheld by capture refusal, grant refusal and contract-2 peers", async () => {
+test("settle is withheld by capture refusal and relays a v3 observer refusal", async () => {
   for (const captureInput of [() => Effect.succeed({ status: "refused", reason: "permission_denied" } as const), "absent"] as const) {
     const f = await fixture({ captureInput });
     try {
@@ -723,9 +726,11 @@ test("settle is withheld by capture refusal, grant refusal and contract-2 peers"
   }
   const older = await fixture();
   try {
-    const peer = await older.peer([COMPUTER], {}, undefined, 2);
+    const peer = await older.peer([COMPUTER], {
+      [Machine.WireMethod.ScreenSettle]: () => ({ status: "unsupported", blocker: "no_observer" }),
+    }, undefined, 3);
     expect(await run(older.machine().settle({ target: { pid: 42, windowId: 7, epoch: 0 } }))).toEqual({ status: "unsupported", blocker: "no_observer" });
-    expect(peer.received.filter((entry) => entry.method === Machine.WireMethod.ScreenSettle)).toEqual([]);
+    expect(peer.received.filter((entry) => entry.method === Machine.WireMethod.ScreenSettle)).toHaveLength(1);
   } finally { await older.close(); }
 });
 
@@ -767,17 +772,19 @@ test("settle preserves generation errors rather than hiding a replacement attach
   } finally { await f.close(); }
 });
 
-test("a contract-2 pointer flattens captures and refuses element targets before forwarding", async () => {
+test("a v3 pointer preserves capture and element targets with distinct request IDs", async () => {
   const f = await fixture();
   try {
-    const peer = await f.peer([COMPUTER], { [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }) }, undefined, 2);
+    const peer = await f.peer([COMPUTER], { [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }) }, undefined, 3);
     expect(await run(f.machine().pointer(pointer))).toEqual({ status: "ok" });
     expect(peer.received.filter((entry) => entry.method === Machine.WireMethod.InputPointer)).toEqual([{
       method: Machine.WireMethod.InputPointer,
-      params: { kind: "click", captureId: "cap-1", x: 10, y: 20, button: "left", count: 1 },
+      params: { ...pointer, requestId: "1-1" },
     }]);
-    expect(await run(f.machine().pointer({ ...pointer, at: { observationId: "o1", ref: "AXButton[0]" } }))).toMatchObject({ status: "refused", reason: "observe_not_available" });
-    expect(inputs(peer.received)).toHaveLength(1);
+    const element = { ...pointer, at: { observationId: "o1", ref: "AXButton[0]" } };
+    expect(await run(f.machine().pointer(element))).toEqual({ status: "ok" });
+    expect(inputs(peer.received)).toHaveLength(2);
+    expect(inputs(peer.received)[1]).toEqual({ method: Machine.WireMethod.InputPointer, params: { ...element, requestId: "1-2" } });
   } finally { await f.close(); }
 });
 
@@ -794,7 +801,7 @@ test("a refusing capture port blocks observe and action, and no port sends neith
   }
 });
 
-test("observe and action refuse a withheld grant, a missing display and a contract-2 peer before sending", async () => {
+test("observe and action refuse a withheld grant or missing display, while v3 peers remain supported", async () => {
   const denied = await fixture({ grants: [Machine.WellKnownCapability.fsRead] });
   try {
     const desk = await denied.peer([COMPUTER], observationScript);
@@ -811,15 +818,18 @@ test("observe and action refuse a withheld grant, a missing display and a contra
   } finally { await headless.close(); }
   const older = await fixture();
   try {
-    const desk = await older.peer([COMPUTER], { ...observationScript, [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }) }, undefined, 2);
-    const unavailable = { status: "refused", reason: "observe_not_available", message: "the attached client predates contract 3" } as const;
-    expect(await run(older.machine().observe(observeRequest))).toEqual(unavailable);
-    expect(await run(older.machine().action(actionRequest))).toEqual(unavailable);
-    expect(observations(desk.received)).toEqual([]);
-    expect(await run(older.machine().pointer({ delivery: "foreground", kind: "click", at: { observationId: "o1", ref: "AXButton[0]" }, button: "left", count: 1 }))).toEqual(unavailable);
-    expect(inputs(desk.received)).toEqual([]);
+    const desk = await older.peer([COMPUTER], { ...observationScript, [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }) }, undefined, 3);
+    expect(await run(older.machine().observe(observeRequest))).toEqual(observed);
+    expect(await run(older.machine().action(actionRequest))).toEqual({ status: "refused", reason: "epoch_changed" });
+    expect(observations(desk.received)).toEqual([
+      { method: Machine.WireMethod.ScreenObserve, params: observeRequest },
+      { method: Machine.WireMethod.InputAction, params: { ...actionRequest, requestId: "1-1" } },
+    ]);
     expect(await run(older.machine().pointer(pointer))).toEqual({ status: "ok" });
-    expect(inputs(desk.received)).toEqual([{ method: Machine.WireMethod.InputPointer, params: { kind: "click", captureId: "cap-1", x: 10, y: 20, button: "left", count: 1 } }]);
+    expect(inputs(desk.received)).toEqual([
+      { method: Machine.WireMethod.InputAction, params: { ...actionRequest, requestId: "1-1" } },
+      { method: Machine.WireMethod.InputPointer, params: { ...pointer, requestId: "1-2" } },
+    ]);
   } finally { await older.close(); }
 });
 
@@ -836,7 +846,7 @@ test("malformed observe and action requests fail before capture", async () => {
   } finally { await f.close(); }
 });
 
-test("lifecycle methods are captured and refuse absent grants and old peers", async () => {
+test("lifecycle methods are captured and refuse absent grants while v3 peers stay supported", async () => {
   const target = { pid: 42, windowId: 7, epoch: 0 };
   type Answer = Machine.AppLaunchResult | Machine.AppQuitResult | Machine.WindowCloseResult | Machine.WindowParkResult;
   const operations: { method: MachineInputCapture["method"]; call: (computer: ComputerHandle) => Effect.Effect<Answer, MachineError>; answer: Answer }[] = [
@@ -845,29 +855,31 @@ test("lifecycle methods are captured and refuse absent grants and old peers", as
     { method: Machine.WireMethod.WindowClose, call: (c: ComputerHandle) => c.window.close({ target }), answer: { status: "ok", closed: true } },
     { method: Machine.WireMethod.WindowPark, call: (c: ComputerHandle) => c.window.park({ target }), answer: { status: "ok", parked: false } },
   ];
-  for (const scenario of ["ok", "absent", "denied", "old"] as const) {
+  const methods = operations.map((op) => op.method);
+  const scenarios: { offered: Machine.CapabilityId[]; allowed: Machine.CapabilityId[]; version: number; refusal?: Answer; received: MachineInputCapture["method"][] }[] = [
+    { offered: [COMPUTER], allowed: [COMPUTER], version: 4, received: methods },
+    { offered: [], allowed: [COMPUTER], version: 4, refusal: { status: "refused", reason: "machine_not_attached" }, received: [] },
+    { offered: [COMPUTER], allowed: [], version: 4, refusal: { status: "refused", reason: "permission_denied" }, received: [] },
+    { offered: [COMPUTER], allowed: [COMPUTER], version: 3, received: methods },
+  ];
+  for (const scenario of scenarios) {
     const captured: MachineInputCapture[] = [];
     const f = await fixture({ captureInput: (request, forward) => { captured.push(request); return forward; } });
     try {
       const responses = Object.fromEntries(operations.map((op) => [op.method, () => op.answer]));
-      const peer = await f.peer(scenario === "absent" ? [] : [COMPUTER], responses, undefined, scenario === "old" ? 2 : 3);
-      if (scenario === "denied") f.grants.allowed = [];
+      const peer = await f.peer(scenario.offered, responses, undefined, scenario.version);
+      f.grants.allowed = scenario.allowed;
       for (const operation of operations) {
-        const expected: Answer = scenario === "ok" ? operation.answer : {
-          status: "refused",
-          reason: scenario === "absent" ? "machine_not_attached" : scenario === "denied" ? "permission_denied" : "unsupported",
-          ...(scenario === "old" ? { blocker: "platform" } : {}),
-        };
         const result: Answer = await run(operation.call(f.machine()));
-        expect(result).toEqual(expected);
+        expect(result).toEqual(scenario.refusal ?? operation.answer);
       }
-      expect(captured.map((entry) => entry.method)).toEqual(operations.map((op) => op.method));
-      expect(peer.received.map((entry) => entry.method)).toEqual(scenario === "ok" ? operations.map((op) => op.method) : []);
+      expect(captured.map((entry) => entry.method)).toEqual(methods);
+      expect(peer.received.map((entry) => entry.method)).toEqual(scenario.received);
     } finally { await f.close(); }
   }
 });
 
-test("contract two input never upgrades background requests to global input", async () => {
+test("v3 input forwards background delivery without rewriting it", async () => {
   const captured: MachineInputCapture[] = [];
   const f = await fixture({ captureInput: (request, forward) => { captured.push(request); return forward; } });
   try {
@@ -875,9 +887,13 @@ test("contract two input never upgrades background requests to global input", as
       [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }),
       [Machine.WireMethod.InputKey]: () => ({ status: "ok" }),
       [Machine.WireMethod.InputText]: () => ({ status: "ok" }),
-    }, undefined, 2);
-    expect(await run(f.machine().pointer({ ...pointer, delivery: "background" }))).toEqual({ status: "refused", reason: "foreground_required" });
-    expect(await run(f.machine().key({ captureId: "cap-1", key: "a", action: "press" }))).toEqual({ status: "refused", reason: "foreground_required" });
+    }, undefined, 3);
+    expect(await run(f.machine().pointer({ ...pointer, delivery: "background" }))).toEqual({ status: "ok" });
+    expect(await run(f.machine().key({ captureId: "cap-1", key: "a", action: "press" }))).toEqual({ status: "ok" });
+    expect(peer.received.slice(0, 2)).toEqual([
+      { method: Machine.WireMethod.InputPointer, params: { ...pointer, delivery: "background", requestId: "1-1" } },
+      { method: Machine.WireMethod.InputKey, params: { captureId: "cap-1", key: "a", action: "press", delivery: "background", requestId: "1-2" } },
+    ]);
     expect(await run(f.machine().pointer(pointer))).toEqual({ status: "ok" });
     expect(await run(f.machine().text({ delivery: "foreground", captureId: "cap-1", text: "x" }))).toEqual({ status: "ok" });
     const target = { pid: 42, windowId: 7, epoch: 0 };
@@ -886,15 +902,13 @@ test("contract two input never upgrades background requests to global input", as
     expect(await run(f.machine().key(key))).toEqual({ status: "ok" });
     expect(await run(f.machine().text(text))).toEqual({ status: "ok" });
     expect(captured.slice(-2).map((entry) => entry.params)).toEqual([{ ...key, requestId: "1-5" }, { ...text, requestId: "1-6" }]);
-    const oldKey = z.strictObject({ captureId: z.string(), key: z.string(), action: z.string() });
-    const oldText = z.strictObject({ captureId: z.string(), text: z.string() });
-    expect(oldKey.safeParse(peer.received.at(-2)?.params).success).toBe(true);
-    expect(oldText.safeParse(peer.received.at(-1)?.params).success).toBe(true);
     expect(peer.received).toEqual([
-      { method: Machine.WireMethod.InputPointer, params: { kind: "click", captureId: "cap-1", x: 10, y: 20, button: "left", count: 1 } },
-      { method: Machine.WireMethod.InputText, params: { captureId: "cap-1", text: "x" } },
-      { method: Machine.WireMethod.InputKey, params: { captureId: "cap-1", key: "a", action: "press" } },
-      { method: Machine.WireMethod.InputText, params: { captureId: "cap-1", text: "targeted" } },
+      { method: Machine.WireMethod.InputPointer, params: { ...pointer, delivery: "background", requestId: "1-1" } },
+      { method: Machine.WireMethod.InputKey, params: { captureId: "cap-1", key: "a", action: "press", delivery: "background", requestId: "1-2" } },
+      { method: Machine.WireMethod.InputPointer, params: { ...pointer, requestId: "1-3" } },
+      { method: Machine.WireMethod.InputText, params: { delivery: "foreground", captureId: "cap-1", text: "x", requestId: "1-4" } },
+      { method: Machine.WireMethod.InputKey, params: { ...key, requestId: "1-5" } },
+      { method: Machine.WireMethod.InputText, params: { ...text, requestId: "1-6" } },
     ]);
   } finally { await f.close(); }
 });

@@ -16,7 +16,7 @@ test("Machines renders gateway rows and refreshes their live reports without mut
           allowedCapabilities: ["kernel.py"], publicKey: "a".repeat(64), enrolledAt: 1,
           capabilities: ["kernel.py"], pendingCapabilities: [], os: "linux", arch: "arm64",
           resources: { cpus: 4, memoryBytes: 8 * 1024 ** 3 },
-          live: { reportedAt: 4, stale, screen: { permission: "unsupported" }, load: { loadAvg1: 0.25, memoryAvailableBytes: 4 * 1024 ** 3, inFlight: 2 } },
+          live: { reportedAt: 4, stale, screen: { verdict: "unavailable", blockers: [{ kind: "no_x_display" }], display: { kind: "none", isolated: false }, grants: { capture: false, accessibility: false, input: false } }, load: { loadAvg1: 0.25, memoryAvailableBytes: 4 * 1024 ** 3, inFlight: 2 } },
         }],
       });
       if (reply.type !== "machine_listed") throw new Error("list refused");

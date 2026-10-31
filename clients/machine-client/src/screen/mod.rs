@@ -12,7 +12,12 @@ pub mod native;
 pub mod observe;
 mod pool;
 pub mod private;
+pub mod probe;
 pub mod settle;
+#[cfg(target_os = "linux")]
+pub mod x11;
+#[cfg(any(target_os = "linux", test))]
+mod x11_pixels;
 
 use std::{
     num::NonZeroU64,
@@ -175,7 +180,16 @@ struct Anchor {
     display: Display,
 }
 
+enum Backend {
+    Injected,
+    #[cfg(target_os = "macos")]
+    Mac,
+    #[cfg(target_os = "linux")]
+    X11(Option<String>),
+}
+
 pub struct Screen {
+    backend: Backend,
     pub(crate) launcher: Box<dyn crate::app::Launcher>,
     pub(crate) excluded_owners: Vec<String>,
     source: Option<Box<dyn Source>>,
@@ -186,11 +200,14 @@ pub struct Screen {
     notifications: Option<Box<dyn settle::Notifications>>,
     observations: Observations,
     private_states: Mutex<States>,
+    #[cfg(target_os = "linux")]
+    virtual_display: Option<crate::display::xvfb::Owned>,
 }
 
 impl Screen {
     pub fn absent() -> Self {
         Self {
+            backend: Backend::Injected,
             launcher: crate::app::platform(),
             excluded_owners: Vec::new(),
             source: None,
@@ -201,12 +218,15 @@ impl Screen {
             notifications: None,
             observations: Observations::default(),
             private_states: Mutex::default(),
+            #[cfg(target_os = "linux")]
+            virtual_display: None,
         }
     }
 
     /// A source is offered even when capture permission is not yet granted.
     pub fn new(source: Box<dyn Source>, captures: usize) -> Self {
         Self {
+            backend: Backend::Injected,
             launcher: crate::app::platform(),
             excluded_owners: Vec::new(),
             source: Some(source),
@@ -217,6 +237,8 @@ impl Screen {
             notifications: None,
             observations: Observations::default(),
             private_states: Mutex::default(),
+            #[cfg(target_os = "linux")]
+            virtual_display: None,
         }
     }
 
@@ -252,13 +274,64 @@ impl Screen {
 
     #[cfg(target_os = "macos")]
     pub fn platform() -> Self {
-        Self::new(Box::new(native::Native), CAPTURES)
+        let mut screen = Self::new(Box::new(native::Native), CAPTURES)
             .observing(Box::new(ax::native::Native))
-            .notifying(Box::new(ax::observer::Native))
+            .notifying(Box::new(ax::observer::Native));
+        screen.backend = Backend::Mac;
+        screen
     }
 
-    /// No native backend off macOS: the screen is absent.
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    pub fn platform() -> Self {
+        Self::platform_on(None)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn platform_on(display: Option<&str>) -> Self {
+        let selected = probe::linux_display(&probe::linux::System, display);
+        Self::platform_selected(selected)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn platform_selected(selected: Option<String>) -> Self {
+        let mut screen = Self::absent();
+        if selected.as_deref().and_then(probe::local_display).is_none() {
+            screen.backend = Backend::X11(selected);
+            return screen;
+        }
+        if let Ok(source) = x11::Native::open(selected.as_deref()) {
+            let authority = source.authority.clone();
+            screen = Self::new(Box::new(source), CAPTURES)
+                .observing(Box::new(ax::linux::Native(selected.clone())))
+                .launching(Box::new(crate::app::linux::Native::selected(
+                    selected.clone(),
+                    authority,
+                    false,
+                )));
+        }
+        screen.backend = Backend::X11(selected);
+        screen
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn virtualizing(mut self, display: crate::display::xvfb::Owned) -> Self {
+        self.launcher = Box::new(crate::app::linux::Native::selected(
+            Some(display.id.clone()),
+            None,
+            true,
+        ));
+        self.virtual_display = Some(display);
+        self
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn virtual_display(&self) -> Option<(&str, bool)> {
+        self.virtual_display
+            .as_ref()
+            .map(|display| (display.id.as_str(), display.window_manager_missing()))
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     pub fn platform() -> Self {
         Self::absent()
     }
@@ -270,6 +343,38 @@ impl Screen {
     /// Recheck capture permission at each report without listing displays.
     pub fn probe(&self) -> Option<Result<(), Fault>> {
         self.source.as_deref().map(|source| source.ready())
+    }
+
+    pub fn capability(&self, input: bool) -> probe::Verdict {
+        match &self.backend {
+            Backend::Injected => probe::injected(self.probe(), self.observer.is_some(), input),
+            #[cfg(target_os = "macos")]
+            Backend::Mac => probe::macos_verdict(&probe::macos::System, input),
+            #[cfg(target_os = "linux")]
+            Backend::X11(selected) => self.linux_capability(selected.clone(), input),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn linux_capability(&self, selected: Option<String>, input: bool) -> probe::Verdict {
+        let virtual_display = self.virtual_display();
+        let mut verdict = probe::linux_ready(
+            &probe::linux::System,
+            &probe::Display {
+                kind: "console",
+                id: selected,
+                isolated: virtual_display.is_some(),
+            },
+            input,
+            probe::capture_grant(self.probe()),
+        );
+        if virtual_display.is_some_and(|(_, missing)| missing) {
+            verdict.blockers.push(probe::Blocker {
+                kind: "window_manager_missing",
+            });
+            verdict.verdict = "partial";
+        }
+        verdict
     }
 
     pub fn retained(&self) -> usize {

@@ -98,16 +98,6 @@ pub struct Native {
     prepared: Option<Vec<(u16, String)>>,
 }
 
-pub fn open() -> Result<Native, String> {
-    let driver = Native::default();
-    if !driver.permitted() {
-        return Err("accessibility permission denied".to_owned());
-    }
-    CGEventSource::new(CGEventSourceStateID::Private)
-        .map_err(|()| "event source unavailable".to_owned())?;
-    Ok(driver)
-}
-
 fn convert(command: &Command, keys: Option<&[(u16, String)]>) -> Result<CGEvent, String> {
     let source = CGEventSource::new(CGEventSourceStateID::Private)
         .map_err(|()| "event source unavailable".to_owned())?;

@@ -1,7 +1,12 @@
 {
   "machineId": "mac-0",
   "reportedAt": 1,
-  "screen": { "permission": "granted" },
+  "screen": {
+    "verdict": "available",
+    "blockers": [],
+    "display": { "kind": "console", "isolated": false },
+    "grants": { "capture": true, "accessibility": true, "input": true }
+  },
   "load": {
     "loadAvg1": 0.5,
     "memoryAvailableBytes": 1024,

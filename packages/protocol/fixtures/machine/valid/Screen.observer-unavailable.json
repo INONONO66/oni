@@ -1,0 +1,6 @@
+{
+  "verdict": "partial",
+  "blockers": [{ "kind": "observer_unavailable" }],
+  "display": { "kind": "console", "id": ":42", "isolated": false },
+  "grants": { "capture": true, "accessibility": false, "input": true }
+}

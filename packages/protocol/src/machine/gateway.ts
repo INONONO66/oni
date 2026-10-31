@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { EpochMs } from "../time.js";
-import { AttachGeneration, CapabilityId, Enrollment, Load, Peer, Resources, ScreenPermission } from "./schema.js";
-import { HumanInput, HumanInputUnavailable, Session, TransportFacts } from "./facts.js";
+import { AttachGeneration, CapabilityId, Enrollment, Load, Peer, Resources } from "./schema.js";
+import { HumanInput, Session, TransportFacts } from "./facts.js";
+import { Screen } from "./probe.js";
 
 /** The host's attached-machine projection, shared by provision and the gateway. */
 export const Info = Enrollment.extend({
@@ -14,8 +15,8 @@ export const Info = Enrollment.extend({
   generation: AttachGeneration.optional(),
   peer: Peer.optional(),
   live: z.object({
-    reportedAt: EpochMs, load: Load, screen: ScreenPermission.optional(),
-    humanInput: HumanInput.optional(), humanInputUnavailable: HumanInputUnavailable.optional(),
+    reportedAt: EpochMs, load: Load, screen: Screen.optional(),
+    humanInput: HumanInput.optional(),
     session: Session.optional(), transport: TransportFacts.optional(), stale: z.boolean(),
   }).strict().optional(),
 });

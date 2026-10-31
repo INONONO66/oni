@@ -6,6 +6,7 @@ pub mod cdp;
 pub mod code;
 pub mod computer;
 pub mod config;
+pub mod display;
 pub mod exec;
 pub mod fs;
 pub mod handlers;

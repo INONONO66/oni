@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMachineHost } from "../../../machines/test/helpers/native";
@@ -11,6 +11,10 @@ beforeAll(mclientBinary, 300_000);
 
 async function fixture(run: (mode: ReturnType<typeof createCodemode>) => Promise<void>) {
   const root = mkdtempSync(join(tmpdir(), "oc-computer-"));
+  const layout = join(root, "layout.json");
+  writeFileSync(layout, JSON.stringify({
+    displays: [{ id: 1, x: 0, y: 0, width: 32, height: 16, scale: 1, primary: true }],
+  }));
   const events = eventCollector();
   let mode: ReturnType<typeof createCodemode>;
   const host = await createMachineHost({
@@ -21,7 +25,9 @@ async function fixture(run: (mode: ReturnType<typeof createCodemode>) => Promise
     callTool: (call) => mode.callTool(call),
   });
   mode = createCodemode({ machines: host, self: "A" });
-  const client = await attachMclient({ host, events, machineId: "A", root });
+  const client = await attachMclient({
+    host, events, machineId: "A", root, computer: { layout, recorder: join(root, "input.jsonl") },
+  });
   try {
     await run(mode);
   } finally {
@@ -36,9 +42,9 @@ test("SDK handles route screen and input to the attached client", async () => {
   await fixture(async (mode) => {
     const machine = mode.getMachine("A");
     const shot = await machine.screen({});
-    expect(["ok", "refused"]).toContain(shot.status);
+    expect(shot.status).toBe("ok");
     expect(await machine.input({ captureId: "bogus", actions: [{ click: { x: 1, y: 1 } }] }))
-      .toEqual({ status: "refused", reason: "input_not_available" });
+      .toEqual({ status: "refused", reason: "stale_capture" });
   });
 }, 20_000);
 

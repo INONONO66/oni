@@ -384,7 +384,7 @@ fn probe_checks_release_contract_without_connecting() {
     let home = tempfile::tempdir().expect("home");
     let release = release_fixture(home.path());
     let path = release.to_str().expect("release path");
-    let accepted = mclient(&["probe", "--release", path, "--host-contract", "3"]);
+    let accepted = mclient(&["probe", "--release", path, "--host-contract", "4"]);
     assert_eq!(accepted.status.code(), Some(0));
     let response: serde_json::Value = serde_json::from_slice(&accepted.stdout).expect("probe");
     assert_eq!(response["status"], "compatible");

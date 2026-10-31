@@ -15,7 +15,12 @@
   },
   "live": {
     "reportedAt": 1,
-    "screen": { "permission": "denied" },
+    "screen": {
+      "verdict": "unavailable",
+      "blockers": [{ "kind": "screen_recording_denied" }],
+      "display": { "kind": "console", "isolated": false },
+      "grants": { "capture": false, "accessibility": false, "input": false }
+    },
     "load": {
       "loadAvg1": 0.5,
       "memoryAvailableBytes": 1024,

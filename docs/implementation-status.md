@@ -1,5 +1,58 @@
 # Implementation Status
 
+## #1694 screen verdict and Linux virtual display
+
+Contract v4 replaces `Report.screen.permission` with a verdict
+(`available | partial | unavailable`), typed blockers, display kind and
+isolation, and separate capture, accessibility and input grants. Host
+admission accepts v3 and v4 peers. The host folds a v3 permission heartbeat
+into v4 facts conservatively: it proves capture only, not input or observation.
+The v3 monitoring-unavailable field becomes a screen blocker; normalized reports
+and gateway rows carry no superseded top-level field. Malformed v3 reports use
+the IPC error channel; v4 reports use the typed `invalid_report` refusal.
+Neither replaces the live row. `prefer: "computer"` selects only
+machines with effective `computer.use` and reported capture and input grants, ranks available above partial,
+then isolated above console, and uses spread credit to break ties. Other
+placement preferences retain their existing order.
+
+The Linux client captures X11 root and window images through x11rb and
+injects input through XTEST. Dynamic mappings preserve both symbol levels and
+remain stable for the driver's lifetime, including after key release: server
+processing does not acknowledge application consumption. Text reserves every
+required mapping before emitting events and refuses an exhausted keycode pool
+without delivering a partial string. The original keymap is restored on driver
+drop. Reports retain the selected display and probe the serving
+capture/input connections; another server or a replacement at the same display
+number cannot certify a disconnected driver. `computer.display.kind: "xvfb"` starts an owned
+Xvfb process with an optional window manager (openbox by default when
+installed). Xvfb allocates its display through `-displayfd`; launches cannot
+inherit or restore the human session's compositor, bus or runtime bindings.
+Both app and window-manager launches clear the inherited environment before
+applying the allowlist and selected display binding.
+An isolated X11 desktop with capture, input and a live window manager
+reports available; accessibility remains false
+until observation is implemented. A console without an observer is partial.
+Availability does not bypass private-focus admission: capture-anchored input
+requires a known non-secure focused target; unavailable focus queries fail closed.
+A console's missing accessibility bus reports `no_atspi_bus`; an answering bus
+without an observer reports `observer_unavailable`. A live capture backend with
+unavailable input reports `input_backend_unavailable`, including on an isolated
+display. D-Bus connect, authentication
+and both bus checks share one cancellable 500 ms deadline; Wayland connection
+probing is bounded by the same deadline mechanism. A missing window manager
+adds `window_manager_missing`; a missing Xvfb binary refuses startup with
+`display_unavailable`. A macOS screen reports its console user, capture and
+Accessibility grants, and sleep state; it never reports isolation. Its input
+source remains offered before the Accessibility grant and checks the live
+grant before each injection, so later permission changes update the verdict
+without restarting the client.
+The Linux client test opens a real Xvfb server, captures both root and
+window PNG pixels and input through public wire handlers, and checks the
+isolated partial verdict when its manager is absent; the
+Rust CI lane installs Xvfb and openbox for that test.
+AT-SPI observation, nested Wayland, and Windows are tracked in #1700.
+Grant-dependent live acceptance remains in #1702.
+
 ## #1693 human-input and session facts
 
 The macOS client uses a listen-only session event tap to classify untagged
@@ -10,7 +63,7 @@ seconds of quiet (at most one edge per 250 ms). The optional
 `Report.humanInput` carries the last event time, source and count;
 `Report.session` carries locked and asleep booleans. If Input Monitoring
 prevents the tap, the heartbeat omits `humanInput` and includes
-`humanInputUnavailable: "input_monitoring_not_granted"`. The host retains
+`screen.blockers` containing `input_monitoring_not_granted`. The host retains
 these optional facts per attachment, exposes them in `machine_list`, and
 publishes an authenticated `machine.human_input` bus event. It makes no
 admission or lease decision from them. The app subscriber belongs to #1697.
@@ -84,15 +137,13 @@ against stale `packages/protocol/dist` previously embedded a strict host
 included the field. The host then rejected every new client heartbeat, leaving
 the self machine waiting for its first report until the boot deadline. The
 package smoke test now invokes the public `build:npm` command and boots its
-staged bundle with the real client; Linux conformance also checks the first
-report carries `screen.permission: unsupported`. Deploy the rebuilt host bundle
-before replacing a P6 self client. On the Linux host the rebuilt bundle and
-new client booted together; `machine_list` showed `self` live with screen
-permission `unsupported`.
+staged bundle with the real client; Linux conformance now checks the v4
+screen verdict and grants. At the #1682 deployment, `machine_list` showed
+`self` live with the then-current screen permission `unsupported`.
 
-## #1678 screen permission in machine reports (Lane C)
+## #1678 screen permission in machine reports (historical; superseded by #1694)
 
-New clients include `screen.permission` (`granted`, `denied`, or `unsupported`)
+The #1678 clients included `screen.permission` (`granted`, `denied`, or `unsupported`)
 on every heartbeat. The client probes `Source::ready()` without prompting or
 listing displays: success reports granted, a permission refusal reports denied,
 and no capture source on this client reports unsupported. A sleeping

@@ -3,8 +3,9 @@ import { EpochMs } from "../time.js";
 import { PlainValueSchema } from "../json.js";
 import { sha256Hex } from "../sha256.js";
 import { WindowTarget } from "./target.js";
-import { HumanInput, HumanInputUnavailable, Session, TransportFacts } from "./facts.js";
+import { HumanInput, Session, TransportFacts } from "./facts.js";
 import { InputRequestId } from "./dispatch.js";
+import { Screen } from "./probe.js";
 
 /**
  * Capability id grammar: two-plus dot-separated lowercase segments —
@@ -328,11 +329,6 @@ export const Load = z
   .strict();
 export type Load = z.infer<typeof Load>;
 
-/** Current screen-capture permission at report time, including absent sources. */
-export const ScreenPermission = z.object({
-  permission: z.enum(["granted", "denied", "unsupported"]),
-}).strict();
-
 /**
  * Daemon → host heartbeat (#1555): one per report interval after attach.
  * The host stores only the latest report per attachment and derives
@@ -344,9 +340,8 @@ export const Report = z
     reportedAt: EpochMs,
     load: Load,
     /** Absent from clients predating the screen fact; the host treats it as unknown. */
-    screen: ScreenPermission.optional(),
+    screen: Screen.optional(),
     humanInput: HumanInput.optional(),
-    humanInputUnavailable: HumanInputUnavailable.optional(),
     session: Session.optional(),
     transport: TransportFacts.optional(),
     /**
@@ -370,7 +365,7 @@ export const ReportResult = z.discriminatedUnion("status", [
   z
     .object({
       status: z.literal("refused"),
-      reason: z.enum(["machine_not_attached", "machine_mismatch"]),
+      reason: z.enum(["machine_not_attached", "machine_mismatch", "invalid_report"]),
     })
     .strict(),
 ]);

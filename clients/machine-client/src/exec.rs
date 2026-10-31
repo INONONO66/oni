@@ -257,29 +257,7 @@ async fn execute(
     if *cancelled.borrow() {
         return result(json!({"status":"cancelled"}));
     }
-    let mut command = Command::new("/bin/sh");
-    command
-        .arg("-c")
-        .arg(request.cmd.as_str())
-        .current_dir(cwd)
-        .env_clear()
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    command.process_group(0);
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::process::CommandExt;
-        let parent = nix::unistd::getpid();
-        // SAFETY: pre_exec runs in the forked child. The hook only invokes
-        // async-signal-safe syscalls, with no allocation or acquired locks.
-        unsafe {
-            command
-                .as_std_mut()
-                .pre_exec(death_guard(parent, nix::libc::SIGKILL))
-        };
-    }
+    let mut command = shell_command(&cwd, request.cmd.as_str());
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(_) => return result(json!({"status":"refused","reason":"io_error"})),
@@ -372,6 +350,33 @@ async fn execute(
                 "truncated": captured.truncated
             }))
         })
+}
+
+fn shell_command(cwd: &Path, cmd: &str) -> Command {
+    let mut command = Command::new("/bin/sh");
+    command
+        .arg("-c")
+        .arg(cmd)
+        .current_dir(cwd)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command.process_group(0);
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        let parent = nix::unistd::getpid();
+        // SAFETY: pre_exec runs in the forked child. The hook only invokes
+        // async-signal-safe syscalls, with no allocation or acquired locks.
+        unsafe {
+            command
+                .as_std_mut()
+                .pre_exec(death_guard(parent, nix::libc::SIGKILL))
+        };
+    }
+    command
 }
 
 #[cfg(test)]

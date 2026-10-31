@@ -1,0 +1,20 @@
+{
+  "machineId": "w-1",
+  "reportedAt": 1,
+  "load": { "loadAvg1": 0, "memoryAvailableBytes": 0, "inFlight": 0 },
+  "screen": { "permission": "granted" },
+  "humanInputUnavailable": "input_monitoring_not_granted",
+  "session": { "locked": false, "asleep": false },
+  "transport": { "lastFailure": null, "attempts": 0 },
+  "streams": [
+    {
+      "streamId": "private-stream",
+      "private": true,
+      "fps": 1,
+      "bytesPerSecond": 64,
+      "encodeMs": 1,
+      "droppedFrames": 0,
+      "retainedBytes": 256
+    }
+  ]
+}
