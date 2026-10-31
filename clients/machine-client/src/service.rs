@@ -275,13 +275,19 @@ pub fn request_screen() {
 }
 
 #[cfg(target_os = "macos")]
+pub fn screen_granted() -> bool {
+    // SAFETY: this argument-free CoreGraphics preflight has no preconditions.
+    unsafe { CGPreflightScreenCaptureAccess() }
+}
+
+#[cfg(target_os = "macos")]
 pub fn screen(no_open: bool, binary: &Path) -> io::Result<String> {
     if !no_open {
         let _ = Command::new("open")
             .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
             .status();
     }
-    Ok(format!("screen recording: the service requests it on first start — allow the macOS prompt, or add {} under System Settings > Privacy & Security > Screen Recording, then run: launchctl kickstart -k gui/{}/ai.oni.machine", binary.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "non-UTF8 service path"))?, nix::unistd::getuid()))
+    Ok(format!("screen recording: the service requests it on first start — allow the macOS prompt, or add {} under System Settings > Privacy & Security > Screen Recording; the service restarts itself once the grant lands", binary.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "non-UTF8 service path"))?))
 }
 
 #[cfg(not(target_os = "macos"))]

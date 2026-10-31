@@ -19,6 +19,8 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::{JoinError, JoinSet};
 
+#[cfg(target_os = "macos")]
+use crate::grant_restart::{Decision as GrantDecision, GrantRestart};
 use crate::{
     agent::{hook, launcher::HookTarget},
     budget::{self, Budget, BudgetAction, Metrics, Pressure},
@@ -59,6 +61,8 @@ pub enum AttachError {
     Terminal(String),
     #[error("memory budget exceeded")]
     MemoryBudget,
+    #[error("screen grant observed, restarting for it to apply")]
+    GrantRestart,
     #[error(transparent)]
     Computer(#[from] crate::computer::ComputerError),
     #[error(transparent)]
@@ -82,6 +86,7 @@ impl AttachError {
                 | FailureClass::Superseded,
             ) => 3,
             Self::MemoryBudget => 4,
+            Self::GrantRestart => 75,
             _ => 2,
         }
     }
@@ -414,12 +419,21 @@ pub struct Attachment<'a, P: ?Sized> {
     human: InputWatch,
     input_producer: InputProducer,
     watch_start: Instant,
+    #[cfg(target_os = "macos")]
+    grant_restart: Option<GrantRestart>,
     pub last_failure: Option<FailureClass>,
     pub attempts: u64,
 }
 
 fn join_failure(error: JoinError) -> AttachError {
     AttachError::Terminal(error.to_string())
+}
+
+fn classify_attach_error(error: AttachError) -> Result<FailureClass, AttachError> {
+    match error {
+        AttachError::MemoryBudget | AttachError::GrantRestart => Err(error),
+        error => Ok(classes::classify(&error)),
+    }
 }
 
 async fn notify_human_edge(
@@ -465,6 +479,8 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
             human,
             input_producer,
             watch_start,
+            #[cfg(target_os = "macos")]
+            grant_restart: None,
             last_failure: None,
             attempts: 0,
         })
@@ -619,6 +635,8 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
     ) -> Result<(), AttachError> {
         let mut tick = tokio::time::interval(self.hooks.heartbeat);
         let mut reports = JoinSet::new();
+        #[cfg(target_os = "macos")]
+        let mut restart_after_report = false;
         let mut probes = JoinSet::new();
         let mut uplinks = JoinSet::new();
         let mut frames = client.frames();
@@ -634,9 +652,15 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         tokio::pin!(silence);
         loop {
             tokio::select! {
-                _ = client.closed() => break Ok(()),
+                _ = client.closed() => {
+                    #[cfg(target_os = "macos")]
+                    if restart_after_report { break Err(AttachError::GrantRestart); }
+                    break Ok(());
+                },
                 () = &mut silence => {
                     self.last_failure = Some(FailureClass::Timeout);
+                    #[cfg(target_os = "macos")]
+                    if restart_after_report { break Err(AttachError::GrantRestart); }
                     break Ok(());
                 },
                 Some((at, source)) = self.human.next_edge() =>
@@ -657,15 +681,43 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
                             oni_protocol::decode::<ReportResult>(response)?,
                             ReportResult::Accepted
                         ) {
+                            #[cfg(target_os = "macos")]
+                            if restart_after_report { break Err(AttachError::GrantRestart); }
                             break Ok(());
                         }
+                    }
+                    #[cfg(target_os = "macos")]
+                    if restart_after_report {
+                        // The tick guard permits only one report in flight.
+                        break Err(AttachError::GrantRestart);
                     }
                 }
                 Some(finished) = uplinks.join_next(), if !uplinks.is_empty() => {
                     finished.map_err(join_failure)?;
                 }
                 Some(finished) = probes.join_next(), if !probes.is_empty() => {
-                    let report = self.beat(finished.map_err(join_failure)?)?;
+                    #[cfg(target_os = "macos")]
+                    let mut screen = finished.map_err(join_failure)?;
+                    #[cfg(not(target_os = "macos"))]
+                    let screen = finished.map_err(join_failure)?;
+                    #[cfg(target_os = "macos")]
+                    if let Some(restart) = &mut self.grant_restart {
+                        match restart.tick(&mut screen, crate::service::screen_granted, now_ms()) {
+                            GrantDecision::Restart => {
+                                eprintln!("screen grant observed, restarting for it to apply");
+                                restart_after_report = true;
+                            }
+                            GrantDecision::None | GrantDecision::Bound => {}
+                        }
+                    }
+                    let report = match self.beat(screen) {
+                        Ok(report) => report,
+                        Err(error) => {
+                            #[cfg(target_os = "macos")]
+                            if restart_after_report { break Err(AttachError::GrantRestart); }
+                            return Err(error);
+                        }
+                    };
                     let caller = client.caller();
                     reports.spawn(async move {
                         caller.call_with_timeout(
@@ -692,7 +744,33 @@ pub async fn run_with_events(
     probe: &dyn Probe,
     events: &mut mpsc::UnboundedReceiver<Event>,
 ) -> Result<Infallible, AttachError> {
+    run_with_grant_events(
+        config,
+        directory,
+        capabilities,
+        hooks,
+        probe,
+        events,
+        #[cfg(target_os = "macos")]
+        None,
+    )
+    .await
+}
+
+async fn run_with_grant_events(
+    config: &ClientConfig,
+    directory: &Path,
+    capabilities: &[String],
+    hooks: &Hooks,
+    probe: &dyn Probe,
+    events: &mut mpsc::UnboundedReceiver<Event>,
+    #[cfg(target_os = "macos")] grant_restart: Option<GrantRestart>,
+) -> Result<Infallible, AttachError> {
     let mut attachment = Attachment::new(config, directory, capabilities, hooks, probe)?;
+    #[cfg(target_os = "macos")]
+    {
+        attachment.grant_restart = grant_restart;
+    }
     let mut retry = Retry::default();
     let mut random = RuntimeRandom;
     let clock = tokio::time::Instant::now();
@@ -731,8 +809,7 @@ pub async fn run_with_events(
             Ok(Outcome::Refused | Outcome::Unreachable) => attachment
                 .last_failure
                 .unwrap_or(FailureClass::RemoteUnavailable),
-            Err(error @ AttachError::MemoryBudget) => return Err(error),
-            Err(error) => classes::classify(&error),
+            Err(error) => classify_attach_error(error)?,
         };
         let next = retry.event(clock.elapsed(), Event::Failed(class), &mut random);
         attachment.last_failure = retry.last_failure;
@@ -803,7 +880,7 @@ pub async fn run_service(config_path: &Path) -> Result<(), AttachError> {
 }
 
 fn service_reprobe(error: &AttachError) -> bool {
-    !matches!(error, AttachError::MemoryBudget)
+    !matches!(error, AttachError::MemoryBudget | AttachError::GrantRestart)
         && matches!(
             classes::classify(error),
             FailureClass::Authentication | FailureClass::Configuration | FailureClass::Superseded
@@ -890,7 +967,11 @@ async fn run_default_with_screen(
                 let outcome = attachment.once().await;
                 return once_result(outcome, attachment.last_failure);
             }
-            match run_with_events(&config, directory, service.capabilities(), &hooks, &report::SystemProbe, &mut events).await {
+            match run_with_grant_events(
+                &config, directory, service.capabilities(), &hooks, &report::SystemProbe, &mut events,
+                #[cfg(target_os = "macos")]
+                request_screen.then(|| GrantRestart::new(config::root().join("state/grant-restarts.json"))),
+            ).await {
                 Ok(never) => match never {},
                 Err(error) => Err(error),
             }
@@ -963,8 +1044,8 @@ mod tests {
     };
 
     use super::{
-        await_next, join_failure, notify_human_edge, once_result, service_reprobe, AttachError,
-        Outcome, RuntimeRandom,
+        await_next, classify_attach_error, join_failure, notify_human_edge, once_result,
+        service_reprobe, AttachError, Outcome, RuntimeRandom,
     };
     use crate::transport::{
         classes::FailureClass,
@@ -1088,6 +1169,20 @@ mod tests {
                 .exit_code(),
             4
         );
+    }
+
+    #[test]
+    fn grant_restart_bypasses_service_reprobe() {
+        assert!(!service_reprobe(&AttachError::GrantRestart));
+        assert_eq!(AttachError::GrantRestart.exit_code(), 75);
+    }
+
+    #[test]
+    fn grant_restart_exits_retry_loop_without_classification() {
+        assert!(matches!(
+            classify_attach_error(AttachError::GrantRestart),
+            Err(AttachError::GrantRestart)
+        ));
     }
 
     #[test]

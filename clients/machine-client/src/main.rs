@@ -28,6 +28,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(
+        after_help = "Manual service restart: launchctl kickstart -k gui/<uid>/ai.oni.machine"
+    )]
     Join(Box<JoinOptions>),
     Status {
         #[arg(long)]
@@ -116,9 +119,13 @@ async fn main() -> ExitCode {
                 _ => serde_json::json!({"reason": error.reason()}),
             };
             eprintln!("{refusal}");
-            ExitCode::from(error.exit_code())
+            exit_error(&error, ExitCode::from)
         }
     }
+}
+
+fn exit_error(error: &AttachError, exit: impl FnOnce(u8) -> ExitCode) -> ExitCode {
+    exit(error.exit_code())
 }
 
 fn version(json: bool) {
@@ -642,5 +649,16 @@ mod tests {
             }),
             format!("pin: {VERSION} (unpinned)")
         );
+    }
+
+    #[test]
+    fn grant_restart_exits_with_tempfail_through_injected_exit() {
+        let mut code = None;
+        let status = exit_error(&AttachError::GrantRestart, |value| {
+            code = Some(value);
+            ExitCode::from(value)
+        });
+        assert_eq!(code, Some(75));
+        assert_eq!(status, ExitCode::from(75));
     }
 }

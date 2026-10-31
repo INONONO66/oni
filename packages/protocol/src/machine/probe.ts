@@ -8,6 +8,7 @@ export const ScreenBlocker = z.object({
     "no_atspi_bus", "observer_unavailable", "session_zero", "window_manager_missing",
     "input_monitoring_not_granted", "no_screen_backend", "input_backend_unavailable",
     "accessibility_unavailable",
+    "restart_bound",
   ]),
   detail: z.string().optional(),
 }).strict();
