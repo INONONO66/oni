@@ -258,12 +258,16 @@ pub fn switch(link: &Path, target: &Path) -> io::Result<()> {
 pub fn publish_executable(layout: &Layout) -> io::Result<()> {
     let executable = layout.executable();
     let staging = executable.with_file_name(format!(".mclient.{}", std::process::id()));
-    match fs::remove_file(&staging) {
-        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-        _ => {}
-    }
+    remove_if_present(&staging)?;
     fs::copy(layout.current(), &staging)?;
     fs::rename(staging, executable)
+}
+
+fn remove_if_present(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
+    }
 }
 
 fn run(program: &Path, args: &[&str]) -> Result<Vec<u8>, UpdateError> {
@@ -489,21 +493,13 @@ pub fn restart(argv: &[String]) -> Result<(), UpdateError> {
 
 pub fn rollback(layout: &Layout, current: Option<&Path>, pin: Option<&Pin>) -> io::Result<()> {
     match current {
-        Some(binary) => {
-            switch(&layout.current(), binary)?;
-            if cfg!(target_os = "macos") {
-                publish_executable(layout)?;
-            }
-        }
-        None => {
-            fs::remove_file(layout.current())?;
-            if cfg!(target_os = "macos") {
-                match fs::remove_file(layout.executable()) {
-                    Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-                    _ => {}
-                }
-            }
-        }
+        Some(binary) => switch(&layout.current(), binary)?,
+        None => fs::remove_file(layout.current())?,
+    }
+    #[cfg(target_os = "macos")]
+    match current {
+        Some(_) => publish_executable(layout)?,
+        None => remove_if_present(&layout.executable())?,
     }
     match pin {
         Some(pin) => save_pin(&layout.client(), pin),

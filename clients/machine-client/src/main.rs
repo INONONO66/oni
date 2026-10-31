@@ -202,9 +202,8 @@ async fn update(from: Option<String>, file: Option<PathBuf>) -> Result<(), Attac
                 release::update(&layout, document, &base, release::platform(OS, ARCH), host)
             })
             .and_then(|release| {
-                if cfg!(target_os = "macos") {
-                    release::publish_executable(&layout)?;
-                }
+                #[cfg(target_os = "macos")]
+                release::publish_executable(&layout)?;
                 release::restart(&release::restart_argv(OS, nix::unistd::getuid().as_raw()))?;
                 Ok(release)
             }),
@@ -274,22 +273,12 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
     let previous = std::fs::read_link(layout.current()).ok();
     let previous_pin = release::load_pin(&layout.client())?;
     let (binary, pin) = selected_binary(&layout, &std::env::current_exe()?, hosted)?;
-    let service_binary = if cfg!(target_os = "macos") {
-        release::publish_executable(&layout).map_err(|error| {
-            recover_join_install(
-                &layout,
-                previous.as_deref(),
-                previous_pin.as_ref(),
-                options.no_service,
-                error,
-            )
-        })?;
-        layout.executable()
-    } else {
-        binary
-    };
-    let state =
-        service::install(options, &config::home(), &path, &service_binary).map_err(|error| {
+    let (service_binary, state) = service_binary(&layout, binary)
+        .and_then(|service_binary| {
+            let state = service::install(options, &config::home(), &path, &service_binary)?;
+            Ok((service_binary, state))
+        })
+        .map_err(|error| {
             recover_join_install(
                 &layout,
                 previous.as_deref(),
@@ -303,6 +292,19 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
     println!("{}", service::screen(options.no_open, &service_binary)?);
     println!("{}", pin_line(&pin));
     Ok(())
+}
+
+/// The binary the service runs: on macOS the published real path, so TCC
+/// grants survive version switches; elsewhere the selected versioned binary.
+#[cfg(target_os = "macos")]
+fn service_binary(layout: &Layout, _selected: PathBuf) -> std::io::Result<PathBuf> {
+    release::publish_executable(layout)?;
+    Ok(layout.executable())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn service_binary(_layout: &Layout, selected: PathBuf) -> std::io::Result<PathBuf> {
+    Ok(selected)
 }
 
 fn selected_binary(
