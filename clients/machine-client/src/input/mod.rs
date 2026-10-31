@@ -722,8 +722,15 @@ impl Input {
             Some(Event::Move { x, y, .. }) => Some((*x, *y)),
             _ => None,
         };
-        if !matches!(anchor, Anchor::Ref { .. }) && screen.input_private(point).unwrap_or(true) {
-            return Err(refuse("private"));
+        if !matches!(anchor, Anchor::Ref { .. }) {
+            match screen.input_private(point) {
+                Ok(true) => return Err(refuse("private")),
+                Err(crate::screen::Fault::AccessibilityUnavailable) => {
+                    return Err(refuse("accessibility_unavailable"));
+                }
+                Err(_) => return Err(refuse("private")),
+                Ok(false) => {}
+            }
         }
         if !driver.permitted() {
             return Err(refuse("permission_denied"));

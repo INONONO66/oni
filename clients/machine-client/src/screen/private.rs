@@ -20,16 +20,25 @@ pub fn focused(walk: &Walk) -> Option<Focused> {
     })
 }
 
-pub fn focus_is_secure(focused: Result<Option<Focused>, Fault>) -> bool {
+#[derive(Debug, PartialEq, Eq)]
+pub enum FocusState {
+    Secure,
+    NotSecure,
+    Unknown(Fault),
+}
+
+pub fn focus_state(focused: Result<Option<Focused>, Fault>) -> FocusState {
     match focused {
-        Err(_) => true,
-        Ok(None) => false,
-        Ok(Some(focused)) => focused.secure || focused.role == "AXSecureTextField",
+        Err(fault) => FocusState::Unknown(fault),
+        Ok(Some(focused)) if focused.secure || focused.role == "AXSecureTextField" => {
+            FocusState::Secure
+        }
+        Ok(_) => FocusState::NotSecure,
     }
 }
 
-pub fn focus_admits_input(focused: &Result<Option<Focused>, Fault>) -> bool {
-    matches!(focused, Ok(Some(focused)) if !focused.secure && focused.role != "AXSecureTextField")
+pub fn focus_admits_input(focused: Option<Focused>) -> bool {
+    matches!(focused, Some(ref field) if !field.secure && field.role != "AXSecureTextField")
 }
 
 pub struct FocusRefresh {
@@ -113,8 +122,67 @@ pub fn overlaps(left: Frame, right: Frame) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
     use super::*;
-    use crate::screen::ax::{Attributes, Node};
+    use crate::{
+        input::{recorder::Recorder, Input},
+        screen::{
+            ax::{self, Attributes, Node, WindowIdentity},
+            fixture::Fixture,
+            Screen, Window,
+        },
+    };
+    use oni_protocol::{InputWriteRequest, ScreenCaptureRequest, ScreenReadRequest};
+    use serde_json::json;
+
+    struct UnreadableFocus(Arc<AtomicBool>);
+
+    impl ax::Observer for UnreadableFocus {
+        fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
+            Ok(vec![WindowIdentity {
+                pid: 7,
+                window_id: 9,
+                owner_pid: 7,
+                title: "Editor".into(),
+                app: ax::AppIdentity {
+                    bundle_id: None,
+                    path: "/fixture/editor".into(),
+                },
+                token: 0,
+                origin: (0, 0),
+                minimized: false,
+            }])
+        }
+
+        fn focused(&self, _: &WindowIdentity) -> Result<Option<Focused>, Fault> {
+            if self.0.load(Ordering::Relaxed) {
+                Err(Fault::Permission)
+            } else {
+                Ok(Some(Focused {
+                    role: "AXTextField".into(),
+                    secure: false,
+                }))
+            }
+        }
+
+        fn walk(&self, _: &WindowIdentity, _: &ax::Bounds) -> Result<Walk, Fault> {
+            Err(Fault::Permission)
+        }
+
+        fn act(
+            &self,
+            _: &WindowIdentity,
+            _: &[ax::Segment],
+            _: ax::Admit<'_>,
+            _: &ax::Action,
+        ) -> Result<(), ax::ActFault> {
+            Err(ax::ActFault::Permission)
+        }
+    }
 
     #[test]
     fn focused_reads_the_named_node_and_refuses_an_absent_focus() {
@@ -147,16 +215,20 @@ mod tests {
     }
 
     #[test]
-    fn secure_focus_fails_closed() {
-        for (focused, private, admitted) in [
-            (Err(Fault::Permission), true, false),
-            (Ok(None), false, false),
+    fn focus_distinguishes_secure_plain_and_unknown() {
+        for (focused, state, admitted) in [
+            (
+                Err(Fault::Permission),
+                FocusState::Unknown(Fault::Permission),
+                false,
+            ),
+            (Ok(None), FocusState::NotSecure, false),
             (
                 Ok(Some(Focused {
                     role: "AXTextField".into(),
                     secure: true,
                 })),
-                true,
+                FocusState::Secure,
                 false,
             ),
             (
@@ -164,7 +236,7 @@ mod tests {
                     role: "AXSecureTextField".into(),
                     secure: false,
                 })),
-                true,
+                FocusState::Secure,
                 false,
             ),
             (
@@ -172,13 +244,88 @@ mod tests {
                     role: "AXButton".into(),
                     secure: false,
                 })),
-                false,
+                FocusState::NotSecure,
                 true,
             ),
         ] {
-            assert_eq!(focus_is_secure(focused.clone()), private);
-            assert_eq!(focus_admits_input(&focused), admitted);
+            assert_eq!(focus_state(focused.clone()), state);
+            assert_eq!(focus_admits_input(focused.ok().flatten()), admitted);
         }
+    }
+
+    #[test]
+    fn unreadable_focus_keeps_capture_unmasked_and_refuses_input_as_accessibility() {
+        let mut source = Fixture::display(8, 8, 1.0);
+        source.windows.push(Window {
+            id: 9,
+            display: 1,
+            title: "Editor".into(),
+            owner: "fixture".into(),
+            pid: Some(7),
+            app: None,
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 8,
+        });
+        let mut baseline_source = source.clone();
+        baseline_source.windows.clear();
+        let baseline = Screen::new(Box::new(baseline_source), 1);
+        let unreadable = Arc::new(AtomicBool::new(true));
+        let screen = Screen::new(Box::new(source), 1)
+            .observing(Box::new(UnreadableFocus(Arc::clone(&unreadable))));
+        let capture: ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target": {"kind":"display","display":1},
+            "encoding": {"format":"png"}
+        }))
+        .expect("capture request");
+        let display = screen.capture(&capture);
+        assert_eq!(display["status"], "ok");
+        assert_eq!(display["accessibilityUnavailable"], true);
+        let window: ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target": {"kind":"window","windowId":"9"},
+            "encoding": {"format":"png"}
+        }))
+        .expect("window request");
+        assert_eq!(
+            screen.capture(&window),
+            json!({"status":"refused","reason":"accessibility_unavailable"})
+        );
+        let read: ScreenReadRequest = oni_protocol::decode(json!({})).expect("read request");
+        let captured = screen.read(&read);
+        let unmasked = baseline.read(&read);
+        assert_eq!(captured["status"], "ok");
+        assert_eq!(captured["png"], unmasked["png"]);
+        assert_eq!(captured["accessibilityUnavailable"], true);
+        let verdict = screen.capability(true);
+        assert!(!verdict.grants.accessibility);
+        assert!(verdict
+            .blockers
+            .iter()
+            .any(|blocker| blocker.kind == "accessibility_unavailable"));
+        assert_eq!(
+            screen.input_private(None),
+            Err(Fault::AccessibilityUnavailable)
+        );
+        assert_eq!(
+            screen.input_private(Some((4, 4))),
+            Err(Fault::AccessibilityUnavailable)
+        );
+        let input: InputWriteRequest = oni_protocol::decode(json!({
+            "captureId": captured["captureId"],
+            "actions": [{"key": {"name": "A"}}]
+        }))
+        .expect("input request");
+        let recorder = Recorder::default();
+        let result = Input::new(recorder.clone()).write(&screen, &input);
+        assert_eq!(
+            result,
+            json!({"status":"refused","reason":"accessibility_unavailable"})
+        );
+        assert!(recorder.events().is_empty());
+        unreadable.store(false, Ordering::Relaxed);
+        assert_eq!(screen.window_private(9), Ok(false));
+        assert!(screen.capability(true).grants.accessibility);
     }
 
     #[test]

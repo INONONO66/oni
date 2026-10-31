@@ -153,15 +153,15 @@ impl Observer for Fake {
 }
 
 #[test]
-fn unreadable_focus_returns_empty_private_observation_without_tree_walk() {
+fn unreadable_focus_refuses_observation_without_tree_walk() {
     let fake = Fake::new(tree());
     *fake.focus_fault.lock().expect("lock") = Some(Fault::Permission);
     *fake.walk_fault.lock().expect("lock") = Some(Fault::Failed("walk must not run".into()));
     let observations = Observations::default();
-    let result = observe(&observations, &fake, None);
-    assert_eq!(result["status"], "ok");
-    assert_eq!(result["private"], true);
-    assert_eq!(result["elements"], json!([]));
+    assert_eq!(
+        shoot(&observations, &fake, &request(None, None)),
+        Err(Refusal::AccessibilityUnavailable)
+    );
 }
 
 #[test]
@@ -348,7 +348,7 @@ fn window_capture_guard_propagates_observer_failure() {
 }
 
 #[test]
-fn display_capture_and_stream_propagate_mask_observer_failure() {
+fn display_capture_reports_observer_fault_while_stream_refuses() {
     let fake = Fake::new(tree());
     *fake.windows.lock().expect("lock") = Err(Fault::Failed("observer unavailable".into()));
     let source = crate::screen::fixture::Fixture {
@@ -372,14 +372,14 @@ fn display_capture_and_stream_propagate_mask_observer_failure() {
     }))
     .expect("capture");
     let result = screen.capture(&request);
-    assert_eq!(result["reason"], "capture_failed");
-    assert_eq!(result["message"], "observer unavailable");
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["accessibilityUnavailable"], true);
 
     let source = serde_json::from_value(json!({"kind":"display","display":1})).expect("source");
     let mut frame = Vec::new();
     assert_eq!(
         screen.frame_private(&source, 32, &mut frame),
-        Err(Fault::Failed("observer unavailable".into()))
+        Err(Fault::AccessibilityUnavailable)
     );
 }
 
@@ -446,6 +446,9 @@ fn private_edge_lookup_failure_refuses_before_any_edge() {
         screen.private_edges(),
         Err(Fault::Failed("permission_denied".into()))
     );
+    assert!(!screen.capability(true).grants.accessibility);
+    assert_eq!(screen.private_edges(), Ok(vec![]));
+    assert!(screen.capability(true).grants.accessibility);
 }
 
 #[test]

@@ -83,6 +83,7 @@
             "window_busy",
             "request_busy",
             "private",
+            "accessibility_unavailable",
             "lease_missing",
             "lease_expired",
             "target_unbound",

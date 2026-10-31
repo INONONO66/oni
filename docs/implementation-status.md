@@ -422,10 +422,14 @@ valid/invalid fixtures cover each shape.
 
 **Client.** `screen/private.rs` owns the cfg-free focus folds,
 epoch-scoped transition state, 250 ms refresh cadence, rectangle intersection
-and pixel blanking. A failed focus query is private; an absent focused element
-is not. Text and key input require a known non-secure focus, with exactly one
-focused window for un-aimed input. Observe resolves the window and epoch before
-returning an empty private result that issues no refs. Ref actions require an
+and pixel blanking. A failed focus query is an accessibility fault, not a
+private window: display capture keeps its unmasked pixels and reports
+`accessibilityUnavailable`, input refuses `accessibility_unavailable`, and
+the capability verdict marks accessibility unavailable until a successful
+walk. An absent focused element is not private. Text and key input require a
+known non-secure focus, with exactly one focused window for un-aimed input.
+Observe resolves the window and epoch before returning an empty result for
+secure focus that issues no refs; AX lookup faults refuse observation. Ref actions require an
 issued ref and check the node's secure attribute or secure-text role;
 ref-targeted pointers check the window's current private focus. Window capture
 refuses before capture; capture-anchored input refuses before dispatch.

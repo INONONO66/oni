@@ -11,7 +11,7 @@ use super::{Notification, Sample, Subscription, Unsupported};
 use crate::screen::{
     ax::{Bounds, Observer},
     observe,
-    private::focus_is_secure,
+    private::{focus_state, FocusState},
 };
 use serde_json::Value;
 
@@ -94,7 +94,11 @@ pub fn sample(
         .iter()
         .find(|row| row.pid == pid && row.window_id == window)
         .ok_or(observe::Refusal::WindowNotFound)?;
-    let private = focus_is_secure(observer.focused(target));
+    let private = match focus_state(observer.focused(target)) {
+        FocusState::Secure => true,
+        FocusState::NotSecure => false,
+        FocusState::Unknown(_) => return Err(observe::Refusal::AccessibilityUnavailable),
+    };
     if private {
         return Ok(Sample {
             windows,
