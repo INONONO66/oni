@@ -10,6 +10,8 @@ pub mod config;
 pub mod display;
 pub mod exec;
 pub mod fs;
+#[cfg(any(target_os = "macos", test))]
+mod grant_restart;
 pub mod handlers;
 pub mod input;
 pub mod pty;
