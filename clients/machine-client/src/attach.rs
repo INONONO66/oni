@@ -1163,7 +1163,7 @@ mod tests {
     async fn pending_routed_call_fails_when_attach_connection_closes() {
         let (ready, attached) = watch::channel(false);
         let service = gated(
-            handler(|_, _| async { Ok(json!({"status":"completed"})) }),
+            super::refuse_inbound(),
             std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             attached,
