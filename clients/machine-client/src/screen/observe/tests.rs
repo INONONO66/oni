@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -19,6 +20,8 @@ struct Fake {
     swap: Mutex<Option<Vec<Node>>>,
     /// Holds window 9's walk: signals entry, then waits for release.
     hold: Mutex<Option<(Sender<()>, Receiver<()>)>>,
+    walks: AtomicUsize,
+    resolves: AtomicUsize,
 }
 
 impl Fake {
@@ -33,6 +36,8 @@ impl Fake {
             acted: Mutex::new(Vec::new()),
             swap: Mutex::new(None),
             hold: Mutex::new(None),
+            walks: AtomicUsize::new(0),
+            resolves: AtomicUsize::new(0),
         }
     }
 }
@@ -59,6 +64,12 @@ fn resolve<'a>(nodes: &'a [Node], path: &str) -> Option<&'a Node> {
 }
 
 impl Observer for Fake {
+    fn window_size(&self, _: &WindowIdentity) -> Result<(i64, i64), Fault> {
+        Ok((1024, 1024))
+    }
+    fn hit_test(&self, _: &WindowIdentity, _: &[Segment], _: (i64, i64)) -> Result<Hit, Fault> {
+        Ok(Hit::Target)
+    }
     fn focused(
         &self,
         _: &WindowIdentity,
@@ -89,6 +100,7 @@ impl Observer for Fake {
     }
 
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault> {
+        self.walks.fetch_add(1, Ordering::SeqCst);
         if window.window_id == 9 {
             if let Some((entered, release)) = self.hold.lock().expect("lock").take() {
                 entered.send(()).expect("entered");
@@ -107,6 +119,17 @@ impl Observer for Fake {
             focused,
             complete,
         })
+    }
+
+    fn resolve(&self, _: &WindowIdentity, path: &[Segment]) -> Result<Option<Attributes>, Fault> {
+        self.resolves.fetch_add(1, Ordering::SeqCst);
+        let path = path
+            .iter()
+            .map(Segment::to_string)
+            .collect::<Vec<_>>()
+            .join("/");
+        let nodes = self.walk.lock().expect("lock");
+        Ok(resolve(&nodes, &path).map(|node| node.attributes.clone()))
     }
 
     fn act(
@@ -136,6 +159,7 @@ impl Observer for Fake {
         let path: Vec<String> = path.iter().map(Segment::to_string).collect();
         let path = path.join("/");
         let nodes = self.walk.lock().expect("lock").clone();
+        self.resolves.fetch_add(1, Ordering::SeqCst);
         let found = resolve(&nodes, &path).ok_or(ActFault::NotFound)?;
         if !admit(&found.attributes) {
             return Err(ActFault::NotFound);
@@ -644,6 +668,12 @@ fn node(role: &str, label: Option<&str>, parent: Option<usize>) -> Node {
             role: role.into(),
             label: label.map(Into::into),
             actions: vec!["AXPress".into()],
+            frame: Frame {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
             ..Attributes::default()
         },
         parent,
@@ -681,6 +711,7 @@ fn act(observation: &str, reference: &str, action: Action) -> Act {
         observation: observation.into(),
         reference: reference.into(),
         action,
+        wait_ms: 0,
     }
 }
 
@@ -835,7 +866,7 @@ fn a_full_observation_names_its_lineage_window_and_focus() {
     assert_eq!(
         body["elements"][2],
         json!({"ref": "AXGroup[0]/AXCheckBox[0]", "role": "AXCheckBox", "label": "Bold",
-            "actions": ["AXPress"], "frame": {"x": 0, "y": 0, "width": 0, "height": 0},
+            "actions": ["AXPress"], "frame": {"x": 0, "y": 0, "width": 1, "height": 1},
             "parent": "AXGroup[0]", "secure": false})
     );
 }
@@ -1171,6 +1202,62 @@ fn ambiguous_siblings_and_their_descendants_get_no_ref() {
 }
 
 #[test]
+fn identifiers_address_ten_unlabeled_siblings_without_a_fresh_action_walk() {
+    let nodes = (0..10)
+        .map(|index| {
+            let mut row = node("AXRow", None, None);
+            row.attributes.identifier = Some(format!("row-{index}"));
+            row
+        })
+        .collect();
+    let fake = Fake::new(nodes);
+    let observations = Observations::default();
+    let body = observe(&observations, &fake, None);
+    for index in 0..10 {
+        assert_eq!(body["elements"][index]["ref"], format!("AXRow[{index}]"));
+        assert_eq!(body["elements"][index]["id"], format!("row-{index}"));
+    }
+    let walks = fake.walks.load(Ordering::SeqCst);
+    let resolves = fake.resolves.load(Ordering::SeqCst);
+    observations
+        .act(&fake, &act("o1", "AXRow[5]", Action::Press))
+        .expect("identified row");
+    assert_eq!(fake.walks.load(Ordering::SeqCst), walks);
+    assert_eq!(fake.resolves.load(Ordering::SeqCst), resolves + 2);
+}
+
+#[test]
+fn identified_row_relocates_after_a_swap_and_refuses_an_absent_identifier() {
+    let mut first = node("AXRow", None, None);
+    first.attributes.identifier = Some("first".into());
+    let mut second = node("AXRow", None, None);
+    second.attributes.identifier = Some("second".into());
+    let fake = Fake::new(vec![first, second]);
+    let observations = Observations::default();
+    observe(&observations, &fake, None);
+    fake.walk.lock().expect("lock").swap(0, 1);
+    observations
+        .act(&fake, &act("o1", "AXRow[0]", Action::Press))
+        .expect("relocated");
+    assert_eq!(fake.acted.lock().expect("lock")[0].0, "AXRow[1] ");
+    fake.walk.lock().expect("lock")[1].attributes.identifier = Some("replacement".into());
+    assert_eq!(
+        observations.act(&fake, &act("o1", "AXRow[0]", Action::Press)),
+        Err(Refusal::RefNotFound)
+    );
+    fake.walk.lock().expect("lock")[1].attributes.identifier = Some("first".into());
+    fake.walk.lock().expect("lock")[1].attributes.label = Some("different".into());
+    let mut duplicate = node("AXRow", None, None);
+    duplicate.attributes.identifier = Some("first".into());
+    fake.walk.lock().expect("lock").push(duplicate);
+    assert_eq!(
+        observations.act(&fake, &act("o1", "AXRow[0]", Action::Press)),
+        Err(Refusal::RefNotFound),
+        "two elements with one identifier and role cannot be relocated"
+    );
+}
+
+#[test]
 fn deep_paths_lose_their_ref_and_bytes_cut_the_walk() {
     let deep: Vec<Node> = (0_usize..30)
         .map(|at| node("AXGroup", None, at.checked_sub(1)))
@@ -1354,4 +1441,161 @@ fn wire_targets_convert_and_an_absent_observer_refuses() {
         screen.point("o1", "AXButton[0]").map(|(_, x, y)| (x, y)),
         Err(Refusal::NotAvailable)
     );
+}
+
+#[test]
+fn actionability_decision_names_first_blocker_and_set_value_only_checks_disabled() {
+    let mut attributes = Attributes {
+        enabled: Some(false),
+        frame: Frame {
+            x: 100,
+            y: 0,
+            width: 0,
+            height: 3,
+        },
+        ..Attributes::default()
+    };
+    let size = (10, 10);
+    assert_eq!(
+        blocker(&attributes, size, &Action::Press, Some(Hit::Covered)),
+        Some("disabled")
+    );
+    attributes.enabled = None;
+    assert_eq!(
+        blocker(&attributes, size, &Action::Press, Some(Hit::Covered)),
+        Some("zero_size")
+    );
+    attributes.frame.width = 3;
+    assert_eq!(
+        blocker(&attributes, size, &Action::Press, Some(Hit::Covered)),
+        Some("off_window")
+    );
+    attributes.frame.x = 1;
+    assert_eq!(
+        blocker(
+            &attributes,
+            size,
+            &Action::Perform("AXPress".into()),
+            Some(Hit::Occluded)
+        ),
+        Some("occluded")
+    );
+    assert_eq!(
+        blocker(&attributes, size, &Action::Press, Some(Hit::Covered)),
+        Some("covered")
+    );
+    assert_eq!(
+        blocker(&attributes, size, &Action::Press, Some(Hit::Target)),
+        None
+    );
+    attributes.frame.width = 0;
+    assert_eq!(
+        blocker(&attributes, size, &Action::SetValue("x".into()), None),
+        None
+    );
+    attributes.enabled = Some(false);
+    assert_eq!(
+        blocker(&attributes, size, &Action::SetValue("x".into()), None),
+        Some("disabled")
+    );
+}
+
+#[test]
+fn disabled_action_refuses_without_dispatch_and_names_blocker() {
+    let fake = Fake::new(tree());
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    let observations = Observations::default();
+    observe(&observations, &fake, None);
+    let refusal = observations
+        .act(&fake, &act("o1", "AXButton[0]", Action::Press))
+        .expect_err("disabled button");
+    assert_eq!(
+        refusal.acted(),
+        json!({
+            "status": "refused", "reason": "not_actionable",
+            "message": "disabled: element is not actionable"
+        })
+    );
+    assert!(fake.acted.lock().expect("lock").is_empty());
+}
+
+struct LayoutTick {
+    fake: Arc<Fake>,
+    now: Instant,
+    enable: bool,
+}
+
+impl Subscription for LayoutTick {
+    fn now(&self) -> Instant {
+        self.now
+    }
+    fn receive_until(&mut self, deadline: Instant) -> Option<(Instant, Notification)> {
+        self.now = deadline;
+        if self.enable {
+            self.fake.walk.lock().expect("lock")[0].attributes.enabled = Some(true);
+        }
+        None
+    }
+    fn sample(&mut self, _: Instant) -> Result<super::super::settle::Sample, Refusal> {
+        let bounds = Bounds {
+            max_elements: MAX_ELEMENTS,
+            max_visits: MAX_VISITS,
+            budget: BUDGET,
+        };
+        Ok(super::super::settle::Sample {
+            windows: self.fake.windows().map_err(Refusal::from)?,
+            walk: self.fake.walk(&window(0), &bounds).map_err(Refusal::from)?,
+            private: false,
+        })
+    }
+    fn commit_if_current(&mut self, _: Box<dyn FnOnce() -> Value + '_>) -> Option<Value> {
+        None
+    }
+}
+
+#[test]
+fn blocked_action_rechecks_on_quiet_tick_and_zero_wait_refuses_immediately() {
+    let fake = Arc::new(Fake::new(tree()));
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    let observations = Observations::default();
+    observe(&observations, fake.as_ref(), None);
+    let mut action = act("o1", "AXButton[0]", Action::Press);
+    assert_eq!(
+        observations.act(fake.as_ref(), &action),
+        Err(Refusal::NotActionable("disabled"))
+    );
+    assert!(fake.acted.lock().expect("lock").is_empty());
+    action.wait_ms = 2000;
+    assert_eq!(
+        observations.act_waiting(&*fake, &action, &|| true, &|start, _| {
+            Some(Box::new(LayoutTick {
+                fake: Arc::clone(&fake),
+                now: start,
+                enable: true,
+            }))
+        }),
+        Ok(())
+    );
+    assert_eq!(fake.acted.lock().expect("lock").len(), 1);
+}
+
+#[test]
+fn quiet_ticks_end_with_the_first_remaining_blocker() {
+    let fake = Arc::new(Fake::new(tree()));
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    let observations = Observations::default();
+    observe(&observations, fake.as_ref(), None);
+    let mut action = act("o1", "AXButton[0]", Action::Press);
+    action.wait_ms = 400;
+    assert_eq!(
+        observations.act_waiting(fake.as_ref(), &action, &|| true, &|start, _| {
+            Some(Box::new(LayoutTick {
+                fake: Arc::clone(&fake),
+                now: start,
+                enable: false,
+            }))
+        }),
+        Err(Refusal::NotActionable("disabled"))
+    );
+    assert!(fake.acted.lock().expect("lock").is_empty());
 }

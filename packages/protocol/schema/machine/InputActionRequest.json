@@ -58,6 +58,11 @@
     "value": {
       "maxLength": 65536,
       "type": "string"
+    },
+    "waitMs": {
+      "maximum": 10000,
+      "minimum": 0,
+      "type": "integer"
     }
   },
   "required": [
