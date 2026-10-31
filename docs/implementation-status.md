@@ -473,6 +473,12 @@ changing the role-path grammar; identified ref actions resolve the path
 directly and use a bounded walk only when the identifier moved, refusing
 ambiguous or absent matches with `ref_not_found`. Unidentified refs retain
 the complete walk required to detect newly ambiguous siblings.
+The #1716 follow-up keeps transient per-attribute AX faults local to their
+element: unknown flags serialize as `null`, unknown children as
+`children: null`, and an unknown role, subrole, or label leaves the element
+and its descendants unaddressable while sibling refs remain available. Disabled accessibility
+still refuses the observation. Headless fixtures exercise these outcomes;
+the schema and valid/invalid wire fixtures retain omitted versus null states.
 
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target
 contract: `docs/machines-and-delegation.md` 2.2.2.

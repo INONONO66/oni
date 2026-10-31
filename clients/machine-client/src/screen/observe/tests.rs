@@ -1498,7 +1498,7 @@ fn wire_targets_convert_and_an_absent_observer_refuses() {
 #[test]
 fn actionability_decision_names_first_blocker_and_set_value_only_checks_disabled() {
     let mut attributes = Attributes {
-        enabled: Some(false),
+        enabled: Some(Some(false)),
         frame: Frame {
             x: 100,
             y: 0,
@@ -1513,6 +1513,11 @@ fn actionability_decision_names_first_blocker_and_set_value_only_checks_disabled
         Some("disabled")
     );
     attributes.enabled = None;
+    assert_eq!(
+        blocker(&attributes, size, &Action::Press, Some(Hit::Covered)),
+        Some("zero_size")
+    );
+    attributes.enabled = Some(None);
     assert_eq!(
         blocker(&attributes, size, &Action::Press, Some(Hit::Covered)),
         Some("zero_size")
@@ -1545,7 +1550,7 @@ fn actionability_decision_names_first_blocker_and_set_value_only_checks_disabled
         blocker(&attributes, size, &Action::SetValue("x".into()), None),
         None
     );
-    attributes.enabled = Some(false);
+    attributes.enabled = Some(Some(false));
     assert_eq!(
         blocker(&attributes, size, &Action::SetValue("x".into()), None),
         Some("disabled")
@@ -1555,7 +1560,7 @@ fn actionability_decision_names_first_blocker_and_set_value_only_checks_disabled
 #[test]
 fn disabled_action_refuses_without_dispatch_and_names_blocker() {
     let fake = Fake::new(tree());
-    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(Some(false));
     let observations = Observations::default();
     observe(&observations, &fake, None);
     let refusal = observations
@@ -1584,7 +1589,7 @@ impl Subscription for LayoutTick {
     fn receive_until(&mut self, deadline: Instant) -> Option<(Instant, Notification)> {
         self.now = deadline;
         if self.enable {
-            self.fake.walk.lock().expect("lock")[0].attributes.enabled = Some(true);
+            self.fake.walk.lock().expect("lock")[0].attributes.enabled = Some(Some(true));
         }
         None
     }
@@ -1687,7 +1692,7 @@ fn waiting_action_refuses_on_destroy_private_recreation_and_sample_failure() {
 #[test]
 fn blocked_action_rechecks_on_quiet_tick_and_zero_wait_refuses_immediately() {
     let fake = Arc::new(Fake::new(tree()));
-    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(Some(false));
     let observations = Observations::default();
     observe(&observations, fake.as_ref(), None);
     let mut action = act("o1", "AXButton[0]", Action::Press);
@@ -1771,7 +1776,7 @@ fn screen_action_without_notifications_refuses_blocked_element() {
 #[test]
 fn quiet_ticks_end_with_the_first_remaining_blocker() {
     let fake = Arc::new(Fake::new(tree()));
-    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(Some(false));
     let observations = Observations::default();
     observe(&observations, fake.as_ref(), None);
     let mut action = act("o1", "AXButton[0]", Action::Press);
