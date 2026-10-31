@@ -1,0 +1,1 @@
+#1728 (epic #1688) on `input/1728-hit-test-within` (2026-10-31, base `23e3d2518`, PR #1765): coordinate pointer expectations enforce a live app hit-test and report `landedOn` or `target_mismatch`; Rust recorder, wire fixtures and computer conformance receipts accompany `docs/implementation-status.md`.
