@@ -721,11 +721,11 @@ export const ExecResult = z.discriminatedUnion("status", [
 export type ExecResult = z.infer<typeof ExecResult>;
 export const CancelCode = z.object({ cellId: z.string().min(1) }).strict();
 export const CancelResult = z.object({ cancelled: z.boolean() }).strict();
-/** Machine host → machine daemon: the output a live cell has produced so far. */
+/** Machine host → machine client: the output a live cell has produced so far. */
 export const PeekCode = z.object({ cellId: z.string().min(1) }).strict();
 export const PeekResult = z.object({ running: z.boolean(), output: CellOutput }).strict();
 /**
- * `machine.peek_code` refusal when the daemon has no code runner at all
+ * `machine.peek_code` refusal when the client has no code runner at all
  * (#1312) — never fabricated empty output. `PeekResult` keeps its shape; the
  * wire answer is the union `PeekAnswer`.
  */
