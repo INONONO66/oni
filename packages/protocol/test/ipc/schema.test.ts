@@ -137,6 +137,8 @@ describe("Ipc.Methods param schemas", () => {
         Machine.WireMethod.ScreenSettle,
         Machine.WireMethod.InputAction,
         Machine.WireMethod.EventPrivate,
+        Machine.WireMethod.ClipboardRead,
+        Machine.WireMethod.ClipboardWrite,
       ].sort(),
     );
   });
