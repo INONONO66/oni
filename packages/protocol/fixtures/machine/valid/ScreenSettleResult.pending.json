@@ -1,1 +1,6 @@
-{ "status": "pending", "observationId": "o6", "changesInWindow": 3 }
+{
+  "status": "pending",
+  "method": "accessibility",
+  "observationId": "o6",
+  "changesInWindow": 3
+}

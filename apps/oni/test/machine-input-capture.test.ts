@@ -63,7 +63,7 @@ test("settle outcomes and failures pass through the app captured tool body", asy
       machineId: "desk", generation: 3, method: Machine.WireMethod.ScreenSettle,
       params: { target: { pid: 42, windowId: 7, epoch: 0 }, quietMs: 50, timeoutMs: 100 },
     };
-    const answer = { status: "pending", observationId: "o1", changesInWindow: 2 } as const;
+    const answer = { status: "pending", method: "accessibility", observationId: "o1", changesInWindow: 2 } as const;
     expect(await Core.withExecutor(executor, () => runEffect(capture(settle, Effect.succeed(answer))))).toEqual(answer);
     const failure = new Machines.MachineRefusalError({ reason: "disconnected", message: "peer detached" });
     expect(await Core.withExecutor(executor, () => runEffect(Effect.flip(capture(settle, Effect.fail(failure)))))).toEqual(failure);
