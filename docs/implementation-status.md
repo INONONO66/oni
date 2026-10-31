@@ -11,6 +11,12 @@ client stays attached and reports `restart_bound`. Linux has no grant restart.
 `mclient join` describes the automatic restart; manual kickstart remains in
 its help. MacBook live grant acceptance remains tracked in #1702.
 
+## #1735 computer-use prompt guidance
+
+When the composed catalog includes the computer tool pack, resident and child
+system prompts include screen-text trust, irreversible-action confirmation, and
+consent-surface stop guidance. Without that pack, the section is absent.
+
 ## #1694 screen verdict and Linux virtual display
 
 Contract v4 replaces `Report.screen.permission` with a verdict
