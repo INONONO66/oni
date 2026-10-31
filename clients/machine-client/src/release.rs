@@ -809,7 +809,12 @@ mod tests {
         switch(&layout.current(), &first).expect("first version");
         publish_executable(&layout).expect("first publication");
         let original = fs::canonicalize(layout.executable()).expect("real executable");
-        assert_eq!(original, layout.executable());
+        assert_eq!(
+            original,
+            fs::canonicalize(layout.root.join("bin"))
+                .expect("real bin directory")
+                .join("mclient")
+        );
         switch(&layout.current(), &second).expect("next version");
         publish_executable(&layout).expect("next publication");
         assert_eq!(

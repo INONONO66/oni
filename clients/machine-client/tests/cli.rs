@@ -130,7 +130,9 @@ fn successful_update_restarts_and_records_the_selected_binary() {
         let executable = root.join("bin/mclient");
         assert_eq!(
             std::fs::canonicalize(&executable).expect("real path"),
-            executable
+            std::fs::canonicalize(root.join("bin"))
+                .expect("real bin directory")
+                .join("mclient")
         );
         assert_eq!(
             std::fs::read(&executable).expect("installed binary"),
@@ -1001,7 +1003,9 @@ fn join_installs_restarts_and_reports_manager_failure() {
     #[cfg(target_os = "macos")]
     assert_eq!(
         std::fs::canonicalize(&installed).expect("real service path"),
-        installed
+        std::fs::canonicalize(installed.parent().expect("bin directory"))
+            .expect("real bin directory")
+            .join("mclient")
     );
     assert!(contents.contains(
         &directory

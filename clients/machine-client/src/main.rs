@@ -536,6 +536,8 @@ mod tests {
         let _environment = ENVIRONMENT.blocking_lock();
         let home = tempfile::tempdir().expect("isolated home");
         let layout = Layout::new(home.path().join(".oni"));
+        let previous = home.path().join("old-mclient");
+        std::fs::write(&previous, b"old binary").expect("previous binary");
         std::fs::create_dir_all(layout.current().parent().expect("bin")).expect("bin");
         symlink("/new/mclient", layout.current()).expect("new link");
         std::fs::create_dir_all(layout.client()).expect("client");
@@ -558,7 +560,7 @@ mod tests {
         let _log = RestoreEnv::set("MCLIENT_SERVICE_LOG", log.as_os_str());
         let error = recover_join_install(
             &layout,
-            Some(Path::new("/old/mclient")),
+            Some(&previous),
             Some(&pin),
             false,
             std::io::Error::other("install refused"),
@@ -569,7 +571,7 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_link(layout.current()).expect("restored link"),
-            Path::new("/old/mclient")
+            previous
         );
         assert_eq!(
             std::fs::read_to_string(log).expect("service restart"),
