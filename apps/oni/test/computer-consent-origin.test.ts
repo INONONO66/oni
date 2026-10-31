@@ -26,7 +26,6 @@ describe("computer consent origin", () => {
   } }) {
     const fixture = computerFixture();
     const request = approvalRequest(parsedInput, {});
-    const decisions: Ingress.RoutingDecisionPayload[] = [];
     const facts = fixture.plane.session(GATEWAY_INGRESS_SESSION).decisions;
     let forwarded = 0;
     const answer = consentOrigin(fixture.policy, {
@@ -34,12 +33,9 @@ describe("computer consent origin", () => {
       open: () => Effect.die("not used"),
       receipt: () => Effect.die("not used"),
       answer: () => Effect.sync(() => { forwarded += 1; return "resolved" as const; }),
-    }, () => 100_000, () => "trace-1", (streamId, decision, at) => {
-      facts.record(Ingress.routeDecidedFact(streamId, decision, at));
-      decisions.push(decision);
-    });
+    }, () => 100_000, () => "trace-1", facts);
     fixture.setClock(100_000);
-    return { ...fixture, request, answer, decisions, facts, forwarded: () => forwarded };
+    return { ...fixture, request, answer, facts, forwarded: () => forwarded };
   }
 
   it("refuses an injected-only same-machine answer without forwarding it", async () => {
@@ -51,7 +47,6 @@ describe("computer consent origin", () => {
         surfaceKey: "ws::dm:desk", machineId: "desk",
       }))).toBe("self_approval_suspected");
       expect(fixture.forwarded()).toBe(0);
-      expect(fixture.decisions).toMatchObject([{ reason: "self_approval_suspected", outcome: "block" }]);
       expect(fixture.facts.head("request_answer:answer-1")).toMatchObject({
         type: Ingress.ROUTE_DECIDED_FACT_TYPE,
         data: { reason: "self_approval_suspected", outcome: "block" },
@@ -69,7 +64,7 @@ describe("computer consent origin", () => {
         surfaceKey: "ws::dm:desk", machineId: "desk",
       }))).toBe("resolved");
       expect(fixture.forwarded()).toBe(1);
-      expect(fixture.decisions).toEqual([]);
+      expect(fixture.facts.head("request_answer:answer-1")).toBeUndefined();
     } finally {
       fixture.close();
     }
@@ -94,7 +89,7 @@ describe("computer consent origin", () => {
     try {
       expect(await runEffect(fixture.answer(answerFor(fixture.request)))).toBe("resolved");
       expect(fixture.forwarded()).toBe(1);
-      expect(fixture.decisions).toEqual([]);
+      expect(fixture.facts.head("request_answer:answer-1")).toBeUndefined();
     } finally {
       fixture.close();
     }

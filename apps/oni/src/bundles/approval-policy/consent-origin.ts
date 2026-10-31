@@ -1,5 +1,5 @@
 import { decodeChannelFailure, type createGatewayRouter } from "@oni/channels";
-import type { Ingress } from "@oni/protocol";
+import { Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
 import type { ComputerPolicy } from "./computer-policy";
@@ -19,7 +19,7 @@ export function consentOrigin(
   requests: AnswerPort,
   now: () => number,
   id: () => string,
-  record: (streamId: string, decision: Ingress.RoutingDecisionPayload, at: number) => void,
+  facts: { readonly record: (fact: ReturnType<typeof Ingress.routeDecidedFact>) => void },
 ): AnswerPort["answer"] {
   return (input, context) => {
     const request = requests.list().find((row) => row.requestId === input.requestId && row.sessionId === input.sessionId);
@@ -32,12 +32,12 @@ export function consentOrigin(
     return Effect.try({
       try: () => {
         const at = now();
-        record(`request_answer:${input.inputId}`, {
+        facts.record(Ingress.routeDecidedFact(`request_answer:${input.inputId}`, {
           traceId: id(), time: at, inboundId: input.inputId,
           surface: context.surfaceKey, mode: "direct", stage: "request_correlation",
           outcome: "block", reason: "self_approval_suspected",
           factsUsed: [`machine:${machineId}`, `request:${input.requestId}`],
-        }, at);
+        }, at));
         return "self_approval_suspected" as const;
       },
       catch: decodeChannelFailure("consent.refusal"),

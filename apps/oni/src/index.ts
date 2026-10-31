@@ -79,7 +79,6 @@ import {
   Alarm,
   L0Observation,
   Operational,
-  Ingress,
   Outbound,
   traceIdFromUuid,
   type BusEvent,
@@ -1243,11 +1242,7 @@ export async function startOni(options: StartOptions = {}) {
     const requestsWithDeadlines: typeof requestPorts = {
       ...requestPorts,
       answer: consentOrigin(computer, requestPorts, services.now, services.entropy.id,
-        (streamId, decision, at) => {
-          const facts = channelStoreSource(plane, services.now).decisionFacts;
-          if (facts === undefined) throw new AppInvariantError("ingress decision facts are unavailable");
-          facts.record(Ingress.routeDecidedFact(streamId, decision, at));
-        }),
+        plane.session(GATEWAY_INGRESS_SESSION).decisions),
       open: (input) =>
         requestPorts.open(input).pipe(
           Effect.tap((request) =>
