@@ -120,6 +120,13 @@ pub enum ActFault {
     Failed(String),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hit {
+    Target,
+    Occluded,
+    Covered,
+}
+
 impl From<Fault> for ActFault {
     fn from(fault: Fault) -> Self {
         match fault {
@@ -140,6 +147,12 @@ pub trait Observer: Send + Sync {
         Err(ActFault::Unsupported)
     }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault>;
+    fn window_size(&self, _: &WindowIdentity) -> Result<(i64, i64), Fault> {
+        Err(Fault::Absent)
+    }
+    fn hit_test(&self, _: &WindowIdentity, _: &[Segment], _: (i64, i64)) -> Result<Hit, Fault> {
+        Err(Fault::Absent)
+    }
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault>;
     fn resolve(
         &self,

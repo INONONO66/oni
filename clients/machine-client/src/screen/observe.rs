@@ -21,7 +21,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, MutexGuard, PoisonError,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -30,11 +30,12 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use super::ax::{
-    self, ActFault, Action, Attributes, Bounds, Frame, Node, Observer, Segment, Walk,
+    self, ActFault, Action, Attributes, Bounds, Frame, Hit, Node, Observer, Segment, Walk,
     WindowIdentity,
 };
 use super::encode::{Encoding, Format};
 use super::private::focus_is_secure;
+use super::settle::{Notification, Subscription};
 use super::{Display, Fault, Screen, MAX_DIMENSION};
 
 pub const MAX_ELEMENTS: usize = 2000;
@@ -87,6 +88,7 @@ pub enum Refusal {
     RefNotFound,
     Unsupported,
     OffScreen,
+    NotActionable(&'static str),
     Private,
     Failed(String),
 }
@@ -125,9 +127,11 @@ impl Refusal {
             Self::EpochChanged => "epoch_changed",
             Self::Stale => "stale_observation",
             Self::Private => "observe_failed",
-            Self::RefNotFound | Self::Unsupported | Self::OffScreen | Self::Failed(_) => {
-                "observe_failed"
-            }
+            Self::RefNotFound
+            | Self::Unsupported
+            | Self::OffScreen
+            | Self::NotActionable(_)
+            | Self::Failed(_) => "observe_failed",
         };
         self.render(reason)
     }
@@ -148,6 +152,7 @@ impl Refusal {
             Self::RefNotFound => "ref_not_found",
             Self::Unsupported => "action_not_supported",
             Self::OffScreen => "invalid_region",
+            Self::NotActionable(_) => "not_actionable",
             Self::Private => "private",
             Self::Failed(_) => "input_failed",
         }
@@ -157,6 +162,7 @@ impl Refusal {
     pub fn message(&self) -> Option<String> {
         match self {
             Self::Failed(message) if !message.is_empty() => Some(clip(message, MAX_MESSAGE)),
+            Self::NotActionable(blocker) => Some(format!("{blocker}: element is not actionable")),
             _ => None,
         }
     }
@@ -188,6 +194,36 @@ pub struct Act {
     pub observation: String,
     pub reference: String,
     pub action: Action,
+    pub wait_ms: u64,
+}
+
+/// The first reason a resolved action cannot reach its target. A missing
+/// enabled flag is not evidence of a disabled custom view.
+fn blocker(
+    attributes: &Attributes,
+    size: (i64, i64),
+    action: &Action,
+    hit: Option<Hit>,
+) -> Option<&'static str> {
+    if attributes.enabled == Some(false) {
+        return Some("disabled");
+    }
+    if matches!(action, Action::SetValue(_)) {
+        return None;
+    }
+    let frame = attributes.frame;
+    if frame.width <= 0 || frame.height <= 0 {
+        return Some("zero_size");
+    }
+    let center = (frame.x + frame.width / 2, frame.y + frame.height / 2);
+    if center.0 < 0 || center.1 < 0 || center.0 >= size.0 || center.1 >= size.1 {
+        return Some("off_window");
+    }
+    match hit {
+        Some(Hit::Occluded) => Some("occluded"),
+        Some(Hit::Covered) => Some("covered"),
+        Some(Hit::Target) | None => None,
+    }
 }
 
 struct Seen {
@@ -568,6 +604,16 @@ impl Observations {
         act: &Act,
         before_dispatch: &dyn Fn() -> bool,
     ) -> Result<(), Refusal> {
+        self.act_waiting(observer, act, before_dispatch, &|_, _| None)
+    }
+
+    pub fn act_waiting(
+        &self,
+        observer: &dyn Observer,
+        act: &Act,
+        before_dispatch: &dyn Fn() -> bool,
+        subscribe: &dyn Fn(Instant, Instant) -> Option<Box<dyn Subscription>>,
+    ) -> Result<(), Refusal> {
         let located = self.locate(observer, act.target)?;
         let window = self.window(&located);
         let _serial = lock(&window);
@@ -590,26 +636,86 @@ impl Observations {
         if !supported {
             return Err(Refusal::Unsupported);
         }
-        if key.identifier.is_none() {
-            fresh_unidentified(observer, &located, &act.reference, &key)?;
-        }
         let path = ax::segments(&act.reference).ok_or(Refusal::RefNotFound)?;
         let admit = |attributes: &Attributes| Key::of(attributes) == key;
-        match observer.act_guarded(&located.window, &path, &admit, &act.action, before_dispatch) {
-            Ok(()) => Ok(()),
-            Err(ActFault::NotFound) if key.identifier.is_some() => {
-                let relocated = relocate(observer, &located, &key)?;
-                let path = ax::segments(&relocated).ok_or(Refusal::RefNotFound)?;
-                Ok(observer.act_guarded(
-                    &located.window,
-                    &path,
-                    &admit,
-                    &act.action,
-                    before_dispatch,
-                )?)
+        let started = Instant::now();
+        let end = started + Duration::from_millis(act.wait_ms);
+        let mut subscription: Option<Box<dyn Subscription>> = None;
+        let path = loop {
+            let (attributes, path) = if key.identifier.is_some() {
+                let current = observer.resolve(&located.window, &path)?;
+                if let Some(attributes) = current.filter(|at| Key::of(at) == key) {
+                    (attributes, path.clone())
+                } else {
+                    let moved = ax::segments(&relocate(observer, &located, &key)?)
+                        .ok_or(Refusal::RefNotFound)?;
+                    let attributes = observer
+                        .resolve(&located.window, &moved)?
+                        .filter(|at| Key::of(at) == key)
+                        .ok_or(Refusal::RefNotFound)?;
+                    (attributes, moved)
+                }
+            } else {
+                (
+                    fresh_unidentified(observer, &located, &act.reference, &key)?,
+                    path.clone(),
+                )
+            };
+            let size = if matches!(act.action, Action::SetValue(_)) {
+                (0, 0)
+            } else {
+                observer.window_size(&located.window)?
+            };
+            let first = blocker(&attributes, size, &act.action, None);
+            let blocked = match first {
+                Some(first) => Some(first),
+                None if matches!(act.action, Action::SetValue(_)) => None,
+                None => {
+                    let frame = attributes.frame;
+                    let point = (
+                        located.window.origin.0 + frame.x + frame.width / 2,
+                        located.window.origin.1 + frame.y + frame.height / 2,
+                    );
+                    blocker(
+                        &attributes,
+                        size,
+                        &act.action,
+                        Some(observer.hit_test(&located.window, &path, point)?),
+                    )
+                }
+            };
+            let Some(reason) = blocked else {
+                break path;
+            };
+            if act.wait_ms == 0 || Instant::now() >= end {
+                return Err(Refusal::NotActionable(reason));
             }
-            Err(fault) => Err(fault.into()),
-        }
+            if subscription.is_none() {
+                subscription = subscribe(started, end);
+            }
+            let Some(watch) = subscription.as_mut() else {
+                return Err(Refusal::NotActionable(reason));
+            };
+            let tick = (watch.now() + Duration::from_millis(200)).min(end);
+            if let Some((_, Notification::Destroyed)) = watch.receive_until(tick) {
+                return Err(Refusal::WindowNotFound);
+            }
+            if watch.now() >= end {
+                return Err(Refusal::NotActionable(reason));
+            }
+            // The settle sampler fences window identity and observes the
+            // layout before each quiet-tick recheck.
+            let sample = watch.sample(
+                (watch.now() + Duration::from_millis(500)).min(end + Duration::from_millis(500)),
+            )?;
+            if sample.private {
+                return Err(Refusal::Private);
+            }
+            self.locate_windows(sample.windows, act.target)?;
+        };
+        observer
+            .act_guarded(&located.window, &path, &admit, &act.action, before_dispatch)
+            .map_err(Into::into)
     }
 
     /// The global centre of `reference` in `observation`, which must be its
@@ -985,7 +1091,22 @@ impl Screen {
     ) -> Result<(), Refusal> {
         let observer = self.observer.as_deref().ok_or(Refusal::NotAvailable)?;
         self.observations
-            .act_guarded(observer, act, before_dispatch)
+            .act_waiting(observer, act, before_dispatch, &|started, end| {
+                let (Some(notifications), Some(observer)) =
+                    (self.notifications.as_deref(), self.observer.as_ref())
+                else {
+                    return None;
+                };
+                let (Ok(pid), Ok(window)) = (
+                    u32::try_from(act.target.pid),
+                    u32::try_from(act.target.window_id),
+                ) else {
+                    return None;
+                };
+                notifications
+                    .subscribe(pid, window, started, end, Arc::clone(observer))
+                    .ok()
+            })
     }
 
     /// Where a pointer aimed at `reference` of `observation` lands: the

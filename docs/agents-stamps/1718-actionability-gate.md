@@ -1,0 +1,1 @@
+#1718 (epic #1688) on `input/1718-actionability-gate` (2026-10-31, base `a906ddd53`, PR pending): ref actionability checks, bounded quiet-tick wait and typed refusal in the client, machine protocol fixtures and schema; receipts: focused Rust and protocol checks in the PR.
