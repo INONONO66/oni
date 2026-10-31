@@ -1,10 +1,10 @@
-use std::sync::Mutex;
+use std::{cell::Cell, sync::Mutex};
 
 use super::*;
 use crate::screen::{
     ax::{ActFault, Action, Admit, AppIdentity, Bounds, Observer, Segment, Walk, WindowIdentity},
     fixture::Fixture,
-    Fault,
+    Fault, Window,
 };
 
 #[derive(Default)]
@@ -362,15 +362,15 @@ fn destruction_during_baseline_still_invalidates_the_target() {
 }
 
 #[test]
-fn subscription_blockers_and_absent_sources_remain_distinct() {
+fn observer_blockers_fall_back_to_window_capture_when_available() {
     for (blocker, expected) in [
         (
             Unsupported::AccessibilityNotGranted,
-            json!({"status":"unsupported","blocker":"accessibility_not_granted"}),
+            json!({"status":"refused","reason":"window_not_found"}),
         ),
         (
             Unsupported::NoObserver,
-            json!({"status":"unsupported","blocker":"no_observer"}),
+            json!({"status":"refused","reason":"window_not_found"}),
         ),
         (
             Unsupported::WindowNotFound,
@@ -446,4 +446,116 @@ fn observation_budget_and_overrun_are_bounded() {
     assert_eq!(screen.settle(&request(50, 100))["blocker"], "no_observer");
     let (screen, _) = setup(Model::default(), 100, vec![], None);
     assert_eq!(screen.settle(&request(50, 100))["blocker"], "no_observer");
+}
+
+fn pixel_fixture() -> Fixture {
+    let mut fixture = Fixture::display(100, 100, 1.0);
+    fixture.windows.push(Window {
+        id: 7,
+        display: 1,
+        title: "Test".into(),
+        owner: "fixture".into(),
+        pid: Some(42),
+        app: None,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+    });
+    fixture
+}
+
+#[test]
+fn pixel_sample_uses_window_capture_and_checks_target_identity() {
+    let screen = Screen::new(Box::new(pixel_fixture()), 1);
+    let source = screen.source().expect("fixture source");
+    assert_eq!(
+        screen
+            .pixel_sample(source, 42, 7, 0)
+            .expect("thumbnail")
+            .len(),
+        100 * 100 * 4
+    );
+    assert_eq!(
+        screen.pixel_sample(source, 42, 7, 1).expect_err("epoch")["reason"],
+        "epoch_changed"
+    );
+    assert_eq!(
+        screen.pixel_sample(source, 43, 7, 0).expect_err("owner")["reason"],
+        "window_not_found"
+    );
+    assert_eq!(
+        screen
+            .pixel_sample(source, std::process::id(), 7, 0)
+            .expect_err("owner")["reason"],
+        "window_not_found"
+    );
+}
+
+#[test]
+fn pixel_sample_refuses_excluded_owner_and_private_focus_before_capture() {
+    let mut fixture = pixel_fixture();
+    fixture.windows[0].pid = Some(std::process::id());
+    let screen = Screen::new(Box::new(fixture), 1);
+    assert_eq!(
+        screen
+            .pixel_sample(screen.source().expect("source"), std::process::id(), 7, 0)
+            .expect_err("own window")["reason"],
+        "excluded"
+    );
+
+    let (mut screen, _) = setup(
+        Model {
+            private: true,
+            ..Model::default()
+        },
+        0,
+        vec![],
+        None,
+    );
+    screen.source = Some(Box::new(pixel_fixture()));
+    assert_eq!(
+        screen
+            .pixel_sample(screen.source().expect("source"), 42, 7, 0)
+            .expect_err("private focus")["reason"],
+        "paused:private"
+    );
+}
+
+struct PixelClock(Cell<Instant>);
+
+impl app::Clock for PixelClock {
+    fn now(&self) -> Instant {
+        self.0.get()
+    }
+
+    fn wait(&self, duration: Duration) {
+        self.0.set(self.0.get() + duration);
+    }
+}
+
+#[test]
+fn pixel_fallback_returns_fresh_window_capture_without_observer() {
+    let screen = Screen::new(Box::new(pixel_fixture()), 1);
+    let clock = PixelClock(Cell::new(Instant::now()));
+    let result = screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock);
+    assert_eq!(
+        result,
+        json!({"status":"settled","method":"pixels","captureId":"cap-1"})
+    );
+}
+
+#[test]
+fn pixel_fallback_requires_capture_and_reports_disappearing_anchor() {
+    let screen = Screen::absent();
+    let clock = PixelClock(Cell::new(Instant::now()));
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock),
+        json!({"status":"unsupported","blocker":"no_observer"})
+    );
+    let mut fixture = pixel_fixture();
+    fixture.blank_windows.push(7);
+    let screen = Screen::new(Box::new(fixture), 1);
+    let result = screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock);
+    assert_eq!(result["reason"], "capture_blank");
 }

@@ -23,6 +23,8 @@ export const ScreenSettleResult = z.union([
     "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
     "foreground_not_granted", "excluded", "paused:human_input", "paused:takeover",
     "paused:private", "paused:locked", "paused:asleep",
+    "window_minimized", "capture_blank", "capture_failed", "own_window",
+    "superseded", "screen_not_available", "invalid_region", "display_not_found", "private",
   ]), message: z.string().min(1).max(256).optional() }).strict(),
 ]);
 export type ScreenSettleResult = z.infer<typeof ScreenSettleResult>;

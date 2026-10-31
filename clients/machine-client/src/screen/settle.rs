@@ -249,15 +249,24 @@ impl Screen {
     }
 
     fn settle_pixels(&self, request: &ScreenSettleRequest, pid: u32, window_id: u32) -> Value {
+        self.settle_pixels_with_clock(request, pid, window_id, &app::SystemClock)
+    }
+
+    fn settle_pixels_with_clock(
+        &self,
+        request: &ScreenSettleRequest,
+        pid: u32,
+        window_id: u32,
+        clock: &impl app::Clock,
+    ) -> Value {
         let source = match self.source() {
             Ok(source) => source,
             Err(Fault::Absent) => return unsupported(Unsupported::NoObserver),
             Err(Fault::Permission) => return refusal("permission_denied"),
             Err(_) => return refusal("window_not_found"),
         };
-        let clock = app::SystemClock;
         pixels::run(
-            &clock,
+            clock,
             Duration::from_millis(request.quiet_ms.unwrap_or(500).unsigned_abs()),
             Duration::from_millis(request.timeout_ms.unsigned_abs()),
             || self.pixel_sample(source, pid, window_id, request.target.epoch),
@@ -277,15 +286,23 @@ impl Screen {
             .iter()
             .find(|window| window.id == window_id && window.pid == Some(pid))
             .ok_or_else(|| refusal("window_not_found"))?;
-        if app::excluded(pid, window.app.as_ref().unwrap_or(&ax::AppIdentity {
-            bundle_id: None,
-            path: String::new(),
-        }), &self.excluded_owners) {
+        if app::excluded(
+            pid,
+            window.app.as_ref().unwrap_or(&ax::AppIdentity {
+                bundle_id: None,
+                path: String::new(),
+            }),
+            &self.excluded_owners,
+        ) {
             return Err(refusal("excluded"));
         }
         if self.observer.is_some() {
-            self.window_target(observe::target(u64::from(pid), i64::from(window_id), Some(epoch)))
-                .map_err(sample_refusal)?;
+            self.window_target(observe::target(
+                u64::from(pid),
+                i64::from(window_id),
+                Some(epoch),
+            ))
+            .map_err(sample_refusal)?;
             match self.window_private(window_id) {
                 Ok(true) => return Err(refusal("paused:private")),
                 Ok(false) | Err(Fault::Permission) => {}
@@ -295,7 +312,9 @@ impl Screen {
             return Err(refusal("epoch_changed"));
         }
         let mut raw = Vec::new();
-        let size = source.capture_window(window_id, &mut raw).map_err(|fault| fault.refusal())?;
+        let size = source
+            .capture_window(window_id, &mut raw)
+            .map_err(|fault| fault.refusal())?;
         if size.0 == 0 || size.1 == 0 || raw.len() != size.0 as usize * size.1 as usize * 4 {
             return Err(refusal("permission_denied"));
         }
@@ -311,9 +330,15 @@ impl Screen {
             max_bytes: super::MAX_BYTES,
             max_dimension: 256,
         };
-        self.shoot(&super::Target::Window(window_id.to_string()), &encoding, |shot| {
-            json!({"status":"settled","method":"pixels","captureId":shot.id})
-        }).unwrap_or_else(|fault| fault.refusal())
+        self.shoot(
+            &super::Target::Window(window_id.to_string()),
+            &encoding,
+            |shot| json!({"status":"settled","method":"pixels","captureId":shot.id}),
+        )
+        .unwrap_or_else(|fault| match fault {
+            Fault::WindowNotFound => json!({"status":"destroyed"}),
+            other => other.refusal(),
+        })
     }
 }
 

@@ -1,0 +1,1 @@
+#1732 (epic #1688) on `clients/1732-settle-pixels` (2026-10-31, base `d50958f54`, PR pending): window settle falls back to bounded pixel-difference sampling with a fresh capture anchor, typed disappearance and method-tagged results; receipts `clients/machine-client/src/screen/settle/pixels/tests.rs` and `packages/protocol/fixtures/machine/valid/ScreenSettleResult.pixels.json`.

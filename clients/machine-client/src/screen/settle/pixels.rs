@@ -13,8 +13,10 @@ fn changed(previous: &[u8], next: &[u8]) -> bool {
     }
     let samples = previous.len() / 4;
     previous
-        .chunks_exact(4)
-        .zip(next.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(next.as_chunks::<4>().0.iter())
         .filter(|(before, after)| {
             before[..3]
                 .iter()
@@ -47,6 +49,9 @@ pub(super) fn run(
         clock.wait(until.saturating_duration_since(clock.now()));
         let frame = match sample() {
             Ok(frame) => frame,
+            Err(error) if error["reason"] == "window_not_found" => {
+                return json!({"status":"destroyed"});
+            }
             Err(error) => return error,
         };
         let now = clock.now();
