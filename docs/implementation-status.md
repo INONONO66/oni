@@ -7,7 +7,7 @@ pause. Input, app launch and window mutation return a typed
 `paused:human_input` refusal with `humanActiveMs` measured from the latest
 human-input edge and `retryAfterMs` (zero once only fresh observation remains).
 Policy-state rows `computer_use.humanQuietMs` and `computer_use.maxWaitMs`
-default to 5000 ms and 20000 ms. Every input inside the quiet window is
+default to 10000 ms and 20000 ms. Every input inside the quiet window is
 refused immediately; sustained activity asks the turn to end. A later
 turn must fully observe after the edge, and old input anchors refuse with
 their existing stale-anchor reasons. No captured input is replayed.
@@ -72,6 +72,8 @@ AT-SPI observation, nested Wayland, and Windows are tracked in #1700.
 Grant-dependent live acceptance remains in #1702.
 
 ## #1697 computer-use leases (PR pending)
+
+The app now refuses suspected same-machine `computer_request` answers at the authenticated request-answer port, records their ingress refusal without settling the request, and broadcasts a typed `lease` frame on every revision (#1726 and the wire half of #1701; desktop rendering remains open).
 
 The #1734 budget row on each lease defaults to 1500 actions per hour and
 is capped by `computer_use.enrollmentCeiling` keyed by machine id (default

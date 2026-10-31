@@ -74,7 +74,10 @@ export interface GatewayRouterPorts {
   readonly requests: {
     list(): readonly SessionTransition.Request[];
     open(input: RequestOpenInput): Effect.Effect<SessionTransition.Request, ChannelError>;
-    answer(input: SessionTransition.Answer): Effect.Effect<SessionTransition.Resolution, ChannelError>;
+    answer(
+      input: SessionTransition.Answer,
+      context?: { readonly surfaceKey: string; readonly machineId?: string },
+    ): Effect.Effect<SessionTransition.Resolution | "self_approval_suspected", ChannelError>;
     receipt(input: SessionTransition.DeliveryReceipt): Effect.Effect<SessionTransition.Request, ChannelError>;
   };
   readonly sink: BusEvent.Sink["publish"];
@@ -102,5 +105,6 @@ export interface GatewayRouter {
   ingest(
     sender: Gateway.IngestSender,
     message: Gateway.SendMessage | Gateway.IngressFacts | Gateway.RequestAnswer,
+    context?: { readonly surfaceKey: string; readonly machineId?: string },
   ): Effect.Effect<Gateway.IngestResult, ChannelError>;
 }

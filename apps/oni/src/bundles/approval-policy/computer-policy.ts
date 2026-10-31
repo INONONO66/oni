@@ -28,6 +28,7 @@ export class ComputerPolicy {
   readonly launched: LaunchedWindow[] = [];
   private readonly pausedTurns = new Map<string, string | undefined>();
   private readonly humanAt = new Map<string, number>();
+  private readonly injectedAt = new Map<string, number>();
   private readonly humanStart = new Map<string, number>();
   private readonly freshObservations = new Map<string, Set<string>>();
   private readonly freshCaptures = new Map<string, Set<string>>();
@@ -140,6 +141,19 @@ export class ComputerPolicy {
   humanActiveMs(machineId: string): number {
     const reported = this.ports.host().list().find((info) => info.machineId === machineId)?.live?.humanInput?.lastAt;
     return Math.max(0, this.now() - Math.max(this.humanAt.get(machineId) ?? 0, reported ?? 0));
+  }
+
+  /** The client filters its own tagged input before reporting humanInput.lastAt. */
+  selfApprovalSuspected(machineId: string): boolean {
+    const reportedAt = this.ports.host().list().find((info) => info.machineId === machineId)?.live?.humanInput?.lastAt;
+    const humanAt = Math.max(this.humanAt.get(machineId) ?? 0, reportedAt ?? 0);
+    const injectedAt = this.injectedAt.get(machineId);
+    return humanAt === 0 || this.now() - humanAt > this.store.humanQuietMs() ||
+      (injectedAt !== undefined && this.now() - injectedAt < this.store.injectedWindowMs());
+  }
+
+  injected(machineId: string): void {
+    this.injectedAt.set(machineId, this.now());
   }
 
   humanRefusal(machineId: string): Machine.ComputerRefusal {
