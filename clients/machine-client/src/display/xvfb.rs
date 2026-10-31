@@ -446,10 +446,19 @@ mod tests {
         })
         .expect("display with openbox");
         let id = owned.id.clone();
+        let manager = owned.manager.as_ref().map(|manager| {
+            manager
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .try_wait()
+        });
         let input = crate::input::Input::platform_on(Some(&id));
         let screen = crate::screen::Screen::platform_on(Some(&id)).virtualizing(owned);
         let verdict = screen.capability(input.ready());
-        assert_eq!(verdict.verdict, "available", "{verdict:?}");
+        assert_eq!(
+            verdict.verdict, "available",
+            "{verdict:?}; manager={manager:?}"
+        );
         assert!(verdict.display.isolated);
         assert!(!verdict.grants.accessibility);
     }
