@@ -109,13 +109,18 @@ function router(
     principal?: SessionTransition.Principal;
     domainRevision?: number;
     authenticated?: (who: Gateway.IngestSender, proof: string, requestId: string) => void;
+    blockOnMachine?: string;
   } = {},
 ) {
+  const requests = channelRequests(requestPort(() => at, undefined, {
+    requestDomainRevisions: () => ({ persons: options.domainRevision ?? 1 }),
+  }));
   return makeRouter({
     now: () => at,
-    requests: channelRequests(requestPort(() => at, undefined, {
-      requestDomainRevisions: () => ({ persons: options.domainRevision ?? 1 }),
-    })),
+    requests: { ...requests, answer: (input, context) =>
+      options.blockOnMachine !== undefined && context?.machineId === options.blockOnMachine
+        ? Effect.succeed("self_approval_suspected" as const)
+        : requests.answer(input) },
     authenticateAnswer: (who: Gateway.IngestSender & { kind: "external" }, proof: string, requestId: string) => Effect.try({
       try: () => {
         options.authenticated?.(who, proof, requestId);
@@ -148,6 +153,7 @@ async function connect(
   gateway: ReturnType<typeof router>,
   messages: Channel.InboundMessage[] = [],
   logs: string[] = [],
+  contexts: { surfaceKey: string; machineId?: string }[] = [],
 ) {
   const handler = new WebSocketHandler(
     (message: Channel.InboundMessage) => Effect.sync(() => {
@@ -160,7 +166,10 @@ async function connect(
       token: "upgrade-secret",
       now: () => at,
       id: testWebSocketId(),
-      onRequestAnswer: (who: Gateway.IngestSender, answer: Gateway.RequestAnswer) => gateway.ingest(who, answer),
+      onRequestAnswer: (who: Gateway.IngestSender, answer: Gateway.RequestAnswer, context) => {
+        contexts.push(context);
+        return gateway.ingest(who, answer, context);
+      },
     },
   );
   const server = Bun.serve({
@@ -190,6 +199,32 @@ async function frame(socket: WebSocket, value: object) {
   if (!(message instanceof MessageEvent)) throw new Error("expected WebSocket message");
   return PlainValueSchema.parse(JSON.parse(message.data));
 }
+
+test("real WebSocket binds the surface machine to an authenticated answer", async () => {
+  const request = await approval();
+  const contexts: { surfaceKey: string; machineId?: string }[] = [];
+  const { socket } = await connect(router(), [], [], contexts);
+
+  expect(await frame(socket, { kind: "surface", machineId: "desk" }))
+    .toEqual({ type: "surface_bound", machineId: "desk" });
+  const answer = wireAnswer(request);
+  expect(await frame(socket, { type: "request_answer", ...answer }))
+    .toMatchObject({ type: "receipt", inputId: answer.inputId, result: { status: "executed" } });
+  expect(contexts).toEqual([{ surfaceKey: expect.any(String), machineId: "desk" }]);
+});
+
+test("a same-machine refusal returns a typed receipt and leaves the request open", async () => {
+  const request = await approval();
+  const { socket } = await connect(router({ blockOnMachine: "desk" }));
+  await frame(socket, { kind: "surface", machineId: "desk" });
+  const answer = wireAnswer(request);
+
+  expect(await frame(socket, { type: "request_answer", ...answer })).toMatchObject({
+    type: "receipt", inputId: answer.inputId,
+    result: { status: "blocked_pre", reasonCode: "self_approval_suspected" },
+  });
+  expect(ledger().kernel.requestById(request.requestId)?.state).toBe("open");
+});
 
 test.each([
   "approve",

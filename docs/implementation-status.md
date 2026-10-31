@@ -4,6 +4,18 @@
 
 Ref-targeted press and perform check disabled, zero-size, off-window and hit-test occlusion before dispatch, setValue checks disabled, and blocked actions wait at most two seconds by default before a typed `not_actionable` refusal.
 
+## #1729 human-input quiet window and typed retry
+
+The computer-use guard admits observation and settle during a human-input
+pause. Input, app launch and window mutation return a typed
+`paused:human_input` refusal with `humanActiveMs` measured from the latest
+human-input edge and `retryAfterMs` (zero once only fresh observation remains).
+Policy-state rows `computer_use.humanQuietMs` and `computer_use.maxWaitMs`
+default to 10000 ms and 20000 ms. Every input inside the quiet window is
+refused immediately; sustained activity asks the turn to end. A later
+turn must fully observe after the edge, and old input anchors refuse with
+their existing stale-anchor reasons. No captured input is replayed.
+
 ## #1725 macOS screen grant restart
 
 While the running macOS client reports Screen Recording denied, its five-second
@@ -75,6 +87,17 @@ AT-SPI observation, nested Wayland, and Windows are tracked in #1700.
 Grant-dependent live acceptance remains in #1702.
 
 ## #1697 computer-use leases (PR pending)
+
+The app now refuses suspected same-machine `computer_request` answers at the authenticated request-answer port, records their ingress refusal without settling the request, and broadcasts a typed `lease` frame on every revision (#1726 and the wire half of #1701; desktop rendering remains open).
+
+The #1734 budget row on each lease defaults to 1500 actions per hour and
+is capped by `computer_use.enrollmentCeiling` keyed by machine id (default
+1500). The existing `tool.pre` guard counts admitted `machine.input.*`
+attempts in a sliding hour; a transport refusal after admission still
+counts. `machine.screen.*` does not count. The revisioned lease row retains
+admission times, and `computer_list` exposes `usage.count` and
+`usage.resetAt` on each session lease. An exhausted budget refuses with
+`budget_exhausted { resetAt }`; desktop rendering remains #1701.
 
 The approval-policy bundle owns revisioned `Machine.ComputerLease` and
 `Machine.ComputerExclusion` rows. `Core.LedgerHost.policyState.get/list/put`
@@ -183,7 +206,6 @@ driving fake host releases through deploy, rollback, shutdown and host exit
 yet exercised on a live host: a real `oni supervise` swapping two npm
 releases.
 
-||||||| parent of 547281633 (feat(clients): reconnect failure classes with typed re-probe and explicit retry (#1698))
 
 ## #1698 machine client reconnect classes
 

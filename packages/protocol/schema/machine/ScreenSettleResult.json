@@ -110,6 +110,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "humanActiveMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "message": {
           "maxLength": 256,
           "minLength": 1,
@@ -127,13 +132,25 @@
             "app_out_of_scope",
             "foreground_not_granted",
             "excluded",
+            "stale_capture",
+            "stale_observation",
             "paused:human_input",
             "paused:takeover",
             "paused:private",
             "paused:locked",
-            "paused:asleep"
+            "paused:asleep",
+            "budget_exhausted"
           ],
           "type": "string"
+        },
+        "resetAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "retryAfterMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
         },
         "status": {
           "const": "refused",
