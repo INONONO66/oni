@@ -3,8 +3,9 @@ import { SessionGeneration, type LedgerSession } from "@oni/protocol";
 import type { PromptCatalog } from "../src/bundles/prompt/data";
 import { APPROVAL_POLICY } from "../src/composition/policy";
 import { createResident } from "../src/composition/resident";
+import { alarmPortsSlot, composedHolderOf } from "../src/composition/composed";
 import { allowConfigure } from "./helpers/generation-services";
-import { testToolPorts } from "./helpers/tool-ports";
+import { testToolPorts, toolComposition } from "./helpers/tool-ports";
 
 function systemPrompt(
   resident: ReturnType<typeof createResident>,
@@ -39,4 +40,46 @@ test("a configured skill is present in resident and child system prompts", () =>
 
   expect(systemPrompt(resident, "resident")).toContain("fixture-skill");
   expect(systemPrompt(resident, "child")).toContain("fixture-skill");
+});
+
+test("computer guidance follows the composed tool pack for both roles", () => {
+  const base = toolComposition(testToolPorts);
+  const toolBundle = base.manifest.bundles.find((bundle) => bundle.name === "eval");
+  if (toolBundle === undefined) throw new Error("tool fixture must include eval");
+  const options = {
+    model: { provider: "fixture", id: "fixture" },
+    apiKey: "fixture",
+    tools: testToolPorts,
+    sessionRuntime: { approvalPolicy: APPROVAL_POLICY, authorizeConfigure: allowConfigure },
+    policyGeneration: () => 1,
+  };
+  const without = createResident({ ...options, composed: composedHolderOf(base, alarmPortsSlot()) });
+  const withPack = createResident({
+    ...options,
+    composed: composedHolderOf({
+      ...base,
+      manifest: { ...base.manifest, bundles: [...base.manifest.bundles, { ...toolBundle, name: "computer" }] },
+      generation: { ...base.generation, bundles: [...base.generation.bundles, "computer"] },
+    }, alarmPortsSlot()),
+  });
+  const disabled = createResident({
+    ...options,
+    composed: composedHolderOf({
+      ...base,
+      manifest: { ...base.manifest, bundles: [...base.manifest.bundles, { ...toolBundle, name: "computer" }] },
+      generation: {
+        ...base.generation,
+        bundles: [...base.generation.bundles, "computer"],
+        tools: base.generation.tools.filter((tool) => !toolBundle.tools.some((entry) => entry.name === tool.name)),
+      },
+    }, alarmPortsSlot()),
+  });
+
+  for (const role of ["resident", "child"] as const) {
+    const plain = systemPrompt(without, role).split("\n\n");
+    const offered = systemPrompt(withPack, role).split("\n\n");
+    expect(offered.length).toBe(plain.length + 1);
+    expect(offered.filter((section) => plain.includes(section))).toEqual(plain);
+    expect(systemPrompt(disabled, role)).toBe(systemPrompt(without, role));
+  }
 });

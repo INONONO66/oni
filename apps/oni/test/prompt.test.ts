@@ -83,6 +83,16 @@ describe("buildAgentPrompt", () => {
     expect(buildAgentPrompt(RESIDENT_PRESET)).not.toContain("Structured messages");
     expect(buildAgentPrompt(CHILD_PRESET)).not.toContain("Structured messages");
   });
+
+  test("adds one section only when the computer pack is offered", () => {
+    const without = buildAgentPrompt(RESIDENT_PRESET).split("\n\n");
+    const withPack = buildAgentPrompt(RESIDENT_PRESET, { computerTools: true }).split("\n\n");
+
+    expect(withPack.length).toBe(without.length + 1);
+    expect(withPack.filter((section) => without.includes(section))).toEqual(without);
+    expect(buildAgentPrompt(CHILD_PRESET, { computerTools: true }).split("\n\n").length)
+      .toBe(buildAgentPrompt(CHILD_PRESET).split("\n\n").length + 1);
+  });
 });
 
 const scratch: string[] = [];
