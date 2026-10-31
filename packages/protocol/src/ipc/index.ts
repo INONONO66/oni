@@ -156,6 +156,8 @@ const methods = {
     params: Machine.ScreenCaptureRequest,
     result: Machine.ScreenCaptureResult,
   },
+  [Machine.WireMethod.ClipboardRead]: { params: Machine.ClipboardReadRequest, result: Machine.ClipboardReadResult },
+  [Machine.WireMethod.ClipboardWrite]: { params: Machine.ClipboardWriteRequest, result: Machine.ClipboardWriteResult },
   [Machine.WireMethod.InputPointer]: { params: Machine.InputPointerRequest, result: Machine.InputWriteResult },
   [Machine.WireMethod.InputKey]: { params: Machine.InputKeyRequest, result: Machine.InputWriteResult },
   [Machine.WireMethod.InputText]: { params: Machine.InputTextRequest, result: Machine.InputWriteResult },

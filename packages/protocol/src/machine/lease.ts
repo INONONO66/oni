@@ -10,6 +10,7 @@ const Lease = z.object({
   sessionId: z.string().min(1),
   machineId: z.string().min(1),
   apps: Apps,
+  clipboard: z.enum(["none", "write", "read_write"]).optional(),
   foreground: z.object({ purpose: Purpose, expiresAt: EpochMs }).strict().optional(),
   expiresAt: EpochMs,
   revision: z.number().int().positive(),
@@ -30,6 +31,7 @@ export type ComputerLease = z.infer<typeof ComputerLease>;
 
 export const ComputerRequest = z.object({
   apps: Apps,
+  clipboard: z.enum(["none", "write", "read_write"]).default("none"),
   foreground: z.object({ purpose: Purpose }).strict().optional(),
   minutes: z.number().int().min(5).max(120),
 }).strict();
@@ -53,7 +55,7 @@ export const ComputerRefusal = z.object({
   status: z.literal("refused"),
   reason: z.enum([
     "permission_denied", "lease_missing", "lease_expired", "target_unbound",
-    "app_out_of_scope", "foreground_not_granted", "excluded",
+    "app_out_of_scope", "foreground_not_granted", "excluded", "clipboard_not_granted", "private",
     "paused:human_input", "paused:takeover", "paused:private", "paused:locked", "paused:asleep",
   ]),
   message: z.string().min(1).max(256).optional(),

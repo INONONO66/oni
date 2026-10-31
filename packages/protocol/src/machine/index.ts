@@ -287,6 +287,14 @@ export namespace Machine {
   export type ScreenCaptureRequest = Schema.ScreenCaptureRequest;
   export const ScreenCaptureResult = Schema.ScreenCaptureResult;
   export type ScreenCaptureResult = Schema.ScreenCaptureResult;
+  export const ClipboardReadRequest = Schema.ClipboardReadRequest;
+  export type ClipboardReadRequest = Schema.ClipboardReadRequest;
+  export const ClipboardReadResult = Schema.ClipboardReadResult;
+  export type ClipboardReadResult = Schema.ClipboardReadResult;
+  export const ClipboardWriteRequest = Schema.ClipboardWriteRequest;
+  export type ClipboardWriteRequest = Schema.ClipboardWriteRequest;
+  export const ClipboardWriteResult = Schema.ClipboardWriteResult;
+  export type ClipboardWriteResult = Schema.ClipboardWriteResult;
   export const InputPointerRequest = Schema.InputPointerRequest;
   export type InputPointerRequest = Schema.InputPointerRequest;
   export const InputKeyRequest = Schema.InputKeyRequest;
