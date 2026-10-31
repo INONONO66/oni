@@ -117,7 +117,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - name: Gate native line coverage (build.rs is not measured)
-        run: cd clients && cargo llvm-cov --workspace --tests --locked --fail-under-lines 100
+        run: |
+          cd clients
+          if ! cargo llvm-cov --workspace --tests --locked --fail-under-lines 100; then
+            cargo llvm-cov report --text --output-path /tmp/oni-x11-coverage.txt
+            awk '/\/display\/xvfb.rs:$/ { show=1; next } show && /^[^|]+\.rs:$/ { exit } show { print }' /tmp/oni-x11-coverage.txt
+            exit 1
+          fi
 
   desktop-smoke:
     name: Desktop production smoke
