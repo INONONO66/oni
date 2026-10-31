@@ -493,11 +493,11 @@ mod tests {
             root,
             &|_| {
                 calls.set(calls.get() + 1);
-                calls.get() == 4
+                calls.get() == 3
             },
             || Ok(events.borrow_mut().pop_front()),
         );
-        assert_eq!(calls.get(), 4);
+        assert_eq!(calls.get(), 3);
         assert!(events.borrow().is_empty());
     }
 
