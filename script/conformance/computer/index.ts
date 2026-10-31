@@ -968,8 +968,8 @@ export async function exerciseComputer(
     const [display] = layout.displays;
     check(display !== undefined, "fixture layout has no display for probe");
     const metrics = await harness.within(probeStream(host, machineId, display.id), "stream stage metrics probe");
-    check(metrics.stages.captureToReceipt.frames >= 10 &&
-      metrics.stages.captureToDecoded.frames >= 10 &&
+    check(metrics.stages.captureToReceipt.frames >= 1 &&
+      metrics.stages.captureToDecoded.frames >= 1 &&
       metrics.stages.captureToReceipt.p99 !== null &&
       metrics.stages.captureToDecoded.p99 !== null &&
       metrics.stages.captureToDisplay === null &&

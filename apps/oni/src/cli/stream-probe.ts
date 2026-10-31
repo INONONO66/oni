@@ -15,6 +15,7 @@ export interface StreamProbeDeps {
   readonly connect: () => Promise<ProbeLink>;
   readonly viewer: () => Promise<StreamViewer>;
   readonly wait: (ms: number) => Promise<void>;
+  readonly frameCount?: number;
 }
 
 export interface StreamProbeOptions {
@@ -95,7 +96,7 @@ export async function runStreamProbe(options: StreamProbeOptions, deps: StreamPr
     for (let pass = 0; pass < passes; pass += 1) {
       const viewer = await deps.viewer();
       try {
-        await receive(link, viewer, requestId, options.machineId, options.display, pass > 0, 10);
+        await receive(link, viewer, requestId, options.machineId, options.display, pass > 0, deps.frameCount ?? 10);
         if (pass === 0 && options.reconnect !== undefined) await deps.wait(options.reconnect.afterMs);
         const closed = link.next((frame) => frame.requestId === requestId &&
           (frame.type === "stream_probe_closed" || frame.type === "stream_probe_refused"));

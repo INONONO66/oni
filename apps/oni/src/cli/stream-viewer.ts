@@ -103,7 +103,12 @@ const PAGE = `(window.__probe = (() => {
       };
       const deadline = setTimeout(() => {
         state.waiters = state.waiters.filter(entry => entry !== waiter);
-        reject(new Error("stream probe decoded frame timed out"));
+        reject(new Error("stream probe decoded frame timed out: " + JSON.stringify({
+          sidecars: state.sidecars.size, received: state.received.size, decoded: state.decoded.size,
+          sidecarTimestamp: state.sidecars.keys().next().value ?? null,
+          receivedTimestamp: state.received.keys().next().value ?? null,
+          decodedTimestamp: state.decoded.keys().next().value ?? null,
+        })));
       }, 30000);
       state.waiters.push(waiter); settle();
     });

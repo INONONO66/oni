@@ -244,11 +244,15 @@ test("CLI probe negotiates and forwards decoded frames through the injected stre
   };
   let viewersClosed = 0;
   const remoteCandidates: string[] = [];
+  const requestedFrames: number[] = [];
   const viewer: StreamViewer = {
     answer: async () => ({ sdp: "answer", candidates: [{ candidate: "local-candidate", sdpMid: "0" }] }),
     candidate: async (line) => { remoteCandidates.push(line); },
-    until: async (count) => Array.from({ length: count }, (_, seq) =>
-      ({ seq, capturedAtUs: seq, receivedAt: seq + 1, decodedAt: seq + 2 })),
+    until: async (count) => {
+      requestedFrames.push(count);
+      return Array.from({ length: count }, (_, seq) =>
+        ({ seq, capturedAtUs: seq, receivedAt: seq + 1, decodedAt: seq + 2 }));
+    },
     close: () => { viewersClosed += 1; },
   };
   const report = await runStreamProbe({ machineId: "macbook", display: 1, reconnect: { afterMs: 10 } }, {
@@ -256,11 +260,13 @@ test("CLI probe negotiates and forwards decoded frames through the injected stre
     connect: async () => link,
     viewer: async () => viewer,
     wait: async (ms) => expect(ms).toBe(10),
+    frameCount: 1,
   });
   expect(report.stages.captureToReceipt.frames).toBe(20);
   expect(stream).toBe(2);
   expect(remoteCandidates).toEqual(["remote-candidate", "remote-candidate"]);
   expect(viewersClosed).toBe(2);
+  expect(requestedFrames).toEqual([1, 1]);
   expect(closed).toBe(true);
   expect(parseStreamProbeArgs(["macbook", "1", "--reconnect-after-ms", "10"])).toEqual({
     machineId: "macbook", display: 1, reconnect: { afterMs: 10 },
@@ -273,6 +279,7 @@ test("CLI probe negotiates and forwards decoded frames through the injected stre
   });
   expect(unavailable.reconnect).toBe("unavailable");
   expect(stream).toBe(4);
+  expect(requestedFrames).toEqual([1, 1, 10]);
 });
 
 test("CLI refuses a stream that never offers a media track", async () => {

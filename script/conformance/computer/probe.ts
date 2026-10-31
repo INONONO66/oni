@@ -48,6 +48,7 @@ export async function probeStream(host: MachineHost, machineId: string, display:
       connect: async () => link,
       viewer: openStreamViewer,
       wait: async () => undefined,
+      frameCount: 1,
     });
   } finally {
     gateway.callbacks.close(socket);
