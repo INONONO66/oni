@@ -12,7 +12,7 @@
  *
  * Single-user assumption (r2 L12): the child, every hook process it spawns
  * and the lock holder they contend with run as the one user the pane runs
- * as — the machine daemon's — so `kill -0 <holder>` answers honestly. A
+ * as — the machine client's — so `kill -0 <holder>` answers honestly. A
  * holder owned by another uid would fail that probe with EPERM and read as
  * gone; its lock would be broken past the bound. No vendor runs its hooks
  * as a different user, so the probe is not told the two apart.

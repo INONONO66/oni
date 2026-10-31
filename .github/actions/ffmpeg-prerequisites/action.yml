@@ -1,5 +1,5 @@
 name: ffmpeg prerequisites
-description: Install ffmpeg and ffprobe for the oni app media tests that encode and sample real H.264 clips through a machine daemon
+description: Install ffmpeg and ffprobe for the oni app media tests that encode and sample real H.264 clips through a machine client
 runs:
   using: composite
   steps:

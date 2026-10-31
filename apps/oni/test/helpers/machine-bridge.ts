@@ -55,6 +55,6 @@ export function bridgeOffer(): Omit<Machine.Offer, "peer" | "generation"> {
   };
 }
 
-export function bridgeDaemon(socketPath: string) {
+export function bridgeClient(socketPath: string) {
   return attachAppMclient({ socketPath, machineId: "m-1", root: tmpdir(), exports: [] });
 }

@@ -355,6 +355,11 @@ The npm artifact remains platform-independent and does not contain
 location before booting. The Resident service command `oni daemon` is
 separate from the machine client.
 
+The #1675 follow-up tests malformed stream acknowledgements and out-of-order
+signals on the Rust client, and checks fixture screen-capture pixels against
+the encoded PNG without requiring screen permission. Machine-side prose uses
+"machine client"; existing `Offer.daemon` wire names remain unchanged.
+
 ## #1692 unverifiable input and dispatch reservation (machine contract 3, PR pending)
 
 On `feat/1692-unverifiable-input` (2026-10-29, base
