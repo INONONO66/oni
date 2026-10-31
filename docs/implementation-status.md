@@ -75,6 +75,15 @@ Grant-dependent live acceptance remains in #1702.
 
 The app now refuses suspected same-machine `computer_request` answers at the authenticated request-answer port, records their ingress refusal without settling the request, and broadcasts a typed `lease` frame on every revision (#1726 and the wire half of #1701; desktop rendering remains open).
 
+The #1734 budget row on each lease defaults to 1500 actions per hour and
+is capped by `computer_use.enrollmentCeiling` keyed by machine id (default
+1500). The existing `tool.pre` guard counts admitted `machine.input.*`
+attempts in a sliding hour; a transport refusal after admission still
+counts. `machine.screen.*` does not count. The revisioned lease row retains
+admission times, and `computer_list` exposes `usage.count` and
+`usage.resetAt` on each session lease. An exhausted budget refuses with
+`budget_exhausted { resetAt }`; desktop rendering remains #1701.
+
 The approval-policy bundle owns revisioned `Machine.ComputerLease` and
 `Machine.ComputerExclusion` rows. `Core.LedgerHost.policyState.get/list/put`
 persists them in the existing catalog; `put` compares the prior revision

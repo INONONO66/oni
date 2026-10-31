@@ -72,6 +72,29 @@
         "retryAfterMs"
       ],
       "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "const": "budget_exhausted",
+          "type": "string"
+        },
+        "resetAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "resetAt"
+      ],
+      "type": "object"
     }
   ]
 }

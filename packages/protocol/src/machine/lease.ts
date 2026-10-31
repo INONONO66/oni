@@ -6,12 +6,16 @@ import { WindowTarget } from "./target.js";
 const Identity = z.string().min(1).max(4096);
 const Apps = z.union([z.array(Identity).min(1).max(512), z.literal("any")]);
 const Purpose = z.string().min(1).max(4096);
+const Budget = z.object({ actionsPerHour: z.number().int().positive() }).strict();
 const Lease = z.object({
   sessionId: z.string().min(1),
   machineId: z.string().min(1),
   apps: Apps,
   foreground: z.object({ purpose: Purpose, expiresAt: EpochMs }).strict().optional(),
   expiresAt: EpochMs,
+  budget: Budget.default({ actionsPerHour: 1500 }),
+  admittedAt: z.array(EpochMs).default([]),
+  usage: z.object({ count: z.number().int().nonnegative(), resetAt: EpochMs.nullable() }).strict().optional(),
   revision: z.number().int().positive(),
 });
 
@@ -30,6 +34,7 @@ export type ComputerLease = z.infer<typeof ComputerLease>;
 
 export const ComputerRequest = z.object({
   apps: Apps,
+  budget: Budget.optional(),
   foreground: z.object({ purpose: Purpose }).strict().optional(),
   minutes: z.number().int().min(5).max(120),
 }).strict();
@@ -66,6 +71,11 @@ export const ComputerRefusal = z.discriminatedUnion("reason", [
     humanActiveMs: z.number().int().nonnegative(),
     retryAfterMs: z.number().int().nonnegative(),
     message: z.string().min(1).max(256).optional(),
+  }).strict(),
+  z.object({
+    status: z.literal("refused"),
+    reason: z.literal("budget_exhausted"),
+    resetAt: EpochMs,
   }).strict(),
 ]);
 export type ComputerRefusal = z.infer<typeof ComputerRefusal>;

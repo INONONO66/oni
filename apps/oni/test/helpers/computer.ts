@@ -86,6 +86,7 @@ export function computerFixture(onRevision?: (frame: Gateway.Lease) => void) {
     grant(patch: Partial<Extract<Machine.ComputerLease, { state: "active" }>> = {}) {
       return policy.store.put({
         sessionId: "resident", machineId: "desk", apps: [app.bundleId], expiresAt: 600_100,
+        budget: { actionsPerHour: 1500 }, admittedAt: [],
         state: "active", revision: (policy.store.get("resident", "desk")?.revision ?? 0) + 1, ...patch,
       });
     },

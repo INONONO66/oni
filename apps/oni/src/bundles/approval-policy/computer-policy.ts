@@ -33,6 +33,7 @@ export class ComputerPolicy {
   private readonly freshObservations = new Map<string, Set<string>>();
   private readonly freshCaptures = new Map<string, Set<string>>();
   private readonly detached = new Map<string, () => void>();
+  private readonly budgetRefusals = new Map<string, number>();
   constructor(
     readonly store: ComputerStore,
     readonly ports: {
@@ -45,12 +46,36 @@ export class ComputerPolicy {
 
   readonly now = () => this.ports.now();
 
+  captureRefusal(request: MachineInputCapture, reason: string, terminal: string): Machine.ComputerRefusal {
+    if (reason === "paused:human_input") return this.humanRefusal(request.machineId);
+    if (reason === "budget_exhausted" && "requestId" in request.params) {
+      const key = `${request.machineId}:${request.params.requestId}`;
+      const resetAt = this.budgetRefusals.get(key);
+      this.budgetRefusals.delete(key);
+      if (resetAt !== undefined) return { status: "refused", reason: "budget_exhausted", resetAt };
+    }
+    const refused = Machine.ComputerRefusal.safeParse({ status: "refused", reason });
+    return refused.success ? refused.data
+      : { status: "refused", reason: "permission_denied", message: `machine input not executed: ${terminal}` };
+  }
+
   readonly guard: { decide: Core.NamedGuard["decide"] } = {
-    decide: ({ value, when }) => {
+    decide: ({ value, when }): ReturnType<Core.NamedGuard["decide"]> => {
       const capture = Capture.parse(value);
       const sessionId = z.string().parse(when.sessionId);
-      const reason = this.refusal(sessionId, z.string().parse(when.op), capture);
-      return reason === undefined ? { verdict: "allow" } : { verdict: "deny", payload: { reason } };
+      const method = z.string().parse(when.op);
+      const reason = this.refusal(sessionId, method, capture);
+      if (reason !== undefined) return { verdict: "deny", payload: { reason } };
+      if (method.startsWith("machine.input.")) {
+        const lease = this.store.get(sessionId, capture.machineId);
+        if (lease === undefined || lease.state === "ended") return { verdict: "deny", payload: { reason: "lease_missing" } };
+        const resetAt = this.store.admit(lease, this.now());
+        if (resetAt !== undefined) {
+          if ("requestId" in capture.params) this.budgetRefusals.set(`${capture.machineId}:${capture.params.requestId}`, resetAt);
+          return { verdict: "deny", payload: { reason: "budget_exhausted", resetAt } };
+        }
+      }
+      return { verdict: "allow" };
     },
   };
 

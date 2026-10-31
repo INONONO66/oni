@@ -20,10 +20,11 @@ export const ScreenSettleResult = z.discriminatedUnion("status", [
     "window_not_found", "epoch_changed", "permission_denied", "machine_not_attached",
     "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
     "foreground_not_granted", "excluded", "stale_capture", "stale_observation", "paused:human_input", "paused:takeover",
-    "paused:private", "paused:locked", "paused:asleep",
+    "paused:private", "paused:locked", "paused:asleep", "budget_exhausted",
   ]), message: z.string().min(1).max(256).optional(),
     humanActiveMs: z.number().int().nonnegative().optional(),
     retryAfterMs: z.number().int().nonnegative().optional(),
+    resetAt: z.number().nonnegative().optional(),
   }).strict(),
 ]);
 export type ScreenSettleResult = z.infer<typeof ScreenSettleResult>;
