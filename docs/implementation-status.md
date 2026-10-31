@@ -2,6 +2,17 @@
 
 The #1719 macOS observer lists open menus, sheets, popovers and alerts as distinct epoch-bound targets for background ref actions and settle, verified by a headless menu-and-sheet fixture while live macOS permission verification remains blocked by #1676; Linux reports `surface_enumeration_unavailable`.
 
+## #1725 macOS screen grant restart
+
+While the running macOS client reports Screen Recording denied, its five-second
+report tick watches the preflight grant. Once granted, it sends the updated
+screen fact before exiting with code 75; launchd KeepAlive restarts it to
+apply the permission to a fresh process. At most three such restarts per hour
+are recorded in `~/.oni/state/grant-restarts.json`. Beyond that limit the
+client stays attached and reports `restart_bound`. Linux has no grant restart.
+`mclient join` describes the automatic restart; manual kickstart remains in
+its help. MacBook live grant acceptance remains tracked in #1702.
+
 ## #1735 computer-use prompt guidance
 
 When the composed catalog includes the computer tool pack, resident and child
@@ -170,7 +181,6 @@ driving fake host releases through deploy, rollback, shutdown and host exit
 yet exercised on a live host: a real `oni supervise` swapping two npm
 releases.
 
-||||||| parent of 547281633 (feat(clients): reconnect failure classes with typed re-probe and explicit retry (#1698))
 
 ## #1698 machine client reconnect classes
 

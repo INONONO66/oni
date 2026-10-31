@@ -92,7 +92,8 @@
                   "window_manager_missing",
                   "input_monitoring_not_granted",
                   "no_screen_backend",
-                  "input_backend_unavailable"
+                  "input_backend_unavailable",
+                  "restart_bound"
                 ],
                 "type": "string"
               }
