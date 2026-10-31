@@ -587,7 +587,9 @@ struct PixelSource {
     invalid_frame: bool,
     vanish_after: Option<usize>,
     window_reads: AtomicUsize,
+    windows_fault: Option<Fault>,
     change_each_capture: bool,
+    change_after_baseline: bool,
     captures: AtomicUsize,
     fail_capture_after: Option<usize>,
 }
@@ -600,7 +602,9 @@ impl PixelSource {
             invalid_frame: false,
             vanish_after: None,
             window_reads: AtomicUsize::new(0),
+            windows_fault: None,
             change_each_capture: false,
+            change_after_baseline: false,
             captures: AtomicUsize::new(0),
             fail_capture_after: None,
         }
@@ -617,6 +621,9 @@ impl Source for PixelSource {
     }
 
     fn windows(&self) -> Result<Vec<Window>, Fault> {
+        if let Some(fault) = &self.windows_fault {
+            return Err(fault.clone());
+        }
         let calls = self.window_reads.fetch_add(1, Ordering::Relaxed) + 1;
         if self.vanish_after.is_some_and(|after| calls > after) {
             Ok(vec![])
@@ -644,6 +651,10 @@ impl Source for PixelSource {
             if self.change_each_capture {
                 let color = u8::try_from(captures % 2).expect("alternating fixture color");
                 pixels.fill(color.saturating_mul(255));
+            } else if self.change_after_baseline && captures > 1 {
+                for pixel in pixels.as_chunks_mut::<4>().0 {
+                    pixel[0] = 16;
+                }
             }
             Ok(size)
         }
@@ -660,6 +671,32 @@ fn pixel_fallback_reports_pending_when_window_pixels_keep_changing() {
     assert_eq!(
         screen.settle(&request(50, 100)),
         json!({"status":"pending","method":"pixels","changesInWindow":1})
+    );
+}
+
+#[test]
+fn pixel_fallback_requires_quiet_after_one_window_change() {
+    let source = PixelSource {
+        change_after_baseline: true,
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle(&request(500, 1000)),
+        json!({"status":"settled","method":"pixels","captureId":"cap-1"})
+    );
+}
+
+#[test]
+fn pixel_fallback_propagates_window_enumeration_failure() {
+    let source = PixelSource {
+        windows_fault: Some(Fault::Permission),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle(&request(50, 100))["reason"],
+        "permission_denied"
     );
 }
 
