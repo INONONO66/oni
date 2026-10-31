@@ -2,8 +2,10 @@
 //! window lookup and actions only. The walk, ref resolution and every
 //! decision live in the cfg-free parent module.
 
+use core_foundation_sys::base::CFHash;
 use std::{
     cell::Cell,
+    collections::HashSet,
     ffi::c_void,
     ptr,
     time::{Duration, Instant},
@@ -14,9 +16,9 @@ use accessibility_sys::{
     kAXSecureTextFieldSubrole, kAXSubroleAttribute, kAXValueAttribute, kAXValueTypeAXError,
     kAXValueTypeCGPoint, kAXValueTypeCGSize, kAXWindowsAttribute, AXError, AXIsProcessTrusted,
     AXUIElementCopyActionNames, AXUIElementCopyAttributeValue,
-    AXUIElementCopyMultipleAttributeValues, AXUIElementCreateApplication, AXUIElementPerformAction,
-    AXUIElementRef, AXUIElementSetAttributeValue, AXUIElementSetMessagingTimeout, AXValueGetType,
-    AXValueGetTypeID, AXValueGetValue, AXValueRef,
+    AXUIElementCopyMultipleAttributeValues, AXUIElementCreateApplication, AXUIElementGetTypeID,
+    AXUIElementPerformAction, AXUIElementRef, AXUIElementSetAttributeValue,
+    AXUIElementSetMessagingTimeout, AXValueGetType, AXValueGetTypeID, AXValueGetValue, AXValueRef,
 };
 use core_foundation::{
     array::{CFArray, CFArrayRef},
@@ -30,8 +32,8 @@ use xcap::Window as XWindow;
 
 use super::{
     assemble, bundle_root, checked, items, performed, target, walk, ActFault, Action, Admit,
-    AppIdentity, Attributes, Bounds, Observer, Raw, Segment, Tree, Walk, WindowIdentity,
-    ATTRIBUTES,
+    AppIdentity, Attributes, Bounds, Observer, Raw, Segment, Surface, SurfaceKind, Tree, Walk,
+    WindowIdentity, ATTRIBUTES,
 };
 use crate::screen::private::Focused;
 use crate::screen::Fault;
@@ -98,6 +100,10 @@ fn raw(value: &CFType) -> Raw<Element> {
     }
     if let Some(flag) = value.downcast::<CFBoolean>() {
         return Raw::Flag(flag.into());
+    }
+    // SAFETY: AXUIElementGetTypeID is an argument-free CoreFoundation type query.
+    if value.type_of() == unsafe { AXUIElementGetTypeID() } {
+        return Raw::Items(vec![Element(value.clone())]);
     }
     if let Some(array) = value.downcast::<CFArray<*const c_void>>() {
         // SAFETY: every item of an AX element array is a live AXUIElement the array retains.
@@ -247,6 +253,7 @@ fn identity(window: &XWindow) -> Option<WindowIdentity> {
         token: 0,
         origin: (window.x().ok()?.into(), window.y().ok()?.into()),
         minimized: false,
+        surface: None,
     };
     identity.minimized = root(&identity)
         .ok()
@@ -259,15 +266,159 @@ fn identity(window: &XWindow) -> Option<WindowIdentity> {
     Some(identity)
 }
 
+fn application(pid: u32) -> Option<Element> {
+    let pid = i32::try_from(pid).ok()?;
+    // SAFETY: AXUIElementCreateApplication returns an owned AX object for a valid pid.
+    Some(Element(unsafe {
+        CFType::wrap_under_create_rule(AXUIElementCreateApplication(pid) as CFTypeRef)
+    }))
+}
+
+fn children(element: &Element, attribute: &str) -> Vec<Element> {
+    element
+        .values(&[attribute])
+        .ok()
+        .and_then(|mut values| items(values.pop()).ok())
+        .unwrap_or_default()
+}
+
+fn text(element: &Element, attribute: &str) -> Option<String> {
+    match element.values(&[attribute]).ok()?.pop()? {
+        Raw::Text(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn flag(element: &Element, attribute: &str) -> bool {
+    matches!(
+        element
+            .values(&[attribute])
+            .ok()
+            .and_then(|mut values| values.pop()),
+        Some(Raw::Flag(true))
+    )
+}
+
+fn surface_id(element: &Element, occupied: &mut HashSet<u32>) -> u32 {
+    // SAFETY: the retained CF value is live during the hash call.
+    let hash = unsafe { CFHash(element.0.as_CFTypeRef()) };
+    let mut id = u32::try_from(hash & 0x7fff_ffff).unwrap_or(0) | 0x8000_0000;
+    while !occupied.insert(id) {
+        id = id.wrapping_add(1) | 0x8000_0000;
+    }
+    id
+}
+
+fn surfaces(pid: u32, windows: &[u32]) -> Vec<(WindowIdentity, Element)> {
+    let Some(application) = application(pid) else {
+        return Vec::new();
+    };
+    let Some(app) = app(pid) else {
+        return Vec::new();
+    };
+    let mut candidates = Vec::new();
+    for bar in children(&application, "AXMenuBar") {
+        for item in children(&bar, "AXChildren") {
+            for menu in children(&item, "AXMenu")
+                .into_iter()
+                .chain(children(&item, "AXChildren"))
+            {
+                if text(&menu, "AXRole").as_deref() == Some("AXMenu")
+                    && (flag(&menu, "AXVisible") || flag(&item, "AXExpanded"))
+                {
+                    candidates.push((menu, SurfaceKind::Menu, None));
+                }
+            }
+        }
+    }
+    for window in children(&application, kAXWindowsAttribute) {
+        let parent = window.window_id();
+        for sheet in children(&window, "AXSheets") {
+            candidates.push((sheet, SurfaceKind::Sheet, parent));
+        }
+        if text(&window, "AXRole").as_deref() == Some("AXSystemDialog")
+            || text(&window, "AXSubrole").as_deref() == Some("AXSystemDialog")
+        {
+            candidates.push((window, SurfaceKind::Alert, None));
+        }
+    }
+    for dialog in children(&application, "AXChildren") {
+        if text(&dialog, "AXRole").as_deref() == Some("AXSystemDialog") {
+            candidates.push((dialog, SurfaceKind::Alert, None));
+        }
+    }
+    if let Some(mut focused) = children(&application, kAXFocusedUIElementAttribute).pop() {
+        for _ in 0..32 {
+            let role = text(&focused, "AXRole");
+            if matches!(role.as_deref(), Some("AXPopover" | "AXMenu")) {
+                let kind = if role.as_deref() == Some("AXMenu") {
+                    SurfaceKind::Menu
+                } else {
+                    SurfaceKind::Popover
+                };
+                let parent = if kind == SurfaceKind::Popover {
+                    focused.window_id().filter(|id| windows.contains(id))
+                } else {
+                    None
+                };
+                candidates.push((focused, kind, parent));
+                break;
+            }
+            let Some(parent) = children(&focused, "AXParent").pop() else {
+                break;
+            };
+            focused = parent;
+        }
+    }
+    let mut occupied: HashSet<u32> = windows.iter().copied().collect();
+    let mut seen = HashSet::new();
+    let mut found = Vec::new();
+    for (element, kind, parent) in candidates {
+        // SAFETY: the retained CF value stays live for the duration of this identity query.
+        if !seen.insert(unsafe { CFHash(element.0.as_CFTypeRef()) }) {
+            continue;
+        }
+        let Ok((attributes, _)) = (Window { origin: (0.0, 0.0) }).read(&element) else {
+            continue;
+        };
+        let id = surface_id(&element, &mut occupied);
+        let frame = attributes.frame;
+        found.push((
+            WindowIdentity {
+                pid,
+                window_id: id,
+                owner_pid: pid,
+                title: attributes.label.unwrap_or_default(),
+                app: app.clone(),
+                token: u64::from(id),
+                origin: (frame.x, frame.y),
+                minimized: false,
+                surface: Some(Surface {
+                    kind,
+                    parent,
+                    frame,
+                }),
+            },
+            element,
+        ));
+    }
+    found
+}
+
 pub(super) fn root(window: &WindowIdentity) -> Result<Option<Element>, Fault> {
-    let pid = i32::try_from(window.pid).map_err(|_| Fault::WindowNotFound)?;
-    // SAFETY: creating an application element has no preconditions; the result is +1.
-    let application =
-        unsafe { CFType::wrap_under_create_rule(AXUIElementCreateApplication(pid) as CFTypeRef) };
-    let windows = Element(application).values(&[kAXWindowsAttribute])?;
-    Ok(items(windows.into_iter().next())?
+    let application = application(window.pid).ok_or(Fault::WindowNotFound)?;
+    let windows = children(&application, kAXWindowsAttribute);
+    if let Some(found) = windows
+        .iter()
+        .find(|candidate| candidate.window_id() == Some(window.window_id))
+    {
+        return Ok(Some(found.clone()));
+    }
+    let ids: Vec<_> = windows.iter().filter_map(Element::window_id).collect();
+    Ok(surfaces(window.pid, &ids)
         .into_iter()
-        .find(|candidate| candidate.window_id() == Some(window.window_id)))
+        .find(|(identity, _)| identity.window_id == window.window_id)
+        .map(|(_, element)| element))
 }
 
 fn perform(element: &Element, action: &Action) -> AXError {
@@ -376,7 +527,21 @@ impl Observer for Native {
             return Err(Fault::Permission);
         }
         let all = XWindow::all().map_err(|error| Fault::Failed(error.to_string()))?;
-        Ok(all.iter().filter_map(identity).collect())
+        let mut windows: Vec<_> = all.iter().filter_map(identity).collect();
+        let pids: HashSet<u32> = windows.iter().map(|window| window.pid).collect();
+        for pid in pids {
+            let own: Vec<_> = windows
+                .iter()
+                .filter(|window| window.pid == pid)
+                .map(|window| window.window_id)
+                .collect();
+            windows.extend(
+                surfaces(pid, &own)
+                    .into_iter()
+                    .map(|(identity, _)| identity),
+            );
+        }
+        Ok(windows)
     }
 
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault> {
@@ -454,5 +619,7 @@ mod tests {
         ));
         let empty: CFArray<CFType> = CFArray::from_CFTypes(&[]);
         assert!(matches!(raw(&empty.as_CFType()), Raw::Items(items) if items.is_empty()));
+        let application = application(std::process::id()).expect("application element");
+        assert!(matches!(raw(&application.0), Raw::Items(items) if items.len() == 1));
     }
 }

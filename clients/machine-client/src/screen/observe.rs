@@ -193,6 +193,7 @@ struct Seen {
     owner_pid: u32,
     token: u64,
     present: bool,
+    surface: bool,
 }
 
 /// Recreations per `(pid, window_id)`: a window bumps its epoch when its
@@ -215,7 +216,12 @@ impl EpochTable {
             if !seen.present || seen.owner_pid != window.owner_pid || seen.token != window.token {
                 seen.epoch += 1;
             }
-            (seen.owner_pid, seen.token, seen.present) = (window.owner_pid, window.token, true);
+            (seen.owner_pid, seen.token, seen.present, seen.surface) = (
+                window.owner_pid,
+                window.token,
+                true,
+                window.surface.is_some(),
+            );
         }
         for (key, window) in current {
             let seen = Seen {
@@ -223,6 +229,7 @@ impl EpochTable {
                 owner_pid: window.owner_pid,
                 token: window.token,
                 present: true,
+                surface: window.surface.is_some(),
             };
             self.0.insert(key, seen);
         }
@@ -334,6 +341,32 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Observations {
+    pub fn surface(&self, target: Target) -> bool {
+        let state = lock(&self.state);
+        let (Ok(pid), Ok(window)) = (u32::try_from(target.pid), u32::try_from(target.window_id))
+        else {
+            return false;
+        };
+        state
+            .epochs
+            .0
+            .get(&(pid, window))
+            .is_some_and(|seen| seen.surface && target.epoch == Some(seen.epoch))
+    }
+
+    pub fn listed(&self, observer: &dyn Observer) -> Result<Vec<(WindowIdentity, u64)>, Refusal> {
+        let windows = observer.windows()?;
+        let mut state = lock(&self.state);
+        state.epochs.update(&windows);
+        Ok(windows
+            .into_iter()
+            .map(|window| {
+                let epoch = state.epochs.epoch((window.pid, window.window_id));
+                (window, epoch)
+            })
+            .collect())
+    }
+
     /// Drops every snapshot and epoch; the id counter keeps counting.
     pub fn forget(&self) {
         *lock(&self.state) = State::default();

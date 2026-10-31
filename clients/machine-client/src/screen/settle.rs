@@ -139,15 +139,20 @@ impl Screen {
         else {
             return refusal("window_not_found");
         };
+        let surface = self.observations.surface(target);
         let started = Instant::now();
         let end = started + Duration::from_millis(request.timeout_ms.unsigned_abs());
         let mut subscription =
             match notifications.subscribe(pid, window_id, started, end, Arc::clone(observer)) {
                 Ok(subscription) => subscription,
+                Err(Unsupported::WindowNotFound) if surface => {
+                    self.observations.destroy(target);
+                    return json!({"status": "destroyed"});
+                }
                 Err(blocker) => return unsupported(blocker),
             };
         let quiet = Duration::from_millis(request.quiet_ms.unsigned_abs());
-        self.settle_subscribed(subscription.as_mut(), target, quiet, end)
+        self.settle_subscribed(subscription.as_mut(), target, quiet, end, surface)
     }
 
     fn settle_subscribed(
@@ -156,6 +161,7 @@ impl Screen {
         target: observe::Target,
         quiet: Duration,
         end: Instant,
+        surface: bool,
     ) -> Value {
         let mut state = State::new(subscription.now());
         let baseline = self.settle_sample(subscription, target, end);
@@ -166,6 +172,10 @@ impl Screen {
         match baseline {
             Ok(prepared) => {
                 self.observations.commit(prepared, None);
+            }
+            Err(observe::Refusal::WindowNotFound) if surface => {
+                self.observations.destroy(target);
+                return json!({"status": "destroyed"});
             }
             Err(error) => return sample_refusal(error),
         }
@@ -198,6 +208,10 @@ impl Screen {
             }
             let prepared = match prepared {
                 Ok(prepared) => prepared,
+                Err(observe::Refusal::WindowNotFound) if surface => {
+                    self.observations.destroy(target);
+                    return json!({"status": "destroyed"});
+                }
                 Err(error) => return sample_refusal(error),
             };
             let settled = state == before

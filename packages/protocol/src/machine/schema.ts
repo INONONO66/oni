@@ -1386,6 +1386,8 @@ export const ObservedRef = z.string().regex(/^[^/[\]]*\[\d+\](?:\/[^/[\]]*\[\d+\
 export const ScreenWindow = z
   .object({
     windowId: WindowId,
+    kind: z.enum(["window", "menu", "sheet", "popover", "alert"]).default("window"),
+    parent: WindowTarget.optional(),
     display: DisplayIndex,
     title: z.string().max(256),
     owner: z.string().max(256),

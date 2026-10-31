@@ -635,6 +635,7 @@ fn window_at(window_id: u32, token: u64) -> WindowIdentity {
         token,
         origin: (100, 50),
         minimized: false,
+        surface: None,
     }
 }
 

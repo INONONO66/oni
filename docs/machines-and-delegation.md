@@ -384,6 +384,15 @@ without a wire call, when the attached peer offered a contract below 3.
   actions only. The headless fixture layout gains per-window `pid`, `app`,
   `epoch` and `elements`, and records actions as `kind: "action"` recorder
   lines.
+- **Transient surfaces (#1719).** Screen list rows name `kind: window |
+  menu | sheet | popover | alert` (default `window`); sheets and popovers
+  carry their containing window's `parent: WindowTarget`. The macOS
+  observer enumerates open menu-bar menus, window sheets, focused-ancestor
+  popovers and system dialogs as distinct window IDs with independent epoch
+  lineages. Observe, background ref actions and settle use the same target
+  and a closed surface settles as `destroyed`; no activation accompanies
+  an accessibility press. Linux reports `surface_enumeration_unavailable`
+  in its screen verdict while isolated capture and input remain available.
 - **Pointer.** `machine.input.pointer` anchors at `at: {captureId, x, y}`
   or `at: {observationId, ref}`; a ref anchor is revalidated like an
   action and resolves to the element's centre, refusing with the same

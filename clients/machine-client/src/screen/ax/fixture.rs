@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 
 use super::{
     target, walk, ActFault, Action, Admit, AppIdentity, Attributes, Bounds, Frame, Observer,
-    Segment, Tree, Walk, WindowIdentity,
+    Segment, Surface, SurfaceKind, Tree, Walk, WindowIdentity,
 };
 use crate::screen::observe;
 use crate::screen::settle::{
@@ -67,6 +67,10 @@ struct Row {
     #[serde(default)]
     y: i64,
     #[serde(default)]
+    width: i64,
+    #[serde(default)]
+    height: i64,
+    #[serde(default)]
     epoch: u64,
     #[serde(default)]
     elements: Vec<Element>,
@@ -74,8 +78,30 @@ struct Row {
     focus_error: bool,
     #[serde(default)]
     minimized: bool,
+    kind: Option<FixtureKind>,
+    parent: Option<u32>,
     #[serde(default)]
     timeline: Vec<Timeline>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum FixtureKind {
+    Menu,
+    Sheet,
+    Popover,
+    Alert,
+}
+
+impl From<FixtureKind> for SurfaceKind {
+    fn from(kind: FixtureKind) -> Self {
+        match kind {
+            FixtureKind::Menu => Self::Menu,
+            FixtureKind::Sheet => Self::Sheet,
+            FixtureKind::Popover => Self::Popover,
+            FixtureKind::Alert => Self::Alert,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -286,6 +312,16 @@ impl Observer for Scripted {
                     token: row.epoch,
                     origin: (row.x, row.y),
                     minimized: row.minimized,
+                    surface: row.kind.map(|kind| Surface {
+                        kind: kind.into(),
+                        parent: row.parent,
+                        frame: Frame {
+                            x: row.x,
+                            y: row.y,
+                            width: row.width,
+                            height: row.height,
+                        },
+                    }),
                 })
             })
             .collect())
@@ -357,6 +393,7 @@ mod tests {
             token: 0,
             origin: (0, 0),
             minimized: false,
+            surface: None,
         }
     }
 

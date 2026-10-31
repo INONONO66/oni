@@ -19,6 +19,7 @@
   "windows": [
     {
       "windowId": "w-42",
+      "kind": "window",
       "display": 1,
       "title": "Notes",
       "owner": "Editor",

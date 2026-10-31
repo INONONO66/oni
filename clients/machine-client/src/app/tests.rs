@@ -255,6 +255,7 @@ impl crate::screen::ax::Observer for Windows {
                 token: 0,
                 origin: (0, 0),
                 minimized: false,
+                surface: None,
             })
             .collect())
     }

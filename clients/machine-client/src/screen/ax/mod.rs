@@ -43,6 +43,33 @@ pub struct WindowIdentity {
     pub token: u64,
     pub origin: (i64, i64),
     pub minimized: bool,
+    pub surface: Option<Surface>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfaceKind {
+    Menu,
+    Sheet,
+    Popover,
+    Alert,
+}
+
+impl SurfaceKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Menu => "menu",
+            Self::Sheet => "sheet",
+            Self::Popover => "popover",
+            Self::Alert => "alert",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Surface {
+    pub kind: SurfaceKind,
+    pub parent: Option<u32>,
+    pub frame: Frame,
 }
 
 pub struct Bounds {
@@ -472,6 +499,7 @@ mod tests {
             token: 0,
             origin: (0, 0),
             minimized: false,
+            surface: None,
         };
         let path = segments("AXButton[0]").expect("a ref");
         assert_eq!(observer.windows().expect("no windows"), Vec::new());

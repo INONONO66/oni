@@ -87,6 +87,7 @@
                   "missing_x_libs",
                   "no_atspi_bus",
                   "observer_unavailable",
+                  "surface_enumeration_unavailable",
                   "session_zero",
                   "window_manager_missing",
                   "input_monitoring_not_granted",

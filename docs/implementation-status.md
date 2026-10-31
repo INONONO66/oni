@@ -1,5 +1,7 @@
 # Implementation Status
 
+The #1719 macOS observer lists open menus, sheets, popovers and alerts as distinct epoch-bound targets for background ref actions and settle, verified by a headless menu-and-sheet fixture while live macOS permission verification remains blocked by #1676; Linux reports `surface_enumeration_unavailable`.
+
 ## #1735 computer-use prompt guidance
 
 When the composed catalog includes the computer tool pack, resident and child

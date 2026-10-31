@@ -54,6 +54,7 @@ impl Observer for FakeObserver {
             token,
             origin: (0, 0),
             minimized: false,
+            surface: None,
         }])
     }
     fn walk(&self, _: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault> {

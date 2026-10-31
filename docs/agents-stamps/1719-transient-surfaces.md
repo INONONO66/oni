@@ -1,0 +1,1 @@
+#1719 (epic #1688) on `screen/1719-transient-surfaces` (2026-10-31, base `4aa8f3a10`, PR pending): transient accessibility surfaces use independent target lineages with fixture verification; receipt in `docs/implementation-status.md`.
