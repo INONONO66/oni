@@ -328,6 +328,18 @@ test(
       observer.close();
     }
     expect(Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "has-session", "-t", `=${session}`]).exitCode).not.toBe(0);
+    // The tmux close hook fires before Chromium's process exit is observable.
+    // Wait for that exit rather than interpreting the hook as a process barrier.
+    const exitDeadline = Date.now() + 10_000;
+    while (Date.now() < exitDeadline) {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ESRCH") break;
+        throw error;
+      }
+      await Bun.sleep(25);
+    }
     expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
     expect(existsSync(profiles.closing)).toBe(true);
   },
