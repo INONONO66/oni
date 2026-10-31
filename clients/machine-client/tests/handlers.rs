@@ -845,6 +845,18 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
         call("machine.input.pointer", scroll).await.expect("scroll"),
         json!({"status":"ok"})
     );
+    assert_eq!(
+        call(
+            "machine.computer.close",
+            json!({"generation":2,"through":1})
+        )
+        .await
+        .expect("close"),
+        json!({"status":"closed"})
+    );
+    assert!(call("machine.computer.close", json!({"bogus":1}))
+        .await
+        .is_err());
     let injected = recorder.events().len();
     let (method, params) = requests(&anchor).into_iter().next().expect("pointer");
     assert_eq!(

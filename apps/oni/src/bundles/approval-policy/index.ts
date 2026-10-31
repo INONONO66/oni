@@ -1,4 +1,12 @@
 import { Bundle, Core } from "@oni/agent";
+import { Machine } from "@oni/protocol";
+import { ToolCapabilityPort } from "../seams";
+
+const COMPUTER_METHODS = [
+  Machine.WireMethod.InputPointer, Machine.WireMethod.InputKey, Machine.WireMethod.InputText,
+  Machine.WireMethod.InputAction, Machine.WireMethod.ScreenObserve, Machine.WireMethod.ScreenSettle,
+  Machine.WireMethod.AppLaunch, Machine.WireMethod.AppQuit, Machine.WireMethod.WindowClose, Machine.WireMethod.WindowPark,
+];
 
 /**
  * The `approval-policy` bundle (#1309): the provider of the core's
@@ -11,10 +19,19 @@ import { Bundle, Core } from "@oni/agent";
  * (`send-message` requires the seam — the tool door whose sends reach the
  * responders cascades off with the policy, never silently).
  */
-export function approvalPolicyBundle(): Bundle.BundleContract<"approval-policy"> {
+export function approvalPolicyBundle(computer: () => { decide: Core.NamedGuard["decide"] } | undefined = () => undefined): Bundle.BundleContract<"approval-policy"> {
   return Bundle.define({
     name: "approval-policy",
-    requires: [],
+    requires: [ToolCapabilityPort],
     provides: [Core.ApprovalPolicyPort],
+    rows: COMPUTER_METHODS.map((op) => ({
+      id: `computer-use:${op}`, on: "tool.pre", when: { op }, do: "gate",
+      how: { ref: "approval-policy/computer-use" }, order: 100,
+    })),
+    handlers: {
+      "approval-policy/computer-use": {
+        decide: (input: Parameters<Core.NamedGuard["decide"]>[0]) => computer()?.decide(input) ?? { verdict: "deny", payload: { reason: "lease_missing" } },
+      },
+    },
   });
 }

@@ -5,6 +5,7 @@ pub mod budget;
 pub mod cdp;
 pub mod code;
 pub mod computer;
+mod computer_close;
 pub mod config;
 pub mod display;
 pub mod exec;

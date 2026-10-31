@@ -149,6 +149,7 @@ export const WireMethod = {
   Release: "machine.release",
   /** Daemon → host edge when a window enters or leaves private focus. */
   EventPrivate: "machine.event.private",
+  ComputerClose: "machine.computer.close",
 } as const;
 
 /** Shared by Enrollment/Offer arrays and the machine.attached event payload. */
@@ -892,6 +893,9 @@ export const InputWriteResult = z.discriminatedUnion("status", [
         "window_busy",
         "request_busy",
         "private",
+        "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
+        "foreground_not_granted", "excluded", "paused:human_input", "paused:takeover",
+        "paused:private", "paused:locked", "paused:asleep",
       ]),
       /** Human-readable detail, e.g. which display a refused anchor captured. */
       message: z.string().min(1).max(256).optional(),

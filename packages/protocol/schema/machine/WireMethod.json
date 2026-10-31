@@ -47,7 +47,8 @@
     "machine.screen.settle",
     "machine.input.action",
     "machine.release",
-    "machine.event.private"
+    "machine.event.private",
+    "machine.computer.close"
   ],
   "type": "string"
 }

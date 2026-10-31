@@ -5,13 +5,15 @@ import { isContained, normalizeExportRoot } from "./contained";
 import { createIpcServer, createIpcTcpServer, type IpcServer, type IpcTlsIdentity } from "./ipc";
 import { typedCall } from "./typed-call";
 import { type BusEvent, type Ipc, Machine } from "@oni/protocol";
-import { Deferred, Effect, Exit, Fiber, Semaphore, type Scope } from "effect";
+import { Deferred, Effect, Exit, Fiber, FiberSet, Semaphore, type Scope } from "effect";
 import { MachinesFailure, MachineCellError, MachineRefusalError, TransportFailure, type MachineError } from "./errors";
 import { decodeMachineFailure } from "./failure";
 import { observeRefusal } from "./observe";
 import { onAbort } from "./interrupt-on";
 import { PingLiveness } from "./ping-liveness";
 import { Reservations } from "./reservation";
+import { ComputerWindows } from "./computer-windows";
+import { ComputerRelay } from "./computer-relay";
 import { IpcConnectionError, IpcRemoteError, IpcTimeoutError } from "./ipc/errors";
 import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
@@ -135,7 +137,7 @@ export interface MachineHandle {
   readonly computer?: ComputerHandle;
 }
 /** Computer-use wire methods (#1662) the host originates. */
-type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "ScreenSettle" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "InputStatus" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
+type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "ScreenSettle" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "InputStatus" | "ComputerClose" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
 type LifecycleMethod = (typeof Machine.WireMethod)["AppLaunch" | "AppQuit" | "WindowClose" | "WindowPark"];
 type LifecycleParams = Machine.AppLaunchRequest | Machine.AppQuitRequest | Machine.WindowCloseRequest | Machine.WindowParkRequest;
 type LifecycleResult = Machine.AppLaunchResult | Machine.AppQuitResult | Machine.WindowCloseResult | Machine.WindowParkResult;
@@ -148,7 +150,7 @@ type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.Scree
 /** What a captured call answers when it was forwarded (#1689 adds observation). */
 export type CapturedResult = Machine.InputWriteResult | Machine.ScreenObserveResult | Machine.ScreenSettleResult | LifecycleResult;
 /** The capture port's own refusal, valid in every captured answer vocabulary. */
-export interface CaptureRefusal { readonly status: "refused"; readonly reason: "permission_denied"; readonly message?: string }
+export type CaptureRefusal = Machine.ComputerRefusal | Machine.ComputerCancelled;
 /** What the captured-input port records: the exact call the host would forward. */
 export interface MachineInputCapture {
   readonly machineId: Machine.MachineId;
@@ -156,6 +158,7 @@ export interface MachineInputCapture {
   readonly generation: number | null;
   readonly method: CapturedMethod;
   readonly params: CapturedParams;
+  readonly binding?: Machine.ComputerWindow;
 }
 /** Why a stream or channel ended: the peer's or host's close reason, or the attachment went away. */
 export type RelayEnd = Machine.StreamCloseRequest["reason"] | Machine.CdpCloseRequest["reason"] | "detached" | "revoked";
@@ -228,6 +231,9 @@ export type MachineInfo = Machine.Info & {
   readonly peer: Machine.Offer["peer"];
 };
 export interface MachineHost {
+  readonly computer: {
+    close(machineId: string): void;
+  };
   list(): MachineInfo[];
   place(request: HostPlacementRequest, workClass?: LeaseClass): HostPlacement;
   capacity(): ReturnType<ReturnType<typeof createCapacity>["capacity"]>;
@@ -332,6 +338,9 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     const handles = new Map<string, StreamingMachineHandle>();
     const revoked = new Map<string, number>();
     const reservations = new Reservations();
+    const computerWindows = new Map<string, ComputerWindows>();
+    const computerRelays = new Map<string, ComputerRelay>();
+    const dispatchComputerClose = yield* FiberSet.makeRuntime<never, void, never>();
     const lastGeneration = new Map<string, number>();
     let closed = false;
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
@@ -348,6 +357,8 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       permissions.delete(key);
       inFlight.delete(key);
       reports.delete(key);
+      computerWindows.delete(attachment.offer.machineId);
+      computerRelays.delete(attachment.offer.machineId);
       pings.detach(key);
       endRelays(key);
       capacity.detach(attachment.offer.machineId, reason === "superseded" ? "stale_generation" : "disconnected");
@@ -416,6 +427,8 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       connectionByMachine.set(offer.machineId, source.key);
       known.add(offer.machineId);
       lastGeneration.set(offer.machineId, generation);
+      computerWindows.set(offer.machineId, new ComputerWindows());
+      computerRelays.set(offer.machineId, new ComputerRelay());
       options.events.publish(Machine.Events.Attached, { machineId: offer.machineId, time: options.now(), effectiveCapabilities: [...negotiated.capabilities] });
     }
     function recordExcess(offer: Machine.Offer, enrollment: Machine.Enrollment): Effect.Effect<void, MachineError> {
@@ -980,7 +993,12 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         };
         if (latest === undefined) return info;
         const { machineId: _machineId, streams: _streams, ...facts } = latest.report;
-        return { ...info, live: { ...structuredClone(facts), stale: options.now() - latest.receivedAt > staleAfterMs } };
+        const windows = computerWindows.get(offer.machineId)?.windows;
+        return { ...info, live: {
+          ...structuredClone(facts),
+          ...(windows === undefined || windows.size === 0 ? {} : { windows: Object.fromEntries(windows) }),
+          stale: options.now() - latest.receivedAt > staleAfterMs,
+        } };
       }).sort((a, b) => a.machineId.localeCompare(b.machineId));
     }
     /** The effective roots a consumer may resolve a path against: a root two allowed exports share is one `location` refuses as ambiguous, so it is not offered here either. */
@@ -1068,7 +1086,12 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       if (options.captureInput === undefined) return Effect.succeed({ status: "refused", reason: "permission_denied", message: "input requires a captured tool.pre effect" } as const);
       const key = connectionByMachine.get(id);
       const peer = key === undefined ? undefined : attachments.get(key);
-      return options.captureInput({ machineId: id, generation: peer?.generation ?? null, method, params }, forwardCaptured(id, peer, method, refuse, send));
+      const binding = computerWindows.get(id)?.resolve(params);
+      const forward = forwardCaptured(id, peer, method, refuse, send);
+      return options.captureInput({
+        machineId: id, generation: peer?.generation ?? null, method, params,
+        ...(binding === undefined ? {} : { binding }),
+      }, computerRelays.get(id)?.run(forward) ?? forward);
     }
     function sendInput(peer: Attachment, method: InputMethod | typeof Machine.WireMethod.InputAction, params: InputParams | Machine.InputActionRequest): Effect.Effect<Machine.InputWriteResult, MachineError> {
       return Effect.suspend(() => {
@@ -1109,8 +1132,12 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     function pointer(id: string, request: PointerCall): Effect.Effect<Machine.InputWriteResult, MachineError> {
       return dispatchInput(id, Machine.WireMethod.InputPointer, Machine.InputPointerRequest, { ...request, delivery: request.delivery ?? "background" });
     }
-    function observation<P extends Machine.ScreenObserveRequest | Machine.InputActionRequest, R extends CapturedResult>(id: string, method: (typeof Machine.WireMethod)["ScreenObserve" | "InputAction"], schema: z.ZodType<P>, request: P, answer: z.ZodType<R>, refuse: (grant: "permission_denied" | "not_available") => R): Effect.Effect<R | CaptureRefusal, MachineError> {
-      return decode(schema, request, `${method}.request`).pipe(Effect.flatMap((params) => captured(id, method, params, refuse, (peer) => computerCall(peer, method, params, answer))));
+    function observation(id: string, request: Machine.ScreenObserveRequest): Effect.Effect<Machine.ScreenObserveResult | CaptureRefusal, MachineError> {
+      return decode(Machine.ScreenObserveRequest, request, "screen.observe.request").pipe(Effect.flatMap((params) =>
+        captured(id, Machine.WireMethod.ScreenObserve, params, observeRefusal, (peer) =>
+          computerCall(peer, Machine.WireMethod.ScreenObserve, params, Machine.ScreenObserveResult).pipe(
+            Effect.tap((result) => Effect.sync(() => computerWindows.get(id)?.observe(result))),
+          ))));
     }
     function screenGate(id: string, operation: string): Effect.Effect<Attachment | "permission_denied" | "not_available", MachineError> {
       return attached(id, operation).pipe(Effect.map((peer) => {
@@ -1123,7 +1150,10 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       const refused = (grant: "permission_denied" | "not_available") => ({ status: "refused", reason: grant === "permission_denied" ? grant : "machine_not_attached" }) as const;
       return decode(schema, request, `${method}.request`).pipe(Effect.flatMap((params) => captured<R | Extract<LifecycleResult, { status: "refused" }>>(id, method, params, refused, (peer) => {
         const timeout = "app" in params ? Math.min(30_000, Math.max(1, params.timeoutMs ?? 10_000)) + 1000 : 3000;
-        return computerCall(peer, method, params, answer, timeout);
+        return computerCall(peer, method, params, answer, timeout).pipe(Effect.tap((result) => Effect.sync(() => {
+          if ("app" in params && result.status === "ok" && "pid" in result)
+            computerWindows.get(id)?.launch(params, result);
+        })));
       })));
     }
     /** One sequence step shared by both relay kinds: repeat of the last accepted seq is idempotent. */
@@ -1311,7 +1341,9 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           const params = yield* decode(Machine.ScreenListRequest, request, "screen.list.request");
           const peer = yield* screenGate(id, "screen.list.connection");
           if (typeof peer === "string") return { status: "refused", reason: peer === "permission_denied" ? peer : "screen_not_available" } as const;
-          return yield* computerCall(peer, Machine.WireMethod.ScreenList, params, Machine.ScreenListResult);
+          return yield* computerCall(peer, Machine.WireMethod.ScreenList, params, Machine.ScreenListResult).pipe(
+            Effect.tap((result) => Effect.sync(() => computerWindows.get(id)?.list(result))),
+          );
         }),
         capture: (request) => Effect.gen(function* () {
           const params = yield* decode(Machine.ScreenCaptureRequest, request, "screen.capture.request");
@@ -1319,6 +1351,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           if (typeof peer === "string") return { status: "refused", reason: peer === "permission_denied" ? peer : "screen_not_available" } as const;
           const result = yield* computerCall(peer, Machine.WireMethod.ScreenCapture, params, Machine.ScreenCaptureResult);
           if (result.status !== "ok") return result;
+          computerWindows.get(id)?.capture(params, result.captureId);
           const data = Buffer.from(result.data, "base64");
           // The base64 length bound admits up to two decoded bytes past the legacy ceiling.
           return data.length > Machine.SCREEN_PNG_MAX_BYTES
@@ -1328,7 +1361,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         pointer: (request) => pointer(id, request),
         key: (request) => dispatchInput(id, Machine.WireMethod.InputKey, Machine.InputKeyRequest, request),
         text: (request) => dispatchInput(id, Machine.WireMethod.InputText, Machine.InputTextRequest, request),
-        observe: (request) => observation(id, Machine.WireMethod.ScreenObserve, Machine.ScreenObserveRequest, request, Machine.ScreenObserveResult, observeRefusal),
+        observe: (request) => observation(id, request),
         settle: (request) => decode(Machine.ScreenSettleRequest, request, "screen.settle.request").pipe(
           Effect.flatMap((params) => captured(id, Machine.WireMethod.ScreenSettle, params, (grant): Machine.ScreenSettleResult => grant === "permission_denied"
             ? { status: "refused", reason: grant }
@@ -1352,6 +1385,21 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     }
     return {
       get, list, place: capacity.place, capacity: capacity.capacity, exports: exportsOf,
+      computer: {
+        close(id) {
+          computerRelays.get(id)?.close();
+          const key = connectionByMachine.get(id);
+          const peer = key === undefined ? undefined : attachments.get(key);
+          if (peer === undefined) return;
+          computerRelays.set(id, new ComputerRelay());
+          dispatchComputerClose(computerCall(peer, Machine.WireMethod.ComputerClose, {
+            generation: peer.generation, through: reservations.nextSequence(id),
+          }, Machine.ComputerCloseResult).pipe(Effect.asVoid, Effect.catch(() => Effect.sync(() => {
+            detach(peer.key, "superseded");
+            peer.server.disconnect(peer.rawId);
+          }))));
+        },
+      },
       unenroll(id, reason = "enrollment_removed") {
         revoked.set(id, (revoked.get(id) ?? 0) + 1);
         const key = connectionByMachine.get(id);

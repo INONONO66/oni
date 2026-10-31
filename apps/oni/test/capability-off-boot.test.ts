@@ -54,7 +54,7 @@ interface OffRow {
  * The measured product cascades on this manifest: `monitor`, `cron` and
  * `delegation-policy` require the alarm seam; `hook` requires `action` and
  * `hooks-json` requires `hook`; `delegation-policy` also requires the action
- * and tool seams; every tool bundle requires the tool seam (#1561);
+ * and tool seams; approval-policy and every tool bundle require the tool seam;
  * nothing requires `compaction`.
  */
 const ROWS: readonly OffRow[] = [
@@ -118,6 +118,7 @@ const ROWS: readonly OffRow[] = [
       { name: "eval", because: "tool" },
       { name: "monitor", because: "tool" },
       { name: "delegation-policy", because: "tool" },
+      { name: "approval-policy", because: "tool" },
       { name: "send-message", because: "tool" },
       { name: "provision", because: "tool" },
       { name: "completion", because: "tool" },

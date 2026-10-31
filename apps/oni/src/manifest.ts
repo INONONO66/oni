@@ -79,7 +79,7 @@ export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition 
     cronBundle(input.wake.prompt),
     hooksJsonBundle(input.hooks),
     delegationPolicyBundle((input.policy ?? SHIPPED_OWNER_POLICY).delegationRows),
-    approvalPolicyBundle(),
+    approvalPolicyBundle(() => input.tools()?.provisioning?.computer?.guard),
     sendMessageBundle(input.tools),
     provisionBundle(input.tools),
     completionBundle(input.tools),

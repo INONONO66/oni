@@ -1,4 +1,20 @@
 import { Bundle, type Core } from "@oni/agent";
+import type { Machine } from "@oni/protocol";
+
+export interface ComputerPort {
+  readonly guard: { decide: Core.NamedGuard["decide"] };
+  readonly store: {
+    get(sessionId: string, machineId: string): Machine.ComputerLease | undefined;
+    put(lease: Machine.ComputerLease): Machine.ComputerLease;
+    list(): Machine.ComputerLease[];
+    exclusions(): Machine.ComputerExclusion[];
+    exclude(exclusion: Machine.ComputerExclusion): Machine.ComputerExclusion;
+  };
+  readonly now: () => number;
+  end(sessionId: string, machineId: string): void;
+  keep(sessionId: string, turnId: string, record: Machine.ComputerKeep): void;
+  watch(machineId: string): void;
+}
 
 /**
  * App-owned capability ports (#1255/#1258), declared outside `manifest.ts` so

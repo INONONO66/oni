@@ -4,6 +4,34 @@
     {
       "additionalProperties": false,
       "properties": {
+        "dispatched": {
+          "const": "unknown",
+          "type": "string"
+        },
+        "hint": {
+          "const": "re_observe",
+          "type": "string"
+        },
+        "reason": {
+          "const": "cancelled",
+          "type": "string"
+        },
+        "status": {
+          "const": "unverifiable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "dispatched",
+        "hint"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "observationId": {
           "maxLength": 32,
           "pattern": "^o\\d+$",
@@ -92,7 +120,18 @@
             "window_not_found",
             "epoch_changed",
             "permission_denied",
-            "machine_not_attached"
+            "machine_not_attached",
+            "lease_missing",
+            "lease_expired",
+            "target_unbound",
+            "app_out_of_scope",
+            "foreground_not_granted",
+            "excluded",
+            "paused:human_input",
+            "paused:takeover",
+            "paused:private",
+            "paused:locked",
+            "paused:asleep"
           ],
           "type": "string"
         },

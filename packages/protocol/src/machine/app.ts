@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { WindowTarget } from "./target.js";
+import { ComputerCancelled } from "./lease.js";
 
 const Pid = z.number().int().min(1).max(2_147_483_647);
 const Text = z.string().min(1).max(4096);
@@ -13,6 +14,9 @@ const Refused = z.object({
     "app_not_found", "launch_failed", "excluded", "permission_denied",
     "machine_not_attached", "unsupported", "process_not_found",
     "epoch_changed", "window_not_found",
+    "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
+    "foreground_not_granted", "paused:human_input", "paused:takeover",
+    "paused:private", "paused:locked", "paused:asleep",
   ]),
   blocker: z.enum(["launch_timeout", "launch_failed", "platform"]).optional(),
   message: z.string().min(1).max(256).optional(),
@@ -33,25 +37,26 @@ export type AppLaunchRequest = z.infer<typeof AppLaunchRequest>;
 export const AppLaunchResult = z.discriminatedUnion("status", [
   z.object({ status: z.literal("ok"), pid: Pid, windows: z.array(WindowTarget.required({ epoch: true })).max(512) }).strict(),
   Refused,
+  ComputerCancelled,
 ]);
 export type AppLaunchResult = z.infer<typeof AppLaunchResult>;
 
 export const AppQuitRequest = z.object({ pid: Pid }).strict();
 export type AppQuitRequest = z.infer<typeof AppQuitRequest>;
 export const AppQuitResult = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("ok"), exited: z.boolean() }).strict(), Refused,
+  z.object({ status: z.literal("ok"), exited: z.boolean() }).strict(), Refused, ComputerCancelled,
 ]);
 export type AppQuitResult = z.infer<typeof AppQuitResult>;
 
 export const WindowCloseRequest = z.object({ target: WindowTarget.required({ epoch: true }) }).strict();
 export type WindowCloseRequest = z.infer<typeof WindowCloseRequest>;
 export const WindowCloseResult = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("ok"), closed: z.boolean() }).strict(), Refused,
+  z.object({ status: z.literal("ok"), closed: z.boolean() }).strict(), Refused, ComputerCancelled,
 ]);
 export type WindowCloseResult = z.infer<typeof WindowCloseResult>;
 export const WindowParkRequest = z.object({ target: WindowTarget.required({ epoch: true }) }).strict();
 export type WindowParkRequest = z.infer<typeof WindowParkRequest>;
 export const WindowParkResult = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("ok"), parked: z.boolean() }).strict(), Refused,
+  z.object({ status: z.literal("ok"), parked: z.boolean() }).strict(), Refused, ComputerCancelled,
 ]);
 export type WindowParkResult = z.infer<typeof WindowParkResult>;

@@ -41,7 +41,7 @@ interface AppCatalogStores {
  * threaded explicitly — no module-level state.
  */
 export interface AppLedgerPlane extends Pick<Core.LedgerHost,
-  "read" | "session" | "runtime" | "updatePolicy" | "transaction" | "close"
+  "read" | "session" | "runtime" | "updatePolicy" | "policyState" | "transaction" | "close"
 > {
   /** Channels-owned store plane (#1317) attached to the catalog's database handle. */
   readonly channel: ChannelStore;
@@ -63,6 +63,7 @@ export function withChannelStores(ledger: Core.LedgerHost, now: () => number): A
     session: ledger.session,
     runtime: ledger.runtime,
     updatePolicy: ledger.updatePolicy,
+    policyState: ledger.policyState,
     transaction: ledger.transaction,
     close: ledger.close,
     channel,

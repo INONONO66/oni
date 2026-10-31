@@ -311,7 +311,26 @@ of sampled pixels share one color). A newer capture of the same window
 supersedes an in-flight capture; the older request returns `superseded`.
 The macOS `native_occlusion` test is ignored until the live grants are
 available; its receipt belongs to #1702. ScreenCaptureKit and Windows
-adapters belong to #1700; turn-end cleanup and keep records belong to #1697.
+adapters belong to #1700.
+
+Computer-use authority is a revisioned approval-policy lease keyed by
+session and machine: app identities, a 5-120 minute expiry, and an optional
+foreground purpose and expiry. Owner consent for `computer_request` uses
+the existing approval surface; exclusion rows are an independent ceiling.
+The captured `tool.pre` guard resolves host window/capture/observation facts
+and enforces scope, foreground consent, expiry and pause state. Human input,
+private entry, lock and sleep pause the lease; a subsequent turn resumes
+only after a fresh, non-private observation. Stop ends the lease and
+supersedes the attachment's computer relay, recording in-flight calls as
+`unverifiable` with `cancelled` and unknown dispatch. A computer-only close
+message fences active and delayed inputs through an input-sequence
+barrier, without detaching other machine work; a failed cancellation
+acknowledgement disconnects the attachment. A 120-second unattached interval ends
+the lease as `detached`. Launch-returned windows carry session/turn
+attribution and close at turn end using their epoch unless
+`computer_keep` marks a deliverable or handoff; retained and unclosed
+targets are reported in the cleanup tool result. The dedicated lease and
+purpose display is tracked by #1701.
 
 ### 2.2.2 Window-bound observation and ref-targeted actions (#1689)
 

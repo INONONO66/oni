@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "apps": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 512,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "const": "any",
+          "type": "string"
+        }
+      ]
+    },
+    "foreground": {
+      "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "minutes": {
+      "maximum": 120,
+      "minimum": 5,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "apps",
+    "minutes"
+  ],
+  "type": "object"
+}

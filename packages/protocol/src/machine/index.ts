@@ -11,6 +11,7 @@ import * as Dispatch from "./dispatch.js";
 import * as Settle from "./settle.js";
 import * as Probe from "./probe.js";
 import { decodeReport } from "./report-v3.js";
+import * as Lease from "./lease.js";
 
 /**
  * Machine domain (docs/machines-and-delegation.md): attached devices as the
@@ -18,6 +19,24 @@ import { decodeReport } from "./report-v3.js";
  * `machines` package; enrollment storage lives in the ledger.
  */
 export namespace Machine {
+  export const ComputerLease = Lease.ComputerLease;
+  export type ComputerLease = Lease.ComputerLease;
+  export const ComputerRequest = Lease.ComputerRequest;
+  export type ComputerRequest = Lease.ComputerRequest;
+  export const ComputerExclusion = Lease.ComputerExclusion;
+  export type ComputerExclusion = Lease.ComputerExclusion;
+  export const ComputerWindow = Lease.ComputerWindow;
+  export type ComputerWindow = Lease.ComputerWindow;
+  export const ComputerRefusal = Lease.ComputerRefusal;
+  export type ComputerRefusal = Lease.ComputerRefusal;
+  export const ComputerCancelled = Lease.ComputerCancelled;
+  export type ComputerCancelled = Lease.ComputerCancelled;
+  export const ComputerKeep = Lease.ComputerKeep;
+  export type ComputerKeep = Lease.ComputerKeep;
+  export const ComputerCloseRequest = Lease.ComputerCloseRequest;
+  export type ComputerCloseRequest = Lease.ComputerCloseRequest;
+  export const ComputerCloseResult = Lease.ComputerCloseResult;
+  export type ComputerCloseResult = Lease.ComputerCloseResult;
   export const InputRequestId = Dispatch.InputRequestId;
   export type InputRequestId = Dispatch.InputRequestId;
   export const InputStatusRequest = Dispatch.InputStatusRequest;

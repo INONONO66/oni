@@ -98,6 +98,72 @@ const observationScript = {
 const observations = <E extends { readonly method: string }>(received: readonly E[]) => received.filter((entry) => entry.method === Machine.WireMethod.ScreenObserve || entry.method === Machine.WireMethod.InputAction);
 const inputs = <E extends { readonly method: string }>(received: readonly E[]) => received.filter((entry) => entry.method.startsWith("machine.input."));
 
+test("computer close cancels an in-flight action without detaching unrelated machine work", async () => {
+  const entered = Promise.withResolvers<void>();
+  const closed = Promise.withResolvers<Machine.ComputerCloseRequest>();
+  const f = await fixture();
+  try {
+    const desk = await f.peer([COMPUTER], {
+      [Machine.WireMethod.InputAction]: () => { entered.resolve(); return undefined; },
+      [Machine.WireMethod.ComputerClose]: (params) => {
+        closed.resolve(Machine.ComputerCloseRequest.parse(params));
+        return { status: "closed" };
+      },
+    });
+    const running = run(f.machine().action(actionRequest));
+    await entered.promise;
+    f.host.native.computer.close("desk");
+    expect(await running).toEqual({ status: "unverifiable", reason: "cancelled", dispatched: "unknown", hint: "re_observe" });
+    expect(await closed.promise).toEqual({ generation: 1, through: 2 });
+    expect(f.host.list()).toHaveLength(1);
+    expect(await desk.client.call(Machine.WireMethod.Report, {
+      machineId: "desk", reportedAt: 100, load: { loadAvg1: 0, memoryAvailableBytes: 1024, inFlight: 0 },
+    })).toEqual({ status: "accepted" });
+    f.host.native.computer.close("missing");
+  } finally { await f.close(); }
+}, 5000);
+
+test("a refused computer cancellation disconnects the peer to fence native input", async () => {
+  const f = await fixture();
+  try {
+    const desk = await f.peer([COMPUTER], {
+      [Machine.WireMethod.ComputerClose]: () => ({ status: "refused", reason: "unsupported" }),
+    });
+    f.host.native.computer.close("desk");
+    await desk.closed;
+    expect(f.host.list()).toEqual([]);
+  } finally { await f.close(); }
+}, 5000);
+
+test("screen listing and observation bind the next capture port call to the owning app", async () => {
+  const captured: MachineInputCapture[] = [];
+  const f = await fixture({ captureInput: (request, forward) => { captured.push(request); return forward; } });
+  try {
+    const desk = await f.peer([COMPUTER], {
+      [Machine.WireMethod.ScreenList]: () => ({
+        status: "ok", displays: [{ display: 1, width: 800, height: 600, scale: 1, primary: true }],
+        windows: [{ windowId: "7", pid: 42, app: { bundleId: null, path: "/Applications/Notes.app" },
+          display: 1, title: "Notes", owner: "Notes", bounds: { x: 0, y: 0, width: 400, height: 300 } }],
+        observedAt: 100, truncated: false,
+      }),
+      ...observationScript,
+    });
+    await run(f.machine().list({ windows: true }));
+    await run(f.machine().observe(observeRequest));
+    await run(f.machine().action(actionRequest));
+    expect(captured.map((call) => call.binding)).toEqual([
+      { pid: 42, windowId: 7, app: { bundleId: null, path: "/Applications/Notes.app" } },
+      { pid: 42, windowId: 7, epoch: 0, app: { bundleId: null, path: "/Applications/Notes.app" } },
+    ]);
+    await desk.client.call(Machine.WireMethod.Report, {
+      machineId: "desk", reportedAt: 100, load: { loadAvg1: 0, memoryAvailableBytes: 1024, inFlight: 0 },
+    });
+    expect(f.host.list()[0]?.live?.windows).toEqual({
+      "42:7": { pid: 42, windowId: 7, epoch: 0, app: { bundleId: null, path: "/Applications/Notes.app" } },
+    });
+  } finally { await f.close(); }
+});
+
 test("an offer alone never grants computer use: the enrollment must grant it too", async () => {
   const f = await fixture({ grants: [Machine.WellKnownCapability.fsRead] });
   try {
@@ -692,7 +758,8 @@ test("observe and action are captured like input and relay the peer's typed answ
     expect(await run(computer.action(actionRequest))).toEqual({ status: "refused", reason: "epoch_changed" });
     expect(captured).toEqual([
       { machineId: "desk", generation: 1, method: Machine.WireMethod.ScreenObserve, params: observeRequest },
-      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputAction, params: { ...actionRequest, requestId: "1-1" } },
+      { machineId: "desk", generation: 1, method: Machine.WireMethod.InputAction, params: { ...actionRequest, requestId: "1-1" },
+        binding: { pid: 42, windowId: 7, epoch: 0, app: { bundleId: null, path: "/Applications/Notes.app" } } },
     ]);
     expect(observations(desk.received)).toEqual([
       { method: Machine.WireMethod.ScreenObserve, params: observeRequest },

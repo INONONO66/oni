@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { WindowTarget } from "./observe.js";
 import { ObservationId } from "./schema.js";
+import { ComputerCancelled } from "./lease.js";
 
 export const ScreenSettleRequest = z.object({
   target: WindowTarget.required({ epoch: true }),
@@ -10,10 +11,16 @@ export const ScreenSettleRequest = z.object({
 export type ScreenSettleRequest = z.input<typeof ScreenSettleRequest>;
 
 export const ScreenSettleResult = z.discriminatedUnion("status", [
+  ComputerCancelled,
   z.object({ status: z.literal("settled"), observationId: ObservationId }).strict(),
   z.object({ status: z.literal("pending"), observationId: ObservationId, changesInWindow: z.number().int().nonnegative() }).strict(),
   z.object({ status: z.literal("unsupported"), blocker: z.enum(["accessibility_not_granted", "no_observer"]) }).strict(),
   z.object({ status: z.literal("destroyed") }).strict(),
-  z.object({ status: z.literal("refused"), reason: z.enum(["window_not_found", "epoch_changed", "permission_denied", "machine_not_attached"]), message: z.string().min(1).max(256).optional() }).strict(),
+  z.object({ status: z.literal("refused"), reason: z.enum([
+    "window_not_found", "epoch_changed", "permission_denied", "machine_not_attached",
+    "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
+    "foreground_not_granted", "excluded", "paused:human_input", "paused:takeover",
+    "paused:private", "paused:locked", "paused:asleep",
+  ]), message: z.string().min(1).max(256).optional() }).strict(),
 ]);
 export type ScreenSettleResult = z.infer<typeof ScreenSettleResult>;

@@ -1,0 +1,19 @@
+[
+  "ai.oni.desktop",
+  "ai.oni.machine",
+  "com.github.Electron",
+  "com.apple.Passwords",
+  "com.apple.keychainaccess",
+  "com.1password.1password",
+  "com.agilebits.onepassword7",
+  "com.bitwarden.desktop",
+  "org.keepassxc.keepassxc",
+  "org.p0deje.Maccy",
+  "com.wiheads.paste",
+  "com.pasteapp.Paste",
+  "/usr/bin/mclient",
+  "/usr/local/bin/mclient",
+  "/usr/bin/keepassxc",
+  "/usr/bin/bitwarden",
+  "/usr/bin/copyq"
+]

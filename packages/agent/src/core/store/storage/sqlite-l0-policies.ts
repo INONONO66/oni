@@ -1,7 +1,42 @@
 import type { Database } from "bun:sqlite";
-import { PolicyRow, type Storage as ProtocolStorage } from "@oni/protocol";
+import { PolicyRow, PlainValueSchema, type PlainValue, type Storage as ProtocolStorage } from "@oni/protocol";
+import { z } from "zod";
 import { PolicyGenerationRefused } from "../errors.js";
 import { PolicySqlRow, decodePolicy } from "./sqlite-l0-rows.js";
+
+const StateRow = z.object({
+  key: z.string(),
+  revision: z.number().int().positive(),
+  value: z.string().transform((value) => PlainValueSchema.parse(JSON.parse(value))),
+});
+
+/** Revisioned bundle data shares the catalog's transaction and lifetime. */
+export function createPolicyState(db: Database) {
+  return {
+    get(namespace: string, key: string) {
+      return StateRow.nullable().parse(db.query(
+        "SELECT key, revision, value FROM policy_state WHERE namespace = ? AND key = ?",
+      ).get(namespace, key)) ?? undefined;
+    },
+    list(namespace: string) {
+      return StateRow.array().parse(db.query(
+        "SELECT key, revision, value FROM policy_state WHERE namespace = ? ORDER BY key",
+      ).all(namespace));
+    },
+    put(namespace: string, row: { readonly key: string; readonly revision: number; readonly value: PlainValue }): boolean {
+      const value = PlainValueSchema.parse(row.value);
+      const revision = z.number().int().nonnegative().parse(row.revision);
+      return db.query(
+        `INSERT INTO policy_state (namespace, key, revision, value)
+         SELECT ?, ?, 1, ? WHERE ? = 0
+         ON CONFLICT(namespace, key) DO NOTHING`,
+      ).run(namespace, row.key, JSON.stringify(value), revision).changes === 1 ||
+        db.query(
+          "UPDATE policy_state SET revision = revision + 1, value = ? WHERE namespace = ? AND key = ? AND revision = ?",
+        ).run(JSON.stringify(value), namespace, row.key, revision).changes === 1;
+    },
+  };
+}
 
 export function createPolicies(
   db: Database,

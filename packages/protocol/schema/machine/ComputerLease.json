@@ -1,0 +1,242 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "apps": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 512,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "const": "any",
+              "type": "string"
+            }
+          ]
+        },
+        "expiresAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "foreground": {
+          "additionalProperties": false,
+          "properties": {
+            "expiresAt": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "purpose": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "purpose",
+            "expiresAt"
+          ],
+          "type": "object"
+        },
+        "machineId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "revision": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "sessionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "const": "active",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "machineId",
+        "apps",
+        "expiresAt",
+        "revision",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "apps": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 512,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "const": "any",
+              "type": "string"
+            }
+          ]
+        },
+        "expiresAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "foreground": {
+          "additionalProperties": false,
+          "properties": {
+            "expiresAt": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "purpose": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "purpose",
+            "expiresAt"
+          ],
+          "type": "object"
+        },
+        "machineId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "pauseReason": {
+          "enum": [
+            "human_input",
+            "takeover",
+            "private",
+            "locked",
+            "asleep"
+          ],
+          "type": "string"
+        },
+        "revision": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "sessionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "const": "paused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "machineId",
+        "apps",
+        "expiresAt",
+        "revision",
+        "state",
+        "pauseReason"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "apps": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 512,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "const": "any",
+              "type": "string"
+            }
+          ]
+        },
+        "endReason": {
+          "enum": [
+            "expired",
+            "stopped",
+            "owner_ended",
+            "detached"
+          ],
+          "type": "string"
+        },
+        "expiresAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "foreground": {
+          "additionalProperties": false,
+          "properties": {
+            "expiresAt": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "purpose": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "purpose",
+            "expiresAt"
+          ],
+          "type": "object"
+        },
+        "machineId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "revision": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "sessionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "const": "ended",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "machineId",
+        "apps",
+        "expiresAt",
+        "revision",
+        "state",
+        "endReason"
+      ],
+      "type": "object"
+    }
+  ]
+}

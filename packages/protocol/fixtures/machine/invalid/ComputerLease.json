@@ -1,0 +1,8 @@
+{
+  "sessionId": "s1",
+  "machineId": "desk",
+  "apps": "any",
+  "expiresAt": 600000,
+  "revision": 0,
+  "state": "active"
+}

@@ -11,12 +11,16 @@ export class Reservations {
   private readonly entries = new Map<string, Map<string, Entry>>();
   private readonly sequences = new Map<string, number>();
 
-  mint(machineId: string, generation: number): Machine.InputRequestId {
+  nextSequence(machineId: string): number {
     // The sequence resets only with a new host, which CAS-advances persisted generations
     // before accepting input; same-host reconnects retain the sequence, so IDs never repeat.
     const seq = (this.sequences.get(machineId) ?? 0) + 1;
     this.sequences.set(machineId, seq);
-    return `${generation}-${seq}`;
+    return seq;
+  }
+
+  mint(machineId: string, generation: number): Machine.InputRequestId {
+    return `${generation}-${this.nextSequence(machineId)}`;
   }
 
   reserve(machineId: string, generation: number, target: string, requestId = this.mint(machineId, generation)): Entry | "window_busy" {

@@ -25,6 +25,8 @@ import { executeProvisionStatus } from "./status";
 import { automationApproval, executeApprovedAutomation, executeAutomationTool } from "./automation";
 import { executeApprovedMachine, executeMachine, machineDomainRevisions } from "./machines";
 import type { MachineOperation } from "./machine-schema";
+import { computerApproval, executeComputer } from "./computer";
+import { ComputerOperation } from "./computer-schema";
 
 function machineConsent(
   operation: z.output<typeof ProvisionInput>["operation"],
@@ -50,6 +52,12 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
   const executors = () => composed ?? refusal("provision", "provisioning is not composed");
   return async ({ operation }: z.output<typeof ProvisionInput>, context: ToolExecutionContext) => {
     switch (operation.op) {
+      case "computer_request":
+      case "computer_list":
+      case "computer_end":
+      case "computer_exclude":
+      case "computer_keep":
+        return executeComputer(port?.computer, operation, context);
       case "machine_add":
       case "machine_grant":
       case "machine_deny":
@@ -106,9 +114,13 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
 
 export function provisionApproval(port: ProvisionPort | undefined) {
   const automation = automationApproval(port?.automations);
+  const computerPort = port?.computer;
+  const machineEnrollments = port?.machines?.enrollments;
   return ({ operation }: z.output<typeof ProvisionInput>, context?: ToolExecutionContext, prepare = false) => {
+    const computer = ComputerOperation.safeParse(operation);
+    if (computer.success) return computerApproval(computerPort, computer.data, context);
     if (machineConsent(operation))
-      return { required: true, domainRevisions: machineDomainRevisions(port?.machines?.enrollments, operation.args.machineId) };
+      return { required: true, domainRevisions: machineDomainRevisions(machineEnrollments, operation.args.machineId) };
     if ((operation.op === "automation_add" || operation.op === "automation_enable") && context !== undefined)
       return automation(operation, context, prepare);
     if (operation.op === "contact_promote" || operation.op === "contact_merge") {
@@ -130,15 +142,19 @@ export function provisionApproval(port: ProvisionPort | undefined) {
     }
     if (operation.op !== "contact_add" || port === undefined)
       return { required: false, domainRevisions: {} };
-    const manifest = {
-      ...operation.args.manifest,
-      displayName: operation.args.manifest.displayName ?? operation.args.manifest.id,
-    };
-    const existing = port.persons.get(manifest.id);
-    return {
-      required: approvalRequirement(existing, manifest) !== undefined,
-      domainRevisions: { [manifest.id]: existing?.revision ?? -1 },
-      timeoutMs: operation.args.timeoutMs,
-    };
+    return contactAddApproval(port, operation);
+  };
+}
+
+function contactAddApproval(port: ProvisionPort, operation: Extract<z.output<typeof ProvisionInput>["operation"], { op: "contact_add" }>) {
+  const manifest = {
+    ...operation.args.manifest,
+    displayName: operation.args.manifest.displayName ?? operation.args.manifest.id,
+  };
+  const existing = port.persons.get(manifest.id);
+  return {
+    required: approvalRequirement(existing, manifest) !== undefined,
+    domainRevisions: { [manifest.id]: existing?.revision ?? -1 },
+    timeoutMs: operation.args.timeoutMs,
   };
 }

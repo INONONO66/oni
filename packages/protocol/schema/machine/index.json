@@ -154,6 +154,42 @@
       "name": "CompletionRequest"
     },
     {
+      "file": "ComputerCancelled.json",
+      "name": "ComputerCancelled"
+    },
+    {
+      "file": "ComputerCloseRequest.json",
+      "name": "ComputerCloseRequest"
+    },
+    {
+      "file": "ComputerCloseResult.json",
+      "name": "ComputerCloseResult"
+    },
+    {
+      "file": "ComputerExclusion.json",
+      "name": "ComputerExclusion"
+    },
+    {
+      "file": "ComputerKeep.json",
+      "name": "ComputerKeep"
+    },
+    {
+      "file": "ComputerLease.json",
+      "name": "ComputerLease"
+    },
+    {
+      "file": "ComputerRefusal.json",
+      "name": "ComputerRefusal"
+    },
+    {
+      "file": "ComputerRequest.json",
+      "name": "ComputerRequest"
+    },
+    {
+      "file": "ComputerWindow.json",
+      "name": "ComputerWindow"
+    },
+    {
       "file": "Enrollment.json",
       "name": "Enrollment"
     },

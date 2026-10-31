@@ -29,7 +29,7 @@ test("#1252 newer catalog schemaVersion: reads work, Deliver/fork refused typed,
 
     // The marker is stamped at create; bump it out of band past this build.
     const stamped = new Database(path);
-    expect(stamped.query("PRAGMA user_version").get()).toEqual({ user_version: 5 });
+    expect(stamped.query("PRAGMA user_version").get()).toEqual({ user_version: 6 });
     stamped.run("PRAGMA user_version = 99");
     stamped.close();
     const before = fileHash(path);
@@ -57,10 +57,10 @@ test("#1252 newer catalog schemaVersion: reads work, Deliver/fork refused typed,
       expect(indexRefusal).toBeInstanceOf(CatalogVersionRefused);
       if (indexRefusal instanceof CatalogVersionRefused) {
         expect(indexRefusal.fileVersion).toBe(99);
-        expect(indexRefusal.codeVersion).toBe(5);
+        expect(indexRefusal.codeVersion).toBe(6);
         expect(indexRefusal.operation).toBe("indexSession");
         expect(indexRefusal.message).toBe(
-          "catalog schemaVersion 99 is newer than this build (5); indexSession refused — catalog is read-only",
+          "catalog schemaVersion 99 is newer than this build (6); indexSession refused — catalog is read-only",
         );
       }
 
@@ -74,7 +74,7 @@ test("#1252 newer catalog schemaVersion: reads work, Deliver/fork refused typed,
       expect(fenceRefusal).toBeInstanceOf(CatalogVersionRefused);
       if (fenceRefusal instanceof CatalogVersionRefused) {
         expect(fenceRefusal.fileVersion).toBe(99);
-        expect(fenceRefusal.codeVersion).toBe(5);
+        expect(fenceRefusal.codeVersion).toBe(6);
         expect(fenceRefusal.operation).toBe("rotateFence");
       }
     } finally {

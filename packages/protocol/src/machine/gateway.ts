@@ -3,6 +3,7 @@ import { EpochMs } from "../time.js";
 import { AttachGeneration, CapabilityId, Enrollment, Load, Peer, Resources } from "./schema.js";
 import { HumanInput, Session, TransportFacts } from "./facts.js";
 import { Screen } from "./probe.js";
+import { ComputerWindow } from "./lease.js";
 
 /** The host's attached-machine projection, shared by provision and the gateway. */
 export const Info = Enrollment.extend({
@@ -18,6 +19,7 @@ export const Info = Enrollment.extend({
     reportedAt: EpochMs, load: Load, screen: Screen.optional(),
     humanInput: HumanInput.optional(),
     session: Session.optional(), transport: TransportFacts.optional(), stale: z.boolean(),
+    windows: z.record(z.string(), ComputerWindow).optional(),
   }).strict().optional(),
 });
 export type Info = z.infer<typeof Info>;

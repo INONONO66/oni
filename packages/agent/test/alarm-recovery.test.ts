@@ -194,7 +194,7 @@ describe("catalog schema v4 (#1351 retired-byte rewrite)", () => {
       } finally {
         store.close();
       }
-      expect(rawCatalogRows(path).version).toEqual({ user_version: 5 });
+      expect(rawCatalogRows(path).version).toEqual({ user_version: 6 });
     } finally {
       rmSync(directory, { recursive: true });
     }
@@ -246,7 +246,7 @@ describe("catalog schema v4 (#1351 retired-byte rewrite)", () => {
         }
 
         const expected = {
-          version: { user_version: 5 },
+          version: { user_version: 6 },
           sessions: [
             { id: "s-legacy", parent_id: "s-parent", role: "child", fence: 2, created_at: 5 },
             { id: "s-new", parent_id: "s-legacy", role: "child", fence: 0, created_at: 9 },
@@ -286,14 +286,14 @@ describe("catalog schema v4 (#1351 retired-byte rewrite)", () => {
     });
   }
 
-  test("a newer (v6) catalog opens read-only: markArmed refuses typed", () => {
-    const directory = mkdtempSync(join(tmpdir(), "catalog-v6-"));
+  test("a newer (v7) catalog opens read-only: markArmed refuses typed", () => {
+    const directory = mkdtempSync(join(tmpdir(), "catalog-v7-"));
     const path = join(directory, "catalog.sqlite");
     try {
       const created = openCatalogStore(path, { now: () => 1 });
       created.close();
       const stamped = new Database(path);
-      stamped.run("PRAGMA user_version = 6");
+      stamped.run("PRAGMA user_version = 7");
       stamped.close();
 
       const reopened = openCatalogStore(path, { now: () => 1 });
@@ -307,8 +307,8 @@ describe("catalog schema v4 (#1351 retired-byte rewrite)", () => {
         expect(refusal).toBeInstanceOf(CatalogVersionRefused);
         if (refusal instanceof CatalogVersionRefused) {
           expect(refusal.operation).toBe("markArmed");
-          expect(refusal.fileVersion).toBe(6);
-          expect(refusal.codeVersion).toBe(5);
+          expect(refusal.fileVersion).toBe(7);
+          expect(refusal.codeVersion).toBe(6);
         }
       } finally {
         reopened.close();

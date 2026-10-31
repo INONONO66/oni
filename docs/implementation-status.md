@@ -53,6 +53,52 @@ Rust CI lane installs Xvfb and openbox for that test.
 AT-SPI observation, nested Wayland, and Windows are tracked in #1700.
 Grant-dependent live acceptance remains in #1702.
 
+## #1697 computer-use leases (PR pending)
+
+The approval-policy bundle owns revisioned `Machine.ComputerLease` and
+`Machine.ComputerExclusion` rows. `Core.LedgerHost.policyState.get/list/put`
+persists them in the existing catalog; `put` compares the prior revision
+and advances it atomically. Catalog version 6 adds this generic bundle-data
+table, with no computer vocabulary or new storage path in the core.
+`computer_request`, `computer_list`, `computer_end`, `computer_exclude`,
+and `computer_keep` are provision operations. Requests and exclusion
+changes use the existing Owner approval path; a request's saved lease
+revision is checked again before granting its 5-120 minute scope.
+
+The bundle's compiled `tool.pre` rows cover pointer, key, text, ref action,
+observe, settle, app launch/quit, and window close/park. The host attaches
+its latest window binding from list, observe, launch, and capture answers.
+The app alone refuses `lease_missing`, `lease_expired`, `target_unbound`,
+`app_out_of_scope`, `foreground_not_granted`, `excluded`, and
+`paused:human_input|takeover|private|locked|asleep`. Exclusion identities
+are data in `policy/computer-exclusions.json` plus the configured client
+path and Owner-added rows. Unknown application identities fail closed.
+Enrollment and native target/ref/reservation/privacy checks remain in the
+host and client.
+
+Human-input and entered-private facts pause rows before event publication.
+Locked/asleep reports also pause leases; the capture guard reads current
+session facts directly. A later turn must make a full observe before
+resuming, and a private observation cannot resume. Stop ends the lease,
+cancels the attachment's computer relay and sends `machine.computer.close`
+with the attachment generation and an input-sequence barrier. The client's
+dispatch ledger fences both active and delayed inputs through that sequence
+before their next native event, leaving later calls and other machine work
+attached. Failure to acknowledge cancellation disconnects the peer as a
+fail-closed boundary. Captured cancellation records the complete
+`unverifiable {reason:"cancelled",dispatched:"unknown",hint:"re_observe"}`
+result. An injected scheduler ends a lease after 120 seconds without an
+attachment; attachment resets that deadline.
+
+Launch-returned windows are attributed to the session and turn. Turn-end
+cleanup closes unkept windows with their recorded epoch, retains
+`deliverable` and `handoff` targets, and journals every retained or
+unclosed target in a `computer.cleanup` tool result. Fixture evidence is in
+`computer-policy.test.ts`, `computer-provision.test.ts`,
+`computer-turn.test.ts`, and the machine host tests. Dedicated desktop
+lease/purpose presentation remains #1701; native live-grant acceptance
+remains #1702.
+
 ## #1693 human-input and session facts
 
 The macOS client uses a listen-only session event tap to classify untagged
@@ -66,7 +112,8 @@ prevents the tap, the heartbeat omits `humanInput` and includes
 `screen.blockers` containing `input_monitoring_not_granted`. The host retains
 these optional facts per attachment, exposes them in `machine_list`, and
 publishes an authenticated `machine.human_input` bus event. It makes no
-admission or lease decision from them. The app subscriber belongs to #1697.
+admission or lease decision from them. The #1697 approval-policy bundle
+consumes these facts for lease pause transitions.
 Linux clients omit the human-input fact; native Linux and Windows input
 adapters are tracked in #1700. Live grant-dependent
 acceptance is tracked in #1702.
@@ -336,7 +383,8 @@ builds a fixture with two overlapping windows and verifies that the covered
 window's own pattern is captured.
 
 Grant-dependent acceptance remains #1702. Windows adapters and
-ScreenCaptureKit remain #1700. Cleanup policy and keep records remain #1697.
+ScreenCaptureKit remain #1700. Cleanup policy and keep records are described
+under #1697 above.
 Contract details: `docs/machines-and-delegation.md` 2.2.3.
 
 ## #1691 window settle (PR pending)

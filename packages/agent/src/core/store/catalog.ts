@@ -6,7 +6,7 @@ import { z } from "zod";
 import { LedgerSession } from "@oni/protocol";
 import { CatalogUpgradeRefused, CatalogVersionRefused, SessionNotFound } from "./errors";
 import { bootstrapStoreDatabase, SILENT_OBSERVATION_SINK, StoreHandle } from "./session-file/index.js";
-import { createPolicies } from "./storage/sqlite-l0-policies.js";
+import { createPolicies, createPolicyState } from "./storage/sqlite-l0-policies.js";
 
 /**
  * The only catalog schema owner: the session index with its CAS-rotated fence
@@ -30,7 +30,7 @@ const KIND_LIST = sqlList([
   "fold.checkpoint", "ingress", "alarm.fired",
 ]);
 
-export const CATALOG_SCHEMA: readonly string[] = [
+const CATALOG_CORE_SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS session_index (
     id TEXT PRIMARY KEY,
     parent_id TEXT,
@@ -54,13 +54,21 @@ export const CATALOG_SCHEMA: readonly string[] = [
   )`,
   "CREATE INDEX IF NOT EXISTS idx_policy_read ON policy(generation, kind, phase, priority DESC, name)",
 ];
+const POLICY_STATE_SCHEMA = `CREATE TABLE IF NOT EXISTS policy_state (
+    namespace TEXT NOT NULL,
+    key TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    value TEXT NOT NULL CHECK (json_valid(value)),
+    PRIMARY KEY (namespace, key)
+  )`;
+export const CATALOG_SCHEMA: readonly string[] = [...CATALOG_CORE_SCHEMA, POLICY_STATE_SCHEMA];
 
 /**
  * Catalog schemaVersion: stamped into `PRAGMA user_version` when the
  * catalog is created or opened by code at least this new. A file whose marker
  * is greater than this constant was written by newer code and opens read-only.
  */
-const CATALOG_SCHEMA_VERSION = 5;
+const CATALOG_SCHEMA_VERSION = 6;
 
 const UserVersion = z.object({ user_version: z.number().int().nonnegative() });
 
@@ -105,12 +113,14 @@ const RotatedFence = z.object({ fence: z.number().int().positive() });
 /** Cross-session facts only; `commitSession`'s owner+fence check stays the write authority. */
 export class CatalogStore extends StoreHandle {
   readonly policies: ProtocolStorage.PolicyRowSubAdapter;
+  readonly policyState: ReturnType<typeof createPolicyState>;
   private readonly newerFileVersion: number | undefined;
   private readOnlyClosed = false;
   constructor(db: Database, observationSink: ObservationSink, now: () => number, newerFileVersion?: number) {
     super(db, observationSink, now);
     this.newerFileVersion = newerFileVersion;
     this.policies = createPolicies(db, this.transaction);
+    this.policyState = createPolicyState(db);
   }
 
   /** The composition root attaches the channels-owned store here; the catalog builds none of it. */
@@ -288,7 +298,7 @@ export function openCatalogStore(path: string, options: OpenCatalogStoreOptions)
       handle = new CatalogStore(db, sink, options.now, fileVersion);
       return handle;
     }
-    bootstrapStoreDatabase(db, CATALOG_SCHEMA);
+    bootstrapStoreDatabase(db, fileVersion > 0 && fileVersion < CATALOG_SCHEMA_VERSION ? CATALOG_CORE_SCHEMA : CATALOG_SCHEMA);
     if (fileVersion > 0 && fileVersion < CATALOG_SCHEMA_VERSION) {
       try {
         db.transaction(() => {
@@ -297,7 +307,8 @@ export function openCatalogStore(path: string, options: OpenCatalogStoreOptions)
             db.run("ALTER TABLE session_index ADD COLUMN has_armed INTEGER NOT NULL DEFAULT 0");
           }
           // Rebuild older CHECK constraints and rewrite retired bytes during the copy.
-          migrateCatalogChecks(db);
+          if (fileVersion < 5) migrateCatalogChecks(db);
+          else db.run(POLICY_STATE_SCHEMA);
           db.run(`PRAGMA user_version = ${CATALOG_SCHEMA_VERSION}`);
         }).immediate();
       } catch (cause) {

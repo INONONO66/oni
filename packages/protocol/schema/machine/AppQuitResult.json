@@ -44,7 +44,17 @@
             "unsupported",
             "process_not_found",
             "epoch_changed",
-            "window_not_found"
+            "window_not_found",
+            "lease_missing",
+            "lease_expired",
+            "target_unbound",
+            "app_out_of_scope",
+            "foreground_not_granted",
+            "paused:human_input",
+            "paused:takeover",
+            "paused:private",
+            "paused:locked",
+            "paused:asleep"
           ],
           "type": "string"
         },
@@ -56,6 +66,34 @@
       "required": [
         "status",
         "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "dispatched": {
+          "const": "unknown",
+          "type": "string"
+        },
+        "hint": {
+          "const": "re_observe",
+          "type": "string"
+        },
+        "reason": {
+          "const": "cancelled",
+          "type": "string"
+        },
+        "status": {
+          "const": "unverifiable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "dispatched",
+        "hint"
       ],
       "type": "object"
     }

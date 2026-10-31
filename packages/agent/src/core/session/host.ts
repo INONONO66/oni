@@ -75,6 +75,7 @@ export interface LedgerHost {
   /** The caller attaches its own tables; Core retains database ownership and closure. */
   attach<A>(tables: (database: Database) => A): A;
   readonly updatePolicy: CatalogStore["policies"]["appendGeneration"];
+  readonly policyState: CatalogStore["policyState"];
   transaction<A>(operation: () => A): A;
   close(): void;
 }
@@ -346,6 +347,7 @@ function planeOver(
     }),
     attach: (tables) => tables(catalog.database),
     updatePolicy: (select) => catalog.policies.appendGeneration(select),
+    policyState: catalog.policyState,
     transaction: catalog.transaction,
     catalog,
     catalogDatabase: catalog.database,
@@ -426,6 +428,7 @@ function ledgerLayer(config: LedgerStoreConfig): Layer.Layer<Ledger | LedgerStor
         runtime: plane.runtime,
         attach: plane.attach,
         updatePolicy: plane.updatePolicy,
+        policyState: plane.policyState,
         transaction: plane.transaction,
         close: plane.close,
       }),
