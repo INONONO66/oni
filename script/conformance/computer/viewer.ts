@@ -159,7 +159,7 @@ const Frames = z
     keys: z.number().int(),
     bytes: z.number().int(),
     head: z.array(z.number().int()),
-    sidecars: z.array(z.object({ seq: z.number().int().nonnegative(), capturedAtUs: z.number().int().nonnegative() }).strict()),
+    sidecars: z.array(z.object({ seq: z.number().int().nonnegative(), capturedAtUs: z.number().int().nonnegative(), rtpTimestamp: z.number().int().nonnegative() }).strict()),
     connection: z.string(),
   })
   .strict();
