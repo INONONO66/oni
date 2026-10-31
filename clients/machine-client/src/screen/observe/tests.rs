@@ -1271,6 +1271,10 @@ fn identified_pointer_follows_reorder_but_refuses_a_changed_identity() {
 
     fake.walk.lock().expect("lock").swap(0, 1);
     assert_eq!(observations.point(&fake, "o1", "AXRow[0]"), Ok((110, 50)));
+    let mut moved = fake.walk.lock().expect("lock")[1].clone();
+    moved.parent = Some(0);
+    *fake.walk.lock().expect("lock") = vec![node("AXGroup", None, None), moved];
+    assert_eq!(observations.point(&fake, "o1", "AXRow[0]"), Ok((110, 50)));
     fake.walk.lock().expect("lock")[1].attributes.label = Some("changed".into());
     assert_eq!(
         observations.point(&fake, "o1", "AXRow[0]"),
@@ -1669,7 +1673,7 @@ fn waiting_action_refuses_on_destroy_private_recreation_and_sample_failure() {
         (WaitEvent::SampleFailed, Refusal::Permission),
     ] {
         let fake = Arc::new(Fake::new(tree()));
-        fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+        fake.walk.lock().expect("lock")[0].attributes.enabled = Some(Some(false));
         let observations = Observations::default();
         observe(&observations, fake.as_ref(), None);
         let mut action = act("o1", "AXButton[0]", Action::Press);
@@ -1718,7 +1722,7 @@ fn blocked_action_rechecks_on_quiet_tick_and_zero_wait_refuses_immediately() {
 #[test]
 fn waiting_without_an_available_subscription_refuses_the_blocked_action() {
     let fake = Fake::new(tree());
-    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(Some(false));
     let observations = Observations::default();
     observe(&observations, &fake, None);
     let mut action = act("o1", "AXButton[0]", Action::Press);
@@ -1744,7 +1748,7 @@ fn screen_action_subscribes_to_its_resolved_window_and_refuses_destruction() {
     )
     .expect("layout");
     let fake = Fake::new(tree());
-    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(Some(false));
     let screen = Screen::absent()
         .observing(Box::new(fake))
         .notifying(Box::new(
@@ -1762,7 +1766,7 @@ fn screen_action_subscribes_to_its_resolved_window_and_refuses_destruction() {
 #[test]
 fn screen_action_without_notifications_refuses_blocked_element() {
     let fake = Fake::new(tree());
-    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(Some(false));
     let screen = Screen::absent().observing(Box::new(fake));
     let request: ScreenObserveRequest =
         oni_protocol::decode(json!({"target": {"pid": 7, "windowId": 9}, "screenshot": false}))
