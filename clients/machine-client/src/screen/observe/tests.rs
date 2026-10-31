@@ -735,6 +735,30 @@ fn listing_retains_capture_windows_when_accessibility_refuses() {
 }
 
 #[test]
+fn listing_without_accessibility_observer_keeps_capture_windows() {
+    let source = crate::screen::fixture::Fixture {
+        windows: vec![crate::screen::Window {
+            id: 9,
+            display: 1,
+            title: "Editor".into(),
+            owner: "fixture".into(),
+            pid: Some(7),
+            app: None,
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+        }],
+        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
+    assert_eq!(listed["windows"].as_array().expect("windows").len(), 1);
+    assert_eq!(listed["windows"][0]["windowId"], "9");
+    assert_eq!(listed["truncated"], false);
+}
+
+#[test]
 fn surface_target_outside_native_window_id_range_is_not_known() {
     let observations = Observations::default();
     assert!(!observations.surface(Target {
