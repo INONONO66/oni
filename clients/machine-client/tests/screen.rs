@@ -307,6 +307,22 @@ fn captures_target_displays_windows_and_regions_in_pixels() {
 }
 
 #[test]
+fn fixture_capture_encodes_the_source_pixels_without_screen_permission() {
+    let fixture = Fixture::display(8, 6, 1.0);
+    let mut expected = Vec::new();
+    fixture
+        .capture_display(1, &mut expected)
+        .expect("fixture frame");
+    let result = capture(&screen(fixture), whole(1));
+    assert_eq!(result["status"], "ok");
+    let png = image::load_from_memory(&image(&result, "data"))
+        .expect("encoded fixture frame")
+        .to_rgba8();
+    assert_eq!((png.width(), png.height()), (8, 6));
+    assert_eq!(png.as_raw(), &expected);
+}
+
+#[test]
 fn encoding_downscales_and_shrinks_until_the_byte_cap_holds() {
     let screen = screen(Fixture::display(64, 48, 1.0));
     let bounded = capture(
