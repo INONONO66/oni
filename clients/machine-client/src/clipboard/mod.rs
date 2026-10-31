@@ -1,6 +1,7 @@
 //! Bounded pasteboard reads and lease-local restoration. The fixture and native
 //! backend share the same ownership and change-count decisions.
 
+pub mod fixture;
 #[cfg(target_os = "macos")]
 mod native;
 
@@ -55,12 +56,19 @@ impl Clipboard {
         }
     }
 
-    #[cfg(target_os = "macos")]
-    pub fn native() -> Self {
-        Self::new(Box::new(native::Native))
+    /// The pasteboard this machine can reach: the native one on macOS and
+    /// an absent one everywhere else.
+    pub fn local() -> Self {
+        #[cfg(target_os = "macos")]
+        {
+            Self::new(Box::new(native::Native))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Self::absent()
+        }
     }
 
-    #[cfg(not(target_os = "macos"))]
     pub fn absent() -> Self {
         Self::new(Box::new(Absent))
     }
@@ -95,28 +103,19 @@ impl Clipboard {
     }
 
     pub fn write(&self, request: &ClipboardWriteRequest) -> Value {
-        let entry = match serde_json::to_value(request) {
-            Ok(Value::Object(fields)) => {
-                let Some((name, Value::String(value))) = fields.into_iter().next() else {
-                    return json!({"status":"refused","reason":"clipboard_not_available"});
-                };
-                let (format, data) = match name.as_str() {
-                    "text" => ("public.utf8-plain-text", value.into_bytes()),
-                    "html" => ("public.html", value.into_bytes()),
-                    "image" => match STANDARD.decode(value) {
-                        Ok(data) => ("public.png", data),
-                        Err(_) => {
-                            return json!({"status":"refused","reason":"clipboard_not_available"})
-                        }
-                    },
-                    _ => return json!({"status":"refused","reason":"clipboard_not_available"}),
-                };
-                Entry {
-                    format: format.to_owned(),
-                    data,
-                }
+        let (format, data) = match request {
+            ClipboardWriteRequest::Text(text) => {
+                ("public.utf8-plain-text", text.as_bytes().to_vec())
             }
-            _ => return json!({"status":"refused","reason":"clipboard_not_available"}),
+            ClipboardWriteRequest::Html(html) => ("public.html", html.as_bytes().to_vec()),
+            ClipboardWriteRequest::Image(image) => match STANDARD.decode(image.as_bytes()) {
+                Ok(data) => ("public.png", data),
+                Err(_) => return json!({"status":"refused","reason":"clipboard_not_available"}),
+            },
+        };
+        let entry = Entry {
+            format: format.to_owned(),
+            data,
         };
         if entry.data.len() > MAX_BYTES {
             return json!({"status":"refused","reason":"clipboard_too_large"});
@@ -192,10 +191,8 @@ impl State {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
 struct Absent;
 
-#[cfg(not(target_os = "macos"))]
 impl Source for Absent {
     fn snapshot(&mut self) -> Result<Contents, &'static str> {
         Err("clipboard_not_available")
@@ -214,34 +211,103 @@ mod tests {
     use oni_protocol::decode;
     use std::sync::{Arc, Mutex};
 
-    #[derive(Clone)]
-    struct Fixture(Arc<Mutex<Contents>>);
-    impl Source for Fixture {
-        fn snapshot(&mut self) -> Result<Contents, &'static str> {
-            Ok(self.0.lock().expect("fixture").clone())
-        }
-        fn replace(&mut self, entries: &[Entry]) -> Result<u64, &'static str> {
-            let mut contents = self.0.lock().expect("fixture");
-            contents.change_count += 1;
-            contents.entries = entries.to_vec();
-            Ok(contents.change_count)
-        }
-        fn change_count(&mut self) -> u64 {
-            self.0.lock().expect("fixture").change_count
-        }
-    }
     fn fixture() -> (Clipboard, Arc<Mutex<Contents>>) {
-        let contents = Arc::new(Mutex::new(Contents {
-            change_count: 1,
-            entries: vec![Entry {
-                format: "public.utf8-plain-text".into(),
-                data: b"personal".to_vec(),
-            }],
-        }));
+        let contents = fixture::text("personal");
         (
-            Clipboard::new(Box::new(Fixture(contents.clone()))),
+            Clipboard::new(Box::new(fixture::Fixture(contents.clone()))),
             contents,
         )
+    }
+
+    struct ReadOnly;
+    impl Source for ReadOnly {
+        fn snapshot(&mut self) -> Result<Contents, &'static str> {
+            Ok(Contents {
+                change_count: 1,
+                entries: vec![],
+            })
+        }
+        fn replace(&mut self, _entries: &[Entry]) -> Result<u64, &'static str> {
+            Err("clipboard_not_available")
+        }
+        fn change_count(&mut self) -> u64 {
+            1
+        }
+    }
+
+    fn entry(format: &str, data: &[u8]) -> Entry {
+        Entry {
+            format: format.into(),
+            data: data.to_vec(),
+        }
+    }
+
+    #[test]
+    fn read_reports_every_known_format_and_filters_on_request() {
+        let (clipboard, contents) = fixture();
+        contents.lock().expect("fixture").entries = vec![
+            entry("public.utf8-plain-text", b"plain"),
+            entry("public.html", b"<b>rich</b>"),
+            entry("public.png", &[0x89, b'P', b'N', b'G']),
+            entry("com.example.private", b"opaque"),
+        ];
+        let everything = decode::<ClipboardReadRequest>(json!({})).expect("read");
+        assert_eq!(
+            clipboard.read(&everything),
+            json!({"status":"ok","changeCount":1,"text":"plain","html":"<b>rich</b>","image":"iVBORw=="})
+        );
+        let html = decode::<ClipboardReadRequest>(json!({"formats":["html"]})).expect("read");
+        assert_eq!(
+            clipboard.read(&html),
+            json!({"status":"ok","changeCount":1,"html":"<b>rich</b>"})
+        );
+    }
+
+    #[test]
+    fn write_places_html_and_png_entries_and_refuses_bad_base64() {
+        let (clipboard, contents) = fixture();
+        let html = decode::<ClipboardWriteRequest>(json!({"html":"<i>x</i>"})).expect("html");
+        assert_eq!(clipboard.write(&html)["status"], "ok");
+        let image = decode::<ClipboardWriteRequest>(json!({"image":"iVBORw=="})).expect("image");
+        assert_eq!(clipboard.write(&image)["status"], "ok");
+        assert_eq!(
+            contents.lock().expect("fixture").entries,
+            [entry("public.png", &[0x89, b'P', b'N', b'G'])]
+        );
+        let bad = decode::<ClipboardWriteRequest>(json!({"image":"AB=="})).expect("shape");
+        assert_eq!(
+            clipboard.write(&bad),
+            json!({"status":"refused","reason":"clipboard_not_available"})
+        );
+        assert_eq!(contents.lock().expect("fixture").change_count, 3);
+    }
+
+    #[test]
+    fn write_refuses_oversized_entries_and_sources_that_cannot_replace() {
+        let (clipboard, contents) = fixture();
+        let huge = "é".repeat(MAX_BYTES / 2 + 1);
+        let write = decode::<ClipboardWriteRequest>(json!({"text":huge})).expect("write");
+        assert_eq!(
+            clipboard.write(&write),
+            json!({"status":"refused","reason":"clipboard_too_large"})
+        );
+        assert_eq!(contents.lock().expect("fixture").change_count, 1);
+        let read_only = Clipboard::new(Box::new(ReadOnly));
+        let write = decode::<ClipboardWriteRequest>(json!({"text":"agent"})).expect("write");
+        assert_eq!(
+            read_only.write(&write),
+            json!({"status":"refused","reason":"clipboard_not_available"})
+        );
+        read_only.close();
+        assert!(!read_only.take_human_edge());
+    }
+
+    #[test]
+    fn absent_source_refuses_every_operation() {
+        let mut absent = Absent;
+        assert_eq!(absent.snapshot(), Err("clipboard_not_available"));
+        assert_eq!(absent.replace(&[]), Err("clipboard_not_available"));
+        assert_eq!(absent.change_count(), 0);
     }
 
     #[test]
