@@ -688,7 +688,10 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
                     finished.map_err(join_failure)?;
                 }
                 Some(finished) = probes.join_next(), if !probes.is_empty() => {
+                    #[cfg(target_os = "macos")]
                     let mut screen = finished.map_err(join_failure)?;
+                    #[cfg(not(target_os = "macos"))]
+                    let screen = finished.map_err(join_failure)?;
                     #[cfg(target_os = "macos")]
                     if let Some(restart) = &mut self.grant_restart {
                         match restart.tick(&mut screen, crate::service::screen_granted, now_ms()) {
