@@ -59,7 +59,7 @@ Usage:
   oni --version             print the version
   oni onboard               interactive setup → ~/.oni/env
   oni daemon <verb>         install | uninstall | status | start | stop | restart
-  oni machine attach <json> attach a machine daemon using a JSON config
+  oni machine attach <json> attach a machine client using a JSON config
   oni doctor                read-only diagnostics
   oni logs                  follow the daemon logs
   oni login <platform>      sign the Owner's own account in and declare it (slack | discord | instagram | kakaotalk | telegram)
