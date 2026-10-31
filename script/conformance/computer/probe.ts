@@ -1,11 +1,16 @@
-import { createStreamProbe, StreamProbeResponse } from "../../../apps/oni/src/composition/stream-probe.js";
+import { WebSocketHandler, type WsConnection } from "../../../packages/channels/src/index.js";
+import { Effect } from "effect";
+import { StreamProbeResponse } from "../../../apps/oni/src/composition/stream-probe.js";
 import { runStreamProbe, type ProbeLink } from "../../../apps/oni/src/cli/stream-probe.js";
 import { openStreamViewer } from "../../../apps/oni/src/cli/stream-viewer.js";
-import type { ComputerHandle } from "../../../packages/machines/src/index.js";
-import { run } from "../../../packages/machines/test/ipc/helpers/effects.js";
+import { gatewayRuntime, webSocketCallbacks } from "../../../apps/oni/src/gateway.js";
+import { composedHolder } from "../../../apps/oni/test/helpers/bundle-fixture.js";
+import { Bus } from "../../../apps/oni/test/helpers/bus.js";
+import { testIds } from "../../../apps/oni/test/helpers/test-entropy.js";
+import type { MachineHost } from "../../../packages/machines/src/index.js";
 
 /** Exercise the same CLI and gateway probe against the attached scripted screen. */
-export async function probeStream(computer: ComputerHandle, machineId: string, display: number) {
+export async function probeStream(host: MachineHost, machineId: string, display: number) {
   const pending: StreamProbeResponse[] = [];
   const waiters: Array<{
     readonly match: (frame: StreamProbeResponse) => boolean;
@@ -17,26 +22,16 @@ export async function probeStream(computer: ComputerHandle, machineId: string, d
     if (index < 0) pending.push(frame);
     else waiters.splice(index, 1)[0]?.resolve(frame);
   };
-  const socket = { send: emit };
-  const probe = createStreamProbe({
-    now: Date.now,
-    open: async (_machineId, source, listeners) => {
-      const opened = await run(computer.stream.open({
-        source: { kind: "display", display: source },
-        video: { maxFps: 30, keyframeIntervalMs: 500, maxBitrateBps: 2_000_000, maxDimension: 640, maxFrameBytes: 1_000_000 },
-        dataChannel: true,
-        lifetimeMs: 120_000,
-      }, listeners));
-      return "status" in opened ? opened : {
-        streamId: opened.streamId,
-        capturedAt: opened.capturedAt,
-        signal: (signal: Parameters<typeof opened.signal>[0]) => run(opened.signal(signal)),
-        close: () => run(opened.close()),
-      };
-    },
-  });
+  const socket: WsConnection = {
+    data: { surfaceKey: "ws::dm:probe", authenticated: true, externalId: "conformance-probe" },
+    send: emit,
+  };
+  const runtime = gatewayRuntime({ composed: composedHolder(), observations: Bus });
+  const handler = new WebSocketHandler(() => Effect.void, Bus.publish, { now: Date.now, id: testIds("stream-probe") });
+  const gateway = webSocketCallbacks(runtime, handler, Bus, undefined, undefined, undefined, host,
+    undefined, undefined, undefined, Date.now);
   const link: ProbeLink = {
-    send: (frame) => { void probe.handle(socket, JSON.stringify(frame), true); },
+    send: (frame) => { void gateway.callbacks.message(socket, JSON.stringify(frame)); },
     next: (match) => {
       const index = pending.findIndex(match);
       if (index >= 0) {
@@ -55,6 +50,8 @@ export async function probeStream(computer: ComputerHandle, machineId: string, d
       wait: async () => undefined,
     });
   } finally {
-    await probe.close(socket);
+    gateway.callbacks.close(socket);
+    await gateway.settled();
+    await runtime.dispose();
   }
 }

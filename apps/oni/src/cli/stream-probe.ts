@@ -133,7 +133,7 @@ export async function streamProbeCommand(
   }
 }
 
-export function connectProbe(url: string, token: string): Promise<ProbeLink> {
+export function connectProbe(url: string, token: string, timeoutMs = 30_000): Promise<ProbeLink> {
   const socket = new WebSocket(url, ["auth", token]);
   return new Promise((resolve, reject) => {
     const pending: StreamProbeResponse[] = [];
@@ -144,7 +144,7 @@ export function connectProbe(url: string, token: string): Promise<ProbeLink> {
       if (!connected) reject(error);
       for (const waiter of waiters.splice(0)) waiter.reject(error);
     };
-    const deadline = setTimeout(() => { socket.close(); reject(new CliError("stream probe connection timed out")); }, 30_000);
+    const deadline = setTimeout(() => { socket.close(); reject(new CliError("stream probe connection timed out")); }, timeoutMs);
     socket.addEventListener("error", () => {
       clearTimeout(deadline);
       disconnect();
@@ -173,7 +173,7 @@ export function connectProbe(url: string, token: string): Promise<ProbeLink> {
             const responseTimer = setTimeout(() => {
               waiters.splice(waiters.indexOf(waiter), 1);
               fail(new CliError("stream probe response timed out"));
-            }, 30_000);
+            }, timeoutMs);
             waiters.push(waiter);
           });
         },

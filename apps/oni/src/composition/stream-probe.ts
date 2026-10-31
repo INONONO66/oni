@@ -123,13 +123,8 @@ function receiveFrame(
 
 async function closeSession(
   ws: ProbeConnection, input: Extract<StreamProbeRequest, { type: "stream_probe_close" }>,
-  session: Session, now: () => number,
+  session: Session, stream: Stream, now: () => number,
 ): Promise<void> {
-  const stream = session.stream;
-  if (stream === undefined) {
-    send(ws, { type: "stream_probe_refused", requestId: input.requestId, reason: "stream_not_open" });
-    return;
-  }
   session.stream = undefined;
   const closed = await stream.close();
   if (closed.status !== "closed") {
@@ -178,7 +173,7 @@ async function dispatch(
       receiveFrame(ws, input, session);
       break;
     case "stream_probe_close":
-      await closeSession(ws, input, session, ports.now);
+      await closeSession(ws, input, session, session.stream, ports.now);
       break;
   }
 }

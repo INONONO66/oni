@@ -1,4 +1,4 @@
-import type { MachineHost } from "@oni/machines";
+import type { ComputerHandle, MachineHost } from "@oni/machines";
 import { machineWire } from "./composition/machine-wire";
 import { createStreamProbe } from "./composition/stream-probe";
 import { channelHistoryWire, type ChannelHistoryLookup } from "./composition/channel-history";
@@ -372,7 +372,9 @@ export function webSocketCallbacks(
       Effect.Effect<Ingress.AutomationResponse>;
     readonly stores: ChannelStores;
   },
-  machines?: Pick<MachineHost, "list" | "get">,
+  machines?: Pick<MachineHost, "list"> & {
+    readonly get: (machineId: string) => { readonly computer?: Pick<ComputerHandle, "stream"> };
+  },
   /** #1569 lane 5b: the Owner's channel declaration (the login helper's seal) over the Owner's socket. */
   channels?: {
     readonly respond: (request: Provisioning.ChannelDeclareRequest, caller: "owner" | `session:${string}`) =>
@@ -472,7 +474,9 @@ export function webSocketCallbacks(
         for (const stop of readers.get(ws)?.values() ?? []) stop();
         readers.delete(ws);
         if (probe !== undefined) {
-          const closing = probe.close(ws);
+          const closing = probe.close(ws).catch((error) => {
+            console.error("stream probe close failed", error);
+          });
           inflight.add(closing);
           void closing.finally(() => inflight.delete(closing));
         }
