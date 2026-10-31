@@ -10,6 +10,7 @@ import { createWatchPlane } from "../src/composition/watch-plane";
 import {
   AlarmProcessExitTimeoutError,
   AlarmRuntimeError,
+  commandSource,
   createWatchSources,
   killCommandGroup,
   waitForCommandExit,
@@ -709,6 +710,53 @@ test("a stalled PTY exit reports a typed timeout after its output drains", async
     jest.advanceTimersByTime(15_000);
     expect(await failure).toBeInstanceOf(AlarmProcessExitTimeoutError);
   } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("a drained PTY whose child never reports exit retires its group and reports the timeout once", async () => {
+  jest.useFakeTimers();
+  const kill = jest.spyOn(process, "kill").mockImplementation(() => {
+    throw Object.assign(new Error("No such process"), { code: "ESRCH" });
+  });
+  const spawn = Bun.spawn;
+  let drain: ((terminal: Bun.Terminal, code: number) => void) | undefined;
+  const closes: number[] = [];
+  Reflect.set(Bun, "spawn", new Proxy(spawn, {
+    apply(target, thisArg: typeof Bun, args: Parameters<typeof Bun.spawn>): ReturnType<typeof Bun.spawn> {
+      const [command, options] = args;
+      if (!Array.isArray(command) || command[0] !== "/bin/sh") return Reflect.apply(target, thisArg, args);
+      // The child's slave hangs up (EOF) but its exit is never reported.
+      drain = (options as { terminal: { exit(terminal: Bun.Terminal, code: number): void } }).terminal.exit;
+      return {
+        pid: 424_242,
+        exitCode: null,
+        signalCode: null,
+        terminal: { write: () => undefined, close: () => closes.push(1) },
+      } as unknown as ReturnType<typeof Bun.spawn>;
+    },
+  }));
+  const failures: Error[] = [];
+  const exits: number[] = [];
+  const failed = Promise.withResolvers<Error>();
+  try {
+    const source = commandSource("true", () => undefined, (code) => exits.push(code), (error) => {
+      failures.push(error);
+      failed.resolve(error);
+    });
+    drain?.(undefined as never, 0);
+    await Promise.resolve();
+    jest.advanceTimersByTime(15_000);
+    // The group is retired before the failure is reported; close then joins that one retirement.
+    expect(await failed.promise).toBeInstanceOf(AlarmProcessExitTimeoutError);
+    await expect(source.close()).rejects.toBeInstanceOf(AlarmProcessExitTimeoutError);
+    expect(failures.map((error) => error.name)).toEqual(["AlarmProcessExitTimeoutError"]);
+    expect(exits).toEqual([]);
+    expect(kill).toHaveBeenCalledWith(-424_242, "SIGKILL");
+    expect(closes).toEqual([1]);
+  } finally {
+    kill.mockRestore();
+    Reflect.set(Bun, "spawn", spawn);
     jest.useRealTimers();
   }
 });
