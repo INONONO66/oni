@@ -14,8 +14,8 @@ export const ScreenSettleResult = z.union([
   ComputerCancelled,
   z.object({ status: z.literal("settled"), method: z.literal("accessibility"), observationId: ObservationId }).strict(),
   z.object({ status: z.literal("settled"), method: z.literal("pixels"), captureId: z.string().min(1) }).strict(),
-  z.object({ status: z.literal("pending"), method: z.literal("accessibility"), observationId: ObservationId, changesInWindow: z.number().int().nonnegative() }).strict(),
-  z.object({ status: z.literal("pending"), method: z.literal("pixels"), changesInWindow: z.number().int().nonnegative() }).strict(),
+  z.object({ status: z.literal("pending").meta({ title: "AccessibilitySettlePendingStatus" }), method: z.literal("accessibility"), observationId: ObservationId, changesInWindow: z.number().int().nonnegative() }).strict(),
+  z.object({ status: z.literal("pending").meta({ title: "PixelSettlePendingStatus" }), method: z.literal("pixels"), changesInWindow: z.number().int().nonnegative() }).strict(),
   z.object({ status: z.literal("unsupported"), blocker: z.enum(["accessibility_not_granted", "no_observer"]) }).strict(),
   z.object({ status: z.literal("destroyed") }).strict(),
   z.object({ status: z.literal("refused"), reason: z.enum([

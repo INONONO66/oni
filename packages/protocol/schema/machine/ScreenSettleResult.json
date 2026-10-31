@@ -95,6 +95,7 @@
         },
         "status": {
           "const": "pending",
+          "title": "AccessibilitySettlePendingStatus",
           "type": "string"
         }
       },
@@ -120,6 +121,7 @@
         },
         "status": {
           "const": "pending",
+          "title": "PixelSettlePendingStatus",
           "type": "string"
         }
       },

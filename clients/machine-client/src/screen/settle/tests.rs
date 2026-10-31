@@ -1,4 +1,10 @@
-use std::{cell::Cell, sync::Mutex};
+use std::{
+    cell::Cell,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    },
+};
 
 use super::*;
 use crate::screen::{
@@ -15,6 +21,8 @@ struct Model {
     during: Vec<(usize, Duration, Notification)>,
     tokens: Vec<u64>,
     fault: Option<Fault>,
+    fault_after_windows: Option<(usize, Fault)>,
+    window_reads: usize,
     budgets: Vec<Duration>,
     before_commit: Option<Notification>,
     private: bool,
@@ -34,6 +42,12 @@ impl Observer for FakeObserver {
     }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         let mut model = self.0.lock().expect("model");
+        model.window_reads += 1;
+        if let Some((after, fault)) = &model.fault_after_windows {
+            if model.window_reads >= *after {
+                return Err(fault.clone());
+            }
+        }
         if let Some(fault) = &model.fault {
             return Err(fault.clone());
         }
@@ -558,4 +572,109 @@ fn pixel_fallback_requires_capture_and_reports_disappearing_anchor() {
     let screen = Screen::new(Box::new(fixture), 1);
     let result = screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock);
     assert_eq!(result["reason"], "capture_blank");
+}
+
+struct PixelSource {
+    fixture: Fixture,
+    ready_fault: Option<Fault>,
+    invalid_frame: bool,
+    vanish_after: Option<usize>,
+    window_reads: AtomicUsize,
+}
+
+impl PixelSource {
+    fn new() -> Self {
+        Self {
+            fixture: pixel_fixture(),
+            ready_fault: None,
+            invalid_frame: false,
+            vanish_after: None,
+            window_reads: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl Source for PixelSource {
+    fn ready(&self) -> Result<(), Fault> {
+        self.ready_fault.clone().map_or(Ok(()), Err)
+    }
+
+    fn displays(&self) -> Result<Vec<crate::screen::Display>, Fault> {
+        self.fixture.displays()
+    }
+
+    fn windows(&self) -> Result<Vec<Window>, Fault> {
+        let calls = self.window_reads.fetch_add(1, Ordering::Relaxed) + 1;
+        if self.vanish_after.is_some_and(|after| calls > after) {
+            Ok(vec![])
+        } else {
+            self.fixture.windows()
+        }
+    }
+
+    fn capture_display(&self, display: u32, pixels: &mut Vec<u8>) -> Result<(u32, u32), Fault> {
+        self.fixture.capture_display(display, pixels)
+    }
+
+    fn capture_window(&self, window: u32, pixels: &mut Vec<u8>) -> Result<(u32, u32), Fault> {
+        if self.invalid_frame {
+            Ok((0, 0))
+        } else {
+            self.fixture.capture_window(window, pixels)
+        }
+    }
+}
+
+#[test]
+fn pixel_fallback_handles_capture_permission_bad_frame_and_missing_anchor() {
+    let clock = PixelClock(Cell::new(Instant::now()));
+    let mut denied = pixel_fixture();
+    denied.denied = true;
+    let screen = Screen::new(Box::new(denied), 1);
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock)["reason"],
+        "permission_denied"
+    );
+
+    let mut source = PixelSource::new();
+    source.ready_fault = Some(Fault::WindowNotFound);
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock)["reason"],
+        "window_not_found"
+    );
+
+    let mut source = PixelSource::new();
+    source.invalid_frame = true;
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock)["reason"],
+        "permission_denied"
+    );
+
+    let mut source = PixelSource::new();
+    source.vanish_after = Some(2);
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock)["status"],
+        "destroyed"
+    );
+}
+
+#[test]
+fn pixel_fallback_refuses_unknown_private_state() {
+    for fault in [Fault::Permission, Fault::WindowNotFound] {
+        let (mut screen, model) = setup(Model::default(), 0, vec![], None);
+        screen.source = Some(Box::new(pixel_fixture()));
+        model.lock().expect("model").fault_after_windows = Some((2, fault.clone()));
+        let result = screen.pixel_sample(screen.source().expect("source"), 42, 7, 0);
+        if fault == Fault::Permission {
+            assert!(result.is_ok());
+        } else {
+            assert_eq!(
+                result.expect_err("window lost")["reason"],
+                "window_not_found"
+            );
+        }
+    }
 }
