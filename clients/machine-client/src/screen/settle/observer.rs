@@ -96,7 +96,7 @@ pub fn sample(
         .ok_or(observe::Refusal::WindowNotFound)?;
     let private = match focus_state(observer.focused(target)) {
         FocusState::Secure => true,
-        FocusState::NotSecure => false,
+        FocusState::Admits | FocusState::Idle => false,
         FocusState::Unknown(_) => return Err(observe::Refusal::AccessibilityUnavailable),
     };
     if private {

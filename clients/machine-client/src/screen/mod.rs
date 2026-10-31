@@ -38,7 +38,7 @@ use crate::attach::now_ms;
 use encode::{Encoding, Format};
 use observe::Observations;
 use pool::Pool;
-use private::{blank_rect, focus_admits_input, focus_state, overlaps, Edge, FocusState, States};
+use private::{blank_rect, focus_state, overlaps, Edge, FocusState, States};
 
 pub const MAX_BYTES: usize = 4_194_304;
 pub const MAX_DIMENSION: u32 = 16_384;
@@ -448,32 +448,32 @@ impl Screen {
                 .find(|identity| identity.window_id == window.id)
                 .map(|identity| self.checked_focus(observer, &identity))
                 .transpose()?
-                .is_none_or(|focus| !focus_admits_input(focus));
+                .is_none_or(|focus| focus != FocusState::Admits);
             self.accessibility_fault.store(false, Ordering::Relaxed);
             return Ok(private);
         }
         let mut focused = Vec::new();
         for window in &windows {
-            if let Some(focus) = self.checked_focus(observer, window)? {
-                focused.push(focus);
+            match self.checked_focus(observer, window)? {
+                FocusState::Idle => {}
+                focus => focused.push(focus),
             }
         }
         self.accessibility_fault.store(false, Ordering::Relaxed);
-        Ok(focused.len() != 1 || !focus_admits_input(focused.pop()))
+        Ok(focused.len() != 1 || focused.pop() != Some(FocusState::Admits))
     }
 
     fn checked_focus(
         &self,
         observer: &dyn ax::Observer,
         window: &ax::WindowIdentity,
-    ) -> Result<Option<private::Focused>, Fault> {
-        let focused = observer.focused(window);
-        match focus_state(focused.clone()) {
+    ) -> Result<FocusState, Fault> {
+        match focus_state(observer.focused(window)) {
             FocusState::Unknown(_) => {
                 self.accessibility_fault.store(true, Ordering::Relaxed);
                 Err(Fault::AccessibilityUnavailable)
             }
-            FocusState::Secure | FocusState::NotSecure => focused,
+            focus => Ok(focus),
         }
     }
 
@@ -502,7 +502,7 @@ impl Screen {
                     break;
                 }
             };
-            let private = matches!(self.checked_focus(observer, window)?, Some(focus) if focus.secure || focus.role == "AXSecureTextField");
+            let private = self.checked_focus(observer, window)? == FocusState::Secure;
             if let Some(edge) = states.update(target, private) {
                 edges.push((target, edge));
             }
@@ -524,7 +524,7 @@ impl Screen {
             .into_iter()
             .find(|window| window.window_id == window_id)
             .ok_or(Fault::WindowNotFound)?;
-        let private = matches!(self.checked_focus(observer, &window)?, Some(focus) if focus.secure || focus.role == "AXSecureTextField");
+        let private = self.checked_focus(observer, &window)? == FocusState::Secure;
         self.accessibility_fault.store(false, Ordering::Relaxed);
         Ok(private)
     }

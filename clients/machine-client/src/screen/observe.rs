@@ -430,7 +430,7 @@ impl Observations {
     ) -> Result<Prepared, Refusal> {
         let private = match focus_state(observer.focused(&located.window)) {
             FocusState::Secure => true,
-            FocusState::NotSecure => false,
+            FocusState::Admits | FocusState::Idle => false,
             FocusState::Unknown(_) => return Err(Refusal::AccessibilityUnavailable),
         };
         if private {
@@ -624,7 +624,7 @@ impl Observations {
         let _serial = lock(&window);
         let private = match focus_state(observer.focused(&located.window)) {
             FocusState::Secure => true,
-            FocusState::NotSecure => false,
+            FocusState::Admits | FocusState::Idle => false,
             FocusState::Unknown(_) => return Err(Refusal::AccessibilityUnavailable),
         };
         if private {

@@ -23,22 +23,25 @@ pub fn focused(walk: &Walk) -> Option<Focused> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum FocusState {
     Secure,
-    NotSecure,
+    Admits,
+    Idle,
     Unknown(Fault),
 }
 
+/// Fail-closed reading of one focus observation. `Fault::Absent` is the
+/// platform declining to observe focus at all (X11 carries no accessibility
+/// focus): that keeps the window private without raising an accessibility
+/// fault, which only a failing observer reports.
 pub fn focus_state(focused: Result<Option<Focused>, Fault>) -> FocusState {
     match focused {
+        Err(Fault::Absent) => FocusState::Secure,
         Err(fault) => FocusState::Unknown(fault),
+        Ok(None) => FocusState::Idle,
         Ok(Some(focused)) if focused.secure || focused.role == "AXSecureTextField" => {
             FocusState::Secure
         }
-        Ok(_) => FocusState::NotSecure,
+        Ok(Some(_)) => FocusState::Admits,
     }
-}
-
-pub fn focus_admits_input(focused: Option<Focused>) -> bool {
-    matches!(focused, Some(ref field) if !field.secure && field.role != "AXSecureTextField")
 }
 
 pub struct FocusRefresh {
@@ -215,21 +218,20 @@ mod tests {
     }
 
     #[test]
-    fn focus_distinguishes_secure_plain_and_unknown() {
-        for (focused, state, admitted) in [
+    fn focus_distinguishes_secure_admitting_idle_absent_and_unknown() {
+        for (focused, state) in [
             (
                 Err(Fault::Permission),
                 FocusState::Unknown(Fault::Permission),
-                false,
             ),
-            (Ok(None), FocusState::NotSecure, false),
+            (Err(Fault::Absent), FocusState::Secure),
+            (Ok(None), FocusState::Idle),
             (
                 Ok(Some(Focused {
                     role: "AXTextField".into(),
                     secure: true,
                 })),
                 FocusState::Secure,
-                false,
             ),
             (
                 Ok(Some(Focused {
@@ -237,19 +239,16 @@ mod tests {
                     secure: false,
                 })),
                 FocusState::Secure,
-                false,
             ),
             (
                 Ok(Some(Focused {
                     role: "AXButton".into(),
                     secure: false,
                 })),
-                FocusState::NotSecure,
-                true,
+                FocusState::Admits,
             ),
         ] {
-            assert_eq!(focus_state(focused.clone()), state);
-            assert_eq!(focus_admits_input(focused.ok().flatten()), admitted);
+            assert_eq!(focus_state(focused), state);
         }
     }
 
