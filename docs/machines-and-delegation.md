@@ -317,6 +317,21 @@ Computer-use authority is a revisioned approval-policy lease keyed by
 session and machine: app identities, a 5-120 minute expiry, and an optional
 foreground purpose and expiry. Owner consent for `computer_request` uses
 the existing approval surface; exclusion rows are an independent ceiling.
+The session websocket accepts one first `surface` frame naming its attached
+machine. At the authenticated request-answer port, same-machine consent is
+refused as `self_approval_suspected` when the client's person-only input fact
+is older than `computer_use.humanQuietMs` (10 seconds by default) or an injected
+input occurred within `computer_use.injectedWindowMs` (also 10 seconds by default). The refusal is
+recorded as an ingress decision and leaves the approval open; answers without
+a machine surface, including messaging, use the normal path. Each lease
+revision broadcasts a typed session websocket `lease` frame.
+The lease budget defaults to 1500 actions per sliding hour and cannot exceed
+the machine-keyed `computer_use.enrollmentCeiling` row (default 1500).
+The existing guard counts admitted `machine.input.*` attempts; a transport
+refusal after admission still counts. Looking through `machine.screen.*`
+never counts. At exhaustion the typed refusal is
+`budget_exhausted { resetAt }`; `computer_list` returns each lease's
+`usage.count` and `usage.resetAt` for the session card.
 The captured `tool.pre` guard resolves host window/capture/observation facts
 and enforces scope, foreground consent, expiry and pause state. Human input,
 private entry, lock and sleep pause the lease; a subsequent turn resumes

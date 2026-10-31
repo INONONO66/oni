@@ -254,11 +254,11 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
 
   return {
     advance: (at) => serial.withPermit(advance(at)),
-    ingest: (rawSender, envelope) => Effect.gen(function* () {
+    ingest: (rawSender, envelope, context) => Effect.gen(function* () {
       const startedAt = clock();
       const sender = Gateway.IngestSender.parse(rawSender);
       if ("kind" in envelope && envelope.kind === "request_answer")
-        return yield* answerOwnerRequest(stores, ports, sender, envelope, startedAt);
+        return yield* answerOwnerRequest(stores, ports, sender, envelope, startedAt, context);
       const inbound = yield* resolveExternal(sender, envelope, startedAt);
       if (inbound.filtered !== undefined) return inbound.filtered;
       const external = inbound.external;

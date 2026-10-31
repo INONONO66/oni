@@ -7,6 +7,8 @@ export interface ComputerPort {
     get(sessionId: string, machineId: string): Machine.ComputerLease | undefined;
     put(lease: Machine.ComputerLease): Machine.ComputerLease;
     list(): Machine.ComputerLease[];
+    ceiling(machineId: string): number;
+    usage(lease: Machine.ComputerLease, now: number): { count: number; resetAt: number | null };
     exclusions(): Machine.ComputerExclusion[];
     exclude(exclusion: Machine.ComputerExclusion): Machine.ComputerExclusion;
   };

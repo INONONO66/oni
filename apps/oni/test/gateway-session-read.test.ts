@@ -140,6 +140,9 @@ test("a subscribed reader is re-sent the page when a newer revision commits", as
       JSON.stringify({ type: "session_read", sessionId, limit: 256 }),
     );
     expect(frames).toHaveLength(1);
+    await gatewaySocket.callbacks.message(ws, JSON.stringify({ kind: "surface", machineId: "desk" }));
+    expect(JSON.parse(frames[1] ?? "")).toEqual({ type: "error", reason: "surface_already_declared" });
+    expect(ws.data.machineId).toBeUndefined();
     const repush = new Promise<void>((resolve) => {
       pushed = resolve;
     });
@@ -152,7 +155,7 @@ test("a subscribed reader is re-sent the page when a newer revision commits", as
     });
     await repush;
     const decodeJson: (frame: string) => PlainValue = JSON.parse;
-    expect(decodeJson(frames[1] ?? "")).toMatchObject({
+    expect(decodeJson(frames[2] ?? "")).toMatchObject({
       type: "session_page",
       sessionId,
       actions: [{ actionId: "note-2", kind: "message" }],

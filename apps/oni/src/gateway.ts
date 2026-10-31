@@ -489,17 +489,20 @@ export function webSocketCallbacks(
           caller: wsCaller(ws.data.externalId),
         }, history ?? (() => ({ status: "refused", reason: "owner_not_ready" })));
         if (historyRead !== undefined) {
+          ws.data.frameSeen = true;
           return runtime.runPromise(historyRead).then((frame) => {
             ws.send(JSON.stringify(frame));
           });
         }
         const machine = machineWire(data, machines);
         if (machine !== undefined) {
+          ws.data.frameSeen = true;
           ws.send(JSON.stringify(machine));
           return Promise.resolve();
         }
         const captured = parts?.capture(ws.data.externalId, data);
         if (captured !== undefined && "type" in captured) {
+          ws.data.frameSeen = true;
           ws.send(JSON.stringify(captured));
           return Promise.resolve();
         }
