@@ -25,6 +25,8 @@ export interface LaunchedWindow {
   keep?: Machine.ComputerKeep["reason"];
 }
 
+const CLIPBOARD_WRITE_GRANTS: ReadonlySet<Machine.ComputerLease["clipboard"]> = new Set(["write", "read_write"]);
+
 export class ComputerPolicy {
   readonly turns = new Map<string, string>();
   readonly launched: LaunchedWindow[] = [];
@@ -61,7 +63,7 @@ export class ComputerPolicy {
     }
     if (method === Machine.WireMethod.ClipboardRead && lease.state === "paused" && lease.pauseReason === "private") return "private";
     if (method === Machine.WireMethod.ClipboardRead && lease.clipboard !== "read_write") return "clipboard_not_granted";
-    if (method === Machine.WireMethod.ClipboardWrite && lease.clipboard !== "write" && lease.clipboard !== "read_write") return "clipboard_not_granted";
+    if (method === Machine.WireMethod.ClipboardWrite && !CLIPBOARD_WRITE_GRANTS.has(lease.clipboard)) return "clipboard_not_granted";
     const session = this.ports.host().list().find((info) => info.machineId === machineId)?.live?.session;
     if (session?.locked || session?.asleep) {
       const reason = session.locked ? "locked" : "asleep";
