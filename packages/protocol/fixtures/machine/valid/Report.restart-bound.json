@@ -1,0 +1,11 @@
+{
+  "machineId": "mac-0",
+  "reportedAt": 2000,
+  "load": { "loadAvg1": 0, "memoryAvailableBytes": 1024, "inFlight": 0 },
+  "screen": {
+    "verdict": "partial",
+    "blockers": [{ "kind": "restart_bound" }],
+    "display": { "kind": "console", "isolated": false },
+    "grants": { "capture": true, "accessibility": true, "input": true }
+  }
+}

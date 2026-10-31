@@ -24,6 +24,13 @@ what it records becomes the first live evidence. Shipped state is in
   paths are supported only for explicit `--file` or `--from` documents.
   The host-self supervisor deployment and update recipe is tracked in #1699;
   live MacBook grant retention and PVE bootstrap are tracked in #1702.
+- On macOS, `mclient join <host>` installs the LaunchAgent and opens Screen
+  Recording settings. Grant the installed client binary access; the running
+  service checks the grant every five seconds and restarts itself once it
+  arrives. Check `machine_list` for the new process and a granted screen
+  fact. If the grant flaps, three restarts in one hour are allowed; the
+  service then stays up with the `restart_bound` screen blocker. A manual
+  `launchctl kickstart` command remains in `mclient join --help`.
 - The daemon's socket stays on loopback for every step below: a login and a
   channel declaration carry a credential across it in clear.
 - Voice notes and video, when the model cannot read them: a voice note is
