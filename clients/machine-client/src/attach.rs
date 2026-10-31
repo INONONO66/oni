@@ -429,6 +429,13 @@ fn join_failure(error: JoinError) -> AttachError {
     AttachError::Terminal(error.to_string())
 }
 
+fn classify_attach_error(error: AttachError) -> Result<FailureClass, AttachError> {
+    match error {
+        AttachError::MemoryBudget | AttachError::GrantRestart => Err(error),
+        error => Ok(classes::classify(&error)),
+    }
+}
+
 async fn notify_human_edge(
     machine_id: &str,
     watch_start: Instant,
@@ -801,9 +808,7 @@ async fn run_with_grant_events(
             Ok(Outcome::Refused | Outcome::Unreachable) => attachment
                 .last_failure
                 .unwrap_or(FailureClass::RemoteUnavailable),
-            Err(error @ AttachError::MemoryBudget) => return Err(error),
-            Err(error @ AttachError::GrantRestart) => return Err(error),
-            Err(error) => classes::classify(&error),
+            Err(error) => classify_attach_error(error)?,
         };
         let next = retry.event(clock.elapsed(), Event::Failed(class), &mut random);
         attachment.last_failure = retry.last_failure;
@@ -1038,8 +1043,8 @@ mod tests {
     };
 
     use super::{
-        await_next, join_failure, notify_human_edge, once_result, service_reprobe, AttachError,
-        Outcome, RuntimeRandom,
+        await_next, classify_attach_error, join_failure, notify_human_edge, once_result,
+        service_reprobe, AttachError, Outcome, RuntimeRandom,
     };
     use crate::transport::{
         classes::FailureClass,
@@ -1169,6 +1174,14 @@ mod tests {
     fn grant_restart_bypasses_service_reprobe() {
         assert!(!service_reprobe(&AttachError::GrantRestart));
         assert_eq!(AttachError::GrantRestart.exit_code(), 75);
+    }
+
+    #[test]
+    fn grant_restart_exits_retry_loop_without_classification() {
+        assert!(matches!(
+            classify_attach_error(AttachError::GrantRestart),
+            Err(AttachError::GrantRestart)
+        ));
     }
 
     #[test]
