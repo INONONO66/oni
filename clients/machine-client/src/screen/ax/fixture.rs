@@ -499,6 +499,10 @@ mod tests {
             fixture.hit_test(&window(), &path(), (2048, 2048)),
             Ok(Hit::Occluded)
         );
+        assert_eq!(
+            fixture.hit_test(&window(), &path(), (9, 9)),
+            Ok(Hit::Covered)
+        );
         let overlay = json!({"windows": [
             {"id": 10, "title": "Overlay", "pid": 8},
             {"id": 9, "title": "Editor", "pid": 7, "elements": [{

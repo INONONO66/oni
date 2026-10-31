@@ -1,16 +1,18 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use serde_json::json;
 
 use super::*;
 use crate::screen::ax::AppIdentity;
 
+type WindowReads = Arc<Mutex<VecDeque<Result<Vec<WindowIdentity>, Fault>>>>;
+
 struct Fake {
     windows: Mutex<Result<Vec<WindowIdentity>, Fault>>,
-    window_reads: Mutex<VecDeque<Result<Vec<WindowIdentity>, Fault>>>,
+    window_reads: WindowReads,
     walk: Arc<Mutex<Vec<Node>>>,
     walk_fault: Mutex<Option<Fault>>,
     focus_fault: Mutex<Option<Fault>>,
@@ -22,13 +24,15 @@ struct Fake {
     hold: Mutex<Option<(Sender<()>, Receiver<()>)>>,
     walks: AtomicUsize,
     resolves: AtomicUsize,
+    missing_size: std::sync::atomic::AtomicBool,
+    forget_on_walk: Arc<Mutex<Option<Weak<Screen>>>>,
 }
 
 impl Fake {
     fn new(nodes: Vec<Node>) -> Self {
         Self {
             windows: Mutex::new(Ok(vec![window(0)])),
-            window_reads: Mutex::new(VecDeque::new()),
+            window_reads: Arc::new(Mutex::new(VecDeque::new())),
             walk: Arc::new(Mutex::new(nodes)),
             walk_fault: Mutex::new(None),
             focus_fault: Mutex::new(None),
@@ -38,6 +42,8 @@ impl Fake {
             hold: Mutex::new(None),
             walks: AtomicUsize::new(0),
             resolves: AtomicUsize::new(0),
+            missing_size: std::sync::atomic::AtomicBool::new(false),
+            forget_on_walk: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -65,7 +71,11 @@ fn resolve<'a>(nodes: &'a [Node], path: &str) -> Option<&'a Node> {
 
 impl Observer for Fake {
     fn window_size(&self, _: &WindowIdentity) -> Result<(i64, i64), Fault> {
-        Ok((1024, 1024))
+        if self.missing_size.load(Ordering::SeqCst) {
+            Err(Fault::Absent)
+        } else {
+            Ok((1024, 1024))
+        }
     }
     fn hit_test(&self, _: &WindowIdentity, _: &[Segment], _: (i64, i64)) -> Result<Hit, Fault> {
         Ok(Hit::Target)
@@ -101,6 +111,15 @@ impl Observer for Fake {
 
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault> {
         self.walks.fetch_add(1, Ordering::SeqCst);
+        if let Some(screen) = self
+            .forget_on_walk
+            .lock()
+            .expect("lock")
+            .as_ref()
+            .and_then(Weak::upgrade)
+        {
+            screen.forget();
+        }
         if window.window_id == 9 {
             if let Some((entered, release)) = self.hold.lock().expect("lock").take() {
                 entered.send(()).expect("entered");
@@ -243,6 +262,34 @@ fn ambiguous_pointer_targets_fail_closed() {
     };
     let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
     assert_eq!(screen.input_private(Some((4, 4))), Ok(true));
+}
+
+#[test]
+fn pointer_hit_test_uses_captured_window_size_when_observer_cannot_measure_it() {
+    let fake = Fake::new(tree());
+    fake.missing_size.store(true, Ordering::SeqCst);
+    let window = crate::screen::Window {
+        id: 9,
+        display: 1,
+        title: "Editor".into(),
+        owner: "fixture".into(),
+        pid: Some(7),
+        app: None,
+        x: 100,
+        y: 50,
+        width: 16,
+        height: 16,
+    };
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture {
+            windows: vec![window],
+            ..crate::screen::fixture::Fixture::display(256, 128, 1.0)
+        }),
+        1,
+    )
+    .observing(Box::new(fake));
+    assert_eq!(screen.pointer_at(104, 54), Some((7, 9)));
+    assert_eq!(screen.pointer_at(120, 54), None);
 }
 
 #[test]
@@ -1445,6 +1492,26 @@ fn identified_point_follows_its_element_and_refuses_ambiguous_relocation() {
 }
 
 #[test]
+fn identified_ref_refuses_relocation_when_fresh_walk_is_incomplete() {
+    let mut original = node("AXRow", None, None);
+    original.attributes.identifier = Some("original".into());
+    let fake = Fake::new(vec![original]);
+    let observations = Observations::default();
+    observe(&observations, &fake, None);
+    let mut changed = node("AXRow", None, None);
+    changed.attributes.identifier = Some("different".into());
+    let mut replacement = node("AXRow", None, None);
+    replacement.attributes.identifier = Some("original".into());
+    let mut nodes = vec![changed; MAX_ELEMENTS];
+    nodes.push(replacement);
+    *fake.walk.lock().expect("lock") = nodes;
+    assert_eq!(
+        observations.point(&fake, "o1", "AXRow[0]"),
+        Err(Refusal::RefNotFound)
+    );
+}
+
+#[test]
 fn wire_targets_convert_and_an_absent_observer_refuses() {
     assert_eq!(
         target(7, 9, Some(2)),
@@ -1500,6 +1567,101 @@ fn screen_pointer_resolves_only_a_point_on_an_active_display() {
         assert_eq!(screen.observe(&request)["observationId"], "o1");
         assert_eq!(screen.point("o1", "AXButton[0]"), Err(Refusal::OffScreen));
     }
+}
+
+#[test]
+fn background_ref_refuses_when_observation_is_forgotten_during_resolution() {
+    let fake = Fake::new(tree());
+    let forget_on_walk = Arc::clone(&fake.forget_on_walk);
+    let screen = Arc::new(
+        Screen::new(
+            Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
+            1,
+        )
+        .observing(Box::new(fake)),
+    );
+    let request: ScreenObserveRequest =
+        oni_protocol::decode(json!({"target":{"pid":7,"windowId":9},"screenshot":false}))
+            .expect("observe request");
+    let observed = screen.observe(&request);
+    assert_eq!(observed["elements"][0]["ref"], "AXButton[0]");
+    *forget_on_walk.lock().expect("lock") = Some(Arc::downgrade(&screen));
+    let pointer: oni_protocol::InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"background","kind":"click",
+        "at":{"observationId":observed["observationId"],"ref":"AXButton[0]"},
+        "button":"left","count":1
+    }))
+    .expect("pointer request");
+    let recorder = crate::input::recorder::Recorder::default();
+    let input = crate::input::Input::new(recorder.clone());
+    assert_eq!(
+        input.pointer(&screen, &pointer),
+        json!({"status":"refused","reason":"stale_observation"})
+    );
+    assert!(recorder.events().is_empty());
+}
+
+#[test]
+fn background_window_refuses_when_target_focus_cannot_be_read() {
+    let fake = Fake::new(tree());
+    let window_reads = Arc::clone(&fake.window_reads);
+    let source = crate::screen::fixture::Fixture {
+        windows: vec![crate::screen::Window {
+            id: 9,
+            display: 1,
+            title: "Editor".into(),
+            owner: "fixture".into(),
+            pid: Some(7),
+            app: None,
+            x: 100,
+            y: 50,
+            width: 16,
+            height: 16,
+        }],
+        ..crate::screen::fixture::Fixture::display(256, 128, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let capture: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+        "target":{"kind":"window","windowId":"9"},"encoding":{"format":"png"}
+    }))
+    .expect("window capture request");
+    let captured = screen.capture(&capture);
+    assert_eq!(captured["status"], "ok");
+    window_reads.lock().expect("lock").extend([
+        Ok(vec![window(0)]),
+        Ok(vec![window(0)]),
+        Err(Fault::Permission),
+    ]);
+    let pointer: oni_protocol::InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"background","kind":"click",
+        "at":{"captureId":captured["captureId"],"x":104,"y":54},
+        "button":"left","count":1
+    }))
+    .expect("pointer request");
+    let recorder = crate::input::recorder::Recorder::default();
+    let input = crate::input::Input::new(recorder.clone());
+    assert_eq!(
+        input.pointer(&screen, &pointer),
+        json!({"status":"refused","reason":"private"})
+    );
+    assert!(recorder.events().is_empty());
+}
+
+#[test]
+fn screen_observation_respects_explicit_element_limit() {
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
+        1,
+    )
+    .observing(Box::new(Fake::new(tree())));
+    let request: ScreenObserveRequest = oni_protocol::decode(json!({
+        "target":{"pid":7,"windowId":9},"screenshot":false,"maxElements":1
+    }))
+    .expect("observe request");
+    let observed = screen.observe(&request);
+    assert_eq!(observed["status"], "ok");
+    assert_eq!(observed["complete"], false);
+    assert_eq!(observed["elements"].as_array().expect("elements").len(), 1);
 }
 
 struct RejectNotifications(Arc<AtomicUsize>);

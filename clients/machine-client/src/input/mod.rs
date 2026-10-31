@@ -833,11 +833,8 @@ impl Input {
         let (route, target) = match route {
             Some(route) => (route, None),
             None => {
-                let Some(Event::Move { x, y, .. }) = &aim else {
-                    return Err(refuse("window_not_found"));
-                };
-                let ((pid, window_id), source) = match anchor {
-                    Anchor::Ref { observation, .. } => screen
+                let ((pid, window_id), source) = match (anchor, &aim) {
+                    (Anchor::Ref { observation, .. }, Some(Event::Move { .. })) => screen
                         .observation_target(observation)
                         .map_err(|error| Refusal {
                             reason: error.reason(),
@@ -845,16 +842,18 @@ impl Input {
                             landed_on: None,
                         })
                         .map(|target| (target, "window_capture"))?,
-                    Anchor::Point { capture, .. } => match screen.anchor_window(capture) {
-                        Some(target) => (target, "window_capture"),
-                        None => (
-                            driver
-                                .target_at(screen, &display, *x, *y)
-                                .ok_or_else(|| refuse("window_not_found"))?,
-                            "display_hit_test",
-                        ),
-                    },
-                    Anchor::Capture(_) => return Err(refuse("window_not_found")),
+                    (Anchor::Point { capture, .. }, Some(Event::Move { x, y, .. })) => {
+                        match screen.anchor_window(capture) {
+                            Some(target) => (target, "window_capture"),
+                            None => (
+                                driver
+                                    .target_at(screen, &display, *x, *y)
+                                    .ok_or_else(|| refuse("window_not_found"))?,
+                                "display_hit_test",
+                            ),
+                        }
+                    }
+                    _ => return Err(refuse("window_not_found")),
                 };
                 (
                     Route::Background(pid),
@@ -1062,5 +1061,39 @@ fn track(held: &mut Vec<(Route, Event)>, route: Route, event: &Event) {
     held.retain(|(at, pressed)| *at != route || *pressed != release);
     if down {
         held.push((route, release));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{recorder::Recorder, Anchor, Input};
+    use crate::screen::{fixture::Fixture, Screen};
+    use serde_json::json;
+
+    #[test]
+    fn background_route_refuses_a_capture_without_a_pointer_target() {
+        let screen = Screen::new(Box::new(Fixture::display(16, 16, 1.0)), 1);
+        let capture: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target":{"kind":"display","display":1},"encoding":{"format":"png"}
+        }))
+        .expect("capture request");
+        let observed = screen.capture(&capture);
+        let anchor = observed["captureId"].as_str().expect("capture id");
+        let recorder = Recorder::default();
+        let mut driver = recorder.clone();
+        let input = Input::new(recorder.clone());
+        let result = input.attempt(
+            (&mut driver, &mut Vec::new()),
+            &screen,
+            &Anchor::Capture(anchor),
+            false,
+            (None, None),
+            &|_| Ok(()),
+        );
+        assert_eq!(
+            result.err().map(|refusal| refusal.reason),
+            Some("window_not_found")
+        );
+        assert!(recorder.events().is_empty());
     }
 }
