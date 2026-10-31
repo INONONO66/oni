@@ -1,6 +1,6 @@
 import { Core } from "@oni/agent";
 import type { MachineHost, MachineInputCapture } from "@oni/machines";
-import { LedgerAction, Machine } from "@oni/protocol";
+import { type Gateway, LedgerAction, Machine } from "@oni/protocol";
 import { Effect } from "effect";
 import { ComputerPolicy } from "../../src/bundles/approval-policy/computer-policy";
 import { computerStore } from "../../src/bundles/approval-policy/computer-store";
@@ -26,7 +26,7 @@ export const textInput: MachineInputCapture = {
   binding: { ...target, app },
 };
 
-export function computerFixture() {
+export function computerFixture(onRevision?: (frame: Gateway.Lease) => void) {
   let now = 100;
   const plane = testPlane({ now: () => now });
   const stopped: string[] = [];
@@ -42,7 +42,7 @@ export function computerFixture() {
     computer: { close: (machineId) => { stopped.push(machineId); } },
     get: () => { throw new Error("this fixture has no attached transport"); },
   };
-  const policy = new ComputerPolicy(computerStore(plane.policyState), {
+  const policy = new ComputerPolicy(computerStore(plane.policyState, onRevision), {
     now: () => now, host: () => host,
     exclusions: [],
     scheduler: { schedule: (delay, callback) => {
@@ -86,14 +86,16 @@ export function computerFixture() {
     grant(patch: Partial<Extract<Machine.ComputerLease, { state: "active" }>> = {}) {
       return policy.store.put({
         sessionId: "resident", machineId: "desk", apps: [app.bundleId], expiresAt: 600_100,
+        budget: { actionsPerHour: 1500 }, admittedAt: [],
         state: "active", revision: (policy.store.get("resident", "desk")?.revision ?? 0) + 1, ...patch,
       });
     },
     setClock: (time: number) => { now = time; },
     setMachines: (rows: Machine.Info[]) => { machine = rows; },
-    setSession: (session: Machine.Session) => {
+    setSession: (session: Machine.Session, humanInput?: Machine.HumanInput) => {
       machine = machine.map((row) => ({ ...row, live: {
         reportedAt: now, load: { loadAvg1: 0, memoryAvailableBytes: 1, inFlight: 0 }, stale: false, session,
+        ...(humanInput === undefined ? {} : { humanInput }),
       } }));
     },
     close: () => plane.close(),

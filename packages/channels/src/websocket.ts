@@ -20,6 +20,8 @@ export type WebSocketFrameOutcome =
   | SessionRead.Bound
   | SessionRead.Request
   | SessionFork.Request
+  | { readonly type: "surface_bound"; readonly machineId: string }
+  | { readonly type: "error"; readonly reason: "surface_already_declared" }
   | { readonly type: "receipt"; readonly inputId: string; readonly result: Gateway.IngestResult }
   | WebSocketKeyRefusal;
 
@@ -64,6 +66,7 @@ export interface WebSocketConfig {
   onRequestAnswer?: (
     sender: Gateway.IngestSender & { kind: "external" },
     answer: Gateway.RequestAnswer,
+    context: { readonly surfaceKey: string; readonly machineId?: string },
   ) => Effect.Effect<Gateway.IngestResult, ChannelError>;
 }
 
@@ -72,6 +75,9 @@ export interface WsConnectionData {
   authenticated: boolean;
   /** Declared actor address or a connection-local deliverable address. */
   externalId: string;
+  machineId?: string;
+  surfaceSeen?: boolean;
+  frameSeen?: boolean;
 }
 
 export interface WsConnection {
@@ -111,7 +117,19 @@ const TextFrame = z
     eventId: frame.eventId,
     replyToId: frame.replyToId,
   }));
-const WebSocketFrame = z.union([SessionRead.Request, SessionFork.Request, RequestAnswerFrame, TextFrame]);
+const WebSocketFrame = z.union([Gateway.Surface, SessionRead.Request, SessionFork.Request, RequestAnswerFrame, TextFrame]);
+
+function isSurface(parsed: Effect.Success<ReturnType<typeof decodeFrame>>): parsed is Gateway.Surface {
+  return "kind" in parsed && parsed.kind === "surface";
+}
+
+function bindSurface(connection: WsConnectionData, parsed: Gateway.Surface): WebSocketFrameOutcome {
+  if (connection.frameSeen || connection.surfaceSeen)
+    return { type: "error", reason: "surface_already_declared" };
+  connection.surfaceSeen = true;
+  connection.machineId = parsed.machineId;
+  return { type: "surface_bound", machineId: parsed.machineId };
+}
 
 export class WebSocketHandler {
   /**
@@ -255,6 +273,8 @@ export class WebSocketHandler {
       });
       const raw = typeof data === "string" ? data : new TextDecoder().decode(data);
       const parsed = yield* decodeFrame(raw);
+      if (isSurface(parsed)) return bindSurface(connection, parsed);
+      connection.frameSeen = true;
       // The app owns the read; the perimeter only decodes and transports it.
       if ("type" in parsed) return parsed;
       const sender = {
@@ -269,7 +289,10 @@ export class WebSocketHandler {
             reason: "request_answer_unavailable",
           });
         }
-        const result = yield* this.config.onRequestAnswer(sender, parsed);
+        const result = yield* this.config.onRequestAnswer(sender, parsed, {
+          surfaceKey: connection.surfaceKey,
+          ...(connection.machineId === undefined ? {} : { machineId: connection.machineId }),
+        });
         return { type: "receipt", inputId: parsed.inputId, result };
       }
       // A frame without a platform event key is refused: the perimeter never
