@@ -1,5 +1,9 @@
 # Implementation Status
 
+## #1718 ref actionability
+
+Ref-targeted press and perform check disabled, zero-size, off-window and hit-test occlusion before dispatch, setValue checks disabled, and blocked actions wait at most two seconds by default before a typed `not_actionable` refusal.
+
 ## #1735 computer-use prompt guidance
 
 When the composed catalog includes the computer tool pack, resident and child
@@ -394,6 +398,11 @@ moving the shared cursor. Controls reading global pointer position may ignore
 them despite an `ok` dispatch. Linux remains foreground-only. The macOS ignored
 `native_occlusion` test builds a fixture with two overlapping windows and
 verifies that the covered window's own pattern is captured.
+Coordinate pointer calls can supply `at.within` as allowed PIDs or app
+identities; a live hit-test before injection and before each button edge
+refuses an unexpected overlay with `target_mismatch` and `landedOn`, while
+successful coordinate calls report `landedOn` as the first injected target.
+Excluded owners refuse regardless of the caller's expectation.
 
 Grant-dependent acceptance remains #1702. Windows adapters and
 ScreenCaptureKit remain #1700. Cleanup policy and keep records are described
@@ -453,6 +462,13 @@ behavior remains tracked by #1702; Windows and Linux accessibility adapters
 remain #1700.
 
 ## #1689 window-bound observation and ref-targeted actions (machine contract 3, PR pending)
+
+The #1715 observation follow-up reads `AXIdentifier` and sends optional `id`
+(at most 256 characters). Sibling refs distinguish identifiers without
+changing the role-path grammar; identified ref actions resolve the path
+directly and use a bounded walk only when the identifier moved, refusing
+ambiguous or absent matches with `ref_not_found`. Unidentified refs retain
+the complete walk required to detect newly ambiguous siblings.
 
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target
 contract: `docs/machines-and-delegation.md` 2.2.2.

@@ -39,6 +39,7 @@ pub fn parse(request: &InputActionRequest) -> Result<Act, String> {
         observation: request.observation_id.to_string(),
         reference: request.ref_.to_string(),
         action,
+        wait_ms: request.wait_ms.map_or(2000, |wait| wait.unsigned_abs()),
     })
 }
 

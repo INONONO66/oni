@@ -19,6 +19,7 @@ export const OBSERVE_MAX_VALUE_CHARS = 4096;
 export const OBSERVE_MAX_LABEL_CHARS = 1024;
 export const OBSERVE_MAX_ACTIONS = 16;
 export const ACTION_MAX_VALUE_CHARS = 65_536;
+export const ACTION_WAIT_MAX_MS = 10_000;
 
 /** An unaddressable role is empty; see {@link ObservedRef}. */
 const Ref = ObservedRef;
@@ -35,6 +36,7 @@ export const ObservedElement = z
     ref: Ref.nullable(),
     role: z.string().max(128),
     label: z.string().max(OBSERVE_MAX_LABEL_CHARS).optional(),
+    id: z.string().max(256).optional(),
     value: z.string().max(OBSERVE_MAX_VALUE_CHARS).optional(),
     actions: z.array(ActionName).max(OBSERVE_MAX_ACTIONS),
     frame: z.object({ x: Position, y: Position, width: Extent, height: Extent }).strict(),
@@ -154,6 +156,8 @@ export const InputActionRequest = z
     action: z.enum(["press", "setValue", "perform"]),
     value: z.string().max(ACTION_MAX_VALUE_CHARS).optional(),
     name: ActionName.optional(),
+    /** Wait for a blocked target to become actionable; absent defaults to 2000 ms. */
+    waitMs: z.number().int().min(0).max(ACTION_WAIT_MAX_MS).optional(),
   })
   .strict();
 export type InputActionRequest = z.infer<typeof InputActionRequest>;

@@ -227,6 +227,9 @@ impl Driver for Native {
         x: i32,
         y: i32,
     ) -> Option<(u32, u32)> {
+        if let Some(target) = crate::screen::ax::native::target_at(x, y) {
+            return Some(target);
+        }
         let rows = window::copy_window_info(kCGWindowListOptionOnScreenOnly, 0)?;
         rows.iter().find_map(|raw| {
             // SAFETY: CoreGraphics owns each CFDictionary in the retained array;

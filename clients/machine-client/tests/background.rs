@@ -1,13 +1,13 @@
 use oni_machine_client::{
     app, computer,
-    input::{recorder::Recorder, Input},
+    input::{delivery::Route, recorder::Recorder, Driver, Event, Input},
     screen::observe::Target,
 };
 use oni_protocol::{
     AppLaunchRequest, InputKeyRequest, InputPointerRequest, InputTextRequest, ScreenCaptureRequest,
 };
 use serde_json::{json, Value};
-use std::{fs, sync::mpsc};
+use std::{fs, path::PathBuf, sync::mpsc};
 
 fn rig(extra: Value) -> (tempfile::TempDir, oni_machine_client::screen::Screen, Input) {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -119,7 +119,7 @@ fn background_display_click_records_the_frontmost_window_and_screen_point() {
         input.pointer(&screen, &request),
         json!({"status":"ok","target":{
             "pid":4242,"windowId":7,"source":"display_hit_test"
-        }})
+        },"landedOn":{"pid":4242,"app":"org.oni.fixture"}})
     );
     let lines: Vec<Value> = fs::read_to_string(dir.path().join("events.jsonl"))
         .expect("recorded pointer")
@@ -132,6 +132,287 @@ fn background_display_click_records_the_frontmost_window_and_screen_point() {
     );
     assert_eq!(lines[1]["pid"], 4242);
     assert_eq!(lines[2]["pid"], 4242);
+}
+
+#[test]
+fn coordinate_expectation_accepts_the_current_app_and_reports_the_landing() {
+    let (dir, screen, input) = rig(json!({}));
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"foreground","kind":"click",
+        "at":{"captureId":capture(&screen),"x":3,"y":5,
+            "within":{"apps":["org.oni.fixture"]}},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &request),
+        json!({"status":"ok","landedOn":{"pid":4242,"app":"org.oni.fixture"}})
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("events.jsonl"))
+            .expect("recorded click")
+            .lines()
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn overlay_mismatch_refuses_before_the_first_recorded_event() {
+    let (dir, screen, input) = rig(json!({}));
+    let captured = capture(&screen);
+    let path = dir.path().join("layout.json");
+    let mut layout: Value =
+        serde_json::from_str(&fs::read_to_string(&path).expect("layout")).expect("layout JSON");
+    let mut overlay = layout["windows"][0].clone();
+    overlay["id"] = json!(8);
+    overlay["pid"] = json!(4343);
+    overlay["app"] = json!({"bundleId":"org.oni.overlay","path":"/Overlay.app"});
+    layout["windows"]
+        .as_array_mut()
+        .expect("windows")
+        .insert(0, overlay);
+    fs::write(path, layout.to_string()).expect("overlay");
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"foreground","kind":"click",
+        "at":{"captureId":captured,"x":3,"y":5,"within":{"pids":[4242]}},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &request),
+        json!({"status":"refused","reason":"target_mismatch",
+            "landedOn":{"pid":4343,"app":"org.oni.overlay"}})
+    );
+    assert!(!dir.path().join("events.jsonl").exists());
+}
+
+struct OverlayAfterMove {
+    recorder: Recorder,
+    layout: PathBuf,
+    after_down: bool,
+    before_dispatch: bool,
+}
+
+impl OverlayAfterMove {
+    fn cover(&self) -> Result<(), String> {
+        let mut layout: Value = serde_json::from_str(
+            &fs::read_to_string(&self.layout).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| format!("{error}"))?;
+        let mut overlay = layout["windows"][0].clone();
+        overlay["id"] = json!(8);
+        overlay["pid"] = json!(4343);
+        overlay["app"] = json!({"bundleId":"org.oni.overlay","path":"/Overlay.app"});
+        layout["windows"]
+            .as_array_mut()
+            .ok_or("missing windows")?
+            .insert(0, overlay);
+        fs::write(&self.layout, layout.to_string()).map_err(|error| error.to_string())
+    }
+}
+
+impl Driver for OverlayAfterMove {
+    fn permitted(&self) -> bool {
+        true
+    }
+
+    fn prepare(&mut self, _: Route, _: &[Event]) -> Result<(), String> {
+        if self.before_dispatch {
+            self.cover()?;
+        }
+        Ok(())
+    }
+
+    fn inject(&mut self, event: &Event) -> Result<(), String> {
+        self.recorder.inject(event)?;
+        if !self.before_dispatch
+            && ((self.after_down && matches!(event, Event::Button { down: true, .. }))
+                || (!self.after_down && matches!(event, Event::Move { .. })))
+        {
+            self.cover()?;
+        }
+        Ok(())
+    }
+
+    fn pid_delivery(&self) -> bool {
+        true
+    }
+
+    fn pointer_pid_delivery(&self) -> bool {
+        true
+    }
+
+    fn post_to_pid(&mut self, _: u32, event: &Event) -> Result<(), String> {
+        self.inject(event)
+    }
+}
+
+#[test]
+fn overlay_after_first_move_refuses_before_button_down() {
+    let (dir, screen, _) = rig(json!({}));
+    let recorder = Recorder::default();
+    let input = Input::new(OverlayAfterMove {
+        recorder: recorder.clone(),
+        layout: dir.path().join("layout.json"),
+        after_down: false,
+        before_dispatch: false,
+    });
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"foreground","kind":"click",
+        "at":{"captureId":capture(&screen),"x":3,"y":5,"within":{"pids":[4242]}},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &request),
+        json!({"status":"refused","reason":"target_mismatch",
+            "landedOn":{"pid":4343,"app":"org.oni.overlay"}})
+    );
+    assert!(matches!(recorder.events().as_slice(), [Event::Move { .. }]));
+}
+
+#[test]
+fn overlay_after_button_down_releases_the_held_button() {
+    let (dir, screen, _) = rig(json!({}));
+    let recorder = Recorder::default();
+    let input = Input::new(OverlayAfterMove {
+        recorder: recorder.clone(),
+        layout: dir.path().join("layout.json"),
+        after_down: true,
+        before_dispatch: false,
+    });
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"foreground","kind":"click",
+        "at":{"captureId":capture(&screen),"x":3,"y":5,"within":{"pids":[4242]}},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &request),
+        json!({"status":"refused","reason":"target_mismatch",
+            "landedOn":{"pid":4343,"app":"org.oni.overlay"}})
+    );
+    assert!(matches!(
+        recorder.events().as_slice(),
+        [
+            Event::Move { .. },
+            Event::Button { down: true, .. },
+            Event::Button { down: false, .. }
+        ]
+    ));
+}
+
+#[test]
+fn background_route_refuses_when_the_window_changes_before_dispatch() {
+    let (dir, screen, _) = rig(json!({}));
+    let recorder = Recorder::default();
+    let input = Input::new(OverlayAfterMove {
+        recorder: recorder.clone(),
+        layout: dir.path().join("layout.json"),
+        after_down: false,
+        before_dispatch: true,
+    });
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"background","kind":"click",
+        "at":{"captureId":capture(&screen),"x":3,"y":5,
+            "within":{"pids":[4242,4343]}},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &request),
+        json!({"status":"refused","reason":"target_mismatch",
+            "landedOn":{"pid":4343,"app":"org.oni.overlay"}})
+    );
+    assert!(recorder.events().is_empty());
+}
+
+#[test]
+fn coordinate_expectation_refuses_a_destroyed_window_without_dispatch() {
+    let (dir, screen, input) = rig(json!({}));
+    let captured = capture(&screen);
+    let path = dir.path().join("layout.json");
+    let mut layout: Value =
+        serde_json::from_str(&fs::read_to_string(&path).expect("layout")).expect("layout JSON");
+    layout["windows"] = json!([]);
+    fs::write(path, layout.to_string()).expect("destroy window");
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"foreground","kind":"button",
+        "at":{"captureId":captured,"x":3,"y":5,"within":{"pids":[4242]}},
+        "button":"left","state":"down"
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &request),
+        json!({"status":"refused","reason":"window_not_found"})
+    );
+    assert!(!dir.path().join("events.jsonl").exists());
+}
+
+#[test]
+fn observation_ref_lineage_refuses_after_the_screen_is_forgotten() {
+    let (dir, screen, input) = rig(json!({}));
+    let request: oni_protocol::ScreenObserveRequest = oni_protocol::decode(json!({
+        "target":{"pid":4242,"windowId":7},"screenshot":false
+    }))
+    .expect("observation request");
+    let observed = screen.observe(&request);
+    assert_eq!(observed["status"], "ok");
+    screen.forget();
+    let pointer: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"foreground","kind":"click",
+        "at":{"observationId":observed["observationId"],"ref":"AXButton[0]"},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &pointer),
+        json!({"status":"refused","reason":"stale_observation"})
+    );
+    assert!(!dir.path().join("events.jsonl").exists());
+}
+
+#[test]
+fn excluded_owner_refuses_a_coordinate_without_a_within_expectation() {
+    let (dir, _, _) = rig(json!({}));
+    fs::write(
+        dir.path().join("client.json"),
+        json!({"computer":{"layout":"layout.json","recorder":"events.jsonl",
+            "excludedOwners":["org.oni.fixture"]}})
+        .to_string(),
+    )
+    .expect("excluded client");
+    let (screen, input) = computer::open(&dir.path().join("client.json"))
+        .expect("open")
+        .expect("fixture");
+    let captured = capture(&screen);
+    let pointer: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"foreground","kind":"scroll",
+        "at":{"captureId":captured,"x":3,"y":5},"deltaX":0,"deltaY":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &pointer),
+        json!({"status":"refused","reason":"excluded"})
+    );
+    assert!(!dir.path().join("events.jsonl").exists());
+}
+
+#[test]
+fn own_process_refuses_before_any_coordinate_event() {
+    let (dir, screen, input) = rig(json!({"pid":std::process::id()}));
+    let pointer: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"foreground","kind":"click",
+        "at":{"captureId":capture(&screen),"x":3,"y":5},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &pointer),
+        json!({"status":"refused","reason":"excluded"})
+    );
+    assert!(!dir.path().join("events.jsonl").exists());
 }
 
 #[test]
@@ -212,7 +493,7 @@ fn background_window_capture_keeps_its_owner_when_another_window_overlaps() {
         input.pointer(&screen, &pointer),
         json!({"status":"ok","target":{
             "pid":4242,"windowId":7,"source":"window_capture"
-        }})
+        },"landedOn":{"pid":4242,"app":"org.oni.fixture"}})
     );
 }
 

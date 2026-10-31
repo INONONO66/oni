@@ -66,6 +66,7 @@ pub struct Frame {
 pub struct Attributes {
     pub role: String,
     pub label: Option<String>,
+    pub identifier: Option<String>,
     pub value: Option<String>,
     pub actions: Vec<String>,
     pub frame: Frame,
@@ -119,6 +120,13 @@ pub enum ActFault {
     Failed(String),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hit {
+    Target,
+    Occluded,
+    Covered,
+}
+
 impl From<Fault> for ActFault {
     fn from(fault: Fault) -> Self {
         match fault {
@@ -139,7 +147,21 @@ pub trait Observer: Send + Sync {
         Err(ActFault::Unsupported)
     }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault>;
+    fn window_size(&self, _: &WindowIdentity) -> Result<(i64, i64), Fault> {
+        Err(Fault::Absent)
+    }
+    fn hit_test(&self, _: &WindowIdentity, _: &[Segment], _: (i64, i64)) -> Result<Hit, Fault> {
+        Err(Fault::Absent)
+    }
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault>;
+    fn resolve(
+        &self,
+        window: &WindowIdentity,
+        path: &[Segment],
+    ) -> Result<Option<Attributes>, Fault> {
+        let _ = (window, path);
+        Err(Fault::Absent)
+    }
     /// The element focused inside `window`: `Ok(None)` when the window owns
     /// no focus, `Err` when the query itself fails.
     fn focused(&self, window: &WindowIdentity) -> Result<Option<Focused>, Fault>;
@@ -288,7 +310,7 @@ pub fn performed(code: i32) -> Result<(), ActFault> {
 }
 
 /// The attributes one batched read asks every element for, in this order.
-pub const ATTRIBUTES: [&str; 12] = [
+pub const ATTRIBUTES: [&str; 13] = [
     "AXRole",
     "AXSubrole",
     "AXTitle",
@@ -301,6 +323,7 @@ pub const ATTRIBUTES: [&str; 12] = [
     "AXExpanded",
     "AXFocused",
     "AXChildren",
+    "AXIdentifier",
 ];
 const SECURE_SUBROLE: &str = "AXSecureTextField";
 
@@ -374,6 +397,9 @@ pub fn assemble<I>(
     let attributes = Attributes {
         role,
         label,
+        identifier: text(take(12))
+            .filter(|identifier| !identifier.is_empty())
+            .map(|identifier| super::observe::clip(&identifier, 256)),
         value,
         actions,
         frame: Frame {
@@ -691,6 +717,7 @@ mod tests {
             (9, Raw::Flag(false)),
             (10, Raw::Flag(true)),
             (11, Raw::Items(vec![1, 2])),
+            (12, Raw::Text("password-id".into())),
         ]);
         let (attributes, children) =
             assemble(values, Ok(vec!["AXConfirm".into()]), (100.0, 50.0)).expect("assembled");
@@ -699,6 +726,7 @@ mod tests {
             Attributes {
                 role: "AXTextField".into(),
                 label: Some("Password".into()),
+                identifier: Some("password-id".into()),
                 value: Some("hunter2".into()),
                 actions: vec!["AXConfirm".into()],
                 frame: Frame {
@@ -734,6 +762,20 @@ mod tests {
         assert!(attributes.actions.is_empty() && children.is_empty());
         let short = assemble::<u8>(Vec::new(), Ok(Vec::new()), (0.0, 0.0)).expect("short");
         assert_eq!(short.0, Attributes::default());
+        let empty = assemble(
+            batch(&[(12, Raw::Text(String::new()))]),
+            Ok(Vec::new()),
+            (0.0, 0.0),
+        )
+        .expect("empty id");
+        assert_eq!(empty.0.identifier, None);
+        let long = assemble(
+            batch(&[(12, Raw::Text("a".repeat(257)))]),
+            Ok(Vec::new()),
+            (0.0, 0.0),
+        )
+        .expect("long id");
+        assert_eq!(long.0.identifier, Some("a".repeat(256)));
     }
 
     #[test]

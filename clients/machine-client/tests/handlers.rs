@@ -817,7 +817,12 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
     let anchor = shot["captureId"].as_str().expect("capture id").to_owned();
     for (method, params) in requests(&anchor) {
         let answer = call(method, params).await.expect(method);
-        assert_eq!(answer, json!({"status":"ok"}), "{method}");
+        let expected = if method == "machine.input.pointer" {
+            json!({"status":"ok","landedOn":{"pid":1,"app":"/fixture"}})
+        } else {
+            json!({"status":"ok"})
+        };
+        assert_eq!(answer, expected, "{method}");
     }
     let injected = recorder.events().len();
     assert_eq!(injected, 7);
@@ -837,13 +842,13 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
         "at":{"captureId":anchor,"x":1,"y":1},"button":"left","state":"up"});
     assert_eq!(
         call("machine.input.pointer", button).await.expect("button"),
-        json!({"status":"ok"})
+        json!({"status":"ok","landedOn":{"pid":1,"app":"/fixture"}})
     );
     let scroll = json!({"requestId":"1-6","delivery":"foreground","kind":"scroll",
         "at":{"captureId":anchor,"x":1,"y":1},"deltaX":0,"deltaY":1});
     assert_eq!(
         call("machine.input.pointer", scroll).await.expect("scroll"),
-        json!({"status":"ok"})
+        json!({"status":"ok","landedOn":{"pid":1,"app":"/fixture"}})
     );
     assert_eq!(
         call(

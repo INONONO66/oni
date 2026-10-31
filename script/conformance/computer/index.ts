@@ -188,7 +188,7 @@ function observedLayout(setup: ComputerSetup): string {
 }
 
 /** The tracked layout with its first window made observable; a new `epoch` token is a recreation. */
-function observableLayout(layout: Layout, epoch: number, timeline: readonly { readonly atMs: number; readonly kind: string }[] = [], secure = false): string {
+function observableLayout(layout: Layout, epoch: number, timeline: readonly { readonly atMs: number; readonly kind: string }[] = [], secure = false, overlay = false): string {
   const [window, ...rest] = layout.windows;
   check(window !== undefined, "fixture layout has no window");
   const observable = {
@@ -203,7 +203,10 @@ function observableLayout(layout: Layout, epoch: number, timeline: readonly { re
         frame: { x: 4, y: 4, width: 40, height: 16 } },
     ],
   };
-  return JSON.stringify({ ...layout, windows: [observable, ...rest], apps: [{ bundleId: observable.app.bundleId, path: observable.app.path, pid: OBSERVED_PID, windows: [window.id] }] });
+  const covering = { ...observable, id: 8, pid: 4343,
+    app: { bundleId: "com.example.overlay", path: "/Applications/Overlay.app" } };
+  return JSON.stringify({ ...layout, windows: [...(overlay ? [covering] : []), observable, ...rest],
+    apps: [{ bundleId: observable.app.bundleId, path: observable.app.path, pid: OBSERVED_PID, windows: [window.id] }] });
 }
 
 function recorded(path: string): RecorderLine[] {
@@ -466,6 +469,20 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
   harness.record(
     "input refusals: tool.pre denial permission_denied, revoked grant refuses input/list/stream/cdp before the port, stale anchor stale_capture; recorder unchanged",
   );
+  check(fresh.status === "ok", "fresh capture missing");
+  writeFileSync(observedLayout(setup), observableLayout(layout, 0, [], false, true));
+  const beforeOverlay = recorded(setup.recorder).length;
+  const at = { captureId: fresh.captureId, x: 40, y: 30, within: { pids: [OBSERVED_PID] } };
+  const mismatched = await run(computer.pointer({ delivery: "foreground", kind: "click", at, button: "left", count: 1 }));
+  check(mismatched.status === "refused" && mismatched.reason === "target_mismatch"
+    && mismatched.landedOn?.pid === 4343, `overlay answered ${JSON.stringify(mismatched)}`);
+  check(recorded(setup.recorder).length === beforeOverlay, "overlay mismatch injected input");
+  writeFileSync(observedLayout(setup), observableLayout(layout, 0));
+  const matched = await run(computer.pointer({ delivery: "foreground", kind: "click", at, button: "left", count: 1 }));
+  check(matched.status === "ok" && matched.landedOn?.pid === OBSERVED_PID,
+    `uncovered point answered ${JSON.stringify(matched)}`);
+  check(recorded(setup.recorder).length === beforeOverlay + 3, "matched point did not inject the click");
+  harness.record("coordinate expectation refused an overlay before injection and recorded landedOn on an uncovered click");
 }
 
 async function exerciseObservation(context: Context): Promise<void> {
@@ -976,7 +993,8 @@ async function exerciseBackground(context: Context): Promise<void> {
   const shot = await run(computer.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } }));
   check(shot.status === "ok", `background capture ${JSON.stringify(shot)}`);
   const pointer = await run(computer.pointer({ delivery: "background", kind: "move", at: { captureId: shot.captureId, x: 1, y: 1 } }));
-  check(pointer.status === "refused" && pointer.reason === "foreground_required", `background pointer ${JSON.stringify(pointer)}`);
+  check(pointer.status === "refused" && pointer.reason === (process.platform === "darwin" ? "unsupported_action" : "foreground_required"),
+    `background pointer ${JSON.stringify(pointer)}`);
   const typed = await run(computer.text({ delivery: "background", captureId: shot.captureId, text: "background", target }));
   check(typed.status === "ok", `background text ${JSON.stringify(typed)}`);
   const closed = await run(computer.window.close({ target }));
