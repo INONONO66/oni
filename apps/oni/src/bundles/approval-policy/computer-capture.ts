@@ -4,20 +4,6 @@ import { Machine, PlainValueSchema, type PlainValue } from "@oni/protocol";
 import { Effect, Result } from "effect";
 import type { ComputerPolicy } from "./computer-policy";
 
-function refusal(
-  policy: ComputerPolicy,
-  machineId: string,
-  outcome: { readonly terminal: string; readonly reason?: string },
-): Machine.ComputerRefusal {
-  if (outcome.terminal === "blocked_pre" && outcome.reason === "paused:human_input") return policy.humanRefusal(machineId);
-  const parsed = Machine.ComputerRefusal.safeParse({
-    status: "refused", reason: outcome.terminal === "blocked_pre" ? outcome.reason : "permission_denied",
-  });
-  return parsed.success ? parsed.data : {
-    status: "refused", reason: "permission_denied", message: `machine input not executed: ${outcome.terminal}`,
-  };
-}
-
 export function computerCapture(policy: ComputerPolicy) {
   return <R extends CapturedResult>(
     request: MachineInputCapture,
@@ -39,8 +25,13 @@ export function computerCapture(policy: ComputerPolicy) {
       }),
     )).pipe(Effect.mapError((error) => new MachinesFailure({ operation: `${request.method}.capture`, cause: String(error) })));
     if (outcome.terminal !== "executed" || sent === undefined) {
-      return refusal(policy, request.machineId, outcome);
+      if (outcome.terminal === "blocked_pre" && outcome.reason === "paused:human_input")
+        return policy.humanRefusal(request.machineId);
+      const refused = Machine.ComputerRefusal.safeParse({
+        status: "refused", reason: outcome.terminal === "blocked_pre" ? outcome.reason : "permission_denied",
+      });
+      return refused.success ? refused.data : { status: "refused", reason: "permission_denied", message: `machine input not executed: ${outcome.terminal}` } as const;
     }
-    return Result.isSuccess(sent) ? sent.success : yield* Effect.fail(sent.failure);
+    return yield* Result.match(sent, { onSuccess: Effect.succeed, onFailure: Effect.fail });
   });
 }
