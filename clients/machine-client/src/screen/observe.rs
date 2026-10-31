@@ -69,13 +69,15 @@ pub struct Element {
     pub parent: Option<String>,
     pub secure: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
+    pub enabled: Option<Option<bool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub selected: Option<bool>,
+    pub selected: Option<Option<bool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub checked: Option<bool>,
+    pub checked: Option<Option<bool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expanded: Option<bool>,
+    pub expanded: Option<Option<bool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Option<usize>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -205,7 +207,7 @@ fn blocker(
     action: &Action,
     hit: Option<Hit>,
 ) -> Option<&'static str> {
-    if attributes.enabled == Some(false) {
+    if attributes.enabled == Some(Some(false)) {
         return Some("disabled");
     }
     if matches!(action, Action::SetValue(_)) {
@@ -908,7 +910,7 @@ fn mint(walk: Walk) -> Minted {
         }
         bytes += size;
         paths.push(path);
-        ambiguous.push(hidden);
+        ambiguous.push(hidden || !addressable);
         elements.push(element);
         keys.push(key);
     }
@@ -952,6 +954,7 @@ fn element(attributes: Attributes, reference: Option<String>, parent: Option<Str
         selected: attributes.selected,
         checked: attributes.checked,
         expanded: attributes.expanded,
+        children: attributes.children_unknown.then_some(None),
     }
 }
 

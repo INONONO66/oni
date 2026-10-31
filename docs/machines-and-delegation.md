@@ -346,7 +346,13 @@ without a wire call, when the attached peer offered a contract below 3.
   optional `label`/`value`/`id` (accessibility identifier, at most 256
   characters), `actions`, a window-local `frame`, its `parent`
   ref, `secure` (a secure field's value is never sent) and the optional
-  `enabled|selected|checked|expanded` states. The walk stops at 2000
+  `enabled|selected|checked|expanded` states. Omission means an attribute
+  is not exposed; `null` means its read failed. A transient AX attribute
+  fault preserves the observation: unknown role, subrole, or label emits an
+  empty role and unaddressable ref while its descendants and siblings are still walked;
+  unknown children emits `children: null` without descendants. The optional
+  `children` count is reserved for a later observer revision. A disabled
+  accessibility API still refuses `permission_denied`. The walk stops at 2000
   elements (or `maxElements`), 5000 visited nodes, 2.5 s and 256 KiB of
   serialized elements, answering `complete: false` when a bound cut it.
   Labels cap at 1024 characters, values at 4096, actions at 16 per element.
