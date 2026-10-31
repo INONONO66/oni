@@ -106,14 +106,8 @@ fn refusal(reason: &str) -> Value {
     json!({"status": "refused", "reason": reason})
 }
 
-fn unsupported(blocker: Unsupported) -> Value {
-    match blocker {
-        Unsupported::AccessibilityNotGranted => {
-            json!({"status": "unsupported", "blocker": "accessibility_not_granted"})
-        }
-        Unsupported::NoObserver => json!({"status": "unsupported", "blocker": "no_observer"}),
-        Unsupported::WindowNotFound => refusal("window_not_found"),
-    }
+fn no_observer() -> Value {
+    json!({"status": "unsupported", "blocker": "no_observer"})
 }
 
 fn sample_refusal(error: observe::Refusal) -> Value {
@@ -121,7 +115,7 @@ fn sample_refusal(error: observe::Refusal) -> Value {
         observe::Refusal::EpochChanged => refusal("epoch_changed"),
         observe::Refusal::WindowNotFound => refusal("window_not_found"),
         observe::Refusal::Permission => refusal("permission_denied"),
-        _ => unsupported(Unsupported::NoObserver),
+        _ => no_observer(),
     }
 }
 
@@ -149,7 +143,7 @@ impl Screen {
                 Err(Unsupported::NoObserver | Unsupported::AccessibilityNotGranted) => {
                     return self.settle_pixels(request, pid, window_id)
                 }
-                Err(blocker) => return unsupported(blocker),
+                Err(Unsupported::WindowNotFound) => return refusal("window_not_found"),
             };
         let quiet = Duration::from_millis(request.quiet_ms.unwrap_or(200).unsigned_abs());
         self.settle_subscribed(subscription.as_mut(), target, quiet, end)
@@ -231,7 +225,7 @@ impl Screen {
             self.observations.destroy(target);
             Some(json!({"status": "destroyed"}))
         } else if state.lost {
-            Some(unsupported(Unsupported::NoObserver))
+            Some(no_observer())
         } else {
             None
         }
@@ -261,7 +255,7 @@ impl Screen {
     ) -> Value {
         let source = match self.source() {
             Ok(source) => source,
-            Err(Fault::Absent) => return unsupported(Unsupported::NoObserver),
+            Err(Fault::Absent) => return no_observer(),
             Err(Fault::Permission) => return refusal("permission_denied"),
             Err(_) => return refusal("window_not_found"),
         };
