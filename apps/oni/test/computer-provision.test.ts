@@ -36,6 +36,19 @@ test("Owner approval grants ten minutes and expired foreground calls refuse on t
   } finally { await dispatch.close(); f.close(); }
 });
 
+test("the enrollment ceiling caps requested budget and lists the current count and reset", async () => {
+  const f = computerFixture();
+  try {
+    f.plane.policyState.put("computer_use.enrollmentCeiling", { key: "desk", revision: 0, value: 2 });
+    const budgetRequest = { ...request, args: { ...request.args, budget: { actionsPerHour: 5000 } } };
+    const approved = executeComputer(f.policy, budgetRequest, { ...context, domainRevisions: computerDomainRevisions(f.policy, "resident", budgetRequest) });
+    expect(approved).toMatchObject({ result: { budget: { actionsPerHour: 2 } } });
+    expect(await f.call(textInput)).toEqual({ status: "ok" });
+    expect(executeComputer(f.policy, { op: "computer_list", args: {} }, context))
+      .toMatchObject({ result: { leases: [{ usage: { count: 1, resetAt: 3_600_100 } }] } });
+  } finally { f.close(); }
+});
+
 test("unapproved and stale requests cannot create authority while lists and end are session-scoped", () => {
   const f = computerFixture();
   try {

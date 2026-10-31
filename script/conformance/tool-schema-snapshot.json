@@ -1406,6 +1406,18 @@
                       "type": "string",
                       "enum": ["none", "write", "read_write"]
                     },
+                    "budget": {
+                      "type": "object",
+                      "properties": {
+                        "actionsPerHour": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["actionsPerHour"],
+                      "additionalProperties": false
+                    },
                     "foreground": {
                       "type": "object",
                       "properties": {

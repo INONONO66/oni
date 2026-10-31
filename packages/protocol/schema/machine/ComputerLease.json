@@ -4,6 +4,14 @@
     {
       "additionalProperties": false,
       "properties": {
+        "admittedAt": {
+          "default": [],
+          "items": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "type": "array"
+        },
         "apps": {
           "anyOf": [
             {
@@ -21,6 +29,23 @@
               "type": "string"
             }
           ]
+        },
+        "budget": {
+          "additionalProperties": false,
+          "default": {
+            "actionsPerHour": 1500
+          },
+          "properties": {
+            "actionsPerHour": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "actionsPerHour"
+          ],
+          "type": "object"
         },
         "clipboard": {
           "enum": [
@@ -69,6 +94,32 @@
         "state": {
           "const": "active",
           "type": "string"
+        },
+        "usage": {
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "resetAt": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "resetAt"
+          ],
+          "type": "object"
         }
       },
       "required": [
@@ -76,6 +127,8 @@
         "machineId",
         "apps",
         "expiresAt",
+        "budget",
+        "admittedAt",
         "revision",
         "state"
       ],
@@ -84,6 +137,14 @@
     {
       "additionalProperties": false,
       "properties": {
+        "admittedAt": {
+          "default": [],
+          "items": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "type": "array"
+        },
         "apps": {
           "anyOf": [
             {
@@ -101,6 +162,23 @@
               "type": "string"
             }
           ]
+        },
+        "budget": {
+          "additionalProperties": false,
+          "default": {
+            "actionsPerHour": 1500
+          },
+          "properties": {
+            "actionsPerHour": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "actionsPerHour"
+          ],
+          "type": "object"
         },
         "clipboard": {
           "enum": [
@@ -159,6 +237,32 @@
         "state": {
           "const": "paused",
           "type": "string"
+        },
+        "usage": {
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "resetAt": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "resetAt"
+          ],
+          "type": "object"
         }
       },
       "required": [
@@ -166,6 +270,8 @@
         "machineId",
         "apps",
         "expiresAt",
+        "budget",
+        "admittedAt",
         "revision",
         "state",
         "pauseReason"
@@ -175,6 +281,14 @@
     {
       "additionalProperties": false,
       "properties": {
+        "admittedAt": {
+          "default": [],
+          "items": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "type": "array"
+        },
         "apps": {
           "anyOf": [
             {
@@ -192,6 +306,23 @@
               "type": "string"
             }
           ]
+        },
+        "budget": {
+          "additionalProperties": false,
+          "default": {
+            "actionsPerHour": 1500
+          },
+          "properties": {
+            "actionsPerHour": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "actionsPerHour"
+          ],
+          "type": "object"
         },
         "clipboard": {
           "enum": [
@@ -249,6 +380,32 @@
         "state": {
           "const": "ended",
           "type": "string"
+        },
+        "usage": {
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "resetAt": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "count",
+            "resetAt"
+          ],
+          "type": "object"
         }
       },
       "required": [
@@ -256,6 +413,8 @@
         "machineId",
         "apps",
         "expiresAt",
+        "budget",
+        "admittedAt",
         "revision",
         "state",
         "endReason"

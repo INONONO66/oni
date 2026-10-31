@@ -6,6 +6,7 @@ import { WindowTarget } from "./target.js";
 const Identity = z.string().min(1).max(4096);
 const Apps = z.union([z.array(Identity).min(1).max(512), z.literal("any")]);
 const Purpose = z.string().min(1).max(4096);
+const Budget = z.object({ actionsPerHour: z.number().int().positive() }).strict();
 const Lease = z.object({
   sessionId: z.string().min(1),
   machineId: z.string().min(1),
@@ -13,6 +14,9 @@ const Lease = z.object({
   clipboard: z.enum(["none", "write", "read_write"]).optional(),
   foreground: z.object({ purpose: Purpose, expiresAt: EpochMs }).strict().optional(),
   expiresAt: EpochMs,
+  budget: Budget.default({ actionsPerHour: 1500 }),
+  admittedAt: z.array(EpochMs).default([]),
+  usage: z.object({ count: z.number().int().nonnegative(), resetAt: EpochMs.nullable() }).strict().optional(),
   revision: z.number().int().positive(),
 });
 
@@ -32,6 +36,7 @@ export type ComputerLease = z.infer<typeof ComputerLease>;
 export const ComputerRequest = z.object({
   apps: Apps,
   clipboard: z.enum(["none", "write", "read_write"]).default("none"),
+  budget: Budget.optional(),
   foreground: z.object({ purpose: Purpose }).strict().optional(),
   minutes: z.number().int().min(5).max(120),
 }).strict();
@@ -51,15 +56,30 @@ export const ComputerWindow = z.object({
 }).strict();
 export type ComputerWindow = z.infer<typeof ComputerWindow>;
 
-export const ComputerRefusal = z.object({
-  status: z.literal("refused"),
-  reason: z.enum([
-    "permission_denied", "lease_missing", "lease_expired", "target_unbound",
-    "app_out_of_scope", "foreground_not_granted", "excluded", "clipboard_not_granted", "private",
-    "paused:human_input", "paused:takeover", "paused:private", "paused:locked", "paused:asleep",
-  ]),
-  message: z.string().min(1).max(256).optional(),
-}).strict();
+export const ComputerRefusal = z.discriminatedUnion("reason", [
+  z.object({
+    status: z.literal("refused"),
+    reason: z.enum([
+      "permission_denied", "lease_missing", "lease_expired", "target_unbound",
+      "app_out_of_scope", "foreground_not_granted", "excluded", "clipboard_not_granted", "private",
+      "stale_capture", "stale_observation",
+      "paused:takeover", "paused:private", "paused:locked", "paused:asleep",
+    ]),
+    message: z.string().min(1).max(256).optional(),
+  }).strict(),
+  z.object({
+    status: z.literal("refused"),
+    reason: z.literal("paused:human_input"),
+    humanActiveMs: z.number().int().nonnegative(),
+    retryAfterMs: z.number().int().nonnegative(),
+    message: z.string().min(1).max(256).optional(),
+  }).strict(),
+  z.object({
+    status: z.literal("refused"),
+    reason: z.literal("budget_exhausted"),
+    resetAt: EpochMs,
+  }).strict(),
+]);
 export type ComputerRefusal = z.infer<typeof ComputerRefusal>;
 
 export const ComputerCancelled = z.object({
