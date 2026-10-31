@@ -392,6 +392,28 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn ping_handler_failure_is_returned_as_an_error() {
+        let (stream, mut host) = tokio::io::duplex(4096);
+        let _client = Client::from_stream(
+            stream,
+            handler(|_, _| async { Err("ping failed".to_owned()) }),
+        );
+        framing::write_frame(
+            &mut host,
+            &json!({"v":2,"type":"request","id":"failed","method":"machine.ping","params":{}}),
+        )
+        .await
+        .expect("request written");
+
+        let mut replies = Framed::new(host);
+        let answer = replies.next().await.expect("answer").expect("frame");
+        assert_eq!(
+            answer["error"],
+            json!({"code":1000,"message":"ping failed"})
+        );
+    }
+
     #[test]
     fn ping_reply_uses_the_injected_monotonic_send_clock() {
         assert_eq!(

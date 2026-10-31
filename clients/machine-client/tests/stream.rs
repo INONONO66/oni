@@ -543,6 +543,26 @@ fn scripted_frames_deliver_monotonic_sidecars_before_video() {
 }
 
 #[test]
+fn a_full_sidecar_channel_drops_the_frame() {
+    let mut pair = Pair::new(capped(10, Duration::from_secs(1)), true);
+    pair.until(|pair| pair.session.live());
+    for length in [16 * 1024, 1024, 64, 1] {
+        let chunk = vec![7_u8; length];
+        while pair.session.data(CHANNEL, &chunk).is_ok() {}
+    }
+
+    let frame = noise(32, 24, 9);
+    let sent = pair
+        .session
+        .frame(pair.now, 1000, &frame, (32, 24))
+        .expect("encodes");
+
+    assert!(!sent, "a frame without sidecar capacity is not sent");
+    assert_eq!(pair.session.stats().dropped, 1);
+    assert_eq!(pair.session.stats().frames, 0);
+}
+
+#[test]
 fn an_oversized_unit_is_a_dropped_frame_in_the_session() {
     let bounds = Bounds {
         max_frame_bytes: 1,
