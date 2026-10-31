@@ -1,1 +1,1 @@
-Issue #1739 on `fix/1739-cell-overlap` (2026-10-31, base `84aca7be4`, PR pending): the code-mode identity test awaits both host callback receipts before asserting overlapping cells; receipt in `apps/oni/test/code-mode-e2e.test.ts`.
+Issue #1739 on `fix/1739-cell-overlap` (2026-10-31, base `84aca7be4`, PR #1747): the code-mode identity test awaits both host callback receipts before asserting overlapping cells; receipt in `apps/oni/test/code-mode-e2e.test.ts`.
