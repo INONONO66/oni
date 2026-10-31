@@ -1,5 +1,5 @@
 import { composedHolder } from "./helpers/bundle-fixture";
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
 import { Bus } from "./helpers/bus";
 import { WebSocketHandler, type WsConnection } from "@oni/channels";
@@ -206,8 +206,9 @@ test("a reader whose kernel read throws receives a session_read_failed error fra
   }
 });
 
-test("the authenticated gateway opens and reports a probe on its machine stream port", async () => {
+test("the authenticated gateway opens, reports, and drains a failed probe close", async () => {
   const runtime = gatewayRuntime({ composed: composedHolder(), observations: Bus });
+  const errors = spyOn(console, "error").mockImplementation(() => undefined);
   try {
     const handler = new WebSocketHandler(() => Effect.void, Bus.publish, { now: () => 0, id: testIds("probe-gateway") });
     const frames: StreamProbeResponse[] = [];
@@ -229,7 +230,7 @@ test("the authenticated gateway opens and reports a probe on its machine stream 
                 expiresAt: 1000,
                 capturedAt: (us: number) => us,
                 signal: () => Effect.succeed({ status: "accepted" as const, seq: 0 }),
-                close: () => Effect.succeed({ status: "closed" as const, streamId: "fixture-stream" }),
+                close: () => Effect.die(new Error("fixture close failed")),
               });
             },
           },
@@ -253,7 +254,11 @@ test("the authenticated gateway opens and reports a probe on its machine stream 
     expect(opens).toBe(1);
     gateway.callbacks.close(ws);
     await gateway.settled();
+    expect(errors).toHaveBeenCalledTimes(1);
+    expect(errors.mock.calls[0]?.[0]).toBe("stream probe close failed");
+    expect(errors.mock.calls[0]?.[1]).toBeDefined();
   } finally {
+    errors.mockRestore();
     await runtime.dispose();
   }
 });
