@@ -398,6 +398,11 @@ moving the shared cursor. Controls reading global pointer position may ignore
 them despite an `ok` dispatch. Linux remains foreground-only. The macOS ignored
 `native_occlusion` test builds a fixture with two overlapping windows and
 verifies that the covered window's own pattern is captured.
+Coordinate pointer calls can supply `at.within` as allowed PIDs or app
+identities; a live hit-test before injection and before each button edge
+refuses an unexpected overlay with `target_mismatch` and `landedOn`, while
+successful coordinate calls report `landedOn` as the first injected target.
+Excluded owners refuse regardless of the caller's expectation.
 
 Grant-dependent acceptance remains #1702. Windows adapters and
 ScreenCaptureKit remain #1700. Cleanup policy and keep records are described

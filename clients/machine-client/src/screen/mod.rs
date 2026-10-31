@@ -449,6 +449,41 @@ impl Screen {
         Ok(!focus_admits_input(&observer.focused(&window)))
     }
 
+    /// Identify the live window beneath a pointer before enforcing the caller's expectation.
+    pub fn pointer_landing(&self, pid: u32, id: u32) -> Result<Option<String>, Fault> {
+        let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
+        let window = observer
+            .windows()?
+            .into_iter()
+            .find(|window| window.owner_pid == pid && window.window_id == id)
+            .ok_or(Fault::WindowNotFound)?;
+        if crate::app::excluded(pid, &window.app, &self.excluded_owners) {
+            return Err(Fault::OwnWindow);
+        }
+        Ok(window
+            .app
+            .bundle_id
+            .or_else(|| (!window.app.path.is_empty()).then_some(window.app.path)))
+    }
+
+    /// Live observer ordering puts the frontmost fixture window first.
+    pub fn pointer_at(&self, x: i32, y: i32) -> Option<(u32, u32)> {
+        let observer = self.observer.as_deref()?;
+        let listed = self.source().ok()?.windows().ok()?;
+        observer.windows().ok()?.into_iter().find_map(|window| {
+            let (width, height) = observer.window_size(&window).ok().or_else(|| {
+                listed
+                    .iter()
+                    .find(|listed| listed.id == window.window_id)
+                    .map(|listed| (i64::from(listed.width), i64::from(listed.height)))
+            })?;
+            let (left, top) = window.origin;
+            ((left..left + width).contains(&i64::from(x))
+                && (top..top + height).contains(&i64::from(y)))
+            .then_some((window.owner_pid, window.window_id))
+        })
+    }
+
     pub fn private_edges(&self) -> Result<Vec<(observe::Target, Edge)>, Fault> {
         let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
         let windows = observer.windows()?;
