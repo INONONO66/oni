@@ -1220,6 +1220,34 @@ async fn a_refused_offer_fails_the_stream() {
 }
 
 #[tokio::test]
+async fn malformed_offer_ack_fails_the_stream() {
+    let mut machine = Machine::new().await;
+    assert_eq!(machine.display("s-1").await["status"], "opened");
+    let offer = machine.uplinked().await;
+    assert_eq!(offer.params["signal"]["type"], "offer");
+    offer.answer(Ok(Some(json!({"status":"accepted","seq":"invalid"}))));
+    machine.closed_with("s-1", "failed").await;
+    assert_eq!(machine.service.open_streams(), 0);
+}
+
+#[tokio::test]
+async fn out_of_order_viewer_signal_is_refused_while_offer_awaits_ack() {
+    let mut machine = Machine::new().await;
+    assert_eq!(machine.display("s-2").await["status"], "opened");
+    let offer = machine.uplinked().await;
+    assert_eq!(offer.params["seq"], 0);
+    assert_eq!(offer.params["signal"]["type"], "offer");
+    assert_eq!(
+        machine
+            .signal("s-2", 1, json!({"type":"end_of_candidates"}))
+            .await,
+        refusal("invalid_sequence")
+    );
+    assert_eq!(machine.close("s-2").await["status"], "closed");
+    drop(offer);
+}
+
+#[tokio::test]
 async fn revoke_and_memory_pressure_close_streams_as_failed() {
     let mut machine = Machine::new().await;
     assert_eq!(machine.display("s-1").await["status"], "opened");

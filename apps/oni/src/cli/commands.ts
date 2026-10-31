@@ -61,7 +61,7 @@ Usage:
   oni --version             print the version
   oni onboard               interactive setup → ~/.oni/env
   oni daemon <verb>         install | uninstall | status | start | stop | restart
-  oni machine attach <json> attach a machine daemon using a JSON config
+  oni machine attach <json> attach a machine client using a JSON config
   oni machine probe <id> <display> [--reconnect-after-ms <ms>]  measure stream receipt and decode stages
   oni doctor                read-only diagnostics
   oni logs                  follow the daemon logs
