@@ -1,5 +1,16 @@
 # Implementation Status
 
+## #1725 macOS screen grant restart
+
+While the running macOS client reports Screen Recording denied, its five-second
+report tick watches the preflight grant. Once granted, it sends the updated
+screen fact before exiting with code 75; launchd KeepAlive restarts it to
+apply the permission to a fresh process. At most three such restarts per hour
+are recorded in `~/.oni/state/grant-restarts.json`. Beyond that limit the
+client stays attached and reports `restart_bound`. Linux has no grant restart.
+`mclient join` describes the automatic restart; manual kickstart remains in
+its help. MacBook live grant acceptance remains tracked in #1702.
+
 ## #1735 computer-use prompt guidance
 
 When the composed catalog includes the computer tool pack, resident and child
