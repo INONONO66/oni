@@ -19,8 +19,12 @@ export const ScreenSettleResult = z.discriminatedUnion("status", [
   z.object({ status: z.literal("refused"), reason: z.enum([
     "window_not_found", "epoch_changed", "permission_denied", "machine_not_attached",
     "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
-    "foreground_not_granted", "excluded", "paused:human_input", "paused:takeover",
-    "paused:private", "paused:locked", "paused:asleep",
-  ]), message: z.string().min(1).max(256).optional() }).strict(),
+    "foreground_not_granted", "excluded", "stale_capture", "stale_observation", "paused:human_input", "paused:takeover",
+    "paused:private", "paused:locked", "paused:asleep", "budget_exhausted",
+  ]), message: z.string().min(1).max(256).optional(),
+    humanActiveMs: z.number().int().nonnegative().optional(),
+    retryAfterMs: z.number().int().nonnegative().optional(),
+    resetAt: z.number().nonnegative().optional(),
+  }).strict(),
 ]);
 export type ScreenSettleResult = z.infer<typeof ScreenSettleResult>;
