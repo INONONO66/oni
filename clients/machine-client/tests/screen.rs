@@ -202,7 +202,7 @@ fn listing_numbers_displays_and_places_windows_relative_to_them() {
     assert_eq!(windows.len(), 3);
     assert_eq!(
         windows[0],
-        json!({"windowId":"5","display":1,"title":"window 5","owner":"Fixture",
+        json!({"windowId":"5","kind":"window","display":1,"title":"window 5","owner":"Fixture",
                "bounds":{"x":10,"y":10,"width":30,"height":20}})
     );
     assert_eq!(windows[1]["display"], 2);
