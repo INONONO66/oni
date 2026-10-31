@@ -1,5 +1,5 @@
 import { Core } from "@oni/agent";
-import { Machine } from "@oni/protocol";
+import { Gateway, Machine } from "@oni/protocol";
 import { z } from "zod";
 
 type PauseReason = Extract<Machine.ComputerLease, { state: "paused" }>["pauseReason"];
@@ -7,10 +7,11 @@ type EndReason = Extract<Machine.ComputerLease, { state: "ended" }>["endReason"]
 const LEASE = "computer_use.lease";
 const EXCLUSION = "computer_use.exclusion";
 const HUMAN_QUIET = "computer_use.humanQuietMs";
+const INJECTED_WINDOW = "computer_use.injectedWindowMs";
 const MAX_WAIT = "computer_use.maxWaitMs";
 const key = (sessionId: string, machineId: string) => JSON.stringify([sessionId, machineId]);
 
-export function computerStore(rows: Core.LedgerHost["policyState"]) {
+export function computerStore(rows: Core.LedgerHost["policyState"], onRevision?: (frame: Gateway.Lease) => void) {
   function get(sessionId: string, machineId: string): Machine.ComputerLease | undefined {
     const row = rows.get(LEASE, key(sessionId, machineId));
     return row === undefined ? undefined : Machine.ComputerLease.parse(row.value);
@@ -19,6 +20,12 @@ export function computerStore(rows: Core.LedgerHost["policyState"]) {
     const value = Machine.ComputerLease.parse(lease);
     if (!rows.put(LEASE, { key: key(value.sessionId, value.machineId), revision: value.revision - 1, value }))
       throw new Core.ToolRefused("provision", "computer lease revision changed");
+    onRevision?.(Gateway.Lease.parse({
+      type: "lease", sessionId: value.sessionId, machineId: value.machineId,
+      apps: value.apps, state: value.state, expiresAt: value.expiresAt,
+      ...(value.foreground === undefined ? {} : { foreground: value.foreground }),
+      ...(value.state === "paused" ? { pauseReason: value.pauseReason } : {}),
+    }));
     return value;
   }
   function active(lease: Machine.ComputerLease) {
@@ -28,7 +35,8 @@ export function computerStore(rows: Core.LedgerHost["policyState"]) {
   return {
     get,
     put,
-    humanQuietMs: () => z.number().int().positive().parse(rows.get(HUMAN_QUIET, "default")?.value ?? 5000),
+    humanQuietMs: () => z.number().int().positive().parse(rows.get(HUMAN_QUIET, "default")?.value ?? 10000),
+    injectedWindowMs: () => z.number().int().positive().parse(rows.get(INJECTED_WINDOW, "default")?.value ?? 10000),
     maxWaitMs: () => z.number().int().positive().parse(rows.get(MAX_WAIT, "default")?.value ?? 20000),
     list: () => rows.list(LEASE).map((row) => Machine.ComputerLease.parse(row.value)),
     pause(sessionId: string, machineId: string, pauseReason: PauseReason) {

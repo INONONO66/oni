@@ -52,13 +52,13 @@ test.each(["human_input", "takeover", "private", "locked", "asleep"] as const)(
       f.policy.pause("desk", reason);
       f.policy.pause("desk", reason);
       expect(await f.call()).toEqual(reason === "human_input"
-        ? { status: "refused", reason: "paused:human_input", humanActiveMs: 0, retryAfterMs: 5000 }
+        ? { status: "refused", reason: "paused:human_input", humanActiveMs: 0, retryAfterMs: 10000 }
         : { status: "refused", reason: `paused:${reason}` });
       const request = { machineId: "desk", generation: 1, method: Machine.WireMethod.ScreenObserve, params: { target, screenshot: false }, binding: { ...target, app } };
       expect(await f.call(request)).toEqual({ status: "ok" });
       f.policy.turns.set("resident", "turn-2");
       expect(await f.call({ ...request, params: { ...request.params, since: "o1" } })).toEqual({ status: "ok" });
-      if (reason === "human_input") f.setClock(5100);
+      if (reason === "human_input") f.setClock(10_100);
       const answer = await runEffect(f.capture(request, Effect.succeed(observed)).pipe(Effect.provideService(Core.ExecutorContext, f.executor)));
       expect(answer).toEqual(observed);
       expect(f.policy.store.get("resident", "desk")).toMatchObject({ state: "active", revision: 3 });
@@ -74,15 +74,15 @@ test("human activity returns a typed retry while observation stays available", a
     f.grant();
     f.policy.pause("desk", "human_input");
     expect(await f.call()).toEqual({
-      status: "refused", reason: "paused:human_input", humanActiveMs: 0, retryAfterMs: 5000,
+      status: "refused", reason: "paused:human_input", humanActiveMs: 0, retryAfterMs: 10000,
     });
     const observe = { ...textInput, method: Machine.WireMethod.ScreenObserve, params: { target, screenshot: false } };
     const settle = { ...textInput, method: Machine.WireMethod.ScreenSettle, params: { target, quietMs: 100 } };
     expect(await f.call(observe)).toEqual({ status: "ok" });
     expect(await f.call(settle)).toEqual({ status: "ok" });
-    f.setClock(5100);
+    f.setClock(10_100);
     expect(await f.call()).toEqual({
-      status: "refused", reason: "paused:human_input", humanActiveMs: 5000, retryAfterMs: 0,
+      status: "refused", reason: "paused:human_input", humanActiveMs: 10000, retryAfterMs: 0,
     });
   } finally { f.close(); }
 });
@@ -97,7 +97,7 @@ test("only a full post-edge observation in a later turn restores anchored input"
     f.grant();
     await runEffect(f.capture(request, Effect.succeed(observed)).pipe(Effect.provideService(Core.ExecutorContext, f.executor)));
     f.policy.pause("desk", "human_input");
-    f.setClock(5100);
+    f.setClock(10_100);
     expect(await f.call(action)).toMatchObject({ reason: "paused:human_input", retryAfterMs: 0 });
     f.policy.turns.set("resident", "turn-2");
     await runEffect(f.capture({ ...request, params: { ...request.params, since: "o1" } }, Effect.succeed(observed))
@@ -106,8 +106,8 @@ test("only a full post-edge observation in a later turn restores anchored input"
     await runEffect(f.capture(request, Effect.succeed(observed)).pipe(Effect.provideService(Core.ExecutorContext, f.executor)));
     expect(await f.call(action)).toEqual({ status: "ok" });
     expect(await f.call()).toEqual({ status: "refused", reason: "stale_capture" });
-    f.policy.pause("desk", "human_input", 5101);
-    f.setClock(10_101);
+    f.policy.pause("desk", "human_input", 10_101);
+    f.setClock(20_101);
     expect(await f.call(action)).toMatchObject({ reason: "paused:human_input", retryAfterMs: 0 });
   } finally { f.close(); }
 });
@@ -133,7 +133,7 @@ test("a new lease cannot bypass a human-input edge before it was granted", async
   try {
     f.policy.pause("desk", "human_input");
     f.grant();
-    expect(await f.call()).toMatchObject({ reason: "paused:human_input", retryAfterMs: 5000 });
+    expect(await f.call()).toMatchObject({ reason: "paused:human_input", retryAfterMs: 10000 });
   } finally { f.close(); }
 });
 
@@ -144,7 +144,7 @@ test("a short human-input pause refuses immediately without scheduling an input"
     f.policy.pause("desk", "human_input");
     f.setClock(3600);
     expect(await f.call()).toEqual({
-      status: "refused", reason: "paused:human_input", humanActiveMs: 3500, retryAfterMs: 1500,
+      status: "refused", reason: "paused:human_input", humanActiveMs: 3500, retryAfterMs: 6500,
     });
     expect(f.scheduled.size).toBe(0);
   } finally { f.close(); }
@@ -159,7 +159,7 @@ test("a second human-input edge resets the retry window", async () => {
     f.setClock(20_100);
     f.policy.pause("desk", "human_input");
     expect(await f.call()).toMatchObject({
-      status: "refused", reason: "paused:human_input", humanActiveMs: 0, retryAfterMs: 5000,
+      status: "refused", reason: "paused:human_input", humanActiveMs: 0, retryAfterMs: 10000,
     });
   } finally { f.close(); }
 });

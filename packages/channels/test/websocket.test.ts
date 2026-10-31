@@ -7,7 +7,7 @@ import type { Channel } from "@oni/protocol";
 import { z } from "zod";
 import type { ChannelAuthnDecisionObserver } from "../src/authn/types";
 import type { PublishPort } from "../src/types";
-import { WebSocketHandler } from "../src/websocket";
+import { WebSocketHandler, type WsConnectionData } from "../src/websocket";
 
 type ChannelAuthnDecision = Parameters<ChannelAuthnDecisionObserver>[0];
 const noopPublish: PublishPort = () => undefined;
@@ -89,7 +89,7 @@ describe("WebSocketHandler authentication", () => {
 });
 
 describe("WebSocketHandler ingress and receipts", () => {
-  function connection(data: { surfaceKey: string; authenticated: boolean; externalId: string }) {
+  function connection(data: WsConnectionData) {
     const sent: string[] = [];
     return {
       sent,
@@ -101,6 +101,32 @@ describe("WebSocketHandler ingress and receipts", () => {
       },
     };
   }
+
+  it("binds one first surface frame to the socket and refuses redeclaration", async () => {
+    const handler = createHandler();
+    const { ws } = connection({
+      surfaceKey: "ws::dm:c1", authenticated: true, externalId: "connection:c1",
+    });
+
+    expect(await runEffect(handler.handleFrame(ws.data, JSON.stringify({ kind: "surface", machineId: "desk" }))))
+      .toEqual({ type: "surface_bound", machineId: "desk" });
+    expect(ws.data.machineId).toBe("desk");
+    expect(await runEffect(handler.handleFrame(ws.data, JSON.stringify({ kind: "surface", machineId: "other" }))))
+      .toEqual({ type: "error", reason: "surface_already_declared" });
+    expect(ws.data.machineId).toBe("desk");
+  });
+
+  it("refuses a surface declaration after a message frame", async () => {
+    const handler = createHandler();
+    const { ws } = connection({
+      surfaceKey: "ws::dm:c1", authenticated: true, externalId: "connection:c1",
+    });
+
+    await runEffect(handler.handleFrame(ws.data, JSON.stringify({ text: "hello", eventId: "first" })));
+    expect(await runEffect(handler.handleFrame(ws.data, JSON.stringify({ kind: "surface", machineId: "desk" }))))
+      .toEqual({ type: "error", reason: "surface_already_declared" });
+    expect(ws.data.machineId).toBeUndefined();
+  });
 
   it("passes a declared frame identifier through as the deduplication key", async () => {
     let inbound: Channel.InboundMessage | undefined;

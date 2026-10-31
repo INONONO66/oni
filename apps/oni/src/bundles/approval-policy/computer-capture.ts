@@ -15,7 +15,9 @@ export function computerCapture(policy: ComputerPolicy) {
     const outcome = yield* executor.run({
       kind: "tool", op: request.method, intent: policy.intent(request),
       effect: { category: "execution" }, recovery: "ambiguous_no_replay",
-    }, (intent) => forward.pipe(
+    }, (intent) => Effect.sync(() => {
+      if (request.method.startsWith("machine.input.")) policy.injected(request.machineId);
+    }).pipe(Effect.andThen(forward),
       Effect.result,
       Effect.map((result): PlainValue => {
         sent = result;

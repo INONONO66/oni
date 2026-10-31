@@ -1,0 +1,1 @@
+#1726 (#1688; part of #1701 wire) | policy/1726-self-approval | 2026-10-31 | base 8da72e1b8 | PR pending | Same-machine consent refusal and websocket lease revisions; apps/oni/test/computer-consent-origin.test.ts and packages/channels/test/owner-answer.test.ts.
