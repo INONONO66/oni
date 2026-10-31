@@ -49,15 +49,25 @@ export const ComputerWindow = z.object({
 }).strict();
 export type ComputerWindow = z.infer<typeof ComputerWindow>;
 
-export const ComputerRefusal = z.object({
-  status: z.literal("refused"),
-  reason: z.enum([
-    "permission_denied", "lease_missing", "lease_expired", "target_unbound",
-    "app_out_of_scope", "foreground_not_granted", "excluded",
-    "paused:human_input", "paused:takeover", "paused:private", "paused:locked", "paused:asleep",
-  ]),
-  message: z.string().min(1).max(256).optional(),
-}).strict();
+export const ComputerRefusal = z.discriminatedUnion("reason", [
+  z.object({
+    status: z.literal("refused"),
+    reason: z.enum([
+      "permission_denied", "lease_missing", "lease_expired", "target_unbound",
+      "app_out_of_scope", "foreground_not_granted", "excluded",
+      "stale_capture", "stale_observation",
+      "paused:takeover", "paused:private", "paused:locked", "paused:asleep",
+    ]),
+    message: z.string().min(1).max(256).optional(),
+  }).strict(),
+  z.object({
+    status: z.literal("refused"),
+    reason: z.literal("paused:human_input"),
+    humanActiveMs: z.number().int().nonnegative(),
+    retryAfterMs: z.number().int().nonnegative(),
+    message: z.string().min(1).max(256).optional(),
+  }).strict(),
+]);
 export type ComputerRefusal = z.infer<typeof ComputerRefusal>;
 
 export const ComputerCancelled = z.object({

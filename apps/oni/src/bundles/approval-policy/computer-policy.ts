@@ -27,6 +27,10 @@ export class ComputerPolicy {
   readonly turns = new Map<string, string>();
   readonly launched: LaunchedWindow[] = [];
   private readonly pausedTurns = new Map<string, string | undefined>();
+  private readonly humanAt = new Map<string, number>();
+  private readonly humanStart = new Map<string, number>();
+  private readonly freshObservations = new Map<string, Set<string>>();
+  private readonly freshCaptures = new Map<string, Set<string>>();
   private readonly detached = new Map<string, () => void>();
   constructor(
     readonly store: ComputerStore,
@@ -49,7 +53,7 @@ export class ComputerPolicy {
     },
   };
 
-  private refusal(sessionId: string, method: string, capture: z.infer<typeof Capture>): Machine.ComputerRefusal["reason"] | undefined {
+  private refusal(sessionId: string, method: string, capture: z.infer<typeof Capture>): Machine.ComputerRefusal["reason"] | "paused:human_input" | undefined {
     const { machineId, params, binding } = capture;
     const lease = this.store.get(sessionId, machineId);
     if (lease === undefined || lease.state === "ended") return "lease_missing";
@@ -64,10 +68,16 @@ export class ComputerPolicy {
       return `paused:${reason}`;
     }
     if (lease.state === "paused") {
-      const resumedTurn = this.turns.get(sessionId);
-      const canObserve = method === Machine.WireMethod.ScreenObserve && !("since" in params) &&
-        resumedTurn !== undefined && resumedTurn !== this.pausedTurns.get(`${sessionId}:${machineId}`);
-      if (!canObserve) return `paused:${lease.pauseReason}`;
+      if (method === Machine.WireMethod.ScreenObserve || method === Machine.WireMethod.ScreenSettle) return this.scope(lease, params, binding);
+      return `paused:${lease.pauseReason}`;
+    }
+    if (this.humanAt.has(machineId) && "requestId" in params) {
+      const key = `${sessionId}:${machineId}`;
+      const anchor = "at" in params ? params.at : params;
+      if ("observationId" in anchor && !this.freshObservations.get(key)?.has(anchor.observationId))
+        return "stale_observation";
+      if ("captureId" in anchor && !this.freshCaptures.get(key)?.has(anchor.captureId))
+        return "stale_capture";
     }
     return this.scope(lease, params, binding);
   }
@@ -85,9 +95,31 @@ export class ComputerPolicy {
       (lease.foreground === undefined || lease.foreground.expiresAt <= this.now())) return "foreground_not_granted";
   }
 
-  pause(machineId: string, reason: PauseReason): void {
+  humanActiveMs(machineId: string): number {
+    const reported = this.ports.host().list().find((info) => info.machineId === machineId)?.live?.humanInput?.lastAt;
+    return Math.max(0, this.now() - Math.max(this.humanAt.get(machineId) ?? 0, reported ?? 0));
+  }
+
+  humanRefusal(machineId: string): Machine.ComputerRefusal {
+    const humanActiveMs = this.humanActiveMs(machineId);
+    return Machine.ComputerRefusal.parse({
+      status: "refused", reason: "paused:human_input",
+      humanActiveMs, retryAfterMs: Math.max(0, this.store.humanQuietMs() - humanActiveMs),
+      ...(this.now() - (this.humanStart.get(machineId) ?? this.now()) < this.store.maxWaitMs()
+        ? {} : { message: "A person is using the machine; end this turn." }),
+    });
+  }
+
+  pause(machineId: string, reason: PauseReason, at = this.now()): void {
+    if (reason === "human_input") {
+      if (!this.humanStart.has(machineId)) this.humanStart.set(machineId, at);
+      this.humanAt.set(machineId, Math.max(this.humanAt.get(machineId) ?? 0, at));
+    }
     for (const lease of this.store.list()) {
       if (lease.machineId !== machineId || lease.state === "ended") continue;
+      const key = `${lease.sessionId}:${machineId}`;
+      this.freshObservations.delete(key);
+      this.freshCaptures.delete(key);
       this.pausedTurns.set(`${lease.sessionId}:${machineId}`, this.turns.get(lease.sessionId));
       this.store.pause(lease.sessionId, machineId, reason);
     }
@@ -142,9 +174,19 @@ export class ComputerPolicy {
 
   answered(sessionId: string, request: MachineInputCapture, result: CapturedResult): void {
     if (request.method === Machine.WireMethod.ScreenObserve && result.status === "ok" && "observationId" in result) {
+      const lease = this.store.get(sessionId, request.machineId);
       if (result.private) this.pause(request.machineId, "private");
-      else if (this.turns.get(sessionId) !== this.pausedTurns.get(`${sessionId}:${request.machineId}`))
+      else if (!("since" in request.params) && this.turns.get(sessionId) !== this.pausedTurns.get(`${sessionId}:${request.machineId}`) &&
+        !(lease?.state === "paused" && lease.pauseReason === "human_input" &&
+          this.humanActiveMs(request.machineId) < this.store.humanQuietMs())) {
+        const key = `${sessionId}:${request.machineId}`;
+        this.freshObservations.set(key, new Set([result.observationId]));
+        this.freshCaptures.set(key, new Set(result.screenshot === undefined ? [] : [result.screenshot.captureId]));
         this.store.resume(sessionId, request.machineId);
+        if (!this.store.list().some((row) =>
+          row.machineId === request.machineId && row.state === "paused" && row.pauseReason === "human_input"))
+          this.humanStart.delete(request.machineId);
+      }
     }
     if (request.method !== Machine.WireMethod.AppLaunch || result.status !== "ok" || !("windows" in result)) return;
     const turn = this.turns.get(sessionId);

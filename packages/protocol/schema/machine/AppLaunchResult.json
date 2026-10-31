@@ -62,6 +62,11 @@
           ],
           "type": "string"
         },
+        "humanActiveMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "message": {
           "maxLength": 256,
           "minLength": 1,
@@ -83,6 +88,8 @@
             "target_unbound",
             "app_out_of_scope",
             "foreground_not_granted",
+            "stale_capture",
+            "stale_observation",
             "paused:human_input",
             "paused:takeover",
             "paused:private",
@@ -90,6 +97,11 @@
             "paused:asleep"
           ],
           "type": "string"
+        },
+        "retryAfterMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
         },
         "status": {
           "const": "refused",

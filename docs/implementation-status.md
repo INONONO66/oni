@@ -1,5 +1,17 @@
 # Implementation Status
 
+## #1729 human-input quiet window and typed retry
+
+The computer-use guard admits observation and settle during a human-input
+pause. Input, app launch and window mutation return a typed
+`paused:human_input` refusal with `humanActiveMs` measured from the latest
+human-input edge and `retryAfterMs` (zero once only fresh observation remains).
+Policy-state rows `computer_use.humanQuietMs` and `computer_use.maxWaitMs`
+default to 5000 ms and 20000 ms. Every input inside the quiet window is
+refused immediately; sustained activity asks the turn to end. A later
+turn must fully observe after the edge, and old input anchors refuse with
+their existing stale-anchor reasons. No captured input is replayed.
+
 ## #1735 computer-use prompt guidance
 
 When the composed catalog includes the computer tool pack, resident and child

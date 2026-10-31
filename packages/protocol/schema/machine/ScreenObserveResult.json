@@ -830,6 +830,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "humanActiveMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "message": {
           "maxLength": 256,
           "minLength": 1,
@@ -850,6 +855,7 @@
             "app_out_of_scope",
             "foreground_not_granted",
             "excluded",
+            "stale_capture",
             "paused:human_input",
             "paused:takeover",
             "paused:private",
@@ -857,6 +863,11 @@
             "paused:asleep"
           ],
           "type": "string"
+        },
+        "retryAfterMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
         },
         "status": {
           "const": "refused",

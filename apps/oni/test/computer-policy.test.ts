@@ -51,18 +51,122 @@ test.each(["human_input", "takeover", "private", "locked", "asleep"] as const)(
       f.grant();
       f.policy.pause("desk", reason);
       f.policy.pause("desk", reason);
-      expect(await f.call()).toEqual({ status: "refused", reason: `paused:${reason}` });
+      expect(await f.call()).toEqual(reason === "human_input"
+        ? { status: "refused", reason: "paused:human_input", humanActiveMs: 0, retryAfterMs: 5000 }
+        : { status: "refused", reason: `paused:${reason}` });
       const request = { machineId: "desk", generation: 1, method: Machine.WireMethod.ScreenObserve, params: { target, screenshot: false }, binding: { ...target, app } };
-      expect(await f.call(request)).toEqual({ status: "refused", reason: `paused:${reason}` });
+      expect(await f.call(request)).toEqual({ status: "ok" });
       f.policy.turns.set("resident", "turn-2");
-      expect(await f.call({ ...request, params: { ...request.params, since: "o1" } })).toEqual({ status: "refused", reason: `paused:${reason}` });
+      expect(await f.call({ ...request, params: { ...request.params, since: "o1" } })).toEqual({ status: "ok" });
+      if (reason === "human_input") f.setClock(5100);
       const answer = await runEffect(f.capture(request, Effect.succeed(observed)).pipe(Effect.provideService(Core.ExecutorContext, f.executor)));
       expect(answer).toEqual(observed);
       expect(f.policy.store.get("resident", "desk")).toMatchObject({ state: "active", revision: 3 });
-      expect(await f.call()).toEqual({ status: "ok" });
+      expect(await f.call()).toEqual(reason === "human_input"
+        ? { status: "refused", reason: "stale_capture" } : { status: "ok" });
     } finally { f.close(); }
   },
 );
+
+test("human activity returns a typed retry while observation stays available", async () => {
+  const f = computerFixture();
+  try {
+    f.grant();
+    f.policy.pause("desk", "human_input");
+    expect(await f.call()).toEqual({
+      status: "refused", reason: "paused:human_input", humanActiveMs: 0, retryAfterMs: 5000,
+    });
+    const observe = { ...textInput, method: Machine.WireMethod.ScreenObserve, params: { target, screenshot: false } };
+    const settle = { ...textInput, method: Machine.WireMethod.ScreenSettle, params: { target, quietMs: 100 } };
+    expect(await f.call(observe)).toEqual({ status: "ok" });
+    expect(await f.call(settle)).toEqual({ status: "ok" });
+    f.setClock(5100);
+    expect(await f.call()).toEqual({
+      status: "refused", reason: "paused:human_input", humanActiveMs: 5000, retryAfterMs: 0,
+    });
+  } finally { f.close(); }
+});
+
+test("only a full post-edge observation in a later turn restores anchored input", async () => {
+  const f = computerFixture();
+  const request = { ...textInput, method: Machine.WireMethod.ScreenObserve, params: { target, screenshot: false } };
+  const action = { ...textInput, method: Machine.WireMethod.InputAction, params: {
+    requestId: "1-2", observationId: "o1", target, ref: "AXButton[0]", action: "press" as const,
+  } };
+  try {
+    f.grant();
+    await runEffect(f.capture(request, Effect.succeed(observed)).pipe(Effect.provideService(Core.ExecutorContext, f.executor)));
+    f.policy.pause("desk", "human_input");
+    f.setClock(5100);
+    expect(await f.call(action)).toMatchObject({ reason: "paused:human_input", retryAfterMs: 0 });
+    f.policy.turns.set("resident", "turn-2");
+    await runEffect(f.capture({ ...request, params: { ...request.params, since: "o1" } }, Effect.succeed(observed))
+      .pipe(Effect.provideService(Core.ExecutorContext, f.executor)));
+    expect(await f.call(action)).toMatchObject({ reason: "paused:human_input", retryAfterMs: 0 });
+    await runEffect(f.capture(request, Effect.succeed(observed)).pipe(Effect.provideService(Core.ExecutorContext, f.executor)));
+    expect(await f.call(action)).toEqual({ status: "ok" });
+    expect(await f.call()).toEqual({ status: "refused", reason: "stale_capture" });
+    f.policy.pause("desk", "human_input", 5101);
+    f.setClock(10_101);
+    expect(await f.call(action)).toMatchObject({ reason: "paused:human_input", retryAfterMs: 0 });
+  } finally { f.close(); }
+});
+
+test("policy rows set the quiet and maximum wait windows", async () => {
+  const f = computerFixture();
+  try {
+    f.plane.policyState.put("computer_use.humanQuietMs", { key: "default", revision: 0, value: 3000 });
+    f.plane.policyState.put("computer_use.maxWaitMs", { key: "default", revision: 0, value: 1000 });
+    f.grant();
+    f.policy.pause("desk", "human_input");
+    expect(await f.call()).toMatchObject({ reason: "paused:human_input", retryAfterMs: 3000 });
+    f.setClock(1100);
+    f.policy.pause("desk", "human_input");
+    expect(await f.call()).toMatchObject({ reason: "paused:human_input", retryAfterMs: 3000, humanActiveMs: 0 });
+    f.setClock(4100);
+    expect(await f.call()).toMatchObject({ reason: "paused:human_input", retryAfterMs: 0 });
+  } finally { f.close(); }
+});
+
+test("the reported human-input fact extends the quiet window", async () => {
+  const f = computerFixture();
+  try {
+    f.grant();
+    f.policy.pause("desk", "human_input");
+    f.setClock(2100);
+    f.setSession({ locked: false, asleep: false }, { lastAt: 2000, source: "pointer", events: 1 });
+    expect(await f.call()).toEqual({
+      status: "refused", reason: "paused:human_input", humanActiveMs: 100, retryAfterMs: 4900,
+    });
+  } finally { f.close(); }
+});
+
+test("a short human-input pause refuses immediately without scheduling an input", async () => {
+  const f = computerFixture();
+  try {
+    f.grant();
+    f.policy.pause("desk", "human_input");
+    f.setClock(3600);
+    expect(await f.call()).toEqual({
+      status: "refused", reason: "paused:human_input", humanActiveMs: 3500, retryAfterMs: 1500,
+    });
+    expect(f.scheduled.size).toBe(0);
+  } finally { f.close(); }
+});
+
+test("a second human-input edge resets the retry window", async () => {
+  const f = computerFixture();
+  try {
+    f.grant();
+    f.policy.pause("desk", "human_input");
+    expect((await f.call()).status).toBe("refused");
+    f.setClock(20_100);
+    f.policy.pause("desk", "human_input");
+    expect(await f.call()).toMatchObject({
+      status: "refused", reason: "paused:human_input", humanActiveMs: 0, retryAfterMs: 5000,
+    });
+  } finally { f.close(); }
+});
 
 test.each([{ locked: true, asleep: false }, { locked: false, asleep: true }])(
   "live session facts pause input before their observation callback drains",

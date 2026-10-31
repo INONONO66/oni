@@ -1,10 +1,13 @@
 import { Core } from "@oni/agent";
 import { Machine } from "@oni/protocol";
+import { z } from "zod";
 
 type PauseReason = Extract<Machine.ComputerLease, { state: "paused" }>["pauseReason"];
 type EndReason = Extract<Machine.ComputerLease, { state: "ended" }>["endReason"];
 const LEASE = "computer_use.lease";
 const EXCLUSION = "computer_use.exclusion";
+const HUMAN_QUIET = "computer_use.humanQuietMs";
+const MAX_WAIT = "computer_use.maxWaitMs";
 const key = (sessionId: string, machineId: string) => JSON.stringify([sessionId, machineId]);
 
 export function computerStore(rows: Core.LedgerHost["policyState"]) {
@@ -25,6 +28,8 @@ export function computerStore(rows: Core.LedgerHost["policyState"]) {
   return {
     get,
     put,
+    humanQuietMs: () => z.number().int().positive().parse(rows.get(HUMAN_QUIET, "default")?.value ?? 5000),
+    maxWaitMs: () => z.number().int().positive().parse(rows.get(MAX_WAIT, "default")?.value ?? 20000),
     list: () => rows.list(LEASE).map((row) => Machine.ComputerLease.parse(row.value)),
     pause(sessionId: string, machineId: string, pauseReason: PauseReason) {
       const lease = get(sessionId, machineId);

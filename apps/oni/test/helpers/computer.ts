@@ -91,9 +91,10 @@ export function computerFixture() {
     },
     setClock: (time: number) => { now = time; },
     setMachines: (rows: Machine.Info[]) => { machine = rows; },
-    setSession: (session: Machine.Session) => {
+    setSession: (session: Machine.Session, humanInput?: Machine.HumanInput) => {
       machine = machine.map((row) => ({ ...row, live: {
         reportedAt: now, load: { loadAvg1: 0, memoryAvailableBytes: 1, inFlight: 0 }, stale: false, session,
+        ...(humanInput === undefined ? {} : { humanInput }),
       } }));
     },
     close: () => plane.close(),

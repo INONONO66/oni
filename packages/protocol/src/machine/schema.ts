@@ -899,6 +899,8 @@ export const InputWriteResult = z.discriminatedUnion("status", [
       ]),
       /** Human-readable detail, e.g. which display a refused anchor captured. */
       message: z.string().min(1).max(256).optional(),
+      humanActiveMs: z.number().int().nonnegative().optional(),
+      retryAfterMs: z.number().int().nonnegative().optional(),
     })
     .strict(),
 ]);

@@ -57,6 +57,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "humanActiveMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "message": {
           "maxLength": 256,
           "minLength": 1,
@@ -96,6 +101,11 @@
             "paused:asleep"
           ],
           "type": "string"
+        },
+        "retryAfterMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
         },
         "status": {
           "const": "refused",
