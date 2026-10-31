@@ -16,7 +16,7 @@ use std::{
 use oni_protocol::{AttachResult, ReportResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinError, JoinSet};
 
 use crate::{
@@ -359,15 +359,27 @@ pub async fn join(
     })
 }
 
-fn gated(service: Handler, in_flight: Arc<AtomicUsize>, restricted: Arc<AtomicBool>) -> Handler {
+fn gated(
+    service: Handler,
+    in_flight: Arc<AtomicUsize>,
+    restricted: Arc<AtomicBool>,
+    attached: watch::Receiver<bool>,
+) -> Handler {
     handler(move |method, params| {
         let service = service.clone();
         let in_flight = in_flight.clone();
+        let mut attached = attached.clone();
         let refusal = restricted
             .load(Ordering::Relaxed)
             .then(|| budget::refusal(&method, params.as_ref()))
             .flatten();
         async move {
+            if method != "machine.ping" {
+                attached
+                    .wait_for(|ready| *ready)
+                    .await
+                    .map_err(|_| "attach ended before the routed call".to_owned())?;
+            }
             if let Some(refusal) = refusal {
                 return Ok(refusal);
             }
@@ -477,7 +489,8 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
 
     pub async fn once(&mut self) -> Result<Outcome, AttachError> {
         self.human.discard_edges();
-        let Some(mut client) = self.connect().await? else {
+        let (ready, attached) = watch::channel(false);
+        let Some(mut client) = self.connect(attached).await? else {
             return Ok(Outcome::Unreachable);
         };
         let (uplink, mut calls) = Uplink::channel();
@@ -485,17 +498,22 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         if !self.negotiate(&client).await? {
             return Ok(Outcome::Refused);
         }
+        ready.send_replace(true);
         let _session = AttachedSession(self.hooks.session.as_ref());
         let connected = tokio::time::Instant::now();
         let ended = self.heartbeat(&mut client, &mut calls).await;
         ended.map(|()| Outcome::Ended(connected.elapsed()))
     }
 
-    async fn connect(&mut self) -> Result<Option<Client>, AttachError> {
+    async fn connect(
+        &mut self,
+        attached: watch::Receiver<bool>,
+    ) -> Result<Option<Client>, AttachError> {
         let service = gated(
             self.hooks.service.clone(),
             self.in_flight.clone(),
             self.restricted.clone(),
+            attached,
         );
         let connected = match &self.config.unix {
             Some(path) => Client::connect_unix(path, service).await,
@@ -952,23 +970,144 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use serde_json::json;
+    use tokio::{
+        io::split,
+        sync::{mpsc, watch},
+    };
 
     use crate::{
+        attach::{Negotiated, Session},
+        config::ClientConfig,
+        handlers::Service,
         input::watch::Source,
+        pty::ops::Pty,
         transport::{
-            client::{Client, TransportError},
-            framing::Framed,
+            client::{handler, Client, TransportError},
+            framing::{self, Framed},
         },
     };
 
     use super::{
-        await_next, join_failure, notify_human_edge, once_result, service_reprobe, AttachError,
-        Outcome, RuntimeRandom,
+        await_next, gated, join_failure, notify_human_edge, once_result, service_reprobe,
+        AttachError, Outcome, RuntimeRandom,
     };
     use crate::transport::{
         classes::FailureClass,
         retry::{Event, Next, Retry},
     };
+
+    #[tokio::test]
+    async fn attach_reply_before_routed_read_waits_for_grant_activation() {
+        let root = tempfile::tempdir().expect("export root");
+        let config = ClientConfig {
+            machine_id: "conformance".into(),
+            name: "Conformance".into(),
+            host: "127.0.0.1:7643".into(),
+            tags: vec![],
+            exports: vec![crate::config::Export {
+                name: "notes".into(),
+                path: root.path().to_str().expect("root").into(),
+            }],
+            memory_budget_mb: 96,
+            unix: None,
+            tmux_socket: None,
+        };
+        std::fs::write(root.path().join("one"), b"hello").expect("seed");
+        let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
+        let service = Service::open(&config, pty).expect("service");
+        let hooks = service.hooks(Duration::from_secs(60));
+        let (ready, attached) = watch::channel(false);
+        let gated_service = gated(
+            hooks.service,
+            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            attached,
+        );
+        let (started, mut routed) = mpsc::unbounded_channel();
+        let routed_handler = handler(move |method, params| {
+            let gated_service = gated_service.clone();
+            let started = started.clone();
+            async move {
+                if method == "machine.fs_op" {
+                    started.send(()).expect("read reached dispatch");
+                }
+                gated_service(method, params).await
+            }
+        });
+        let (client_stream, host_stream) = tokio::io::duplex(4096);
+        let client = Client::from_stream(client_stream, routed_handler);
+        let (reader, mut writer) = split(host_stream);
+        let mut frames = Framed::new(reader);
+        let call = client.call("machine.attach", Some(json!({})));
+        let host = async {
+            let offer = frames.next().await.expect("offer").expect("frame");
+            framing::write_frame(
+                &mut writer,
+                &json!({"v":2,"type":"response","id":offer["id"],"result":{"status":"attached"}}),
+            )
+            .await
+            .expect("attach reply");
+            framing::write_frame(
+                &mut writer,
+                &json!({"v":2,"type":"request","id":"read","method":"machine.fs_op",
+                    "params":{"op":"read","export":"notes","path":"one"}}),
+            )
+            .await
+            .expect("back-to-back read");
+            routed
+                .recv()
+                .await
+                .expect("read reached dispatch before grant");
+            service.attached(&Negotiated {
+                generation: std::num::NonZeroU64::MIN,
+                capabilities: vec!["fs.read".into()],
+                exports: vec!["notes".into()],
+            });
+            ready.send_replace(true);
+            let response = frames.next().await.expect("read response").expect("frame");
+            assert_eq!(response["id"], "read");
+            assert_eq!(response["result"]["status"], "completed");
+        };
+        let (reply, ()) =
+            tokio::time::timeout(Duration::from_secs(5), async { tokio::join!(call, host) })
+                .await
+                .expect("read completed");
+        assert_eq!(
+            reply.expect("attach response").expect("result")["status"],
+            "attached"
+        );
+    }
+
+    #[tokio::test]
+    async fn pending_routed_call_fails_when_attach_connection_closes() {
+        let (ready, attached) = watch::channel(false);
+        let service = gated(
+            handler(|_, _| async { Ok(json!({"status":"completed"})) }),
+            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            attached,
+        );
+        drop(ready);
+        assert_eq!(
+            service("machine.fs_op".into(), Some(json!({}))).await,
+            Err("attach ended before the routed call".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn ping_is_served_before_attach() {
+        let (_ready, attached) = watch::channel(false);
+        let service = gated(
+            handler(|_, _| async { Ok(json!({"status":"alive"})) }),
+            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            attached,
+        );
+        assert_eq!(
+            service("machine.ping".into(), Some(json!({}))).await,
+            Ok(json!({"status":"alive"}))
+        );
+    }
 
     #[tokio::test(start_paused = true)]
     async fn wait_retry_event_attempts_immediately() {
