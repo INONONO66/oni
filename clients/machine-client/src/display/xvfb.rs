@@ -167,6 +167,44 @@ fn manager_property<S: x11rb::rust_connection::Stream>(
 }
 
 fn wait_manager_ready(owned: &Owned) {
+    wait_manager_ready_with(owned, manager_ready);
+}
+
+fn wait_manager_ready_with(owned: &Owned, ready: impl Fn(&str) -> bool) {
+    use x11rb::connection::Connection;
+
+    if owned.manager.is_none() || !manager_running(owned) || ready(&owned.id) {
+        return;
+    }
+    let Ok((connection, index)) = x11rb::connect(Some(&owned.id)) else {
+        return;
+    };
+    let root = connection.setup().roots[index].root;
+    wait_manager_events(owned, &connection, root, &ready, || {
+        connection.poll_for_event()
+    });
+}
+
+fn manager_running(owned: &Owned) -> bool {
+    owned.manager.as_ref().is_some_and(|manager| {
+        matches!(
+            manager
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .try_wait(),
+            Ok(None)
+        )
+    })
+}
+
+fn wait_manager_events(
+    owned: &Owned,
+    connection: &x11rb::rust_connection::RustConnection<x11rb::rust_connection::DefaultStream>,
+    root: u32,
+    ready: &impl Fn(&str) -> bool,
+    mut next_event: impl FnMut()
+        -> Result<Option<x11rb::protocol::Event>, x11rb::errors::ConnectionError>,
+) {
     use rustix::event::{PollFd, PollFlags, Timespec};
     use x11rb::{
         connection::Connection,
@@ -176,13 +214,6 @@ fn wait_manager_ready(owned: &Owned) {
         },
     };
 
-    if owned.manager.is_none() || !owned.window_manager_missing() {
-        return;
-    }
-    let Ok((connection, index)) = x11rb::connect(Some(&owned.id)) else {
-        return;
-    };
-    let root = connection.setup().roots[index].root;
     if connection
         .change_window_attributes(
             root,
@@ -197,28 +228,20 @@ fn wait_manager_ready(owned: &Owned) {
     }
     // Subscribe before reading the property, so a manager starting between
     // those operations cannot leave the readiness transition unobserved.
-    if !owned.window_manager_missing() {
+    if ready(&owned.id) {
         return;
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
-        if owned.manager.as_ref().is_none_or(|manager| {
-            !matches!(
-                manager
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .try_wait(),
-                Ok(None)
-            )
-        }) {
+        if !manager_running(owned) {
             return;
         }
         // Replies to the property probe can queue notifications in x11rb even
         // after the socket stops being readable; drain those before polling.
         loop {
-            match connection.poll_for_event() {
+            match next_event() {
                 Ok(Some(Event::PropertyNotify(change))) if change.window == root => {
-                    if manager_property(&connection, root).unwrap_or(false) {
+                    if ready(&owned.id) {
                         return;
                     }
                 }
@@ -226,8 +249,9 @@ fn wait_manager_ready(owned: &Owned) {
                 Ok(None) | Err(_) => break,
             }
         }
-        let Ok(timeout) = Timespec::try_from(remaining.min(Duration::from_millis(100))) else {
-            return;
+        let timeout = Timespec {
+            tv_sec: 0,
+            tv_nsec: i64::from(remaining.min(Duration::from_millis(100)).subsec_nanos()),
         };
         if !matches!(
             rustix::event::poll(
@@ -369,6 +393,112 @@ mod tests {
                 args: vec![],
             }),
         }
+    }
+
+    fn waiting_manager() -> Owned {
+        let mut owned = open(&config()).expect("display");
+        let manager = Command::new("/bin/sh")
+            .args(["-c", "read line"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("waiting manager");
+        owned.manager = Some(Mutex::new(manager));
+        owned
+    }
+
+    #[test]
+    fn readiness_probe_refuses_disconnected_display() {
+        let mut owned = waiting_manager();
+        owned.id = "not-a-display".into();
+        let calls = std::cell::Cell::new(0);
+        wait_manager_ready_with(&owned, |_| {
+            calls.set(calls.get() + 1);
+            false
+        });
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn readiness_probe_refuses_invalid_subscription_root() {
+        use x11rb::connection::Connection;
+        let owned = waiting_manager();
+        let (connection, _) = x11rb::connect(Some(&owned.id)).expect("display connection");
+        let calls = std::cell::Cell::new(0);
+        wait_manager_events(
+            &owned,
+            &connection,
+            0,
+            &|_| {
+                calls.set(calls.get() + 1);
+                false
+            },
+            || connection.poll_for_event(),
+        );
+        assert_eq!(calls.get(), 0);
+    }
+
+    #[test]
+    fn readiness_probe_sees_manager_after_event_subscription() {
+        let owned = waiting_manager();
+        let calls = std::cell::Cell::new(0);
+        wait_manager_ready_with(&owned, |_| {
+            calls.set(calls.get() + 1);
+            calls.get() == 2
+        });
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn readiness_probe_drains_unrelated_and_not_yet_ready_events() {
+        use std::collections::VecDeque;
+        use x11rb::{
+            connection::Connection,
+            protocol::{xproto, Event},
+        };
+        let owned = waiting_manager();
+        let (connection, index) = x11rb::connect(Some(&owned.id)).expect("display connection");
+        let root = connection.setup().roots[index].root;
+        let events = std::cell::RefCell::new(VecDeque::from([
+            Event::Expose(xproto::ExposeEvent {
+                response_type: xproto::EXPOSE_EVENT,
+                sequence: 0,
+                window: root,
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                count: 0,
+            }),
+            Event::PropertyNotify(xproto::PropertyNotifyEvent {
+                response_type: xproto::PROPERTY_NOTIFY_EVENT,
+                sequence: 0,
+                window: root,
+                atom: u32::from(xproto::AtomEnum::WM_NAME),
+                time: 0,
+                state: xproto::Property::NEW_VALUE,
+            }),
+            Event::PropertyNotify(xproto::PropertyNotifyEvent {
+                response_type: xproto::PROPERTY_NOTIFY_EVENT,
+                sequence: 0,
+                window: root,
+                atom: u32::from(xproto::AtomEnum::WM_NAME),
+                time: 0,
+                state: xproto::Property::NEW_VALUE,
+            }),
+        ]));
+        let calls = std::cell::Cell::new(0);
+        wait_manager_events(
+            &owned,
+            &connection,
+            root,
+            &|_| {
+                calls.set(calls.get() + 1);
+                calls.get() == 4
+            },
+            || Ok(events.borrow_mut().pop_front()),
+        );
+        assert_eq!(calls.get(), 4);
+        assert!(events.borrow().is_empty());
     }
 
     #[test]
