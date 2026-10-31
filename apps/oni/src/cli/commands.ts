@@ -22,6 +22,7 @@ import { channelHistory, type ChannelHistoryDeps } from "./channel-history";
 import { type MessagingFacts, messagingReadiness } from "./messaging";
 import { type DeployClient, deployCommand } from "./deploy";
 import { ONI_VERSION } from "../version";
+import { streamProbeCommand, type StreamProbeDeps } from "./stream-probe";
 
 /**
  * Command dispatch with every side effect injected. `main.ts` is the only
@@ -35,6 +36,7 @@ export interface CliDeps {
   readonly envPath: string;
   readonly startApp: () => Promise<void>;
   readonly attachMachine: (configPath: string) => Promise<number>;
+  readonly streamProbe: StreamProbeDeps;
   readonly ask: Ask;
   readonly writeEnv: (entries: readonly EnvEntry[]) => void;
   readonly doctorPorts: () => Promise<DoctorPorts>;
@@ -60,6 +62,7 @@ Usage:
   oni onboard               interactive setup → ~/.oni/env
   oni daemon <verb>         install | uninstall | status | start | stop | restart
   oni machine attach <json> attach a machine daemon using a JSON config
+  oni machine probe <id> <display> [--reconnect-after-ms <ms>]  measure stream receipt and decode stages
   oni doctor                read-only diagnostics
   oni logs                  follow the daemon logs
   oni login <platform>      sign the Owner's own account in and declare it (slack | discord | instagram | kakaotalk | telegram)
@@ -95,8 +98,9 @@ export async function runCli(args: readonly string[], deps: CliDeps): Promise<nu
     case "daemon":
       return daemon(args[1], deps);
     case "machine":
+      if (args[1] === "probe") return await streamProbeCommand(args.slice(2), deps.streamProbe, deps);
       if (args[1] !== "attach" || args[2] === undefined || args.length !== 3) {
-        deps.stderr("usage: oni machine attach <config.json>");
+        deps.stderr("usage: oni machine attach <config.json> | oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]");
         return 1;
       }
       return deps.attachMachine(args[2]);

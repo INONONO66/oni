@@ -272,9 +272,10 @@ impl Session {
         let Some((unit, _)) = self.video.encode(now, rgba, size)? else {
             return Ok(false);
         };
+        let elapsed = now.duration_since(self.started).as_micros();
+        let rtp_timestamp = (elapsed * 9 / 100) as u64;
         if let Some(id) = self.channel {
-            let sidecar =
-                serde_json::json!({"seq": self.frame_seq, "capturedAtUs": captured_at_us});
+            let sidecar = serde_json::json!({"seq": self.frame_seq, "capturedAtUs": captured_at_us, "rtpTimestamp": rtp_timestamp});
             let bytes = serde_json::to_vec(&sidecar).map_err(failure)?;
             let mut channel = self.rtc.channel(id).ok_or("data channel closed")?;
             if !channel.write(true, &bytes).map_err(failure)? {
@@ -293,8 +294,7 @@ impl Session {
             .find(|params| params.spec().codec == Codec::H264)
             .map(|params| params.pt())
             .ok_or("H.264 not negotiated")?;
-        let elapsed = now.duration_since(self.started).as_micros();
-        let rtp = MediaTime::new((elapsed * 9 / 100) as u64, Frequency::NINETY_KHZ);
+        let rtp = MediaTime::new(rtp_timestamp, Frequency::NINETY_KHZ);
         writer.write(pt, now, rtp, unit).map_err(failure)?;
         self.frame_seq = self.frame_seq.wrapping_add(1);
         Ok(true)

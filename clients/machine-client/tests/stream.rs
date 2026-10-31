@@ -524,7 +524,9 @@ fn scripted_frames_deliver_monotonic_sidecars_before_video() {
         .collect();
     assert_eq!(sidecars.len(), sent as usize);
     for (seq, sidecar) in sidecars.iter().enumerate() {
-        assert_eq!(sidecar, &json!({"seq": seq, "capturedAtUs": 1000 + seq}));
+        assert_eq!(sidecar["seq"], json!(seq));
+        assert_eq!(sidecar["capturedAtUs"], json!(1000 + seq));
+        assert!(sidecar["rtpTimestamp"].as_u64().is_some());
     }
     let mut preceding = 0;
     let mut media = 0;

@@ -1,5 +1,17 @@
 # Implementation Status
 
+## #1677 gateway screen stream stage-metrics probe
+
+`oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]`
+opens a stream through the Owner-authenticated loopback gateway, decodes
+its H.264 frames in a headless viewer, and writes one JSON report with
+capture-to-encoded-receipt and capture-to-decoded-frame percentiles,
+sequence-gap drops, and explicit reopen first-fresh-frame timing. The
+host's clock offset maps each client capture timestamp to host wall time.
+The report marks capture-to-display `null` with `displayedBy: "none"`:
+the desktop presenter and live MacBook acceptance remain open on #1677
+and #1702. The command and JSON shape are in `docs/first-live-run.md`.
+
 ## #1735 computer-use prompt guidance
 
 When the composed catalog includes the computer tool pack, resident and child

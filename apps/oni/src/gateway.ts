@@ -1,5 +1,6 @@
 import type { MachineHost } from "@oni/machines";
 import { machineWire } from "./composition/machine-wire";
+import { createStreamProbe } from "./composition/stream-probe";
 import { channelHistoryWire, type ChannelHistoryLookup } from "./composition/channel-history";
 import type { WsParts } from "./composition/ws-parts";
 import type { ComposedCodemode } from "./composition/codemode";
@@ -371,7 +372,7 @@ export function webSocketCallbacks(
       Effect.Effect<Ingress.AutomationResponse>;
     readonly stores: ChannelStores;
   },
-  machines?: Pick<MachineHost, "list">,
+  machines?: Pick<MachineHost, "list" | "get">,
   /** #1569 lane 5b: the Owner's channel declaration (the login helper's seal) over the Owner's socket. */
   channels?: {
     readonly respond: (request: Provisioning.ChannelDeclareRequest, caller: "owner" | `session:${string}`) =>
@@ -379,6 +380,7 @@ export function webSocketCallbacks(
   },
   parts?: WsParts,
   history?: ChannelHistoryLookup,
+  now?: () => number,
 ) {
   const inflight = new Set<Promise<void>>();
   const readers = new Map<WsConnection, Map<string, () => void>>();
@@ -387,6 +389,24 @@ export function webSocketCallbacks(
   // A successful fork re-sends every parent subscriber's page instead; the
   // same-head page carries the new catalog child in `children`.
   const refreshers = new Map<string, Set<() => void>>();
+  const probe = machines === undefined || now === undefined ? undefined : createStreamProbe({
+    now,
+    open: (machineId, display, listeners) => {
+      const computer = machines.get(machineId).computer;
+      if (computer === undefined) return Promise.resolve({ status: "refused" as const, reason: "stream_not_available" as const });
+      return runAppEffect(runtime, computer.stream.open({
+        source: { kind: "display", display },
+        video: { maxFps: 30, keyframeIntervalMs: 500, maxBitrateBps: 2_000_000, maxDimension: 640, maxFrameBytes: 1_000_000 },
+        dataChannel: true,
+        lifetimeMs: 120_000,
+      }, listeners)).then((opened) => "status" in opened ? opened : ({
+        streamId: opened.streamId,
+        capturedAt: opened.capturedAt,
+        signal: (signal) => runAppEffect(runtime, opened.signal(signal)),
+        close: () => runAppEffect(runtime, opened.close()),
+      }));
+    },
+  });
   function read(ws: WsConnection, request: SessionRead.Request): void {
     const subscriptions = readers.get(ws) ?? new Map<string, () => void>();
     readers.set(ws, subscriptions);
@@ -451,9 +471,15 @@ export function webSocketCallbacks(
       close(ws: WsConnection): void {
         for (const stop of readers.get(ws)?.values() ?? []) stop();
         readers.delete(ws);
+        if (probe !== undefined) {
+          const closing = probe.close(ws);
+          inflight.add(closing);
+          void closing.finally(() => inflight.delete(closing));
+        }
         handler.ws.close(ws);
       },
-      message(ws: WsConnection, data: string | Buffer): Promise<void> {
+      async message(ws: WsConnection, data: string | Buffer): Promise<void> {
+        if (probe !== undefined && await probe.handle(ws, data, ws.data.authenticated)) return;
         const historyRead = channelHistoryWire(data, {
           authenticated: ws.data.authenticated === true,
           caller: wsCaller(ws.data.externalId),

@@ -29,6 +29,7 @@ import { Machine } from "../../../packages/protocol/src/index.js";
 import { type FakeDevtools, startFakeDevtools } from "./devtools.js";
 import { type ReportTap, startReportTap } from "./tap.js";
 import { MASKED_PIXEL_SUM, openViewer } from "./viewer.js";
+import { probeStream } from "./probe.js";
 
 const LAYOUT = resolve(
   import.meta.dir,
@@ -964,6 +965,18 @@ export async function exerciseComputer(
     await exerciseSettle(context);
     await exercisePrivate(context);
     await exerciseStream(context);
+    const [display] = layout.displays;
+    check(display !== undefined, "fixture layout has no display for probe");
+    const metrics = await harness.within(probeStream(computerOf(context), machineId, display.id), "stream stage metrics probe");
+    check(metrics.stages.captureToReceipt.frames >= 10 &&
+      metrics.stages.captureToDecoded.frames >= 10 &&
+      metrics.stages.captureToReceipt.p99 !== null &&
+      metrics.stages.captureToDecoded.p99 !== null &&
+      metrics.stages.captureToDisplay === null &&
+      metrics.stages.displayedBy === "none" &&
+      metrics.reconnect === "not_requested",
+    `stream probe JSON ${JSON.stringify(metrics)}`);
+    harness.record(`stream probe JSON ${JSON.stringify(metrics)}`);
     await exerciseCdp(context);
     await exerciseOverflowAndRelease(context);
   } finally {
