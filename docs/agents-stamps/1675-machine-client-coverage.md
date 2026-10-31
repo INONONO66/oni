@@ -1,0 +1,1 @@
+#1675 (epic #1622) on `test/1675-machine-client-coverage` (2026-10-31, base `84aca7be4`, PR pending): added Rust stream refusal and fixture capture coverage and updated machine-client wording; receipts in `docs/implementation-status.md` and the #1675 PR checks.

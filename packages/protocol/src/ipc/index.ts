@@ -38,12 +38,12 @@ const notificationSchema = baseMessage.extend({
  *
  * The generic request envelope above intentionally stays permissive; these
  * method schemas document and test the canonical params expected by current
- * machine hosts/daemons.
+  * machine hosts/clients.
  */
 const methods = {
   /**
-   * Machine daemon → machine host (docs/machines-and-delegation.md §2):
-   * the daemon offers its capability set, the host answers with the
+   * Machine client → machine host (docs/machines-and-delegation.md §2):
+   * the client offers its capability set, the host answers with the
    * enrollment∩offer effective set or a typed refusal. The localhost slice
    * carries no auth token — the Unix socket is the trust boundary; remote
    * transports add authentication as an additive field when they land.
@@ -53,7 +53,7 @@ const methods = {
     result: Machine.AttachResult,
   },
   /**
-   * Machine daemon → machine host (#1555): one load heartbeat per report
+   * Machine client → machine host (#1555): one load heartbeat per report
    * interval on the attached connection. The host answers `accepted` or a
    * typed refusal (`machine_not_attached` | `machine_mismatch`) and keeps
    * only the latest accepted report; staleness is the host clock's call.
@@ -68,14 +68,14 @@ const methods = {
   },
   [Machine.WireMethod.Exec]: { params: Machine.ExecRequest, result: Machine.ExecResult },
   [Machine.WireMethod.CancelCode]: { params: Machine.CancelCode, result: Machine.CancelResult },
-  /** Machine host → machine daemon: a live cell's output so far, for `eval peek`. */
+  /** Machine host → machine client: a live cell's output so far, for `eval peek`. */
   [Machine.WireMethod.PeekCode]: { params: Machine.PeekCode, result: Machine.PeekAnswer },
   [Machine.WireMethod.RunCode]: {
     params: Machine.CellRequest,
     result: Machine.CellResult,
   },
   /**
-   * Machine daemon → machine host, made from inside a running cell
+   * Machine client → machine host, made from inside a running cell
    * (docs/machines-and-delegation.md §2.2): the reverse direction of RunCode,
    * on the same attachment, so one cell can batch what would otherwise be N
    * tool round trips.
@@ -85,8 +85,8 @@ const methods = {
     result: Machine.ToolCallResult,
   },
   /**
-   * Machine host → machine daemon: one filesystem op against a named export.
-   * The host translates real absolute paths; the daemon checks the negotiated
+   * Machine host → machine client: one filesystem op against a named export.
+   * The host translates real absolute paths; the client checks the negotiated
    * capability/export ceilings and its own offer, then confines the operation.
    */
   [Machine.WireMethod.FsOp]: {
@@ -98,7 +98,7 @@ const methods = {
     result: Machine.FsStreamResult,
   },
   /**
-   * Machine host → machine daemon (#1274): one bounded screen capture, and
+   * Machine host → machine client (#1274): one bounded screen capture, and
    * guarded input actions tied to the latest successful capture id.
    */
   [Machine.WireMethod.ScreenRead]: {
@@ -110,7 +110,7 @@ const methods = {
     result: Machine.InputWriteResult,
   },
   /**
-   * Machine host → machine daemon (#1273): persistent named terminals over
+   * Machine host → machine client (#1273): persistent named terminals over
    * tmux. `pty_read` is the authoritative pull; `machine.pty_output` is a
    * notification (no reply), so it has no entry in this request table.
    */
