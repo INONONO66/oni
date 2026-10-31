@@ -411,12 +411,62 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
+    fn run_service_fixture(home: &Path, uid: u32) -> std::process::Output {
+        use std::os::unix::fs::PermissionsExt;
+
+        let binary = home.join("service-test");
+        fs::copy(std::env::current_exe().expect("test binary"), &binary)
+            .expect("copy test binary into accessible fixture");
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o755))
+            .expect("unprivileged user can execute fixture");
+        let uid = uid.to_string();
+        let case = format!("ONI_NON_ROOT_SERVICE_FIXTURE={}", home.display());
+        let profile_file = home.join(format!("linger-{uid}.profraw"));
+        let profile = format!("LLVM_PROFILE_FILE={}", profile_file.display());
+        let xdg = format!("XDG_CONFIG_HOME={}", home.join(".config").display());
+        let path = format!("PATH={}", home.display());
+        let output = Command::new("sudo")
+            .args([
+                "-n",
+                "setpriv",
+                "--reuid",
+                &uid,
+                "--regid",
+                &uid,
+                "--clear-groups",
+                "env",
+                &case,
+                &profile,
+                &xdg,
+                &path,
+            ])
+            .arg(binary)
+            .args([
+                "--exact",
+                "service::tests::non_root_service_reports_missing_linger_and_uses_user_unit_directory",
+            ])
+            .output()
+            .expect("unprivileged service probe");
+        if profile_file.exists() {
+            let inherited =
+                PathBuf::from(std::env::var_os("LLVM_PROFILE_FILE").unwrap_or_default());
+            let directory = inherited.parent().unwrap_or(Path::new("."));
+            let name = home.file_name().expect("fixture name").to_string_lossy();
+            fs::copy(
+                &profile_file,
+                directory.join(format!("linger-{name}-{uid}.profraw")),
+            )
+            .expect("include unprivileged coverage");
+        }
+        output
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn non_root_service_reports_missing_linger_and_uses_user_unit_directory() {
-        use std::os::unix::{fs::PermissionsExt, process::CommandExt};
+        use std::os::unix::fs::PermissionsExt;
 
-        const CASE: &str = "ONI_NON_ROOT_SERVICE_FIXTURE";
-        if let Some(home) = std::env::var_os(CASE) {
+        if let Some(home) = std::env::var_os("ONI_NON_ROOT_SERVICE_FIXTURE") {
             let home = PathBuf::from(home);
             let directory = unit_directory(&home, false, None);
             if !directory.exists() {
@@ -462,23 +512,21 @@ mod tests {
             if needs_linger {
                 setup_needs(&mut verdict, &home, None, false);
                 assert_eq!(verdict.verdict, "partial");
-            }
-            let options = JoinOptions {
-                host: "localhost".into(),
-                json: false,
-                name: None,
-                tags: vec![],
-                exports: vec![],
-                no_service: false,
-                service_dir: None,
-                no_open: true,
-                host_cert: None,
-                host_pin: None,
-                trust_on_first_use: false,
-                unix: None,
-                memory_budget_mb: 96,
-            };
-            if needs_linger {
+                let options = JoinOptions {
+                    host: "localhost".into(),
+                    json: false,
+                    name: None,
+                    tags: vec![],
+                    exports: vec![],
+                    no_service: false,
+                    service_dir: None,
+                    no_open: true,
+                    host_cert: None,
+                    host_pin: None,
+                    trust_on_first_use: false,
+                    unix: None,
+                    memory_budget_mb: 96,
+                };
                 let state = install(
                     &options,
                     &home,
@@ -501,42 +549,11 @@ mod tests {
         fs::write(&manager, "#!/bin/sh\nexit 0\n").expect("fake service manager");
         fs::set_permissions(&manager, fs::Permissions::from_mode(0o755))
             .expect("executable manager");
-        for uid in if nix::unistd::getuid().as_raw() == 0 {
-            vec![65534, 60000]
-        } else {
-            vec![nix::unistd::getuid().as_raw()]
-        } {
-            let mut child = Command::new(std::env::current_exe().expect("test binary"));
-            child
-                .args([
-                    "--exact",
-                    "service::tests::non_root_service_reports_missing_linger_and_uses_user_unit_directory",
-                ])
-                .env(CASE, home.path())
-                .env("PATH", home.path())
-                .env_remove("XDG_CONFIG_HOME");
-            if nix::unistd::getuid().as_raw() == 0 {
-                child.uid(uid);
-            }
-            let output = child.output().expect("non-root service test");
+        for uid in [65534, 60000] {
+            let output = run_service_fixture(home.path(), uid);
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             assert_eq!(output.status.code(), Some(0), "{stdout}\n{stderr}");
-        }
-        if nix::unistd::getuid().as_raw() == 0
-            && std::env::var_os("ONI_NON_ROOT_SERVICE_PARENT").is_none()
-        {
-            let output = Command::new(std::env::current_exe().expect("test binary"))
-                .args([
-                    "--exact",
-                    "service::tests::non_root_service_reports_missing_linger_and_uses_user_unit_directory",
-                ])
-                .env("ONI_NON_ROOT_SERVICE_PARENT", "1")
-                .uid(65534)
-                .output()
-                .expect("unprivileged parent test");
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            assert_eq!(output.status.code(), Some(0), "{stdout}");
         }
     }
 
@@ -570,23 +587,7 @@ mod tests {
             .status()
             .expect("enable fixture linger")
             .success());
-        let case = format!("ONI_NON_ROOT_SERVICE_FIXTURE={}", home.path().display());
-        let profile_file = home.path().join("linger.profraw");
-        let profile = format!("LLVM_PROFILE_FILE={}", profile_file.display());
-        let binary = home.path().join("service-test");
-        fs::copy(std::env::current_exe().expect("test binary"), &binary)
-            .expect("copy test binary into accessible fixture");
-        fs::set_permissions(&binary, fs::Permissions::from_mode(0o755))
-            .expect("unprivileged user can execute fixture");
-        let output = Command::new("sudo")
-            .args(["-n", "-u", "nobody", "env", &case, &profile])
-            .arg(binary)
-            .args([
-                "--exact",
-                "service::tests::non_root_service_reports_missing_linger_and_uses_user_unit_directory",
-            ])
-            .output()
-            .expect("unprivileged service probe");
+        let output = run_service_fixture(home.path(), 65534);
         let cleanup = Command::new("sudo")
             .args(["-n", "rm", marker.to_str().expect("marker")])
             .status()
@@ -595,13 +596,6 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(0), "{stdout}\n{stderr}");
-        if profile_file.exists() {
-            let inherited =
-                PathBuf::from(std::env::var_os("LLVM_PROFILE_FILE").unwrap_or_default());
-            let directory = inherited.parent().unwrap_or(Path::new("."));
-            fs::copy(&profile_file, directory.join("linger-nobody.profraw"))
-                .expect("include unprivileged coverage");
-        }
         assert!(!marker.exists());
     }
 }
