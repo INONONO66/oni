@@ -5,7 +5,7 @@ import { GATEWAY_INGRESS_SESSION } from "../src/composition/ingress-executor";
 import { approvalRequest } from "./helpers/approval-request";
 import { computerFixture } from "./helpers/computer";
 import { runEffect } from "./helpers/effect";
-import { Ingress, type PlainValue, type SessionTransition } from "@oni/protocol";
+import { type Gateway, Ingress, type PlainValue, type SessionTransition } from "@oni/protocol";
 
 const session = { locked: false, asleep: false };
 
@@ -112,7 +112,7 @@ describe("computer consent origin", () => {
 
 describe("computer lease revisions", () => {
   it("publishes the active, paused and ended revisions with their state", () => {
-    const frames: unknown[] = [];
+    const frames: Gateway.Lease[] = [];
     const fixture = computerFixture((frame) => frames.push(frame));
     try {
       fixture.grant();
