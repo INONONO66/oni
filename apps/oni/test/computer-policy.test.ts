@@ -128,16 +128,12 @@ test("policy rows set the quiet and maximum wait windows", async () => {
   } finally { f.close(); }
 });
 
-test("the reported human-input fact extends the quiet window", async () => {
+test("a new lease cannot bypass a human-input edge before it was granted", async () => {
   const f = computerFixture();
   try {
-    f.grant();
     f.policy.pause("desk", "human_input");
-    f.setClock(2100);
-    f.setSession({ locked: false, asleep: false }, { lastAt: 2000, source: "pointer", events: 1 });
-    expect(await f.call()).toEqual({
-      status: "refused", reason: "paused:human_input", humanActiveMs: 100, retryAfterMs: 4900,
-    });
+    f.grant();
+    expect(await f.call()).toMatchObject({ reason: "paused:human_input", retryAfterMs: 5000 });
   } finally { f.close(); }
 });
 

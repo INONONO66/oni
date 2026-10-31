@@ -61,25 +61,42 @@ export class ComputerPolicy {
       this.end(sessionId, machineId, "expired");
       return "lease_expired";
     }
-    const session = this.ports.host().list().find((info) => info.machineId === machineId)?.live?.session;
+    const live = this.ports.host().list().find((info) => info.machineId === machineId)?.live;
+    const session = live?.session;
     if (session?.locked || session?.asleep) {
       const reason = session.locked ? "locked" : "asleep";
       this.pause(machineId, reason);
       return `paused:${reason}`;
     }
+    const humanActive = lease.state === "active" && this.humanRecentlyActive(machineId, live?.humanInput?.lastAt);
+    if (humanActive && method !== Machine.WireMethod.ScreenObserve && method !== Machine.WireMethod.ScreenSettle)
+      return "paused:human_input";
     if (lease.state === "paused") {
       if (method === Machine.WireMethod.ScreenObserve || method === Machine.WireMethod.ScreenSettle) return this.scope(lease, params, binding);
       return `paused:${lease.pauseReason}`;
     }
-    if (this.humanAt.has(machineId) && "requestId" in params) {
-      const key = `${sessionId}:${machineId}`;
-      const anchor = "at" in params ? params.at : params;
-      if ("observationId" in anchor && !this.freshObservations.get(key)?.has(anchor.observationId))
-        return "stale_observation";
-      if ("captureId" in anchor && !this.freshCaptures.get(key)?.has(anchor.captureId))
-        return "stale_capture";
-    }
+    const stale = this.staleAnchor(sessionId, machineId, params);
+    if (stale !== undefined) return stale;
     return this.scope(lease, params, binding);
+  }
+
+  private humanRecentlyActive(machineId: string, reportedAt: number | undefined): boolean {
+    const at = Math.max(this.humanAt.get(machineId) ?? 0, reportedAt ?? 0);
+    if (at === 0 || this.now() - at >= this.store.humanQuietMs()) return false;
+    this.pause(machineId, "human_input", at);
+    return true;
+  }
+
+  private staleAnchor(
+    sessionId: string, machineId: string, params: MachineInputCapture["params"],
+  ): "stale_observation" | "stale_capture" | undefined {
+    if (!this.humanAt.has(machineId) || !("requestId" in params)) return;
+    const key = `${sessionId}:${machineId}`;
+    const anchor = "at" in params ? params.at : params;
+    if ("observationId" in anchor && !this.freshObservations.get(key)?.has(anchor.observationId))
+      return "stale_observation";
+    if ("captureId" in anchor && !this.freshCaptures.get(key)?.has(anchor.captureId))
+      return "stale_capture";
   }
 
   private scope(lease: Machine.ComputerLease, params: MachineInputCapture["params"], binding: Machine.ComputerWindow | undefined): Machine.ComputerRefusal["reason"] | undefined {
