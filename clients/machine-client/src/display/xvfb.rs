@@ -149,8 +149,8 @@ fn manager_ready(display: &str) -> bool {
     manager_property(&connection, connection.setup().roots[index].root).unwrap_or(false)
 }
 
-fn manager_property(
-    connection: &crate::screen::probe::x11::Connection,
+fn manager_property<S: x11rb::rust_connection::Stream>(
+    connection: &x11rb::rust_connection::RustConnection<S>,
     root: u32,
 ) -> Result<bool, x11rb::errors::ReplyError> {
     use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
