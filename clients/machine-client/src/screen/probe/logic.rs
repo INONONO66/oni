@@ -710,8 +710,17 @@ mod tests {
             denied.needs.iter().map(|row| row.step).collect::<Vec<_>>(),
             ["screen_recording_grant", "accessibility_grant"]
         );
-        assert!(denied.needs.iter().all(|row| row.on_screen && row.blocker.is_some()));
-        let absent = macos(&M { console: None, ..ready }, true);
+        assert!(denied
+            .needs
+            .iter()
+            .all(|row| row.on_screen && row.blocker.is_some()));
+        let absent = macos(
+            &M {
+                console: None,
+                ..ready
+            },
+            true,
+        );
         assert_eq!(absent.needs[0].step, "console_login");
     }
 

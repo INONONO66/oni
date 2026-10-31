@@ -140,7 +140,10 @@ pub fn setup_needs(
     #[cfg(target_os = "linux")]
     if nix::unistd::getuid().as_raw() != 0 && installed {
         if let Ok(Some(user)) = nix::unistd::User::from_uid(nix::unistd::getuid()) {
-            if !Path::new("/var/lib/systemd/linger").join(&user.name).exists() {
+            if !Path::new("/var/lib/systemd/linger")
+                .join(&user.name)
+                .exists()
+            {
                 if verdict.verdict == "available" {
                     verdict.verdict = "partial";
                 }
@@ -291,7 +294,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn setup_reports_missing_service_but_respects_no_service() {
+    fn setup_skips_service_needs_when_service_is_disabled() {
         let home = tempfile::tempdir().expect("home");
         let mut screen = crate::screen::probe::fold(
             crate::screen::probe::Display {
@@ -308,10 +311,7 @@ mod tests {
         );
         setup_needs(&mut screen, home.path(), Some(home.path()), true);
         assert_eq!(screen.verdict, "available");
-        setup_needs(&mut screen, home.path(), Some(home.path()), false);
-        assert_eq!(screen.verdict, "partial");
-        assert_eq!(screen.needs[0].step, "service_install");
-        assert!(!screen.needs[0].on_screen);
+        assert!(screen.needs.is_empty());
     }
 
     #[test]
@@ -330,20 +330,16 @@ mod tests {
             },
             vec![],
         );
-        setup_needs(&mut verdict, directory.path(), Some(directory.path()), false);
+        setup_needs(
+            &mut verdict,
+            directory.path(),
+            Some(directory.path()),
+            false,
+        );
         assert_eq!(verdict.verdict, "partial");
         assert_eq!(verdict.needs.len(), 1);
         assert_eq!(verdict.needs[0].step, "service_install");
         assert!(!verdict.needs[0].on_screen);
-
-        let mut skipped = crate::screen::probe::fold(
-            verdict.display.clone(),
-            verdict.grants.clone(),
-            vec![],
-        );
-        setup_needs(&mut skipped, directory.path(), Some(directory.path()), true);
-        assert_eq!(skipped.verdict, "available");
-        assert!(skipped.needs.is_empty());
     }
 
     #[test]

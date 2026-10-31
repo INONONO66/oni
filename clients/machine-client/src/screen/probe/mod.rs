@@ -339,16 +339,34 @@ mod tests {
         );
         assert_eq!(
             screen.needs.iter().map(|row| row.step).collect::<Vec<_>>(),
-            ["screen_recording_grant", "accessibility_grant", "console_login", "x11_session"]
+            [
+                "screen_recording_grant",
+                "accessibility_grant",
+                "console_login",
+                "x11_session"
+            ]
         );
         assert_eq!(
-            screen.needs.iter().map(|row| row.on_screen).collect::<Vec<_>>(),
+            screen
+                .needs
+                .iter()
+                .map(|row| row.on_screen)
+                .collect::<Vec<_>>(),
             [true, true, true, false]
         );
-        let available = fold(display, Grants {
-            capture: true, accessibility: true, input: true,
-        }, vec![]);
+        let available = fold(
+            display,
+            Grants {
+                capture: true,
+                accessibility: true,
+                input: true,
+            },
+            vec![],
+        );
         assert!(available.needs.is_empty());
-        assert!(serde_json::to_value(available).expect("serialized verdict").get("needs").is_none());
+        assert!(serde_json::to_value(available)
+            .expect("serialized verdict")
+            .get("needs")
+            .is_none());
     }
 }

@@ -1,1 +1,7 @@
-{"verdict":"available","blockers":[],"display":{"kind":"virtual","isolated":true},"grants":{"capture":true,"accessibility":true,"input":true},"needs":[]}
+{
+  "verdict": "available",
+  "blockers": [],
+  "display": { "kind": "virtual", "isolated": true },
+  "grants": { "capture": true, "accessibility": true, "input": true },
+  "needs": []
+}
