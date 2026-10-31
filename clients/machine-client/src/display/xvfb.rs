@@ -180,9 +180,20 @@ fn wait_manager_ready_with(owned: &Owned, ready: impl Fn(&str) -> bool) {
         return;
     };
     let root = connection.setup().roots[index].root;
-    wait_manager_events(owned, &connection, root, &ready, || {
-        connection.poll_for_event()
-    });
+    wait_manager_events(
+        owned,
+        &connection,
+        root,
+        &ready,
+        poll_manager_event(&connection),
+    );
+}
+
+fn poll_manager_event(
+    connection: &x11rb::rust_connection::RustConnection<x11rb::rust_connection::DefaultStream>,
+) -> impl FnMut() -> Result<Option<x11rb::protocol::Event>, x11rb::errors::ConnectionError> + '_ {
+    use x11rb::connection::Connection;
+    || connection.poll_for_event()
 }
 
 fn manager_running(owned: &Owned) -> bool {
@@ -406,6 +417,16 @@ mod tests {
         owned
     }
 
+    fn ready_on_call(
+        calls: &std::cell::Cell<usize>,
+        expected: usize,
+    ) -> impl Fn(&str) -> bool + '_ {
+        move |_| {
+            calls.set(calls.get() + 1);
+            calls.get() == expected
+        }
+    }
+
     #[test]
     fn readiness_probe_refuses_disconnected_display() {
         let mut owned = waiting_manager();
@@ -420,7 +441,6 @@ mod tests {
 
     #[test]
     fn readiness_probe_refuses_invalid_subscription_root() {
-        use x11rb::connection::Connection;
         let owned = waiting_manager();
         let (connection, _) = x11rb::connect(Some(&owned.id)).expect("display connection");
         let calls = std::cell::Cell::new(0);
@@ -428,11 +448,8 @@ mod tests {
             &owned,
             &connection,
             0,
-            &|_| {
-                calls.set(calls.get() + 1);
-                false
-            },
-            || connection.poll_for_event(),
+            &ready_on_call(&calls, 1),
+            poll_manager_event(&connection),
         );
         assert_eq!(calls.get(), 0);
     }
@@ -441,10 +458,7 @@ mod tests {
     fn readiness_probe_sees_manager_after_event_subscription() {
         let owned = waiting_manager();
         let calls = std::cell::Cell::new(0);
-        wait_manager_ready_with(&owned, |_| {
-            calls.set(calls.get() + 1);
-            calls.get() == 2
-        });
+        wait_manager_ready_with(&owned, ready_on_call(&calls, 2));
         assert_eq!(calls.get(), 2);
     }
 
@@ -499,6 +513,29 @@ mod tests {
         );
         assert_eq!(calls.get(), 3);
         assert!(events.borrow().is_empty());
+    }
+
+    #[test]
+    fn readiness_probe_rechecks_manager_after_empty_poll() {
+        use x11rb::connection::Connection;
+        let owned = waiting_manager();
+        let (connection, index) = x11rb::connect(Some(&owned.id)).expect("display connection");
+        let root = connection.setup().roots[index].root;
+        let polls = std::cell::Cell::new(0);
+        wait_manager_events(&owned, &connection, root, &|_| false, || {
+            polls.set(polls.get() + 1);
+            let mut manager = owned
+                .manager
+                .as_ref()
+                .expect("waiting manager")
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            manager.kill().expect("manager exits");
+            manager.wait().expect("manager exit receipt");
+            Ok(None)
+        });
+        assert_eq!(polls.get(), 1);
+        assert!(!manager_running(&owned));
     }
 
     #[test]
