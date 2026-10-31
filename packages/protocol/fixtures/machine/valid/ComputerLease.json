@@ -4,6 +4,8 @@
   "apps": ["com.example.Editor"],
   "foreground": { "purpose": "Review the result", "expiresAt": 600000 },
   "expiresAt": 600000,
+  "budget": { "actionsPerHour": 1500 },
+  "admittedAt": [],
   "revision": 1,
   "state": "active"
 }

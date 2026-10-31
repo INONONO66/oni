@@ -9,9 +9,11 @@ export function computerEvents(
     subscribe: sink.subscribe,
     publish(event, data) {
       switch (event.name) {
-        case Machine.Events.HumanInput.name:
-          policy.pause(Machine.Events.HumanInput.schema.parse(data).machineId, "human_input");
+        case Machine.Events.HumanInput.name: {
+          const fact = Machine.Events.HumanInput.schema.parse(data);
+          policy.pause(fact.machineId, "human_input", fact.time);
           break;
+        }
         case Machine.Events.Private.name: {
           const fact = Machine.Events.Private.schema.parse(data);
           if (fact.state === "entered") policy.pause(fact.machineId, "private");

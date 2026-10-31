@@ -103,7 +103,7 @@ export function executeRequestRoute<Event extends Gateway.DeliveredEvent>(
     actor.actorId === candidates[0] &&
     matched.requestedAction !== "invalid"
   ) {
-    outcome = yield* requests.answer({
+    const answer = yield* requests.answer({
       inputId: resolution.event.id,
       requestId: record.requestId,
       sessionId: record.sessionId,
@@ -124,6 +124,8 @@ export function executeRequestRoute<Event extends Gateway.DeliveredEvent>(
       allowedAction: matched.requestedAction,
       content,
     });
+    if (answer === "self_approval_suspected") return;
+    outcome = answer;
   }
   if (outcome === "attached" || outcome === "resolved") return;
   const reason = `request reply rejected: ${outcome}`;

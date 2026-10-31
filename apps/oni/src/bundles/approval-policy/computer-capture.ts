@@ -1,6 +1,6 @@
 import { Core } from "@oni/agent";
 import { MachinesFailure, type CapturedResult, type CaptureRefusal, type MachineError, type MachineInputCapture } from "@oni/machines";
-import { Machine, PlainValueSchema, type PlainValue } from "@oni/protocol";
+import { PlainValueSchema, type PlainValue } from "@oni/protocol";
 import { Effect, Result } from "effect";
 import type { ComputerPolicy } from "./computer-policy";
 
@@ -15,7 +15,9 @@ export function computerCapture(policy: ComputerPolicy) {
     const outcome = yield* executor.run({
       kind: "tool", op: request.method, intent: policy.intent(request),
       effect: { category: "execution" }, recovery: "ambiguous_no_replay",
-    }, (intent) => forward.pipe(
+    }, (intent) => Effect.sync(() => {
+      if (request.method.startsWith("machine.input.")) policy.injected(request.machineId);
+    }).pipe(Effect.andThen(forward),
       Effect.result,
       Effect.map((result): PlainValue => {
         sent = result;
@@ -25,11 +27,8 @@ export function computerCapture(policy: ComputerPolicy) {
       }),
     )).pipe(Effect.mapError((error) => new MachinesFailure({ operation: `${request.method}.capture`, cause: String(error) })));
     if (outcome.terminal !== "executed" || sent === undefined) {
-      const refused = Machine.ComputerRefusal.safeParse({
-        status: "refused", reason: outcome.terminal === "blocked_pre" ? outcome.reason : "permission_denied",
-      });
-      return refused.success ? refused.data : { status: "refused", reason: "permission_denied", message: `machine input not executed: ${outcome.terminal}` } as const;
+      return policy.captureRefusal(request, outcome.terminal === "blocked_pre" ? outcome.reason : "permission_denied", outcome.terminal);
     }
-    return Result.isSuccess(sent) ? sent.success : yield* Effect.fail(sent.failure);
+    return yield* Result.match(sent, { onSuccess: Effect.succeed, onFailure: Effect.fail });
   });
 }
