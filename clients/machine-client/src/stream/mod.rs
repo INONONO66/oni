@@ -34,7 +34,7 @@ use tokio::{
 
 use crate::{
     attach::{now_ms, Uplink},
-    screen::{Fault, Screen},
+    screen::{private::FocusRefresh, Fault, Screen},
 };
 use encoder::{Bounds, Stats};
 use session::{Datagram, Session};
@@ -56,6 +56,7 @@ type Reply = oneshot::Sender<Result<(), String>>;
 struct Meter {
     stats: Stats,
     retained: usize,
+    private: bool,
 }
 
 struct Live {
@@ -179,6 +180,11 @@ struct Pump {
     frame: Vec<u8>,
     meter: Arc<Mutex<Meter>>,
     deadline: Instant,
+    private: bool,
+    started_at: Instant,
+    focus_refresh: FocusRefresh,
+    uplink: Option<Uplink>,
+    machine_id: String,
 }
 
 impl Pump {
@@ -211,18 +217,52 @@ impl Pump {
         }
     }
 
+    async fn refresh_focus(&mut self, now: Instant) -> Result<(), String> {
+        if self.focus_refresh.due(now.duration_since(self.started_at)) {
+            let screen = self.screen.clone();
+            let source = self.source.clone();
+            let (private, edges) = tokio::task::spawn_blocking(move || {
+                (
+                    screen.stream_private(&source).unwrap_or(true),
+                    screen.private_edges().unwrap_or_default(),
+                )
+            })
+            .await
+            .map_err(failure)?;
+            self.private = private;
+            if let Some(uplink) = &self.uplink {
+                for (target, edge) in edges {
+                    let state = match edge {
+                        crate::screen::private::Edge::Entered => "entered",
+                        crate::screen::private::Edge::Left => "left",
+                    };
+                    let params = json!({
+                        "machineId": self.machine_id,
+                        "target": {"pid": target.pid, "windowId": target.window_id, "epoch": target.epoch.unwrap_or(0)},
+                        "state": state,
+                    });
+                    let _ = uplink.call("machine.event.private", params).await;
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn capture(&mut self, now: Instant) -> Result<(), String> {
         let (screen, source) = (self.screen.clone(), self.source.clone());
         let (dimension, mut frame) = (self.session.dimension(), std::mem::take(&mut self.frame));
         let (frame, captured) = tokio::task::spawn_blocking(move || {
-            let captured = screen.frame(&source, dimension, &mut frame);
+            let captured = screen.frame_private(&source, dimension, &mut frame);
             (frame, captured)
         })
         .await
         .map_err(failure)?;
         self.frame = frame;
         match captured {
-            Ok(size) => self.session.frame(now, &self.frame, size).map(drop),
+            Ok((size, private)) => {
+                self.private = private;
+                self.session.frame(now, &self.frame, size).map(drop)
+            }
             Err(Fault::Failed(_)) => {
                 self.session.skipped();
                 Ok(())
@@ -239,13 +279,18 @@ impl Pump {
             *lock(&self.meter) = Meter {
                 stats: self.session.stats(),
                 retained: self.session.retained() + self.frame.capacity() + DATAGRAM,
+                private: self.private,
             };
-            let wake = [Some(polled.timeout), Some(self.deadline)]
-                .into_iter()
-                .chain([self.session.next_frame(Instant::now())])
-                .flatten()
-                .min()
-                .unwrap_or(self.deadline);
+            let wake = [
+                Some(polled.timeout),
+                Some(self.deadline),
+                Some(self.started_at + self.focus_refresh.next()),
+            ]
+            .into_iter()
+            .chain([self.session.next_frame(Instant::now())])
+            .flatten()
+            .min()
+            .unwrap_or(self.deadline);
             tokio::select! {
                 Some((signal, reply)) = self.inbox.recv() => {
                     let _ = reply.send(self.apply(signal));
@@ -261,6 +306,7 @@ impl Pump {
                 return Ok(());
             }
             self.session.tick(now)?;
+            self.refresh_focus(now).await?;
             if self.session.due(now) {
                 self.capture(now).await?;
             }
@@ -319,14 +365,16 @@ async fn pump(
 pub struct Stream {
     address: IpAddr,
     state: Arc<Mutex<State>>,
+    machine_id: String,
 }
 
 impl Stream {
     /// Streams gather host candidates on `address`.
-    pub fn new(address: IpAddr) -> Self {
+    pub fn new(address: IpAddr, machine_id: String) -> Self {
         Self {
             address,
             state: Arc::default(),
+            machine_id,
         }
     }
 
@@ -360,6 +408,7 @@ impl Stream {
         screen: &Arc<Screen>,
     ) -> Result<(Pump, session::Offer), Value> {
         let bounds = bounds(request);
+        let private = screen.stream_private(&request.source).unwrap_or(true);
         let (shared, source) = (screen.clone(), request.source.clone());
         let mut frame = Vec::new();
         tokio::task::spawn_blocking(move || {
@@ -387,6 +436,7 @@ impl Stream {
             let meter = Arc::new(Mutex::new(Meter {
                 stats: Stats::default(),
                 retained: session.retained() + frame.capacity() + DATAGRAM,
+                private,
             }));
             let pump = Pump {
                 session,
@@ -398,6 +448,11 @@ impl Stream {
                 frame,
                 meter,
                 deadline: Instant::now() + Duration::from_millis(request.lifetime_ms.get()),
+                private,
+                started_at: Instant::now(),
+                focus_refresh: FocusRefresh::new(Duration::ZERO),
+                uplink: None,
+                machine_id: self.machine_id.clone(),
             };
             Ok((pump, offer))
         })
@@ -420,6 +475,7 @@ impl Stream {
         };
         let (inbox, queue) = mpsc::channel(SIGNAL_QUEUE);
         prepared.inbox = queue;
+        prepared.uplink = Some(uplink.clone());
         state.epoch += 1;
         let epoch = state.epoch;
         let meter = prepared.meter.clone();
@@ -568,7 +624,8 @@ impl Stream {
                 let rates = meter.stats.rates(&earlier, now.duration_since(at));
                 live.reported = (meter.stats, now);
                 json!({
-                    "streamId": id, "fps": rates.fps, "bytesPerSecond": rates.bytes_per_second,
+                    "streamId": id, "private": meter.private,
+                    "fps": rates.fps, "bytesPerSecond": rates.bytes_per_second,
                     "encodeMs": rates.encode_ms, "droppedFrames": rates.dropped_frames,
                     "retainedBytes": meter.retained
                 })
@@ -576,5 +633,145 @@ impl Stream {
             .collect();
         rows.sort_by(|a, b| a["streamId"].as_str().cmp(&b["streamId"].as_str()));
         rows
+    }
+}
+
+#[cfg(test)]
+mod private_tests {
+    use super::*;
+    use crate::screen::{ax::fixture::Scripted, fixture::Fixture, Window};
+
+    fn row(secure: bool) -> Value {
+        json!({
+            "windows":[{"id":9,"pid":7,"title":"Editor","elements":[{
+                "role":"AXTextField","secure":secure,"focused":true,
+                "frame":{"x":0,"y":0,"width":16,"height":16}
+            }]}]
+        })
+    }
+
+    async fn private_focus_pump(layout: &std::path::Path) -> Pump {
+        let source = Fixture {
+            windows: vec![Window {
+                id: 9,
+                display: 1,
+                title: "Editor".into(),
+                owner: "fixture".into(),
+                pid: Some(7),
+                app: None,
+                x: 0,
+                y: 0,
+                width: 16,
+                height: 16,
+            }],
+            ..Fixture::display(32, 16, 1.0)
+        };
+        let screen = Arc::new(
+            Screen::new(Box::new(source), 2).observing(Box::new(Scripted {
+                layout: layout.to_path_buf(),
+                recorder: layout.with_file_name("recorder.jsonl"),
+            })),
+        );
+        let request: StreamOpenRequest = oni_protocol::decode(json!({
+            "streamId":"private-focus","source":{"kind":"display","display":1},
+            "dataChannel":true,"lifetimeMs":60000,
+            "video":{"maxFps":30,"keyframeIntervalMs":1000,
+                "maxBitrateBps":1000000,"maxDimension":32,"maxFrameBytes":1048576}
+        }))
+        .expect("stream request");
+        let stream = Stream::new(IpAddr::V4(Ipv4Addr::LOCALHOST), "laptop".into());
+        let (pump, _) = stream.prepare(&request, &screen).await.expect("prepare");
+        pump
+    }
+
+    #[tokio::test]
+    async fn focus_refresh_before_deadline_retains_previous_state() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = directory.path().join("layout.json");
+        std::fs::write(&layout, row(false).to_string()).expect("layout");
+        let mut pump = private_focus_pump(&layout).await;
+        std::fs::write(&layout, row(true).to_string()).expect("private focus");
+
+        pump.refresh_focus(pump.started_at + Duration::from_millis(100))
+            .await
+            .expect("early refresh");
+        assert!(!pump.private);
+
+        pump.refresh_focus(pump.started_at + Duration::from_millis(250))
+            .await
+            .expect("due refresh");
+        assert!(pump.private);
+    }
+
+    #[tokio::test]
+    async fn refreshed_focus_without_uplink_updates_private_state_without_publishing() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = directory.path().join("layout.json");
+        std::fs::write(&layout, row(false).to_string()).expect("layout");
+        let mut pump = private_focus_pump(&layout).await;
+        assert!(pump.uplink.is_none());
+        assert!(!pump.private);
+
+        std::fs::write(&layout, row(true).to_string()).expect("private focus");
+        pump.refresh_focus(pump.started_at + Duration::from_millis(250))
+            .await
+            .expect("refresh without uplink");
+
+        assert!(pump.private);
+    }
+
+    #[tokio::test]
+    async fn refreshed_focus_publishes_private_entry_and_exit_despite_uplink_failure() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = directory.path().join("layout.json");
+        std::fs::write(&layout, row(true).to_string()).expect("layout");
+        let mut pump = private_focus_pump(&layout).await;
+        let (uplink, mut calls) = Uplink::channel();
+        pump.uplink = Some(uplink);
+        let start = pump.started_at;
+        let refresh = pump.refresh_focus(start + Duration::from_millis(250));
+        let receive = async {
+            let call = calls.recv().await.expect("entry");
+            assert_eq!(call.method, "machine.event.private");
+            assert_eq!(
+                call.params,
+                json!({
+                    "machineId":"laptop","target":{"pid":7,"windowId":9,"epoch":0},"state":"entered"
+                })
+            );
+            call.answer(Ok(Some(json!({"status":"accepted"}))));
+        };
+        let (result, ()) = tokio::join!(refresh, receive);
+        result.expect("refresh entry");
+        assert!(pump.private);
+
+        std::fs::write(&layout, row(false).to_string()).expect("ordinary focus");
+        let refresh = pump.refresh_focus(start + Duration::from_millis(500));
+        let receive = async {
+            let call = calls.recv().await.expect("exit");
+            assert_eq!(call.method, "machine.event.private");
+            assert_eq!(
+                call.params,
+                json!({
+                    "machineId":"laptop","target":{"pid":7,"windowId":9,"epoch":0},"state":"left"
+                })
+            );
+            call.answer(Ok(Some(json!({"status":"accepted"}))));
+        };
+        let (result, ()) = tokio::join!(refresh, receive);
+        result.expect("refresh exit");
+        assert!(!pump.private);
+
+        std::fs::write(&layout, row(true).to_string()).expect("private focus");
+        let refresh = pump.refresh_focus(start + Duration::from_millis(750));
+        let refuse = async {
+            let call = calls.recv().await.expect("entry after exit");
+            assert_eq!(call.method, "machine.event.private");
+            assert_eq!(call.params["state"], "entered");
+            drop(call);
+        };
+        let (result, ()) = tokio::join!(refresh, refuse);
+        result.expect("refresh completes after uplink failure");
+        assert!(pump.private);
     }
 }

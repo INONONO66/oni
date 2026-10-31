@@ -17,11 +17,21 @@ struct Model {
     fault: Option<Fault>,
     budgets: Vec<Duration>,
     before_commit: Option<Notification>,
+    private: bool,
 }
 
 struct FakeObserver(Arc<Mutex<Model>>);
 
 impl Observer for FakeObserver {
+    fn focused(
+        &self,
+        _: &WindowIdentity,
+    ) -> Result<Option<crate::screen::private::Focused>, Fault> {
+        Ok(Some(crate::screen::private::Focused {
+            role: "AXButton".into(),
+            secure: self.0.lock().expect("model").private,
+        }))
+    }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         let mut model = self.0.lock().expect("model");
         if let Some(fault) = &model.fault {
@@ -193,6 +203,28 @@ fn settle_commits_fresh_observation_usable_as_since() {
     );
     assert_eq!(model.lock().expect("model").walks, 2);
     assert_eq!(since(&screen, "o2")["diff"]["since"], "o2");
+}
+
+#[test]
+fn settle_private_focus_commits_only_empty_observations_without_walking() {
+    let (screen, model) = setup(
+        Model {
+            private: true,
+            ..Model::default()
+        },
+        0,
+        vec![],
+        None,
+    );
+    assert_eq!(
+        screen.settle(&request(50, 100)),
+        json!({"status":"settled", "observationId":"o2"})
+    );
+    assert_eq!(model.lock().expect("model").walks, 0);
+    let observation = since(&screen, "o2");
+    assert_eq!(observation["private"], true);
+    assert_eq!(observation["elements"], json!([]));
+    assert!(observation.get("diff").is_none());
 }
 
 #[test]

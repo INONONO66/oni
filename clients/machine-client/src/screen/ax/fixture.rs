@@ -24,7 +24,10 @@ use crate::screen::observe;
 use crate::screen::settle::{
     observer, Notification, Notifications, Sample, Subscription, Unsupported,
 };
-use crate::{computer::append, screen::Fault};
+use crate::{
+    computer::append,
+    screen::{private::Focused, Fault},
+};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -67,6 +70,8 @@ struct Row {
     epoch: u64,
     #[serde(default)]
     elements: Vec<Element>,
+    #[serde(default, rename = "focusError")]
+    focus_error: bool,
     #[serde(default)]
     minimized: bool,
     #[serde(default)]
@@ -245,6 +250,27 @@ impl Observer for Scripted {
         )
         .map_err(|error| ActFault::Failed(error.to_string()))
     }
+    fn focused(&self, window: &WindowIdentity) -> Result<Option<Focused>, Fault> {
+        fn find(elements: &[Element]) -> Option<Focused> {
+            for element in elements {
+                if element.focused {
+                    return Some(Focused {
+                        role: element.role.clone(),
+                        secure: element.secure,
+                    });
+                }
+                if let Some(focused) = find(&element.children) {
+                    return Some(focused);
+                }
+            }
+            None
+        }
+        let row = self.row(window)?;
+        if row.focus_error {
+            return Err(Fault::Permission);
+        }
+        Ok(find(&row.elements))
+    }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         Ok(self
             .rows()?
@@ -349,6 +375,37 @@ mod tests {
 
     fn path() -> Vec<Segment> {
         super::super::segments("AXButton[0]").expect("a ref")
+    }
+
+    #[test]
+    fn nested_focused_element_is_reported_by_the_fixture_observer() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let fixture = scripted(
+            directory.path(),
+            r#"{"windows":[{"id":9,"title":"Editor","pid":7,"elements":[
+                {"role":"AXGroup","frame":{"x":0,"y":0,"width":1,"height":1},
+                 "children":[{"role":"AXSecureTextField","secure":true,"focused":true,
+                   "frame":{"x":0,"y":0,"width":1,"height":1}}]}]}]}"#,
+        );
+        assert_eq!(
+            fixture.focused(&window()),
+            Ok(Some(Focused {
+                role: "AXSecureTextField".into(),
+                secure: true,
+            }))
+        );
+    }
+
+    #[test]
+    fn focus_query_failure_is_distinct_from_an_absent_element() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let fixture = scripted(directory.path(), LAYOUT);
+        assert_eq!(fixture.focused(&window()), Ok(None));
+        let mut layout: Value = serde_json::from_str(LAYOUT).expect("layout");
+        layout["windows"][0]["focusError"] = json!(true);
+        fs::write(&fixture.layout, layout.to_string()).expect("failed focus");
+        assert_eq!(fixture.focused(&window()), Err(Fault::Permission));
+        assert_eq!(fixture.windows().expect("windows").len(), 1);
     }
 
     #[test]

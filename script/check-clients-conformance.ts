@@ -93,13 +93,17 @@ export function within<A>(promise: Promise<A>, label: string): Promise<A> {
 
 export function eventLog() {
   const counts = new Map<string, number>();
+  const privateEdges: Machine.PrivateEvent[] = [];
   const waiters: Array<{
     readonly name: string;
     readonly target: number;
     readonly resolve: () => void;
   }> = [];
   const sink: BusEvent.Sink = {
-    publish(event) {
+    publish(event, payload) {
+      if (event.name === Machine.Events.Private.name) {
+        privateEdges.push(Machine.Events.Private.schema.parse(payload));
+      }
       const count = (counts.get(event.name) ?? 0) + 1;
       counts.set(event.name, count);
       for (const waiter of waiters.filter(
@@ -114,7 +118,7 @@ export function eventLog() {
     const target = (counts.get(event.name) ?? 0) + 1;
     return new Promise((resolve) => waiters.push({ name: event.name, target, resolve }));
   }
-  return { sink, next };
+  return { sink, next, privateEdges };
 }
 
 /**
@@ -468,6 +472,11 @@ async function computerUse(
       current = undefined;
     },
     grant,
+    nextPrivate: () => events.next(Machine.Events.Private).then(() => {
+      const edge = events.privateEdges.at(-1);
+      check(edge !== undefined, "private event missing payload");
+      return edge;
+    }),
   };
   const directory = dirname(setup.config);
   await exerciseComputer(

@@ -29,6 +29,7 @@ pub enum Unsupported {
 pub struct Sample {
     pub windows: Vec<ax::WindowIdentity>,
     pub walk: ax::Walk,
+    pub private: bool,
 }
 
 pub trait Subscription {
@@ -239,7 +240,7 @@ impl Screen {
     ) -> Result<observe::Prepared, observe::Refusal> {
         let sample = subscription.sample(deadline)?;
         self.observations
-            .prepare_sample(target, sample.windows, sample.walk)
+            .prepare_sample(target, sample.windows, sample.walk, sample.private)
     }
 }
 

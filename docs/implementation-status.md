@@ -307,6 +307,39 @@ missing capabilities report `unsupported`, while absent attachments report
 `machine_not_attached`. Code mode exposes `computer.screen.settle`.
 Native grant-dependent behavior awaits the MacBook live acceptance.
 
+## #1695 private mode (PR pending)
+
+On `feat/1695-private-mode` (2026-10-31, rebased on `1a6c4c923` after
+#1689). Target contract: `docs/machines-and-delegation.md` 2.2.5.
+
+**Wire and host.** `ScreenObserveResult` admits only an empty, complete
+successful private observation; `ScreenCaptureResult` and
+`InputWriteResult` add `private`, while `ScreenListResult` does not.
+Every `StreamObservation` carries `private`. `machine.event.private` carries
+the machine id, epoch-fenced window target and `entered|left`; the host
+accepts it only from the attached matching machine and publishes
+`Machine.Events.Private` with host receipt time. The generated schema and
+valid/invalid fixtures cover each shape.
+
+**Client.** `screen/private.rs` owns the cfg-free focus folds,
+epoch-scoped transition state, 250 ms refresh cadence, rectangle intersection
+and pixel blanking. A failed focus query is private; an absent focused element
+is not. Text and key input require a known non-secure focus, with exactly one
+focused window for un-aimed input. Observe resolves the window and epoch before
+returning an empty private result that issues no refs. Ref actions require an
+issued ref and check the node's secure attribute or secure-text role;
+ref-targeted pointers check the window's current private focus. Window capture
+refuses before capture; capture-anchored input refuses before dispatch.
+Display captures and streams blank only intersecting private window
+rectangles, while private window streams blank the whole frame. Open streams
+refresh focus every 250 ms and report their current private fact.
+
+**Known limit.** A custom-painted password interface without a secure
+accessibility role or attribute is not detectable here. The #1697 app
+exclusion list is the complementary policy control. Native live-grant
+behavior remains tracked by #1702; Windows and Linux accessibility adapters
+remain #1700.
+
 ## #1689 window-bound observation and ref-targeted actions (machine contract 3, PR pending)
 
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target

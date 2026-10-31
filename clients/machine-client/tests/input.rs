@@ -1,3 +1,6 @@
+#[path = "support/ordinary_focus.rs"]
+mod ordinary_focus;
+
 use std::sync::{Arc, Mutex};
 
 use oni_machine_client::{
@@ -52,7 +55,18 @@ impl Source for Desk {
     }
 
     fn windows(&self) -> Result<Vec<Window>, Fault> {
-        Ok(vec![])
+        Ok(vec![Window {
+            id: 1,
+            display: 1,
+            title: "Input".into(),
+            owner: "fixture".into(),
+            pid: Some(1),
+            app: None,
+            x: 0,
+            y: 10,
+            width: 180,
+            height: 50,
+        }])
     }
 
     fn capture_display(&self, _: u32, pixels: &mut Vec<u8>) -> Result<(u32, u32), Fault> {
@@ -91,7 +105,7 @@ fn rig() -> Rig {
     desk.layout().displays = vec![display(1, 0, 100, 50), display(2, 100, 80, 40)];
     let recorder = Recorder::default();
     Rig {
-        screen: Screen::new(Box::new(desk.clone()), 2),
+        screen: ordinary_focus::screen(desk.clone(), 2, &[1]),
         desk,
         input: Input::new(recorder.clone()),
         recorder,

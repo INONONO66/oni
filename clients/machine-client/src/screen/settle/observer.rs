@@ -11,6 +11,7 @@ use super::{Notification, Sample, Subscription, Unsupported};
 use crate::screen::{
     ax::{Bounds, Observer},
     observe,
+    private::focus_is_secure,
 };
 use serde_json::Value;
 
@@ -93,6 +94,18 @@ pub fn sample(
         .iter()
         .find(|row| row.pid == pid && row.window_id == window)
         .ok_or(observe::Refusal::WindowNotFound)?;
+    let private = focus_is_secure(observer.focused(target));
+    if private {
+        return Ok(Sample {
+            windows,
+            walk: crate::screen::ax::Walk {
+                nodes: Vec::new(),
+                focused: None,
+                complete: true,
+            },
+            private,
+        });
+    }
     let bounds = Bounds {
         max_elements: observe::MAX_ELEMENTS,
         max_visits: observe::MAX_VISITS,
@@ -104,7 +117,11 @@ pub fn sample(
     if now() > deadline {
         return Err(observe::Refusal::NotAvailable);
     }
-    Ok(Sample { windows, walk })
+    Ok(Sample {
+        windows,
+        walk,
+        private,
+    })
 }
 
 pub fn grant(driver: &mut impl Driver, started: Instant, end: Instant) -> Result<(), Unsupported> {

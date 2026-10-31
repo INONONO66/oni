@@ -72,6 +72,7 @@ impl Drop for Fake {
 fn empty() -> Sample {
     Sample {
         windows: vec![],
+        private: false,
         walk: Walk {
             nodes: vec![],
             focused: None,
@@ -146,6 +147,15 @@ struct Source {
 }
 
 impl Observer for Source {
+    fn focused(
+        &self,
+        _: &WindowIdentity,
+    ) -> Result<Option<crate::screen::private::Focused>, Fault> {
+        Ok(Some(crate::screen::private::Focused {
+            role: "AXButton".into(),
+            secure: false,
+        }))
+    }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         self.fault
             .clone()

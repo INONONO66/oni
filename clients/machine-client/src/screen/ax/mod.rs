@@ -17,6 +17,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use super::private::Focused;
 use super::Fault;
 
 /// The app that owns a window: its bundle id, if any, and executable path.
@@ -137,6 +138,9 @@ pub trait Observer: Send + Sync {
     }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault>;
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault>;
+    /// The element focused inside `window`: `Ok(None)` when the window owns
+    /// no focus, `Err` when the query itself fails.
+    fn focused(&self, window: &WindowIdentity) -> Result<Option<Focused>, Fault>;
     /// Resolves `path` once, asks `admit` about that element and performs
     /// `action` on that same element; an element `admit` refuses is
     /// `ActFault::NotFound` and nothing executes.
@@ -430,6 +434,10 @@ mod tests {
             Ok(Vec::new())
         }
 
+        fn focused(&self, _: &WindowIdentity) -> Result<Option<Focused>, Fault> {
+            Ok(None)
+        }
+
         fn walk(&self, _: &WindowIdentity, _: &Bounds) -> Result<Walk, Fault> {
             Ok(Walk {
                 nodes: Vec::new(),
@@ -469,6 +477,7 @@ mod tests {
             .walk(&window, &bounds(8, Duration::from_millis(50)))
             .expect("empty walk");
         assert!(walk.nodes.is_empty() && walk.focused.is_none() && walk.complete);
+        assert_eq!(observer.focused(&window), Ok(None));
         assert_eq!(
             observer.act_guarded(&window, &path, &|_| true, &Action::Press, &|| false),
             Err(ActFault::NotFound)

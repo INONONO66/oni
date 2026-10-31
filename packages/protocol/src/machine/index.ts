@@ -330,6 +330,8 @@ export namespace Machine {
   export type ScreenSettleResult = Settle.ScreenSettleResult;
   export const InputActionRequest = Observe.InputActionRequest;
   export type InputActionRequest = Observe.InputActionRequest;
+  export const PrivateEvent = Observe.PrivateEvent;
+  export type PrivateEvent = Observe.PrivateEvent;
   export const OBSERVE_MAX_ELEMENTS = Observe.OBSERVE_MAX_ELEMENTS;
   export const OBSERVE_MAX_VISITS = Observe.OBSERVE_MAX_VISITS;
   export const OBSERVE_BUDGET_MS = Observe.OBSERVE_BUDGET_MS;

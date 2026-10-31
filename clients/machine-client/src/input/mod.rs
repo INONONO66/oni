@@ -684,10 +684,17 @@ impl Input {
         (route, guard): (Route, Option<&Entry>),
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
     ) -> Result<(), Refusal> {
+        let (display, aim) = resolve(screen, anchor)?;
+        let point = match &aim {
+            Some(Event::Move { x, y, .. }) => Some((*x, *y)),
+            _ => None,
+        };
+        if !matches!(anchor, Anchor::Ref { .. }) && screen.input_private(point).unwrap_or(true) {
+            return Err(refuse("private"));
+        }
         if !driver.permitted() {
             return Err(refuse("permission_denied"));
         }
-        let (display, aim) = resolve(screen, anchor)?;
         if main_only && !display.primary {
             return Err(explain(
                 "unsupported_action",

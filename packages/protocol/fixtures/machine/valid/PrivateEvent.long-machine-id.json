@@ -1,0 +1,5 @@
+{
+  "machineId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "target": { "pid": 42, "windowId": 7, "epoch": 0 },
+  "state": "entered"
+}

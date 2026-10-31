@@ -219,6 +219,15 @@ struct Windows {
     fail_after_preflight: bool,
 }
 impl crate::screen::ax::Observer for Windows {
+    fn focused(
+        &self,
+        _: &crate::screen::ax::WindowIdentity,
+    ) -> Result<Option<crate::screen::private::Focused>, crate::screen::Fault> {
+        Ok(Some(crate::screen::private::Focused {
+            role: "AXButton".into(),
+            secure: false,
+        }))
+    }
     fn windows(&self) -> Result<Vec<crate::screen::ax::WindowIdentity>, crate::screen::Fault> {
         let call = self
             .calls
@@ -509,6 +518,12 @@ fn window_lifecycle_fences_targets_and_maps_native_failures() {
 
 struct ReadOnly(Windows);
 impl crate::screen::ax::Observer for ReadOnly {
+    fn focused(
+        &self,
+        window: &crate::screen::ax::WindowIdentity,
+    ) -> Result<Option<crate::screen::private::Focused>, crate::screen::Fault> {
+        self.0.focused(window)
+    }
     fn windows(&self) -> Result<Vec<crate::screen::ax::WindowIdentity>, crate::screen::Fault> {
         self.0.windows()
     }

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { WindowTarget } from "./target.js";
 import { InputRequestId } from "./dispatch.js";
 export { WindowTarget } from "./target.js";
-import { AppIdentity, COMPUTER_MAX_DIMENSION, ObservationId, ObservedRef, SCREEN_AX_MAX_BYTES, SCREEN_PNG_MAX_BYTES } from "./schema.js";
+import { AppIdentity, COMPUTER_MAX_DIMENSION, MachineId, ObservationId, ObservedRef, SCREEN_AX_MAX_BYTES, SCREEN_PNG_MAX_BYTES } from "./schema.js";
 
 /**
  * Window-bound observation (#1689): one window's accessibility elements,
@@ -100,12 +100,23 @@ const Observed = z.object({
  * walk, and then no element carries a ref (sibling identity is unknown past the
  * cut). `private` is reserved and always false here.
  */
-export const ScreenObserveResult = z.union([
+export const ScreenObserveResult = z.xor([
   Observed.extend({ elements: Elements }).strict(),
   Observed.extend({
     diff: z
       .object({ since: ObservationId, added: Elements, changed: Elements, removed: z.array(Ref).max(OBSERVE_MAX_ELEMENTS) })
       .strict(),
+  }).strict(),
+  Observed.pick({
+    status: true,
+    observationId: true,
+    lineage: true,
+    target: true,
+    window: true,
+  }).extend({
+    complete: z.literal(true),
+    private: z.literal(true),
+    elements: z.array(z.never()).max(0),
   }).strict(),
   z
     .object({
@@ -141,3 +152,13 @@ export const InputActionRequest = z
   })
   .strict();
 export type InputActionRequest = z.infer<typeof InputActionRequest>;
+
+/** A target window crossed the private-focus boundary. */
+export const PrivateEvent = z
+  .object({
+    machineId: MachineId,
+    target: WindowTarget.required({ epoch: true }),
+    state: z.enum(["entered", "left"]),
+  })
+  .strict();
+export type PrivateEvent = z.infer<typeof PrivateEvent>;

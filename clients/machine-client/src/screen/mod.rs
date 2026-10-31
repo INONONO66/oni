@@ -11,6 +11,7 @@ pub mod fixture;
 pub mod native;
 pub mod observe;
 mod pool;
+pub mod private;
 pub mod settle;
 
 use std::{
@@ -32,6 +33,7 @@ use crate::attach::now_ms;
 use encode::{Encoding, Format};
 use observe::Observations;
 use pool::Pool;
+use private::{blank_rect, focus_admits_input, focus_is_secure, overlaps, Edge, States};
 
 pub const MAX_BYTES: usize = 4_194_304;
 pub const MAX_DIMENSION: u32 = 16_384;
@@ -92,6 +94,7 @@ pub enum Fault {
     CaptureBlank,
     OwnWindow,
     Superseded,
+    Private,
     Failed(String),
 }
 
@@ -107,6 +110,7 @@ impl Fault {
             Self::CaptureBlank => "capture_blank",
             Self::OwnWindow => "own_window",
             Self::Superseded => "superseded",
+            Self::Private => "private",
             Self::Failed(_) => "capture_failed",
         }
     }
@@ -181,6 +185,7 @@ pub struct Screen {
     observer: Option<Arc<dyn ax::Observer>>,
     notifications: Option<Box<dyn settle::Notifications>>,
     observations: Observations,
+    private_states: Mutex<States>,
 }
 
 impl Screen {
@@ -195,6 +200,7 @@ impl Screen {
             observer: None,
             notifications: None,
             observations: Observations::default(),
+            private_states: Mutex::default(),
         }
     }
 
@@ -210,6 +216,7 @@ impl Screen {
             observer: None,
             notifications: None,
             observations: Observations::default(),
+            private_states: Mutex::default(),
         }
     }
 
@@ -269,6 +276,185 @@ impl Screen {
         self.pool.retained()
     }
 
+    pub fn stream_private(
+        &self,
+        source: &oni_protocol::stream_open_request::StreamOpenRequestSource,
+    ) -> Result<bool, Fault> {
+        use oni_protocol::stream_open_request::StreamOpenRequestSource as Feed;
+        match source {
+            Feed::Display { display, region } => {
+                let region = region.as_ref().map(|region| Region {
+                    x: region.x,
+                    y: region.y,
+                    width: region.width.get(),
+                    height: region.height.get(),
+                });
+                self.display_private(display.get(), region.as_ref())
+            }
+            Feed::Window { window_id } => window_id
+                .parse()
+                .map_err(|_| Fault::WindowNotFound)
+                .and_then(|window| self.window_private(window)),
+        }
+    }
+
+    pub fn input_private(&self, aim: Option<(i32, i32)>) -> Result<bool, Fault> {
+        let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
+        let windows = observer.windows()?;
+        if windows.is_empty() {
+            return Ok(true);
+        }
+        if let Some((x, y)) = aim {
+            let candidates: Vec<_> = self
+                .source()?
+                .windows()?
+                .into_iter()
+                .filter(|window| {
+                    i64::from(x) >= i64::from(window.x)
+                        && i64::from(x) < i64::from(window.x) + i64::from(window.width)
+                        && i64::from(y) >= i64::from(window.y)
+                        && i64::from(y) < i64::from(window.y) + i64::from(window.height)
+                })
+                .collect();
+            let [window] = candidates.as_slice() else {
+                return Ok(true);
+            };
+            return Ok(windows
+                .into_iter()
+                .find(|identity| identity.window_id == window.id)
+                .is_none_or(|identity| !focus_admits_input(&observer.focused(&identity))));
+        }
+        let focused: Vec<_> = windows
+            .into_iter()
+            .map(|window| observer.focused(&window))
+            .filter(|focused| matches!(focused, Ok(Some(_))))
+            .collect();
+        Ok(focused.len() != 1 || !focus_admits_input(&focused[0]))
+    }
+
+    pub fn private_edges(&self) -> Result<Vec<(observe::Target, Edge)>, Fault> {
+        let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
+        let windows = observer.windows()?;
+        let observations = &self.observations;
+        let mut states = self
+            .private_states
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut edges = Vec::new();
+        for window in &windows {
+            let target = match observations.target_for(observer, window) {
+                Ok(target) => target,
+                Err(refusal) if edges.is_empty() => {
+                    return Err(Fault::Failed(refusal.reason().to_owned()))
+                }
+                Err(_) => break,
+            };
+            let private = focus_is_secure(observer.focused(window));
+            if let Some(edge) = states.update(target, private) {
+                edges.push((target, edge));
+            }
+        }
+        Ok(edges)
+    }
+
+    fn window_private(&self, window_id: u32) -> Result<bool, Fault> {
+        let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
+        let window = observer
+            .windows()?
+            .into_iter()
+            .find(|window| window.window_id == window_id)
+            .ok_or(Fault::WindowNotFound)?;
+        Ok(focus_is_secure(observer.focused(&window)))
+    }
+
+    fn mask_private(
+        &self,
+        source: &dyn Source,
+        display: &Display,
+        region: Option<&Region>,
+        size: (u32, u32),
+        transform: Transform,
+        pixels: &mut [u8],
+    ) -> Result<(), Fault> {
+        let viewport = viewport(display, region)?;
+        let pixel = |at: i64, origin: i32, points: u32, total: u32, upper: bool| {
+            let scaled = u64::try_from(at - i64::from(origin)).unwrap_or(0) * u64::from(total);
+            let position = if upper {
+                scaled.div_ceil(u64::from(points))
+            } else {
+                scaled / u64::from(points)
+            };
+            i64::try_from(position).unwrap_or(i64::MAX)
+        };
+        for window in source
+            .windows()?
+            .into_iter()
+            .filter(|window| overlaps(window_frame(window), viewport))
+        {
+            if self.window_private(window.id)? {
+                let left = pixel(
+                    i64::from(window.x),
+                    display.x,
+                    display.width,
+                    transform.original.0,
+                    false,
+                ) - i64::from(transform.crop_start.0);
+                let top = pixel(
+                    i64::from(window.y),
+                    display.y,
+                    display.height,
+                    transform.original.1,
+                    false,
+                ) - i64::from(transform.crop_start.1);
+                let right = pixel(
+                    i64::from(window.x) + i64::from(window.width),
+                    display.x,
+                    display.width,
+                    transform.original.0,
+                    true,
+                ) - i64::from(transform.crop_start.0);
+                let bottom = pixel(
+                    i64::from(window.y) + i64::from(window.height),
+                    display.y,
+                    display.height,
+                    transform.original.1,
+                    true,
+                ) - i64::from(transform.crop_start.1);
+                blank_rect(
+                    pixels,
+                    size,
+                    size,
+                    ax::Frame {
+                        x: left,
+                        y: top,
+                        width: right - left,
+                        height: bottom - top,
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn display_private(&self, number: u64, region: Option<&Region>) -> Result<bool, Fault> {
+        let source = self.source()?;
+        let all = source.displays()?;
+        let displays = shown(&all)?;
+        let index = usize::try_from(number)
+            .ok()
+            .filter(|index| (1..=displays.len()).contains(index))
+            .ok_or(Fault::DisplayNotFound)?;
+        let display = &displays[index - 1];
+        let viewport = viewport(display, region)?;
+        source
+            .windows()?
+            .into_iter()
+            .filter(|window| overlaps(window_frame(window), viewport))
+            .try_fold(false, |private, window| {
+                Ok(private || self.window_private(window.id)?)
+            })
+    }
+
     pub fn release(&self) {
         self.pool.release();
     }
@@ -318,6 +504,17 @@ impl Screen {
     }
 
     pub fn capture(&self, request: &ScreenCaptureRequest) -> Value {
+        if let ScreenCaptureRequestTarget::Window { window_id } = &request.target {
+            let private = window_id
+                .parse()
+                .map_err(|_| Fault::WindowNotFound)
+                .and_then(|id| self.window_private(id));
+            match private {
+                Ok(true) => return Fault::Private.refusal(),
+                Err(fault) => return fault.refusal(),
+                Ok(false) => {}
+            }
+        }
         let (format, quality) = match request.encoding {
             ScreenCaptureRequestEncoding::Png => (Format::Png, 0),
             ScreenCaptureRequestEncoding::Jpeg(quality) => {
@@ -448,7 +645,22 @@ impl Screen {
                 .acquire()
                 .ok_or_else(|| Fault::Failed("frame pool saturated".to_owned()))?;
             let slot = &mut lease.slot;
-            let (display, anchor, size) = raw(source, displays, target, &mut slot.pixels)?;
+            let Raw {
+                index: display,
+                display: anchor,
+                size,
+                transform,
+            } = raw(source, displays, target, &mut slot.pixels)?;
+            if let Target::Display(_, region) = target {
+                self.mask_private(
+                    source,
+                    anchor,
+                    region.as_ref(),
+                    size,
+                    transform,
+                    &mut slot.pixels,
+                )?;
+            }
             if ticket.is_some() && blank::blank(&slot.pixels) {
                 return Err(Fault::CaptureBlank);
             }
@@ -514,12 +726,25 @@ impl Screen {
 
 /// Captures `target` into `pixels` (cropped to its region): the 1-based
 /// display index, that display and the frame's pixel size.
+#[derive(Clone, Copy)]
+struct Transform {
+    original: (u32, u32),
+    crop_start: (u32, u32),
+}
+
+struct Raw<'a> {
+    index: usize,
+    display: &'a Display,
+    size: (u32, u32),
+    transform: Transform,
+}
+
 fn raw<'a>(
     source: &dyn Source,
     displays: &'a [Display],
     target: &Target,
     frame: &mut Vec<u8>,
-) -> Result<(usize, &'a Display, (u32, u32)), Fault> {
+) -> Result<Raw<'a>, Fault> {
     match target {
         Target::Display(number, region) => {
             let index = usize::try_from(*number)
@@ -532,15 +757,25 @@ fn raw<'a>(
                 .map(|region| bounds(region, display))
                 .transpose()?;
             let size = source.capture_display(display.id, frame)?;
-            let size = match points {
+            let source_size = size;
+            let (size, crop_start) = match points {
                 Some((columns, rows)) => {
                     let columns = pixels(columns, display.width, size.0);
                     let rows = pixels(rows, display.height, size.1);
-                    encode::crop(frame, size.0, columns, rows)
+                    let crop_start = (columns.start, rows.start);
+                    (encode::crop(frame, size.0, columns, rows), crop_start)
                 }
-                None => size,
+                None => (size, (0, 0)),
             };
-            Ok((index, display, size))
+            Ok(Raw {
+                index,
+                display,
+                size,
+                transform: Transform {
+                    original: source_size,
+                    crop_start,
+                },
+            })
         }
         Target::Window(id) => {
             let id: u32 = id.parse().map_err(|_| Fault::WindowNotFound)?;
@@ -554,7 +789,15 @@ fn raw<'a>(
                 .position(|display| display.id == window.display)
                 .ok_or(Fault::WindowNotFound)?;
             let size = source.capture_window(id, frame)?;
-            Ok((index + 1, &displays[index], size))
+            Ok(Raw {
+                index: index + 1,
+                display: &displays[index],
+                size,
+                transform: Transform {
+                    original: size,
+                    crop_start: (0, 0),
+                },
+            })
         }
     }
 }
@@ -618,6 +861,41 @@ fn bounds(
     Ok((x..right, y..bottom))
 }
 
+fn viewport(display: &Display, region: Option<&Region>) -> Result<ax::Frame, Fault> {
+    let (x, y, width, height) = match region {
+        Some(region) => {
+            bounds(region, display)?;
+            (
+                i64::from(display.x) + region.x,
+                i64::from(display.y) + region.y,
+                region.width,
+                region.height,
+            )
+        }
+        None => (
+            i64::from(display.x),
+            i64::from(display.y),
+            u64::from(display.width),
+            u64::from(display.height),
+        ),
+    };
+    Ok(ax::Frame {
+        x,
+        y,
+        width: i64::try_from(width).map_err(|_| Fault::InvalidRegion)?,
+        height: i64::try_from(height).map_err(|_| Fault::InvalidRegion)?,
+    })
+}
+
+fn window_frame(window: &Window) -> ax::Frame {
+    ax::Frame {
+        x: i64::from(window.x),
+        y: i64::from(window.y),
+        width: i64::from(window.width),
+        height: i64::from(window.height),
+    }
+}
+
 /// Maps a point range on a `points`-wide axis onto a `pixels`-wide frame,
 /// covering every partially included pixel and at least one.
 fn pixels(range: std::ops::Range<u64>, points: u32, pixels: u32) -> std::ops::Range<u32> {
@@ -638,6 +916,16 @@ impl Screen {
         max_dimension: u32,
         out: &mut Vec<u8>,
     ) -> Result<(u32, u32), Fault> {
+        self.frame_private(source, max_dimension, out)
+            .map(|(size, _)| size)
+    }
+
+    pub fn frame_private(
+        &self,
+        source: &oni_protocol::stream_open_request::StreamOpenRequestSource,
+        max_dimension: u32,
+        out: &mut Vec<u8>,
+    ) -> Result<((u32, u32), bool), Fault> {
         use oni_protocol::stream_open_request::StreamOpenRequestSource as Feed;
         let target = match source {
             Feed::Display { display, region } => Target::Display(
@@ -651,6 +939,7 @@ impl Screen {
             ),
             Feed::Window { window_id } => Target::Window(window_id.to_string()),
         };
+        let private = self.stream_private(source).unwrap_or(true);
         let capture = self.source()?;
         let all = capture.displays()?;
         let displays = shown(&all)?;
@@ -658,9 +947,28 @@ impl Screen {
             .pool
             .acquire()
             .ok_or_else(|| Fault::Failed("frame pool saturated".to_owned()))?;
-        let (_, _, size) = raw(capture, displays, &target, &mut lease.slot.pixels)?;
+        let Raw {
+            display,
+            size,
+            transform,
+            ..
+        } = raw(capture, displays, &target, &mut lease.slot.pixels)?;
+        match &target {
+            Target::Window(_) if private => lease.slot.pixels.fill(0),
+            Target::Window(_) => {}
+            Target::Display(_, region) => {
+                self.mask_private(
+                    capture,
+                    display,
+                    region.as_ref(),
+                    size,
+                    transform,
+                    &mut lease.slot.pixels,
+                )?;
+            }
+        }
         let scaled = encode::even(&lease.slot.pixels, size, max_dimension, out);
         lease.keep();
-        Ok(scaled)
+        Ok((scaled, private))
     }
 }

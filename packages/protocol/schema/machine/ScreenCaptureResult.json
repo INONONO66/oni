@@ -86,7 +86,8 @@
             "window_minimized",
             "capture_blank",
             "own_window",
-            "superseded"
+            "superseded",
+            "private"
           ],
           "type": "string"
         },

@@ -187,6 +187,7 @@ describe("Machine.InputWriteResult", () => {
       "permission_denied",
       "unsupported_action",
       "input_failed",
+      "private",
       "spawn_failed",
       "probe_timeout",
     ] as const) {
@@ -223,6 +224,20 @@ describe("computer-use wire round trips", () => {
 });
 
 describe("Machine.ScreenObserveResult", () => {
+  test("accepts only an empty complete private observation", () => {
+    const privateObservation = {
+      status: "ok", observationId: "o1", lineage: "w1-1-0",
+      target: { pid: 1, windowId: 1, epoch: 0 },
+      window: { pid: 1, windowId: 1, epoch: 0, title: "", app: { bundleId: null, path: "/bin/app" } },
+      complete: true, private: true, elements: [],
+    } satisfies Machine.ScreenObserveResult;
+    expect(Machine.ScreenObserveResult.parse(privateObservation)).toEqual(privateObservation);
+    expect(Machine.ScreenObserveResult.safeParse({
+      ...privateObservation,
+      elements: [{ ref: "AXTextField[0]", role: "AXTextField", actions: [], frame: { x: 0, y: 0, width: 1, height: 1 }, secure: true }],
+    }).success).toBe(false);
+  });
+
   test("rejects an element list above the serialized ceiling", () => {
     const element = {
       ref: "AXStaticText[0]", role: "AXStaticText", value: "x".repeat(Machine.OBSERVE_MAX_VALUE_CHARS),
@@ -242,5 +257,24 @@ describe("Machine.ScreenObserveResult", () => {
   test("the ipc method table carries the observation contracts", () => {
     expect(Ipc.Methods[Machine.WireMethod.ScreenObserve].result).toBe(Machine.ScreenObserveResult);
     expect(Ipc.Methods[Machine.WireMethod.InputAction].params).toBe(Machine.InputActionRequest);
+    expect(Ipc.Methods[Machine.WireMethod.EventPrivate].params).toBe(Machine.PrivateEvent);
   });
+});
+
+test("private mode wire shapes stay explicit", () => {
+  expect(Machine.ScreenCaptureResult.parse({ status: "refused", reason: "private" })).toEqual({
+    status: "refused", reason: "private",
+  });
+  expect(Machine.ScreenListResult.safeParse({ status: "refused", reason: "private" }).success).toBe(false);
+  expect(Machine.StreamObservation.parse({
+    streamId: "s1", private: true, fps: 0, bytesPerSecond: 0, encodeMs: 0,
+    droppedFrames: 0, retainedBytes: 0,
+  }).private).toBe(true);
+  expect(Machine.StreamObservation.safeParse({
+    streamId: "s1", fps: 0, bytesPerSecond: 0, encodeMs: 0,
+    droppedFrames: 0, retainedBytes: 0,
+  }).success).toBe(false);
+  expect(Machine.Events.Private.schema.parse({
+    machineId: "desk", time: 1, target: { pid: 42, windowId: 7, epoch: 0 }, state: "entered",
+  }).state).toBe("entered");
 });

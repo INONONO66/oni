@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "anyOf": [
+  "oneOf": [
     {
       "additionalProperties": false,
       "properties": {
@@ -666,6 +666,136 @@
         "complete",
         "private",
         "diff"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "const": true,
+          "type": "boolean"
+        },
+        "elements": {
+          "items": {
+            "not": {}
+          },
+          "maxItems": 0,
+          "type": "array"
+        },
+        "lineage": {
+          "maxLength": 64,
+          "pattern": "^w\\d+-\\d+-\\d+$",
+          "type": "string"
+        },
+        "observationId": {
+          "maxLength": 32,
+          "pattern": "^o\\d+$",
+          "type": "string"
+        },
+        "private": {
+          "const": true,
+          "type": "boolean"
+        },
+        "status": {
+          "const": "ok",
+          "type": "string"
+        },
+        "target": {
+          "additionalProperties": false,
+          "properties": {
+            "epoch": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pid": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "windowId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pid",
+            "windowId",
+            "epoch"
+          ],
+          "type": "object"
+        },
+        "window": {
+          "additionalProperties": false,
+          "properties": {
+            "app": {
+              "additionalProperties": false,
+              "properties": {
+                "bundleId": {
+                  "anyOf": [
+                    {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "path": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "bundleId",
+                "path"
+              ],
+              "type": "object"
+            },
+            "epoch": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pid": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "title": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "windowId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pid",
+            "windowId",
+            "epoch",
+            "title",
+            "app"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "status",
+        "observationId",
+        "lineage",
+        "target",
+        "window",
+        "complete",
+        "private",
+        "elements"
       ],
       "type": "object"
     },

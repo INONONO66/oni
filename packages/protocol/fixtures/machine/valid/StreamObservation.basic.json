@@ -1,5 +1,6 @@
 {
   "streamId": "stream-1",
+  "private": false,
   "fps": 29.5,
   "bytesPerSecond": 250000,
   "encodeMs": 4.2,

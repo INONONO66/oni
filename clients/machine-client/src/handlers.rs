@@ -133,6 +133,7 @@ struct Agents {
 }
 
 pub struct Service {
+    machine_id: String,
     offered: Vec<String>,
     exports: HashMap<String, PathBuf>,
     fs: Mutex<FsDriver>,
@@ -306,7 +307,15 @@ impl Service {
         address: std::net::IpAddr,
     ) -> Result<Arc<Self>, FsError> {
         let drivers = Self::open_drivers(config, pty)?;
-        Ok(Self::assemble(drivers, screen, input, cdp, address, None))
+        Ok(Self::assemble(
+            config.machine_id.clone(),
+            drivers,
+            screen,
+            input,
+            cdp,
+            address,
+            None,
+        ))
     }
 
     /// Everything the wire needs: the drivers plus the agent registry, which
@@ -323,6 +332,7 @@ impl Service {
         let drivers = Self::open_drivers(config, pty)?;
         let registry = Registry::open(&options.registry)?;
         Ok(Self::assemble(
+            config.machine_id.clone(),
             drivers,
             screen,
             input,
@@ -347,6 +357,7 @@ impl Service {
     }
 
     fn assemble(
+        machine_id: String,
         Drivers { exports, fs, pty }: Drivers,
         screen: Screen,
         input: Input,
@@ -387,6 +398,7 @@ impl Service {
         }
         let tmux_socket = pty.socket().map(str::to_owned);
         Arc::new(Self {
+            machine_id: machine_id.clone(),
             offered,
             exports,
             fs: Mutex::new(fs),
@@ -398,7 +410,7 @@ impl Service {
             screen: Arc::new(screen),
             input: Arc::new(input),
             cdp,
-            stream: Stream::new(address),
+            stream: Stream::new(address, machine_id.clone()),
             code: Code::with_socket(tmux_socket),
         })
     }
@@ -943,6 +955,39 @@ impl Pressure for Service {
 }
 
 impl Service {
+    async fn publish_private_edges(&self) {
+        let Some(caller) = self.caller().clone() else {
+            return;
+        };
+        let screen = self.screen.clone();
+        let Ok(Ok(edges)) = tokio::task::spawn_blocking(move || screen.private_edges()).await
+        else {
+            return;
+        };
+        for (target, edge) in edges {
+            let state = match edge {
+                crate::screen::private::Edge::Entered => "entered",
+                crate::screen::private::Edge::Left => "left",
+            };
+            let params = json!({
+                "machineId": self.machine_id,
+                "target": {
+                    "pid": target.pid,
+                    "windowId": target.window_id,
+                    "epoch": target.epoch.unwrap_or(0),
+                },
+                "state": state,
+            });
+            let _ = caller
+                .call_with_timeout(
+                    "machine.event.private",
+                    Some(params),
+                    Duration::from_secs(5),
+                )
+                .await;
+        }
+    }
+
     /// Screen methods answer `machine_not_attached` before an attach and
     /// `unavailable` unless `capability` is offered and granted; the
     /// capture itself runs off the async workers.
@@ -1046,20 +1091,32 @@ impl Service {
         let unavailable = "screen_not_available";
         if method == WireMethod::MachineScreenList {
             let request: ScreenListRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.capture(COMPUTER_USE, unavailable, move || screen.list(&request))
                 .await
         } else if method == WireMethod::MachineScreenCapture {
             let request: ScreenCaptureRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.capture(COMPUTER_USE, unavailable, move || screen.capture(&request))
                 .await
         } else if method == WireMethod::MachineScreenObserve {
             let request: ScreenObserveRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.capture(COMPUTER_USE, "observe_not_available", move || {
                 screen.observe(&request)
             })
             .await
         } else {
             let request: ScreenReadRequest = decode(params)?;
+            if self.grant().is_some() && self.has(SCREEN_READ) {
+                self.publish_private_edges().await;
+            }
             self.capture(SCREEN_READ, unavailable, move || screen.read(&request))
                 .await
         }
@@ -1077,6 +1134,9 @@ impl Service {
         }
         if method == WireMethod::MachineInputPointer {
             let request: InputPointerRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             let request_id = match &request {
                 InputPointerRequest::Move { request_id, .. } => request_id.to_string(),
                 InputPointerRequest::Click { request_id, .. } => request_id.to_string(),
@@ -1095,6 +1155,9 @@ impl Service {
             .await
         } else if method == WireMethod::MachineInputKey {
             let request: InputKeyRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.inject(COMPUTER_USE, move || {
                 let ledger = input.ledger();
                 let entry = match ledger.start(&request.request_id) {
@@ -1107,6 +1170,9 @@ impl Service {
             .await
         } else if method == WireMethod::MachineInputText {
             let request: InputTextRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.inject(COMPUTER_USE, move || {
                 let ledger = input.ledger();
                 let entry = match ledger.start(&request.request_id) {
@@ -1120,6 +1186,9 @@ impl Service {
         } else if method == WireMethod::MachineInputAction {
             let request: InputActionRequest = decode(params)?;
             let act = action::parse(&request)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+            }
             self.inject(COMPUTER_USE, move || {
                 let ledger = input.ledger();
                 let entry = match ledger.start(&request.request_id) {
@@ -1136,6 +1205,9 @@ impl Service {
             .await
         } else {
             let request: InputWriteRequest = decode(params)?;
+            if self.grant().is_some() && self.has(INPUT_WRITE) {
+                self.publish_private_edges().await;
+            }
             self.inject(INPUT_WRITE, move || input.write(&screen, &request))
                 .await
         }
@@ -1185,5 +1257,209 @@ impl Service {
             return Ok(refused("machine_not_attached"));
         }
         Ok(self.stream.close(&request))
+    }
+}
+
+#[cfg(test)]
+mod private_tests {
+    use super::*;
+    use crate::{
+        screen::{
+            ax::{self, fixture::Scripted, Observer},
+            fixture::Fixture,
+            Fault,
+        },
+        transport::{
+            client::Client,
+            framing::{self, Framed},
+        },
+    };
+
+    struct PanicWindows;
+
+    impl ax::Observer for PanicWindows {
+        fn windows(&self) -> Result<Vec<ax::WindowIdentity>, Fault> {
+            panic!("observer crashed while listing windows")
+        }
+
+        fn walk(&self, _: &ax::WindowIdentity, _: &ax::Bounds) -> Result<ax::Walk, Fault> {
+            Err(Fault::Absent)
+        }
+
+        fn focused(
+            &self,
+            _: &ax::WindowIdentity,
+        ) -> Result<Option<crate::screen::private::Focused>, Fault> {
+            Err(Fault::Absent)
+        }
+
+        fn act(
+            &self,
+            _: &ax::WindowIdentity,
+            _: &[ax::Segment],
+            _: ax::Admit<'_>,
+            _: &ax::Action,
+        ) -> Result<(), ax::ActFault> {
+            Err(ax::ActFault::Unsupported)
+        }
+    }
+
+    #[test]
+    fn panicking_observer_refuses_every_other_call() {
+        let observer = PanicWindows;
+        let window = ax::WindowIdentity {
+            pid: 7,
+            window_id: 9,
+            owner_pid: 7,
+            title: "Editor".into(),
+            app: ax::fixture::fixture_app(7),
+            token: 0,
+            origin: (0, 0),
+            minimized: false,
+        };
+        let bounds = ax::Bounds {
+            max_elements: 1,
+            max_visits: 1,
+            budget: Duration::from_secs(1),
+        };
+
+        assert_eq!(observer.walk(&window, &bounds), Err(Fault::Absent));
+        assert_eq!(observer.focused(&window), Err(Fault::Absent));
+        assert_eq!(
+            observer.act(&window, &[], &|_| true, &ax::Action::Press),
+            Err(ax::ActFault::Unsupported)
+        );
+    }
+
+    async fn service_with_observer(observer: Box<dyn ax::Observer>) -> Arc<Service> {
+        let config = ClientConfig {
+            machine_id: "laptop".into(),
+            name: "Laptop".into(),
+            host: "127.0.0.1:7643".into(),
+            tags: vec![],
+            exports: vec![],
+            memory_budget_mb: 96,
+            unix: None,
+            tmux_socket: None,
+        };
+        let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
+        let screen = Screen::new(Box::new(Fixture::display(32, 16, 1.0)), 1).observing(observer);
+        let service = Service::open_with(&config, pty, screen).expect("service");
+        let (client, host) = tokio::io::duplex(4096);
+        let client = Client::from_stream(client, handler(|_, _| async { Ok(Value::Null) }));
+        service.connected(client.caller());
+        let (reader, mut writer) = tokio::io::split(host);
+        framing::write_frame(
+            &mut writer,
+            &json!({"v":2,"type":"request","id":"probe","method":"machine.ping","params":{}}),
+        )
+        .await
+        .expect("probe written");
+        assert_eq!(
+            Framed::new(reader)
+                .next()
+                .await
+                .expect("probe response")
+                .expect("frame")["result"],
+            Value::Null
+        );
+        service
+    }
+
+    #[tokio::test]
+    async fn private_edge_without_caller_never_queries_observer() {
+        let service = service_with_observer(Box::new(PanicWindows)).await;
+        *service.caller() = None;
+        service.publish_private_edges().await;
+    }
+
+    #[tokio::test]
+    async fn private_edge_observer_failure_does_not_publish() {
+        let directory = tempfile::tempdir().expect("directory");
+        let service = service_with_observer(Box::new(Scripted {
+            layout: directory.path().join("missing.json"),
+            recorder: directory.path().join("recorder.jsonl"),
+        }))
+        .await;
+        service.publish_private_edges().await;
+    }
+
+    #[tokio::test]
+    async fn private_edge_worker_panic_does_not_publish() {
+        let service = service_with_observer(Box::new(PanicWindows)).await;
+        service.publish_private_edges().await;
+    }
+
+    #[tokio::test]
+    async fn publishes_private_window_entry_and_exit_with_exact_target() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = directory.path().join("layout.json");
+        let row = |secure| {
+            json!({
+                "windows":[{"id":9,"pid":7,"title":"Editor","elements":[{
+                    "role":"AXTextField","secure":secure,"focused":true,
+                    "frame":{"x":0,"y":0,"width":16,"height":16}
+                }]}]
+            })
+        };
+        std::fs::write(&layout, row(true).to_string()).expect("layout");
+        let screen =
+            Screen::new(Box::new(Fixture::display(32, 16, 1.0)), 1).observing(Box::new(Scripted {
+                layout: layout.clone(),
+                recorder: directory.path().join("recorder.jsonl"),
+            }));
+        let config = ClientConfig {
+            machine_id: "laptop".into(),
+            name: "Laptop".into(),
+            host: "127.0.0.1:7643".into(),
+            tags: vec![],
+            exports: vec![],
+            memory_budget_mb: 96,
+            unix: None,
+            tmux_socket: None,
+        };
+        let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
+        let service = Service::open_with(&config, pty, screen).expect("service");
+        let (client, host) = tokio::io::duplex(4096);
+        let client = Client::from_stream(client, handler(|_, _| async { Ok(Value::Null) }));
+        service.connected(client.caller());
+        let (reader, mut writer) = tokio::io::split(host);
+        let mut frames = Framed::new(reader);
+        framing::write_frame(
+            &mut writer,
+            &json!({"v":2,"type":"request","id":"probe","method":"machine.ping","params":{}}),
+        )
+        .await
+        .expect("probe written");
+        assert_eq!(
+            frames.next().await.expect("probe response").expect("frame")["result"],
+            Value::Null
+        );
+        for (secure, state) in [(true, "entered"), (false, "left")] {
+            std::fs::write(&layout, row(secure).to_string()).expect("focus");
+            let publish = service.publish_private_edges();
+            let respond = async {
+                let call = frames.next().await.expect("frame").expect("request");
+                assert_eq!(call["method"], "machine.event.private");
+                assert_eq!(
+                    call["params"],
+                    json!({
+                        "machineId":"laptop",
+                        "target":{"pid":7,"windowId":9,"epoch":0},
+                        "state":state,
+                    })
+                );
+                framing::write_frame(
+                    &mut writer,
+                    &json!({
+                        "v":2,"type":"response","id":call["id"],
+                        "result":{"status":"accepted"}
+                    }),
+                )
+                .await
+                .expect("reply");
+            };
+            let ((), ()) = tokio::join!(publish, respond);
+        }
     }
 }
