@@ -158,6 +158,22 @@ fn coordinate_expectation_accepts_the_current_app_and_reports_the_landing() {
 }
 
 #[test]
+fn coordinate_expectation_uses_the_window_path_without_a_bundle_id() {
+    let (_dir, screen, input) = rig(json!({"app":{"path":"/Fixture.app"}}));
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"foreground","kind":"click",
+        "at":{"captureId":capture(&screen),"x":3,"y":5,
+            "within":{"apps":["/Fixture.app"]}},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &request),
+        json!({"status":"ok","landedOn":{"pid":4242,"app":"/Fixture.app"}})
+    );
+}
+
+#[test]
 fn overlay_mismatch_refuses_before_the_first_recorded_event() {
     let (dir, screen, input) = rig(json!({}));
     let captured = capture(&screen);
@@ -183,6 +199,80 @@ fn overlay_mismatch_refuses_before_the_first_recorded_event() {
         input.pointer(&screen, &request),
         json!({"status":"refused","reason":"target_mismatch",
             "landedOn":{"pid":4343,"app":"org.oni.overlay"}})
+    );
+    assert!(!dir.path().join("events.jsonl").exists());
+}
+
+struct FixedTarget(u32, u32);
+
+impl Driver for FixedTarget {
+    fn permitted(&self) -> bool {
+        true
+    }
+
+    fn inject(&mut self, _: &Event) -> Result<(), String> {
+        panic!("a refused landing must not inject input")
+    }
+
+    fn pid_delivery(&self) -> bool {
+        true
+    }
+
+    fn post_to_pid(&mut self, _: u32, _: &Event) -> Result<(), String> {
+        panic!("a refused landing must not post input")
+    }
+
+    fn target_at(
+        &self,
+        _: &oni_machine_client::screen::Screen,
+        _: &oni_machine_client::screen::Display,
+        _: i32,
+        _: i32,
+    ) -> Option<(u32, u32)> {
+        Some((self.0, self.1))
+    }
+}
+
+#[test]
+fn pointer_refuses_excluded_and_disappeared_landings_before_dispatch() {
+    let (dir, screen, _) = rig(json!({}));
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-1","delivery":"foreground","kind":"click",
+        "at":{"captureId":capture(&screen),"x":3,"y":5},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    let excluded = screen.excluding(vec!["org.oni.fixture".into()]);
+    assert_eq!(
+        Input::new(FixedTarget(4242, 7)).pointer(&excluded, &request),
+        json!({"status":"refused","reason":"excluded"})
+    );
+    let (_dir, screen, _) = rig(json!({}));
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-2","delivery":"foreground","kind":"click",
+        "at":{"captureId":capture(&screen),"x":3,"y":5},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        Input::new(FixedTarget(4242, 999)).pointer(&screen, &request),
+        json!({"status":"refused","reason":"window_not_found"})
+    );
+    let absent = oni_machine_client::screen::Screen::new(
+        Box::new(oni_machine_client::screen::fixture::Fixture::display(
+            16, 16, 1.0,
+        )),
+        1,
+    );
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-3","delivery":"foreground","kind":"click",
+        "at":{"captureId":capture(&absent),"x":3,"y":5},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        Input::new(FixedTarget(4242, 7)).pointer(&absent, &request),
+        json!({"status":"refused","reason":"private"})
     );
     assert!(!dir.path().join("events.jsonl").exists());
 }

@@ -1095,21 +1095,28 @@ impl Screen {
         let observer = self.observer.as_deref().ok_or(Refusal::NotAvailable)?;
         self.observations
             .act_waiting(observer, act, before_dispatch, &|started, end| {
-                let (Some(notifications), Some(observer)) =
-                    (self.notifications.as_deref(), self.observer.as_ref())
-                else {
-                    return None;
-                };
-                let (Ok(pid), Ok(window)) = (
-                    u32::try_from(act.target.pid),
-                    u32::try_from(act.target.window_id),
-                ) else {
-                    return None;
-                };
-                notifications
-                    .subscribe(pid, window, started, end, Arc::clone(observer))
-                    .ok()
+                self.subscribe_action(act.target, started, end)
             })
+    }
+
+    fn subscribe_action(
+        &self,
+        target: Target,
+        started: Instant,
+        end: Instant,
+    ) -> Option<Box<dyn Subscription>> {
+        let (Some(notifications), Some(observer)) =
+            (self.notifications.as_deref(), self.observer.as_ref())
+        else {
+            return None;
+        };
+        let (Ok(pid), Ok(window)) = (u32::try_from(target.pid), u32::try_from(target.window_id))
+        else {
+            return None;
+        };
+        notifications
+            .subscribe(pid, window, started, end, Arc::clone(observer))
+            .ok()
     }
 
     /// Where a pointer aimed at `reference` of `observation` lands: the

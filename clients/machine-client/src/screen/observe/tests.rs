@@ -1415,6 +1415,36 @@ fn points_resolve_the_fresh_element_centre_in_global_points() {
 }
 
 #[test]
+fn identified_point_follows_its_element_and_refuses_ambiguous_relocation() {
+    let mut first = node("AXRow", None, None);
+    first.attributes.identifier = Some("first".into());
+    first.attributes.frame.x = 8;
+    let mut second = node("AXRow", None, None);
+    second.attributes.identifier = Some("second".into());
+    second.attributes.frame.x = 20;
+    let fake = Fake::new(vec![first, second]);
+    let observations = Observations::default();
+    observe(&observations, &fake, None);
+    assert_eq!(observations.point(&fake, "o1", "AXRow[0]"), Ok((108, 50)));
+
+    fake.walk.lock().expect("lock").swap(0, 1);
+    assert_eq!(observations.point(&fake, "o1", "AXRow[0]"), Ok((108, 50)));
+    fake.walk.lock().expect("lock")[1].attributes.label = Some("changed".into());
+    assert_eq!(
+        observations.point(&fake, "o1", "AXRow[0]"),
+        Err(Refusal::RefNotFound)
+    );
+    fake.walk.lock().expect("lock")[1].attributes.label = None;
+    let mut duplicate = node("AXRow", None, None);
+    duplicate.attributes.identifier = Some("first".into());
+    fake.walk.lock().expect("lock").push(duplicate);
+    assert_eq!(
+        observations.point(&fake, "o1", "AXRow[0]"),
+        Err(Refusal::RefNotFound)
+    );
+}
+
+#[test]
 fn wire_targets_convert_and_an_absent_observer_refuses() {
     assert_eq!(
         target(7, 9, Some(2)),
@@ -1441,6 +1471,97 @@ fn wire_targets_convert_and_an_absent_observer_refuses() {
         screen.point("o1", "AXButton[0]").map(|(_, x, y)| (x, y)),
         Err(Refusal::NotAvailable)
     );
+}
+
+#[test]
+fn screen_pointer_resolves_only_a_point_on_an_active_display() {
+    let request: ScreenObserveRequest =
+        oni_protocol::decode(json!({"target":{"pid":7,"windowId":9},"screenshot":false}))
+            .expect("observe request");
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
+        1,
+    )
+    .observing(Box::new(Fake::new(tree())));
+    assert_eq!(screen.observe(&request)["observationId"], "o1");
+    let (display, x, y) = screen.point("o1", "AXButton[0]").expect("pointer");
+    assert_eq!((display.id, x, y), (1, 100, 50));
+    assert_eq!(screen.observation_target("o1"), Ok((7, 9)));
+    assert_eq!(screen.observation_target("missing"), Err(Refusal::Stale));
+
+    for far_x in [300, i64::from(i32::MAX) + 1] {
+        let mut far = tree();
+        far[0].attributes.frame.x = far_x;
+        let screen = Screen::new(
+            Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
+            1,
+        )
+        .observing(Box::new(Fake::new(far)));
+        assert_eq!(screen.observe(&request)["observationId"], "o1");
+        assert_eq!(screen.point("o1", "AXButton[0]"), Err(Refusal::OffScreen));
+    }
+}
+
+struct RejectNotifications(Arc<AtomicUsize>);
+
+impl super::super::settle::Notifications for RejectNotifications {
+    fn subscribe(
+        &self,
+        _: u32,
+        _: u32,
+        _: Instant,
+        _: Instant,
+        _: Arc<dyn Observer>,
+    ) -> Result<Box<dyn Subscription>, super::super::settle::Unsupported> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Err(super::super::settle::Unsupported::WindowNotFound)
+    }
+}
+
+#[test]
+fn screen_action_wait_subscription_refuses_missing_or_unrepresentable_targets() {
+    let mut nodes = tree();
+    nodes[0].attributes.enabled = Some(false);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
+        1,
+    )
+    .observing(Box::new(Fake::new(nodes)))
+    .notifying(Box::new(RejectNotifications(Arc::clone(&calls))));
+    let request: ScreenObserveRequest =
+        oni_protocol::decode(json!({"target":{"pid":7,"windowId":9},"screenshot":false}))
+            .expect("observe request");
+    assert_eq!(screen.observe(&request)["observationId"], "o1");
+    let mut action = act("o1", "AXButton[0]", Action::Press);
+    action.wait_ms = 2000;
+    assert_eq!(screen.act(&action), Err(Refusal::NotActionable("disabled")));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let now = Instant::now();
+    assert!(screen
+        .subscribe_action(
+            Target {
+                pid: u64::MAX,
+                ..action.target
+            },
+            now,
+            now
+        )
+        .is_none());
+    assert!(screen
+        .subscribe_action(
+            Target {
+                window_id: u64::MAX,
+                ..action.target
+            },
+            now,
+            now
+        )
+        .is_none());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(Screen::absent()
+        .subscribe_action(action.target, now, now)
+        .is_none());
 }
 
 #[test]
@@ -1597,5 +1718,74 @@ fn quiet_ticks_end_with_the_first_remaining_blocker() {
         }),
         Err(Refusal::NotActionable("disabled"))
     );
+    assert!(fake.acted.lock().expect("lock").is_empty());
+}
+
+struct RefusalTick {
+    fake: Arc<Fake>,
+    now: Instant,
+    refusal: Refusal,
+}
+
+impl Subscription for RefusalTick {
+    fn now(&self) -> Instant {
+        self.now
+    }
+
+    fn receive_until(&mut self, deadline: Instant) -> Option<(Instant, Notification)> {
+        self.now = deadline;
+        (self.refusal == Refusal::WindowNotFound).then_some((deadline, Notification::Destroyed))
+    }
+
+    fn sample(&mut self, _: Instant) -> Result<super::super::settle::Sample, Refusal> {
+        let bounds = Bounds {
+            max_elements: MAX_ELEMENTS,
+            max_visits: MAX_VISITS,
+            budget: BUDGET,
+        };
+        Ok(super::super::settle::Sample {
+            windows: if self.refusal == Refusal::EpochChanged {
+                vec![window(1)]
+            } else {
+                self.fake.windows().map_err(Refusal::from)?
+            },
+            walk: self.fake.walk(&window(0), &bounds).map_err(Refusal::from)?,
+            private: self.refusal == Refusal::Private,
+        })
+    }
+
+    fn commit_if_current(&mut self, _: Box<dyn FnOnce() -> Value + '_>) -> Option<Value> {
+        None
+    }
+}
+
+#[test]
+fn blocked_action_refuses_destroyed_private_and_recreated_targets_on_tick() {
+    let fake = Arc::new(Fake::new(tree()));
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(false);
+    let observations = Observations::default();
+    observe(&observations, fake.as_ref(), None);
+    let mut action = act("o1", "AXButton[0]", Action::Press);
+    action.wait_ms = 2000;
+    assert_eq!(
+        observations.act_waiting(fake.as_ref(), &action, &|| true, &|_, _| None),
+        Err(Refusal::NotActionable("disabled"))
+    );
+    for refusal in [
+        Refusal::WindowNotFound,
+        Refusal::Private,
+        Refusal::EpochChanged,
+    ] {
+        assert_eq!(
+            observations.act_waiting(fake.as_ref(), &action, &|| true, &|start, _| {
+                Some(Box::new(RefusalTick {
+                    fake: Arc::clone(&fake),
+                    now: start,
+                    refusal: refusal.clone(),
+                }))
+            }),
+            Err(refusal)
+        );
+    }
     assert!(fake.acted.lock().expect("lock").is_empty());
 }

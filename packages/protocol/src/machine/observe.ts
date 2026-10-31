@@ -19,7 +19,7 @@ export const OBSERVE_MAX_VALUE_CHARS = 4096;
 export const OBSERVE_MAX_LABEL_CHARS = 1024;
 export const OBSERVE_MAX_ACTIONS = 16;
 export const ACTION_MAX_VALUE_CHARS = 65_536;
-export const ACTION_WAIT_MAX_MS = 10_000;
+const ACTION_WAIT_MAX_MS = 10_000;
 
 /** An unaddressable role is empty; see {@link ObservedRef}. */
 const Ref = ObservedRef;

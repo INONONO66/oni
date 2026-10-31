@@ -487,6 +487,33 @@ mod tests {
     }
 
     #[test]
+    fn hit_test_refuses_a_missing_path_and_an_occluding_window() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let fixture = scripted(directory.path(), LAYOUT);
+        let missing = super::super::segments("AXButton[1]").expect("missing path");
+        assert_eq!(
+            fixture.hit_test(&window(), &missing, (0, 0)),
+            Err(Fault::WindowNotFound)
+        );
+        assert_eq!(
+            fixture.hit_test(&window(), &path(), (2048, 2048)),
+            Ok(Hit::Occluded)
+        );
+        let overlay = json!({"windows": [
+            {"id": 10, "title": "Overlay", "pid": 8},
+            {"id": 9, "title": "Editor", "pid": 7, "elements": [{
+                "role": "AXButton", "actions": ["AXPress"],
+                "frame": {"x": 0, "y": 0, "width": 1, "height": 1}
+            }]}
+        ]});
+        fs::write(&fixture.layout, overlay.to_string()).expect("overlay");
+        assert_eq!(
+            fixture.hit_test(&window(), &path(), (0, 0)),
+            Ok(Hit::Occluded)
+        );
+    }
+
+    #[test]
     fn a_missing_or_malformed_layout_fails_every_read() {
         let directory = tempfile::tempdir().expect("tempdir");
         let missing = Scripted {
@@ -811,6 +838,13 @@ mod tests {
         );
         let recorded = fs::read_to_string(&fixture.recorder).expect("action");
         assert_eq!(recorded.lines().count(), 1);
+        let mut tick = RewriteTick {
+            layout: fixture.layout.clone(),
+            enabled: layout,
+            now: Instant::now(),
+            fixture,
+        };
+        assert_eq!(tick.commit_if_current(Box::new(Value::default)), None);
     }
 
     #[test]
