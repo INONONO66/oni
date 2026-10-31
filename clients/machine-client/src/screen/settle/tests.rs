@@ -534,6 +534,13 @@ fn pixel_sample_refuses_excluded_owner_and_private_focus_before_capture() {
             .expect_err("private focus")["reason"],
         "paused:private"
     );
+
+    assert_eq!(
+        screen
+            .pixel_sample(screen.source().expect("source"), 42, 7, 1)
+            .expect_err("stale window epoch")["reason"],
+        "epoch_changed"
+    );
 }
 
 struct PixelClock(Cell<Instant>);
@@ -580,6 +587,9 @@ struct PixelSource {
     invalid_frame: bool,
     vanish_after: Option<usize>,
     window_reads: AtomicUsize,
+    change_each_capture: bool,
+    captures: AtomicUsize,
+    fail_capture_after: Option<usize>,
 }
 
 impl PixelSource {
@@ -590,6 +600,9 @@ impl PixelSource {
             invalid_frame: false,
             vanish_after: None,
             window_reads: AtomicUsize::new(0),
+            change_each_capture: false,
+            captures: AtomicUsize::new(0),
+            fail_capture_after: None,
         }
     }
 }
@@ -617,12 +630,109 @@ impl Source for PixelSource {
     }
 
     fn capture_window(&self, window: u32, pixels: &mut Vec<u8>) -> Result<(u32, u32), Fault> {
+        let captures = self.captures.fetch_add(1, Ordering::Relaxed) + 1;
+        if self
+            .fail_capture_after
+            .is_some_and(|after| captures > after)
+        {
+            return Err(Fault::Permission);
+        }
         if self.invalid_frame {
             Ok((0, 0))
         } else {
-            self.fixture.capture_window(window, pixels)
+            let size = self.fixture.capture_window(window, pixels)?;
+            if self.change_each_capture {
+                let color = u8::try_from(captures % 2).expect("alternating fixture color");
+                pixels.fill(color.saturating_mul(255));
+            }
+            Ok(size)
         }
     }
+}
+
+#[test]
+fn pixel_fallback_reports_pending_when_window_pixels_keep_changing() {
+    let source = PixelSource {
+        change_each_capture: true,
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle(&request(50, 100)),
+        json!({"status":"pending","method":"pixels","changesInWindow":1})
+    );
+}
+
+#[test]
+fn pixel_fallback_on_public_settle_reports_quiet_and_lost_windows() {
+    let screen = Screen::new(Box::new(PixelSource::new()), 1);
+    assert_eq!(
+        screen.settle(&request(50, 100)),
+        json!({"status":"settled","method":"pixels","captureId":"cap-1"})
+    );
+
+    let vanished = PixelSource {
+        vanish_after: Some(1),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(vanished), 1);
+    assert_eq!(screen.settle(&request(50, 100))["status"], "destroyed");
+
+    let denied = PixelSource {
+        fail_capture_after: Some(1),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(denied), 1);
+    assert_eq!(
+        screen.settle(&request(50, 100))["reason"],
+        "permission_denied"
+    );
+
+    let denied_before_baseline = PixelSource {
+        fail_capture_after: Some(0),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(denied_before_baseline), 1);
+    assert_eq!(
+        screen.settle(&request(50, 100))["reason"],
+        "permission_denied"
+    );
+
+    let vanished_at_anchor = PixelSource {
+        vanish_after: Some(2),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(vanished_at_anchor), 1);
+    assert_eq!(screen.settle(&request(50, 100))["status"], "destroyed");
+}
+
+#[test]
+fn pixel_fallback_refuses_capture_failure_after_quiet_window() {
+    let source = PixelSource {
+        fail_capture_after: Some(2),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    let clock = PixelClock(Cell::new(Instant::now()));
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(50, 100), 42, 7, &clock)["reason"],
+        "permission_denied"
+    );
+}
+
+#[test]
+fn pixel_sample_propagates_native_capture_failure() {
+    let source = PixelSource {
+        fail_capture_after: Some(0),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen
+            .pixel_sample(screen.source().expect("source"), 42, 7, 0)
+            .expect_err("capture permission")["reason"],
+        "permission_denied"
+    );
 }
 
 #[test]
