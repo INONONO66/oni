@@ -495,7 +495,12 @@ test("a cell cannot present another cell's id when calling back", async () => {
     timeoutMs: 15_000,
     tenant: "tenant-one",
   }));
-  const heldReceipt = await held.promise;
+  const heldReceipt = await Promise.race([
+    held.promise,
+    slow.then((result) => {
+      throw new Error(`AAA ended before its host call was served: ${JSON.stringify(result)}`);
+    }),
+  ]);
   const forging = await runEffect(host.get(MACHINE_ID).runCode({
     cellId: "BBB",
     // The call carries no id of its own; naming one changes nothing.
