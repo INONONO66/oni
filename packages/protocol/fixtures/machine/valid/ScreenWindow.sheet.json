@@ -1,0 +1,23 @@
+{
+  "windowId": "82",
+  "kind": "sheet",
+  "parent": {
+    "pid": 42,
+    "windowId": 7,
+    "epoch": 0
+  },
+  "display": 1,
+  "title": "Save",
+  "owner": "Editor",
+  "pid": 42,
+  "app": {
+    "bundleId": "com.example.editor",
+    "path": "/Applications/Editor.app/Contents/MacOS/Editor"
+  },
+  "bounds": {
+    "x": 6,
+    "y": 8,
+    "width": 30,
+    "height": 20
+  }
+}
