@@ -171,6 +171,18 @@ fn coordinate_expectation_uses_the_window_path_without_a_bundle_id() {
         input.pointer(&screen, &request),
         json!({"status":"ok","landedOn":{"pid":4242,"app":"/Fixture.app"}})
     );
+    let (_dir, screen, input) = rig(json!({"app":{"path":""}}));
+    let request: InputPointerRequest = oni_protocol::decode(json!({
+        "requestId":"1-2","delivery":"foreground","kind":"click",
+        "at":{"captureId":capture(&screen),"x":3,"y":5,
+            "within":{"apps":["/Fixture.app"]}},
+        "button":"left","count":1
+    }))
+    .expect("pointer");
+    assert_eq!(
+        input.pointer(&screen, &request),
+        json!({"status":"refused","reason":"target_mismatch","landedOn":{"pid":4242}})
+    );
 }
 
 #[test]
@@ -257,6 +269,10 @@ fn pointer_refuses_excluded_and_disappeared_landings_before_dispatch() {
     assert_eq!(
         Input::new(FixedTarget(4242, 999)).pointer(&screen, &request),
         json!({"status":"refused","reason":"window_not_found"})
+    );
+    assert_eq!(
+        Input::new(FixedTarget(std::process::id(), 7)).pointer(&screen, &request),
+        json!({"status":"refused","reason":"excluded"})
     );
     let absent = oni_machine_client::screen::Screen::new(
         Box::new(oni_machine_client::screen::fixture::Fixture::display(

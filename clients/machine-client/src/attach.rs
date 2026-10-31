@@ -1210,6 +1210,11 @@ mod tests {
             Ok(json!({"status":"refused","reason":"exec_not_available"}))
         );
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(
+            gate("machine.fs_op".into(), Some(json!({}))).await,
+            Ok(json!({"status":"completed"}))
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[tokio::test(start_paused = true)]

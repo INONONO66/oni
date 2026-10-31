@@ -290,6 +290,14 @@ fn pointer_hit_test_uses_captured_window_size_when_observer_cannot_measure_it() 
     .observing(Box::new(fake));
     assert_eq!(screen.pointer_at(104, 54), Some((7, 9)));
     assert_eq!(screen.pointer_at(120, 54), None);
+    let missing = Fake::new(tree());
+    missing.missing_size.store(true, Ordering::SeqCst);
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
+        1,
+    )
+    .observing(Box::new(missing));
+    assert_eq!(screen.pointer_at(104, 54), None);
 }
 
 #[test]
@@ -1050,6 +1058,26 @@ fn an_incomplete_walk_mints_no_ref_and_refuses_ref_actions() {
     assert_eq!(over["complete"], false);
     assert_eq!(over["elements"][0]["ref"], Value::Null);
     assert!(fake.acted.lock().expect("lock").is_empty());
+}
+
+#[test]
+fn fresh_unidentified_ref_refuses_when_serialized_tree_exceeds_byte_limit() {
+    let fake = Fake::new(vec![node("AXButton", Some("first"), None)]);
+    let observations = Observations::default();
+    observe(&observations, &fake, None);
+    let mut wide = vec![node("AXButton", Some("first"), None)];
+    wide.extend((1..300).map(|index| {
+        node(
+            "AXButton",
+            Some(&format!("{index:04}{}", "x".repeat(1020))),
+            None,
+        )
+    }));
+    *fake.walk.lock().expect("lock") = wide;
+    assert_eq!(
+        observations.point(&fake, "o1", "AXButton[0]"),
+        Err(Refusal::RefNotFound)
+    );
 }
 
 #[test]

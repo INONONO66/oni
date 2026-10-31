@@ -515,6 +515,19 @@ mod tests {
             fixture.hit_test(&window(), &path(), (0, 0)),
             Ok(Hit::Occluded)
         );
+        let nested = json!({"windows":[{"id":9,"title":"Editor","pid":7,"elements":[
+            {"role":"AXGroup","frame":{"x":0,"y":0,"width":4,"height":4},
+             "children":[{"role":"AXButton","frame":{"x":1,"y":1,"width":2,"height":2}}]}
+        ]}]});
+        fs::write(&fixture.layout, nested.to_string()).expect("nested layout");
+        assert_eq!(
+            fixture.hit_test(
+                &window(),
+                &super::super::segments("AXGroup[0]").expect("group"),
+                (2, 2),
+            ),
+            Ok(Hit::Target)
+        );
     }
 
     #[test]
