@@ -733,7 +733,7 @@ test("a drained PTY whose child never reports exit retires its group and reports
         exitCode: null,
         signalCode: null,
         terminal: { write: () => undefined, close: () => closes.push(1) },
-      } as unknown as ReturnType<typeof Bun.spawn>;
+      } as never;
     },
   }));
   const failures: Error[] = [];
