@@ -197,6 +197,9 @@ pub struct Act {
     pub wait_ms: u64,
 }
 
+type Subscribe<'a> =
+    dyn Fn(Instant, Instant, &WindowIdentity) -> Option<Box<dyn Subscription>> + 'a;
+
 /// The first reason a resolved action cannot reach its target. A missing
 /// enabled flag is not evidence of a disabled custom view.
 fn blocker(
@@ -604,7 +607,7 @@ impl Observations {
         act: &Act,
         before_dispatch: &dyn Fn() -> bool,
     ) -> Result<(), Refusal> {
-        self.act_waiting(observer, act, before_dispatch, &|_, _| None)
+        self.act_waiting(observer, act, before_dispatch, &|_, _, _| None)
     }
 
     pub fn act_waiting(
@@ -612,7 +615,7 @@ impl Observations {
         observer: &dyn Observer,
         act: &Act,
         before_dispatch: &dyn Fn() -> bool,
-        subscribe: &dyn Fn(Instant, Instant) -> Option<Box<dyn Subscription>>,
+        subscribe: &Subscribe<'_>,
     ) -> Result<(), Refusal> {
         let located = self.locate(observer, act.target)?;
         let window = self.window(&located);
@@ -691,7 +694,7 @@ impl Observations {
                 return Err(Refusal::NotActionable(reason));
             }
             if subscription.is_none() {
-                subscription = subscribe(started, end);
+                subscription = subscribe(started, end, &located.window);
             }
             let Some(watch) = subscription.as_mut() else {
                 return Err(Refusal::NotActionable(reason));
@@ -1091,20 +1094,20 @@ impl Screen {
     ) -> Result<(), Refusal> {
         let observer = self.observer.as_deref().ok_or(Refusal::NotAvailable)?;
         self.observations
-            .act_waiting(observer, act, before_dispatch, &|started, end| {
+            .act_waiting(observer, act, before_dispatch, &|started, end, window| {
                 let (Some(notifications), Some(observer)) =
                     (self.notifications.as_deref(), self.observer.as_ref())
                 else {
                     return None;
                 };
-                let (Ok(pid), Ok(window)) = (
-                    u32::try_from(act.target.pid),
-                    u32::try_from(act.target.window_id),
-                ) else {
-                    return None;
-                };
                 notifications
-                    .subscribe(pid, window, started, end, Arc::clone(observer))
+                    .subscribe(
+                        window.pid,
+                        window.window_id,
+                        started,
+                        end,
+                        Arc::clone(observer),
+                    )
                     .ok()
             })
     }

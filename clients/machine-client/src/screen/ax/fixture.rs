@@ -796,8 +796,8 @@ mod tests {
         layout["windows"][0]["elements"][0]["enabled"] = json!(true);
         action.wait_ms = 2000;
         assert_eq!(
-            observations.act_waiting(&fixture, &action, &|| true, &|start, _| {
-                Some(Box::new(RewriteTick {
+            observations.act_waiting(&fixture, &action, &|| true, &|start, _, _| {
+                let mut tick = RewriteTick {
                     layout: fixture.layout.clone(),
                     enabled: layout.clone(),
                     now: start,
@@ -805,7 +805,12 @@ mod tests {
                         layout: fixture.layout.clone(),
                         recorder: fixture.recorder.clone(),
                     },
-                }))
+                };
+                assert_eq!(
+                    tick.commit_if_current(Box::new(|| panic!("uncommitted sample"))),
+                    None
+                );
+                Some(Box::new(tick))
             }),
             Ok(())
         );

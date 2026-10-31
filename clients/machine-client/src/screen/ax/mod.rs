@@ -506,6 +506,12 @@ mod tests {
             .expect("empty walk");
         assert!(walk.nodes.is_empty() && walk.focused.is_none() && walk.complete);
         assert_eq!(observer.focused(&window), Ok(None));
+        assert_eq!(observer.window_size(&window), Err(Fault::Absent));
+        assert_eq!(
+            observer.hit_test(&window, &path, (0, 0)),
+            Err(Fault::Absent)
+        );
+        assert_eq!(observer.resolve(&window, &path), Err(Fault::Absent));
         assert_eq!(
             observer.act_guarded(&window, &path, &|_| true, &Action::Press, &|| false),
             Err(ActFault::NotFound)
