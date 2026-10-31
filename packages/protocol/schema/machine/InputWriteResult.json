@@ -93,7 +93,8 @@
             "paused:takeover",
             "paused:private",
             "paused:locked",
-            "paused:asleep"
+            "paused:asleep",
+            "clipboard_not_granted"
           ],
           "type": "string"
         },

@@ -31,7 +31,7 @@ export function executeComputer(
       const prior = port.store.get(sessionId, machineId);
       const expiresAt = port.now() + request.minutes * 60_000;
       const lease = port.store.put({
-        sessionId, machineId, apps: request.apps, expiresAt,
+        sessionId, machineId, apps: request.apps, clipboard: request.clipboard, expiresAt,
         ...(request.foreground === undefined ? {} : { foreground: { ...request.foreground, expiresAt } }),
         state: "active", revision: (prior?.revision ?? 0) + 1,
       });

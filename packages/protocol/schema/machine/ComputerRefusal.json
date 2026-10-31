@@ -16,6 +16,8 @@
         "app_out_of_scope",
         "foreground_not_granted",
         "excluded",
+        "clipboard_not_granted",
+        "private",
         "paused:human_input",
         "paused:takeover",
         "paused:private",

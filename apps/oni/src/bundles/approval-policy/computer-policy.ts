@@ -11,6 +11,8 @@ const Capture = z.object({
     Machine.InputPointerRequest, Machine.InputKeyRequest, Machine.InputTextRequest,
     Machine.InputActionRequest, Machine.ScreenObserveRequest, Machine.ScreenSettleRequest,
     Machine.AppLaunchRequest, Machine.AppQuitRequest, Machine.WindowCloseRequest, Machine.WindowParkRequest,
+    Machine.ClipboardReadRequest,
+    z.object({ formats: z.array(z.enum(["text", "html", "image"])), bytes: z.number().int().nonnegative() }).strict(),
   ]),
   binding: Machine.ComputerWindow.optional(),
 }).strict();
@@ -57,6 +59,9 @@ export class ComputerPolicy {
       this.end(sessionId, machineId, "expired");
       return "lease_expired";
     }
+    if (method === Machine.WireMethod.ClipboardRead && lease.state === "paused" && lease.pauseReason === "private") return "private";
+    if (method === Machine.WireMethod.ClipboardRead && lease.clipboard !== "read_write") return "clipboard_not_granted";
+    if (method === Machine.WireMethod.ClipboardWrite && lease.clipboard !== "write" && lease.clipboard !== "read_write") return "clipboard_not_granted";
     const session = this.ports.host().list().find((info) => info.machineId === machineId)?.live?.session;
     if (session?.locked || session?.asleep) {
       const reason = session.locked ? "locked" : "asleep";
@@ -69,7 +74,8 @@ export class ComputerPolicy {
         resumedTurn !== undefined && resumedTurn !== this.pausedTurns.get(`${sessionId}:${machineId}`);
       if (!canObserve) return `paused:${lease.pauseReason}`;
     }
-    return this.scope(lease, params, binding);
+    return method === Machine.WireMethod.ClipboardRead || method === Machine.WireMethod.ClipboardWrite
+      ? undefined : this.scope(lease, params, binding);
   }
 
   private scope(lease: Machine.ComputerLease, params: MachineInputCapture["params"], binding: Machine.ComputerWindow | undefined): Machine.ComputerRefusal["reason"] | undefined {
@@ -155,7 +161,15 @@ export class ComputerPolicy {
 
   intent(request: MachineInputCapture) {
     return PlainValueSchema.parse(JSON.parse(canonicalJson({
-      machineId: request.machineId, generation: request.generation, params: request.params,
+      machineId: request.machineId, generation: request.generation,
+      params: request.method === Machine.WireMethod.ClipboardWrite
+        ? {
+          formats: Object.keys(request.params),
+          bytes: Object.entries(request.params).reduce((sum, [format, value]) =>
+            sum + (typeof value === "string" ? format === "image"
+              ? Buffer.from(value, "base64").length : Buffer.byteLength(value) : 0), 0),
+        }
+        : request.params,
       ...(request.binding === undefined ? {} : { binding: request.binding }),
     })));
   }

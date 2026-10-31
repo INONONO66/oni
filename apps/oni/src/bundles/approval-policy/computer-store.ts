@@ -19,8 +19,8 @@ export function computerStore(rows: Core.LedgerHost["policyState"]) {
     return value;
   }
   function active(lease: Machine.ComputerLease) {
-    const { sessionId, machineId, apps, expiresAt, foreground, revision } = lease;
-    return { sessionId, machineId, apps, expiresAt, ...(foreground === undefined ? {} : { foreground }), revision: revision + 1 };
+    const { sessionId, machineId, apps, clipboard, expiresAt, foreground, revision } = lease;
+    return { sessionId, machineId, apps, clipboard, expiresAt, ...(foreground === undefined ? {} : { foreground }), revision: revision + 1 };
   }
   return {
     get,
