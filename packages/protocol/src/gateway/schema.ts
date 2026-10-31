@@ -9,6 +9,7 @@ import { MessageContract } from "./message.js";
 import { MediaPart as MediaPartSchema } from "./media.js";
 import { Outbound } from "./outbound.js";
 import { Channel } from "../channel/index.js";
+import { Machine } from "../machine/index.js";
 
 /**
  * Gateway contracts (docs/gateway-design.md §2, stage 0 — #706).
@@ -381,6 +382,23 @@ export namespace Gateway {
     z.object({ type: z.literal("drain_cancelled") }),
   ]);
   export type HostDrain = z.infer<typeof HostDrain>;
+
+  /** First client frame on a socket running beside an attached machine. */
+  export const Surface = z.object({ kind: z.literal("surface"), machineId: Machine.MachineId }).strict();
+  export type Surface = z.infer<typeof Surface>;
+
+  /** One revision of a session's computer-use lease. */
+  export const Lease = z.object({
+    type: z.literal("lease"),
+    sessionId: z.string().min(1),
+    machineId: Machine.MachineId,
+    apps: Machine.ComputerLease.options[0].shape.apps,
+    foreground: z.object({ purpose: z.string().min(1), expiresAt: EpochMs }).strict().optional(),
+    state: z.enum(["active", "paused", "ended"]),
+    pauseReason: Machine.ComputerLease.options[1].shape.pauseReason.optional(),
+    expiresAt: EpochMs,
+  }).strict();
+  export type Lease = z.infer<typeof Lease>;
 
   export const RuleTableA = MessageContract.RuleTableA;
   export type RuleTableA = z.infer<typeof RuleTableA>;

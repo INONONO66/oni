@@ -898,10 +898,13 @@ export const InputWriteResult = z.discriminatedUnion("status", [
         "accessibility_unavailable",
         "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
         "foreground_not_granted", "excluded", "paused:human_input", "paused:takeover",
-        "paused:private", "paused:locked", "paused:asleep",
+        "paused:private", "paused:locked", "paused:asleep", "budget_exhausted",
       ]),
       /** Human-readable detail, e.g. which display a refused anchor captured. */
       message: z.string().min(1).max(256).optional(),
+      humanActiveMs: z.number().int().nonnegative().optional(),
+      retryAfterMs: z.number().int().nonnegative().optional(),
+      resetAt: z.number().nonnegative().optional(),
     })
     .strict(),
 ]);

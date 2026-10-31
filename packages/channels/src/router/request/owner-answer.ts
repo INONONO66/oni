@@ -12,6 +12,7 @@ export function answerOwnerRequest(
   sender: Gateway.IngestSender,
   envelope: Gateway.RequestAnswer,
   receivedAt: number,
+  context?: { readonly surfaceKey: string; readonly machineId?: string },
 ): Effect.Effect<Gateway.IngestResult, ChannelError> {
   return Effect.gen(function* () {
   if (sender.kind === "session") {
@@ -65,7 +66,9 @@ export function answerOwnerRequest(
     decision,
     allowedAction: "report_result",
     content: decision,
-  });
+  }, context);
+  if (resolution === "self_approval_suspected")
+    return { status: "blocked_pre", reasonCode: resolution };
   if (resolution !== "resolved" && resolution !== "refused" && resolution !== "duplicate") {
     return { status: "blocked_pre", reasonCode: `request_answer.${resolution}` };
   }
