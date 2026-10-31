@@ -573,7 +573,11 @@ mod tests {
         let case = format!("ONI_NON_ROOT_SERVICE_FIXTURE={}", home.path().display());
         let profile_file = home.path().join("linger.profraw");
         let profile = format!("LLVM_PROFILE_FILE={}", profile_file.display());
-        let binary = std::env::current_exe().expect("test binary");
+        let binary = home.path().join("service-test");
+        fs::copy(std::env::current_exe().expect("test binary"), &binary)
+            .expect("copy test binary into accessible fixture");
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o755))
+            .expect("unprivileged user can execute fixture");
         let output = Command::new("sudo")
             .args(["-n", "-u", "nobody", "env", &case, &profile])
             .arg(binary)
