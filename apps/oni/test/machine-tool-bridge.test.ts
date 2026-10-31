@@ -8,7 +8,7 @@ import type { PlainObject } from "@oni/protocol";
 import { MachineCellError } from "@oni/machines";
 import { socketPath } from "./helpers/socket-path";
 
-import { bridgeDaemon, bridgeHost, bridgeOffer, bridgeProbe } from "./helpers/machine-bridge";
+import { bridgeClient, bridgeHost, bridgeOffer, bridgeProbe } from "./helpers/machine-bridge";
 import { dispatchModelTool } from "./helpers/tool-dispatch";
 import { testMachinePorts } from "./helpers/native-tool-ports";
 import { testIds } from "./helpers/test-entropy";
@@ -50,16 +50,16 @@ async function withBridge(
       return { status: "failed", error: `tool is not offerable: ${call.name}` };
     },
   });
-  const daemon = await bridgeDaemon(path);
+  const client = await bridgeClient(path);
   try {
     await run({ host, calls });
   } finally {
-    await daemon.stop();
+    await client.stop();
     await runEffect(host.close());
   }
 }
 
-/** The canonical daemon handshake: attach a live connection as machine m-1. */
+/** The canonical client handshake: attach a live connection as machine m-1. */
 function attachAsBridgeMachine(client: Effect.Success<ReturnType<typeof connectIpcClient>>) {
   return runEffect(typedCall(client, Machine.WireMethod.Attach, {
     ...bridgeOffer(), peer: { kind: "client", contractVersion: Machine.contractVersion },
@@ -276,7 +276,7 @@ describe("code-mode tool bridge", () => {
       releaseFirst = resolve;
     });
     let runCellRequests = 0;
-    const daemon = await acquireEffect(connectIpcClient(path, {
+    const client = await acquireEffect(connectIpcClient(path, {
       dispatcherBound: 8,
       idSource: testIds("ipc"),
       onRequest: (method, params, respond) => Effect.promise(async () => {
@@ -293,7 +293,7 @@ describe("code-mode tool bridge", () => {
       }),
     }));
     try {
-      await attachAsBridgeMachine(daemon);
+      await attachAsBridgeMachine(client);
       const first = runEffect(host.get("m-1").runCode({
         cellId: "duplicate",
         code: "'first'",
@@ -321,7 +321,7 @@ describe("code-mode tool bridge", () => {
       await expect(first).resolves.toMatchObject({ status: "completed", cellId: "duplicate" });
     } finally {
       releaseFirst();
-      await runEffect(daemon.close());
+      await runEffect(client.close());
       await runEffect(host.close());
     }
   });
@@ -347,7 +347,7 @@ describe("code-mode tool bridge", () => {
     }
   });
 
-  test("an attached daemon cannot invoke tools outside a cell the host dispatched", async () => {
+  test("an attached client cannot invoke tools outside a cell the host dispatched", async () => {
     const path = socketPath();
     const { host, reached } = await bridgeProbe(path);
     const client = await acquireEffect(connectIpcClient(path, { idSource: testIds("ipc"), dispatcherBound: 8 }));
@@ -373,10 +373,10 @@ describe("code-mode tool bridge", () => {
   test("a cellId stops working the moment its cell settles", async () => {
     const path = socketPath();
     const { host, reached } = await bridgeProbe(path);
-    // A stand-in daemon: it answers RunCell itself, so the replay below comes
+    // A stand-in client: it answers RunCell itself, so the replay below comes
     // from the very connection the cell ran on — the only way to prove the
     // cell is retired rather than merely unknown to some other connection.
-    const daemon = await acquireEffect(connectIpcClient(path, {
+    const client = await acquireEffect(connectIpcClient(path, {
       dispatcherBound: 8,
       idSource: testIds("ipc"),
       onRequest: (method, _params, respond) => Effect.sync(() => {
@@ -390,7 +390,7 @@ describe("code-mode tool bridge", () => {
       }),
     }));
     try {
-      await attachAsBridgeMachine(daemon);
+      await attachAsBridgeMachine(client);
       const cell = await runEffect(host.get("m-1").runCode({
         cellId: "spent",
         code: "'done'",
@@ -403,7 +403,7 @@ describe("code-mode tool bridge", () => {
       // its cell returned looks like from the host's side.
       await expect(
         runEffect(typedCall(
-          daemon,
+          client,
           Machine.WireMethod.CallTool,
           { cellId: "spent", name: "add", arguments: {} },
           5000,
@@ -411,12 +411,12 @@ describe("code-mode tool bridge", () => {
       ).rejects.toThrow("no cell in flight: spent");
       expect(reached()).toBe(false);
     } finally {
-      await runEffect(daemon.close());
+      await runEffect(client.close());
       await runEffect(host.close());
     }
   });
 
-  test("a superseded daemon loses tool access mid-cell without wedging it", async () => {
+  test("a superseded client loses tool access mid-cell without wedging it", async () => {
     const path = socketPath();
     let release: () => void = () => {
       return;
@@ -467,7 +467,7 @@ describe("code-mode tool bridge", () => {
       release();
 
       // Supersession closes the old transport, so its in-flight cell fails
-      // once rather than waiting on a tool answer from the revoked daemon.
+      // once rather than waiting on a tool answer from the revoked client.
       expect(await outcome).toMatchObject({
         error: { _tag: "MachineRefusalError", reason: "disconnected" },
       });
@@ -582,7 +582,7 @@ describe("code-mode tool bridge", () => {
   test("a host wired without a tool port says so instead of pretending", async () => {
     const path = socketPath();
     const host = await bridgeHost(path);
-    const daemon = await bridgeDaemon(path);
+    const client = await bridgeClient(path);
     try {
       const result = await runEffect(host.get("m-1").runCode({
         cellId: "no-tools",
@@ -593,7 +593,7 @@ describe("code-mode tool bridge", () => {
       expect(result).toMatchObject({ status: "raised" });
       expect(result.status === "raised" && result.error).toContain("host_tool_missing");
     } finally {
-      await daemon.stop();
+      await client.stop();
       await runEffect(host.close());
     }
   });
@@ -609,7 +609,7 @@ describe("bash session door", () => {
     run: (api: {
       bash: ReturnType<typeof dispatchModelTool>;
       stdoutUntil: (marker: string, command: string) => Promise<string>;
-      restartDaemon: () => Promise<void>;
+      restartClient: () => Promise<void>;
     }) => Promise<void>,
   ) {
     const path = socketPath();
@@ -636,7 +636,7 @@ describe("bash session door", () => {
       socketPath: path, machineId: "m-1", root: "/",
       exports: [{ name: "shell", path: "/" }], tmuxSocket: TMUX_SOCKET,
     });
-    let daemon = await attach();
+    let client = await attach();
     const bash = dispatchModelTool("bash", { machines: testMachinePorts(host) });
     // Each bash call long-polls the client for terminal output; the loop
     // re-reads (empty command = just read) until the marker byte arrives.
@@ -653,25 +653,25 @@ describe("bash session door", () => {
       await run({
         bash,
         stdoutUntil,
-        restartDaemon: async () => {
-          await daemon.stop();
-          daemon = await attach();
+        restartClient: async () => {
+          await client.stop();
+          client = await attach();
         },
       });
     } finally {
-      await daemon.stop();
+      await client.stop();
       await runEffect(host.close());
       Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "kill-server"]);
     }
   }
 
-  test("a named session keeps shell state across calls and across a daemon restart", async () => {
-    await sessionFixture(async ({ bash, stdoutUntil, restartDaemon }) => {
+  test("a named session keeps shell state across calls and across a client restart", async () => {
+    await sessionFixture(async ({ bash, stdoutUntil, restartClient }) => {
       const exported = await bash({ machine: "m-1", session: "qa", command: "export BRIDGE_X=42" } satisfies PlainObject);
       expect(JSON.parse(String(exported.content))).toMatchObject({ exitCode: 0, pending: false });
       expect(await stdoutUntil("door-42", "echo door-$BRIDGE_X")).toContain("door-42");
       // Restart ONLY the client; the tmux server owns the terminal.
-      await restartDaemon();
+      await restartClient();
       expect(await stdoutUntil("again-42", "echo again-$BRIDGE_X")).toContain("again-42");
     });
   }, 60_000);
@@ -681,7 +681,7 @@ describe("bash session door", () => {
       expect(await bash({ session: "qa", command: "true" })).toMatchObject({ isError: true });
       expect(await bash({ machine: "m-1", session: "qa", command: "true", timeout: 5 })).toMatchObject({ isError: true });
       expect(await bash({ machine: "m-1", command: "" })).toMatchObject({ isError: true });
-      // The daemon's reserved control session is a typed refusal end to end.
+      // The client's reserved control session is a typed refusal end to end.
       expect(await bash({ machine: "m-1", session: "oni-pty-control", command: "" })).toMatchObject({ isError: true });
       // An unknown name is not an error at this door: open-or-reattach creates it.
       const created = await bash({ machine: "m-1", session: "fresh", command: "" });
