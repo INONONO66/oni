@@ -7,6 +7,43 @@ what it records becomes the first live evidence. Shipped state is in
 `docs/implementation-status.md`; the contracts are in
 `docs/conversation-and-message-io.md` and `docs/provisioning-and-providers.md`.
 
+## Screen stream stage-metrics probe
+
+With the daemon running on the same host as the CLI and an attached machine
+offering `computer.use`, run:
+
+```bash
+oni machine probe macbook 1 --reconnect-after-ms 1000
+```
+
+Replace `macbook` and `1` with the attached machine ID and its display ID.
+The CLI reads `ONI_WS_TOKEN` from the effective `~/.oni/env` and connects
+to the loopback gateway. It opens a WebRTC stream, receives encoded frames,
+decodes them in a headless viewer, closes the handle, then reopens it after
+the requested delay. Standard output is one JSON object:
+
+```json
+{
+  "type": "stream_probe_report",
+  "requestId": "request-id",
+  "stages": {
+    "captureToReceipt": { "frames": 20, "p50": 30, "p95": 40, "p99": 45, "reconnectFirstFreshFrameMs": 90, "dropped": 0 },
+    "captureToDecoded": { "frames": 20, "p50": 35, "p95": 46, "p99": 52, "reconnectFirstFreshFrameMs": 95, "dropped": 0 },
+    "captureToDisplay": null,
+    "displayedBy": "none"
+  },
+  "reconnect": "measured",
+  "reconnectFirstFreshFrameMs": 90
+}
+```
+
+The numbers above illustrate the shape, not acceptance thresholds. Percentiles
+and reconnect times are milliseconds; `dropped` counts missing sidecar sequence
+numbers. An unavailable reopen reports `"reconnect":"unavailable"` and a
+`null` reconnect time. This probe does not present frames, so it cannot measure
+capture-to-display latency. Save the actual JSON with the MacBook acceptance
+record in #1702.
+
 ## 0. Before anything
 
 - `oni onboard` writes `~/.oni/env` (model provider, id and API

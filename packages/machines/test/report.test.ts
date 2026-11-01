@@ -16,6 +16,50 @@ import foldedReport from "../../protocol/fixtures/machine/valid/Report.v3-folded
 beforeAll(mclientBinary, 300_000);
 
 describe("machine.report heartbeat", () => {
+  test("timed ping exposes a host-owned offset without changing the client report", async () => {
+    const events = eventCollector();
+    const ticks = await run(Queue.unbounded<void>());
+    let now = 3000;
+    const host = await createMachineHost({
+      listen: { unix: socketPath() }, enrollment: (id) => id === "w-1" ? mclientEnrollment(id) : undefined,
+      events: events.sink, now: () => now, pingTick: Queue.take(ticks),
+    });
+    const ping = Promise.withResolvers<void>();
+    const peer = await connectIpcClient(host.endpoints.unix ?? "", {
+      onRequest: (method, _params, respond) => {
+        if (method !== Machine.WireMethod.Ping) return;
+        now = 3004;
+        respond({ status: "alive", receivedAtUs: 2_000_000, sentAtUs: 2_000_100 });
+        ping.resolve();
+      },
+    });
+    try {
+      expect(await peer.call(Machine.WireMethod.Attach, {
+        machineId: "w-1", daemonVersion: "timed-client", platform: "linux-arm64",
+        offeredCapabilities: [], offeredAt: 1, capabilities: ["ping"],
+        peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).toMatchObject({ status: "attached" });
+      expect(await peer.call(Machine.WireMethod.Report, {
+        machineId: "w-1", reportedAt: 2,
+        load: { loadAvg1: 0, memoryAvailableBytes: 1, inFlight: 0 },
+        transport: { lastFailure: null, attempts: 0 },
+      })).toEqual({ status: "accepted" });
+      await run(Queue.offer(ticks, undefined));
+      await ping.promise;
+      expect(await peer.call(Machine.WireMethod.Report, {
+        machineId: "w-1", reportedAt: 3,
+        load: { loadAvg1: 0, memoryAvailableBytes: 1, inFlight: 0 },
+        transport: { lastFailure: null, attempts: 0 },
+      })).toEqual({ status: "accepted" });
+      expect(host.list()[0]?.live?.transport).toEqual({
+        lastFailure: null, attempts: 0, clockOffsetMs: 1001.95,
+      });
+    } finally {
+      await peer.close();
+      await host.close();
+    }
+  });
+
   test("ping request reaches an opted client and its reply keeps the attachment", async () => {
     const events = eventCollector();
     const ticks = await run(Queue.unbounded<void>());

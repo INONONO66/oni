@@ -1,0 +1,1 @@
+#1731 (epic #1688) on `machines/1731-frame-latency` (2026-10-31, base `84aca7be4`, PR #1752): host-owned minimum-RTT clock offset, per-frame stream sidecars and capture-time mapping, pure display latency fold, browser-decoder frame callbacks, optional ping timestamps and fixture conformance; receipt in `docs/implementation-status.md`.

@@ -12,13 +12,34 @@
       "type": "array"
     },
     "checked": {
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "children": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "enabled": {
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "expanded": {
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "frame": {
       "additionalProperties": false,
@@ -52,6 +73,10 @@
       ],
       "type": "object"
     },
+    "id": {
+      "maxLength": 256,
+      "type": "string"
+    },
     "label": {
       "maxLength": 1024,
       "type": "string"
@@ -81,7 +106,10 @@
       "type": "boolean"
     },
     "selected": {
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "value": {
       "maxLength": 4096,

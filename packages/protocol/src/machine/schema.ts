@@ -298,6 +298,14 @@ export const STREAM_MAX_FPS = 60;
 export const STREAM_MAX_CONCURRENT = 4;
 export const STREAM_ENCODE_MAX_MS = 60_000;
 
+/** A peer may omit timestamps until it supports host-side clock sampling. */
+export const PingResult = z.object({
+  status: z.literal("alive"),
+  receivedAtUs: z.number().int().nonnegative().optional(),
+  sentAtUs: z.number().int().nonnegative().optional(),
+}).strict();
+export type PingResult = z.infer<typeof PingResult>;
+
 /** Host-minted id of one live stream, unique within its attachment. */
 export const StreamId = z.string().min(1).max(128);
 export type StreamId = z.infer<typeof StreamId>;
@@ -891,6 +899,7 @@ export const InputWriteResult = z.discriminatedUnion("status", [
         "stale_observation",
         "ref_not_found",
         "action_not_supported",
+        "not_actionable",
         "window_not_found",
         "observe_not_available",
         "foreground_required",

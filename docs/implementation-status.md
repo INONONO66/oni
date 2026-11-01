@@ -4,6 +4,23 @@
 
 Machine clipboard read/write runs through the captured computer-use lease gate; the client retains bounded previous contents locally for conditional lease-end restoration, and ledger facts expose only format and byte counts.
 
+## #1677 gateway screen stream stage-metrics probe
+
+`oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]`
+opens a stream through the Owner-authenticated loopback gateway, decodes
+its H.264 frames in a headless viewer, and writes one JSON report with
+capture-to-encoded-receipt and capture-to-decoded-frame percentiles,
+sequence-gap drops, and explicit reopen first-fresh-frame timing. The
+host's clock offset maps each client capture timestamp to host wall time.
+The report marks capture-to-display `null` with `displayedBy: "none"`:
+the desktop presenter and live MacBook acceptance remain open on #1677
+and #1702. The command and JSON shape are in `docs/first-live-run.md`.
+
+## #1718 ref actionability
+
+Ref-targeted press and perform check disabled, zero-size, off-window and hit-test occlusion before dispatch, setValue checks disabled, and blocked actions wait at most two seconds by default before a typed `not_actionable` refusal.
+
+||||||| f68476e73
 ## #1722 setup needs on screen verdicts
 
 The Rust client derives actionable `Report.screen.needs` from the screen
@@ -43,6 +60,21 @@ its help. MacBook live grant acceptance remains tracked in #1702.
 When the composed catalog includes the computer tool pack, resident and child
 system prompts include screen-text trust, irreversible-action confirmation, and
 consent-surface stop guidance. Without that pack, the section is absent.
+
+## #1731 stream capture-to-display timing
+
+The client answers `machine.ping` with receive and send timestamps on its
+process-monotonic microsecond clock; older replies without timestamps still
+decode. The host keeps eight recent ping exchanges per attachment and uses the
+minimum-RTT sample to map that clock into host wall time. Only the host's live
+machine transport view carries `clockOffsetMs`; client-written
+`Report.transport` does not. Each encoded frame queues a data-channel
+`{ seq, capturedAtUs }` sidecar before writing its H.264 packets, and the
+stream handle maps the sidecar timestamp to `capturedAt` for its subscriber.
+The machines package exposes a pure nearest-rank frame-latency fold over
+displayed frames, including sequence gaps and the first fresh frame after
+reconnection. Fixture stream and fixed-clock tests cover these paths; a
+MacBook capture-to-display acceptance record still belongs to #1702.
 
 ## #1694 screen verdict and Linux virtual display
 
@@ -525,6 +557,19 @@ behavior remains tracked by #1702; Windows and Linux accessibility adapters
 remain #1700.
 
 ## #1689 window-bound observation and ref-targeted actions (machine contract 3, PR pending)
+
+The #1715 observation follow-up reads `AXIdentifier` and sends optional `id`
+(at most 256 characters). Sibling refs distinguish identifiers without
+changing the role-path grammar; identified ref actions resolve the path
+directly and use a bounded walk only when the identifier moved, refusing
+ambiguous or absent matches with `ref_not_found`. Unidentified refs retain
+the complete walk required to detect newly ambiguous siblings.
+The #1716 follow-up keeps transient per-attribute AX faults local to their
+element: unknown flags serialize as `null`, unknown children as
+`children: null`, and an unknown role, subrole, or label leaves the element
+and its descendants unaddressable while sibling refs remain available. Disabled accessibility
+still refuses the observation. Headless fixtures exercise these outcomes;
+the schema and valid/invalid wire fixtures retain omitted versus null states.
 
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target
 contract: `docs/machines-and-delegation.md` 2.2.2.

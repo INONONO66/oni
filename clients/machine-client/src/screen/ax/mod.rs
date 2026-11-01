@@ -66,15 +66,17 @@ pub struct Frame {
 pub struct Attributes {
     pub role: String,
     pub label: Option<String>,
+    pub identifier: Option<String>,
     pub value: Option<String>,
     pub actions: Vec<String>,
     pub frame: Frame,
     pub secure: bool,
-    pub enabled: Option<bool>,
-    pub selected: Option<bool>,
-    pub checked: Option<bool>,
-    pub expanded: Option<bool>,
+    pub enabled: Option<Option<bool>>,
+    pub selected: Option<Option<bool>>,
+    pub checked: Option<Option<bool>>,
+    pub expanded: Option<Option<bool>>,
     pub focused: bool,
+    pub children_unknown: bool,
 }
 
 /// A walked element; `parent` indexes an earlier node of the same walk.
@@ -119,6 +121,13 @@ pub enum ActFault {
     Failed(String),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hit {
+    Target,
+    Occluded,
+    Covered,
+}
+
 impl From<Fault> for ActFault {
     fn from(fault: Fault) -> Self {
         match fault {
@@ -139,7 +148,21 @@ pub trait Observer: Send + Sync {
         Err(ActFault::Unsupported)
     }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault>;
+    fn window_size(&self, _: &WindowIdentity) -> Result<(i64, i64), Fault> {
+        Err(Fault::Absent)
+    }
+    fn hit_test(&self, _: &WindowIdentity, _: &[Segment], _: (i64, i64)) -> Result<Hit, Fault> {
+        Err(Fault::Absent)
+    }
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault>;
+    fn resolve(
+        &self,
+        window: &WindowIdentity,
+        path: &[Segment],
+    ) -> Result<Option<Attributes>, Fault> {
+        let _ = (window, path);
+        Err(Fault::Absent)
+    }
     /// The element focused inside `window`: `Ok(None)` when the window owns
     /// no focus, `Err` when the query itself fails.
     fn focused(&self, window: &WindowIdentity) -> Result<Option<Focused>, Fault>;
@@ -255,6 +278,23 @@ const ACTION_UNSUPPORTED: i32 = -25206;
 const NOT_IMPLEMENTED: i32 = -25208;
 const API_DISABLED: i32 = -25211;
 const INVALID_ELEMENT: i32 = -25202;
+const CANNOT_COMPLETE: i32 = -25204;
+const TIMEOUT: i32 = -25201;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttributeFault {
+    Absent,
+    Unknown,
+}
+
+pub fn attribute_fault(code: i32) -> Result<AttributeFault, Fault> {
+    match code {
+        NO_VALUE | ATTRIBUTE_UNSUPPORTED | NOT_IMPLEMENTED => Ok(AttributeFault::Absent),
+        CANNOT_COMPLETE | INVALID_ELEMENT | TIMEOUT => Ok(AttributeFault::Unknown),
+        API_DISABLED => Err(Fault::Permission),
+        other => Err(Fault::Failed(format!("AXError {other}"))),
+    }
+}
 
 /// A failed AX read (`AXError` `code`): an attribute the element lacks
 /// (no value, unsupported, not implemented) is `Ok`, a disabled API is
@@ -288,7 +328,7 @@ pub fn performed(code: i32) -> Result<(), ActFault> {
 }
 
 /// The attributes one batched read asks every element for, in this order.
-pub const ATTRIBUTES: [&str; 12] = [
+pub const ATTRIBUTES: [&str; 13] = [
     "AXRole",
     "AXSubrole",
     "AXTitle",
@@ -301,6 +341,7 @@ pub const ATTRIBUTES: [&str; 12] = [
     "AXExpanded",
     "AXFocused",
     "AXChildren",
+    "AXIdentifier",
 ];
 const SECURE_SUBROLE: &str = "AXSecureTextField";
 
@@ -338,8 +379,10 @@ pub fn assemble<I>(
     let mut slots: Vec<Option<Raw<I>>> = Vec::with_capacity(ATTRIBUTES.len());
     for value in values {
         if let Raw::Error(code) = value {
-            absent(code)?;
-            slots.push(None);
+            slots.push(match attribute_fault(code)? {
+                AttributeFault::Absent => None,
+                AttributeFault::Unknown => Some(Raw::Error(code)),
+            });
         } else {
             slots.push(Some(value));
         }
@@ -349,17 +392,27 @@ pub fn assemble<I>(
         Ok(names) => names,
         Err(code) => absent(code).map(|()| Vec::new())?,
     };
+    let children_unknown = matches!(slots[11], Some(Raw::Error(_)));
+    let identity_unknown = [0, 1, 2, 3]
+        .into_iter()
+        .any(|at| matches!(slots[at], Some(Raw::Error(_))));
+    let secure_unknown = matches!(slots[1], Some(Raw::Error(_)));
     let mut take = |at: usize| slots[at].take();
     let text = |raw: Option<Raw<I>>| match raw {
         Some(Raw::Text(text)) => Some(text),
         _ => None,
     };
     let flag = |raw: Option<Raw<I>>| match raw {
-        Some(Raw::Flag(flag)) => Some(flag),
+        Some(Raw::Flag(flag)) => Some(Some(flag)),
+        Some(Raw::Error(_)) => Some(None),
         _ => None,
     };
-    let role = text(take(0)).unwrap_or_default();
-    let secure = text(take(1)).as_deref() == Some(SECURE_SUBROLE);
+    let role = if identity_unknown {
+        String::new()
+    } else {
+        text(take(0)).unwrap_or_default()
+    };
+    let secure = secure_unknown || text(take(1)).as_deref() == Some(SECURE_SUBROLE);
     let title = text(take(2)).filter(|title| !title.is_empty());
     let label = title.or_else(|| text(take(3)));
     let value = text(take(4));
@@ -374,6 +427,9 @@ pub fn assemble<I>(
     let attributes = Attributes {
         role,
         label,
+        identifier: text(take(12))
+            .filter(|identifier| !identifier.is_empty())
+            .map(|identifier| super::observe::clip(&identifier, 256)),
         value,
         actions,
         frame: Frame {
@@ -387,9 +443,14 @@ pub fn assemble<I>(
         selected: flag(take(8)),
         checked: None,
         expanded: flag(take(9)),
-        focused: flag(take(10)).unwrap_or(false),
+        focused: matches!(flag(take(10)), Some(Some(true))),
+        children_unknown,
     };
-    Ok((attributes, items(take(11))?))
+    let children = match take(11) {
+        Some(Raw::Error(_)) => Vec::new(),
+        other => items(other)?,
+    };
+    Ok((attributes, children))
 }
 
 /// A role as a ref step spells it: without the `/`, `[` and `]` the
@@ -480,6 +541,12 @@ mod tests {
             .expect("empty walk");
         assert!(walk.nodes.is_empty() && walk.focused.is_none() && walk.complete);
         assert_eq!(observer.focused(&window), Ok(None));
+        assert_eq!(observer.window_size(&window), Err(Fault::Absent));
+        assert_eq!(
+            observer.hit_test(&window, &path, (0, 0)),
+            Err(Fault::Absent)
+        );
+        assert_eq!(observer.resolve(&window, &path), Err(Fault::Absent));
         assert_eq!(
             observer.act_guarded(&window, &path, &|_| true, &Action::Press, &|| false),
             Err(ActFault::NotFound)
@@ -691,6 +758,7 @@ mod tests {
             (9, Raw::Flag(false)),
             (10, Raw::Flag(true)),
             (11, Raw::Items(vec![1, 2])),
+            (12, Raw::Text("password-id".into())),
         ]);
         let (attributes, children) =
             assemble(values, Ok(vec!["AXConfirm".into()]), (100.0, 50.0)).expect("assembled");
@@ -699,6 +767,7 @@ mod tests {
             Attributes {
                 role: "AXTextField".into(),
                 label: Some("Password".into()),
+                identifier: Some("password-id".into()),
                 value: Some("hunter2".into()),
                 actions: vec!["AXConfirm".into()],
                 frame: Frame {
@@ -708,11 +777,12 @@ mod tests {
                     height: 20
                 },
                 secure: true,
-                enabled: Some(true),
+                enabled: Some(Some(true)),
                 selected: None,
                 checked: None,
-                expanded: Some(false),
+                expanded: Some(Some(false)),
                 focused: true,
+                children_unknown: false,
             }
         );
         assert_eq!(children, vec![1, 2]);
@@ -734,6 +804,20 @@ mod tests {
         assert!(attributes.actions.is_empty() && children.is_empty());
         let short = assemble::<u8>(Vec::new(), Ok(Vec::new()), (0.0, 0.0)).expect("short");
         assert_eq!(short.0, Attributes::default());
+        let empty = assemble(
+            batch(&[(12, Raw::Text(String::new()))]),
+            Ok(Vec::new()),
+            (0.0, 0.0),
+        )
+        .expect("empty id");
+        assert_eq!(empty.0.identifier, None);
+        let long = assemble(
+            batch(&[(12, Raw::Text("a".repeat(257)))]),
+            Ok(Vec::new()),
+            (0.0, 0.0),
+        )
+        .expect("long id");
+        assert_eq!(long.0.identifier, Some("a".repeat(256)));
     }
 
     #[test]
@@ -743,10 +827,31 @@ mod tests {
             assemble(denied, Ok(Vec::new()), (0.0, 0.0)).err(),
             Some(Fault::Permission)
         );
-        let failed = batch(&[(11, Raw::Error(-25204))]);
+        for code in [CANNOT_COMPLETE, INVALID_ELEMENT, TIMEOUT] {
+            let failed = batch(&[(7, Raw::Error(code)), (11, Raw::Error(code))]);
+            let (attributes, children) =
+                assemble(failed, Ok(Vec::new()), (0.0, 0.0)).expect("transient attribute");
+            assert_eq!(attributes.enabled, Some(None));
+            assert!(attributes.children_unknown && children.is_empty());
+        }
+        for attribute in [0, 1, 2, 3] {
+            let (attributes, _) = assemble(
+                batch(&[
+                    (0, Raw::Text("AXButton".into())),
+                    (attribute, Raw::Error(TIMEOUT)),
+                ]),
+                Ok(Vec::new()),
+                (0.0, 0.0),
+            )
+            .expect("unknown identity attribute");
+            assert!(attributes.role.is_empty());
+            if attribute == 1 {
+                assert!(attributes.secure);
+            }
+        }
         assert_eq!(
-            assemble(failed, Ok(Vec::new()), (0.0, 0.0)).err(),
-            Some(Fault::Failed("AXError -25204".into()))
+            attribute_fault(-25000),
+            Err(Fault::Failed("AXError -25000".into()))
         );
         assert_eq!(
             assemble(batch(&[]), Err(-25204), (0.0, 0.0)).err(),
