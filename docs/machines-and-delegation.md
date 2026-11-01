@@ -418,13 +418,24 @@ without a wire call, when the attached peer offered a contract below 3.
 `computer.screen.settle({ target: { pid, windowId, epoch }, quietMs?,
 timeoutMs? })` watches accessibility notifications after arming the
 window observer and before taking its baseline observation. `quietMs`
-defaults to 200 (50–2000); `timeoutMs` defaults to 5000 (100–30000).
-Each change restarts the quiet interval. A quiet window answers
-`settled { observationId }`; reaching the deadline answers
-`pending { observationId, changesInWindow }`. Both ids are fresh
-observations and usable as the next `observe({ since })` anchor. A
-destroyed window answers `destroyed`; an unavailable observer answers
-`unsupported { blocker: accessibility_not_granted | no_observer }`.
+defaults to 200 for accessibility and 500 for the pixel fallback (50–2000);
+`timeoutMs` defaults to 5000 (100–30000). Each change restarts the quiet
+interval. Accessibility answers `settled { method: "accessibility",
+observationId }` or `pending { method: "accessibility", observationId,
+changesInWindow }`; those fresh observations are usable as the next
+`observe({ since })` anchor. When the observer is unavailable but window
+capture works, settle compares consecutive window thumbnails at most
+256×160 pixels every 200 ms. A change requires more than 0.5% of pixels
+to differ by more than 8 in any RGB channel. The first identical pair
+settles immediately; after a change, the samples must remain unchanged
+for `quietMs`. It answers `settled { method: "pixels", captureId }` with
+a fresh capture anchor, or `pending { method: "pixels", changesInWindow }`
+at the deadline. A window disappearing during settle answers `destroyed`;
+without either observer or capture, the result is `unsupported {
+blocker: no_observer }`. The fallback is window-only; display settle is
+deferred. When an observer can identify secure focus, the pixel path
+refuses before capturing; without an observer, it retains only the
+bounded comparison thumbnails and applies the window capture guard.
 Window and epoch mismatches, permission denial and detach are typed
 refusals. The macOS observer listens to AX changes on a dedicated run
 loop; the headless layout's window `timeline` drives the same quiet-window

@@ -108,6 +108,14 @@ fn bounded(width: u32, height: u32, max: u32) -> (u32, u32) {
     (side(width), side(height))
 }
 
+/// A bounded RGBA thumbnail for comparing frames without retaining the source.
+pub fn thumbnail(pixels: &[u8], size: (u32, u32), out: &mut Vec<u8>) -> (u32, u32) {
+    let width = size.0.min(256);
+    let height = size.1.min(160);
+    resample(pixels, size, (width, height), 4, out);
+    (width, height)
+}
+
 fn write(
     data: &[u8],
     size: (u32, u32),
