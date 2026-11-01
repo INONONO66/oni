@@ -573,6 +573,7 @@ test("streams relay host-minted ids, bounded signals and peer records both ways"
     const watch = streamListeners();
     const stream = await run(computer.stream.open(streamRequest, watch.listeners));
     if (!("signal" in stream)) throw new Error("stream did not open");
+    expect(stream.capturedAt(2_000_000)).toBeUndefined();
     expect(stream).toMatchObject({ streamId: "relay-1", expiresAt: 5000 });
     expect(await run(stream.signal({ type: "offer", sdp: "v=0" }))).toEqual({ status: "accepted", seq: 0 });
     expect(await run(stream.signal({ type: "candidate", candidate: "candidate:1" }))).toEqual({ status: "accepted", seq: 1 });

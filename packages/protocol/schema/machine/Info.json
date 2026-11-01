@@ -289,6 +289,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "clockOffsetMs": {
+              "type": "number"
+            },
             "lastFailure": {
               "anyOf": [
                 {

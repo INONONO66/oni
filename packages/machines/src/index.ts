@@ -5,5 +5,6 @@ export type { LeaseHandle, LeaseClass } from "./capacity";
 export * from "./ipc";
 export { typedCall } from "./typed-call";
 export { normalizeExportRoot } from "./contained";
+export { frameLatency, type DisplayedFrame, type FrameLatency } from "./frame-latency";
 export type { MachineStreamWriter, StreamingMachineHandle, StreamWriteOptions, StreamWriteReceipt } from "./stream-write";
 export type { MachineInputCapture, CapturedResult, CaptureRefusal, ComputerHandle, ComputerStream, ComputerChannel, StreamListeners, ChannelListeners, RelayEnd } from "./host";
