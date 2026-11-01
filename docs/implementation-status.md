@@ -54,10 +54,14 @@ drop. Reports retain the selected display and probe the serving
 capture/input connections; another server or a replacement at the same display
 number cannot certify a disconnected driver. `computer.display.kind: "xvfb"` starts an owned
 Xvfb process with an optional window manager (openbox by default when
-installed). Xvfb allocates its display through `-displayfd`; launches cannot
+installed). Xvfb allocates its display through `-displayfd` and runs with
+`-noreset`, so the readiness handshake's disconnect does not regenerate the
+server under the window manager's or a later client's connection; launches cannot
 inherit or restore the human session's compositor, bus or runtime bindings.
 Both app and window-manager launches clear the inherited environment before
 applying the allowlist and selected display binding.
+Window-manager startup observes the X11 EWMH property notification before
+reporting readiness, with a bounded wait if the manager never publishes it.
 An isolated X11 desktop with capture, input and a live window manager
 reports available; accessibility remains false
 until observation is implemented. A console without an observer is partial.
@@ -449,6 +453,18 @@ coordinator without sleeps. Captured refusals carry bounded messages;
 missing capabilities report `unsupported`, while absent attachments report
 `machine_not_attached`. Code mode exposes `computer.screen.settle`.
 Native grant-dependent behavior awaits the MacBook live acceptance.
+
+## #1732 pixel-quiet window settle (PR pending)
+
+Window settle falls back to consecutive, bounded pixel thumbnails when the
+accessibility observer is unavailable but capture works. It samples every
+200 ms; over 0.5% changed pixels outside an RGB tolerance of 8 resets the
+quiet interval (500 ms by default; accessibility retains 200 ms). The first
+identical pair settles with a fresh `captureId`; timeout returns a pixel
+`pending` count, and a window lost during sampling returns `destroyed`.
+The fallback refuses secure focus when it can be identified and otherwise
+uses the window capture guard. Display settle remains deferred; scripted
+clock and frame tests cover the timing without sleeps.
 
 ## #1695 private mode (PR pending)
 

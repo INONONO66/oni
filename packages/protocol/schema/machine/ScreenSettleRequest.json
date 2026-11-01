@@ -3,7 +3,6 @@
   "additionalProperties": false,
   "properties": {
     "quietMs": {
-      "default": 200,
       "maximum": 2000,
       "minimum": 50,
       "type": "integer"
@@ -43,7 +42,6 @@
   },
   "required": [
     "target",
-    "quietMs",
     "timeoutMs"
   ],
   "type": "object"
