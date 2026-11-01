@@ -111,10 +111,10 @@ fn generate(name: &str, mut schema: Value, path: &Path) -> String {
     derive_enum_defaults(&mut module);
     for item in &mut module.items {
         match item {
-            syn::Item::Struct(item) => preserve_presence(&mut item.fields),
+            syn::Item::Struct(item) => preserve_presence(name, &mut item.fields),
             syn::Item::Enum(item) => {
                 for variant in &mut item.variants {
-                    preserve_presence(&mut variant.fields);
+                    preserve_presence(name, &mut variant.fields);
                     if name == "ReleaseResult" && variant.ident == "Available" {
                         for field in &mut variant.fields {
                             if field.ident.as_ref().is_some_and(|ident| ident == "release") {
@@ -210,18 +210,26 @@ fn prove_schema(schema: &Value, path: &Path, settings: &mut TypeSpaceSettings) {
     }
 }
 
-/// Current nullable optional properties are unrestricted JSON (`{}`), emitted
-/// as Option<Value>. No optional typed-null union or BTreeMap occurs.
-fn preserve_presence(fields: &mut syn::Fields) {
+/// Optional nullable observation flags and child counts, like unrestricted
+/// JSON properties, must keep absent separate from explicitly null.
+fn preserve_presence(root: &str, fields: &mut syn::Fields) {
     for field in fields {
         let ty = &field.ty;
-        let nullable = matches!(ty, Type::Path(outer)
+        let value_nullable = matches!(ty, Type::Path(outer)
             if outer.path.segments.last().is_some_and(|segment|
                 segment.ident == "Option" && matches!(&segment.arguments,
                     syn::PathArguments::AngleBracketed(args)
                     if matches!(args.args.first(), Some(syn::GenericArgument::Type(Type::Path(inner)))
                         if inner.path.segments.iter().map(|part| part.ident.to_string())
                             .eq(["serde_json", "Value"])))));
+        let observed_nullable = matches!(root, "ObservedElement" | "ScreenObserveResult")
+            && field.ident.as_ref().is_some_and(|ident| {
+                matches!(
+                    ident.to_string().as_str(),
+                    "enabled" | "selected" | "checked" | "expanded" | "children"
+                )
+            });
+        let nullable = value_nullable || observed_nullable;
         let mut rewritten = false;
         for attribute in &mut field.attrs {
             if !attribute.path().is_ident("serde") {

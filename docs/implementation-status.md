@@ -16,6 +16,11 @@ The report marks capture-to-display `null` with `displayedBy: "none"`:
 the desktop presenter and live MacBook acceptance remain open on #1677
 and #1702. The command and JSON shape are in `docs/first-live-run.md`.
 
+## #1718 ref actionability
+
+Ref-targeted press and perform check disabled, zero-size, off-window and hit-test occlusion before dispatch, setValue checks disabled, and blocked actions wait at most two seconds by default before a typed `not_actionable` refusal.
+
+||||||| f68476e73
 ## #1722 setup needs on screen verdicts
 
 The Rust client derives actionable `Report.screen.needs` from the screen
@@ -546,6 +551,19 @@ behavior remains tracked by #1702; Windows and Linux accessibility adapters
 remain #1700.
 
 ## #1689 window-bound observation and ref-targeted actions (machine contract 3, PR pending)
+
+The #1715 observation follow-up reads `AXIdentifier` and sends optional `id`
+(at most 256 characters). Sibling refs distinguish identifiers without
+changing the role-path grammar; identified ref actions resolve the path
+directly and use a bounded walk only when the identifier moved, refusing
+ambiguous or absent matches with `ref_not_found`. Unidentified refs retain
+the complete walk required to detect newly ambiguous siblings.
+The #1716 follow-up keeps transient per-attribute AX faults local to their
+element: unknown flags serialize as `null`, unknown children as
+`children: null`, and an unknown role, subrole, or label leaves the element
+and its descendants unaddressable while sibling refs remain available. Disabled accessibility
+still refuses the observation. Headless fixtures exercise these outcomes;
+the schema and valid/invalid wire fixtures retain omitted versus null states.
 
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target
 contract: `docs/machines-and-delegation.md` 2.2.2.

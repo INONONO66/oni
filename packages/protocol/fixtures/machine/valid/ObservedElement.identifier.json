@@ -1,0 +1,8 @@
+{
+  "ref": "AXButton[0]",
+  "role": "AXButton",
+  "id": "save-primary",
+  "actions": ["AXPress"],
+  "frame": { "x": 0, "y": 0, "width": 80, "height": 24 },
+  "secure": false
+}

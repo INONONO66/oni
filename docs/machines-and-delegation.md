@@ -366,9 +366,16 @@ without a wire call, when the attached peer offered a contract below 3.
   accessibility elements. Each element carries a `ref` minted from its role
   path (`role[i]` segments joined by `/`, `i` counting same-role siblings;
   an element with an empty role has `ref: null` and no actions), `role`,
-  optional `label`/`value`, `actions`, a window-local `frame`, its `parent`
+  optional `label`/`value`/`id` (accessibility identifier, at most 256
+  characters), `actions`, a window-local `frame`, its `parent`
   ref, `secure` (a secure field's value is never sent) and the optional
-  `enabled|selected|checked|expanded` states. The walk stops at 2000
+  `enabled|selected|checked|expanded` states. Omission means an attribute
+  is not exposed; `null` means its read failed. A transient AX attribute
+  fault preserves the observation: unknown role, subrole, or label emits an
+  empty role and unaddressable ref while its descendants and siblings are still walked;
+  unknown children emits `children: null` without descendants. The optional
+  `children` count is reserved for a later observer revision. A disabled
+  accessibility API still refuses `permission_denied`. The walk stops at 2000
   elements (or `maxElements`), 5000 visited nodes, 2.5 s and 256 KiB of
   serialized elements, answering `complete: false` when a bound cut it.
   Labels cap at 1024 characters, values at 4096, actions at 16 per element.
@@ -388,15 +395,26 @@ without a wire call, when the attached peer offered a contract below 3.
   role, ambiguous sibling or descendant, too-deep path, incomplete walk),
   the answer carries `elements` instead of a lossy `diff`. A walk cut by
   `maxElements` or the hard walk limit (`complete: false`) mints no refs,
-  and the fresh walk behind an action must be complete too.
+  and a full walk used to confirm an unidentified ref must be complete too.
 - **Action.** `machine.input.action` takes `{observationId, target: {pid,
-  windowId, epoch}, ref, action: press|setValue|perform, value?, name?}`
+  windowId, epoch}, ref, action: press|setValue|perform, value?, name?, waitMs?}`
   (value at most 65536 characters) and answers `InputWriteResult`. The peer
-  rechecks the lineage, re-resolves the ref on a fresh walk and requires the
-  same role, label and secure flag before it acts; nothing is executed on
+  rechecks the lineage and requires the same role, label, secure flag and
+  identifier before it acts. An identified ref resolves its role path
+  directly; if it moved, one bounded walk finds a unique matching
+  identifier and role or refuses `ref_not_found`. Unidentified refs retain
+  their complete-walk ambiguity check. Nothing is executed on
   any refusal. Refusals: `window_not_found`, `epoch_changed`,
   `stale_observation`, `ref_not_found`, `action_not_supported`,
   `permission_denied`, `input_not_available`, `input_failed`.
+  For `press` and `perform`, the client first refuses a disabled element,
+  zero-size frame, frame center outside the window, another window over the
+  center, or an in-window overlay (in that order); `setValue` checks only
+  disabled. Missing enabled state passes. A blocked action waits on the
+  settle sampler's quiet ticks for up to `waitMs` milliseconds (default 2000,
+  range 0–10000; zero disables waiting), then refuses `not_actionable` with
+  the first remaining blocker in `message`. The action is never dispatched
+  while blocked.
 - **Host.** Both methods enter the same captured `tool.pre` port as input
   (`captureInput`), so observation is an Owner-visible effect too, and both
   recheck attachment, generation and grant at forward time.
