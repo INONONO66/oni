@@ -117,7 +117,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - name: Gate native line coverage (build.rs is not measured)
-        run: cd clients && cargo llvm-cov --workspace --tests --locked --fail-under-lines 100
+        run: |
+          cd clients
+          cargo llvm-cov --workspace --tests --locked --lcov --output-path /tmp/oni-clients.lcov
+          # `--fail-under-lines` scores each function by its best single build
+          # (unit-test harness or the mclient binary behind the integration
+          # tests), so a line only one build reaches beside a line only the
+          # other reaches reads as a miss that no line view shows. The LCOV
+          # export unions the builds; gate on its lines.
+          awk -F'[:,]' '/^SF:/ { file = $2 } /^DA:/ && $3 == 0 { print file ":" $2; misses++ } END { exit misses > 0 }' /tmp/oni-clients.lcov
 
   desktop-smoke:
     name: Desktop production smoke
