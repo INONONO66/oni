@@ -6,6 +6,7 @@
 //! `kind: "action"` recorder lines.
 
 use std::{
+    collections::HashMap,
     fs,
     marker::PhantomData,
     path::PathBuf,
@@ -17,8 +18,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::{
-    resolve, target, walk, ActFault, Action, Admit, AppIdentity, Attributes, Bounds, Frame, Hit,
-    Observer, Segment, Tree, Walk, WindowIdentity,
+    assemble, attribute_fault, resolve, target, walk, ActFault, Action, Admit, AppIdentity,
+    AttributeFault, Attributes, Bounds, Frame, Hit, Observer, Raw, Segment, Tree, Walk,
+    WindowIdentity, ATTRIBUTES,
 };
 use crate::screen::observe;
 use crate::screen::settle::{
@@ -49,6 +51,8 @@ pub struct Element {
     focused: bool,
     #[serde(default)]
     children: Vec<Element>,
+    #[serde(default)]
+    faults: HashMap<String, i32>,
 }
 
 #[derive(Deserialize)]
@@ -198,25 +202,39 @@ impl<'a> Tree for Rows<'a> {
     type Item = &'a Element;
 
     fn read(&self, item: &&'a Element) -> Result<(Attributes, Vec<&'a Element>), Fault> {
-        let attributes = Attributes {
-            role: item.role.clone(),
-            label: item.label.clone(),
-            identifier: item
-                .id
-                .as_ref()
-                .filter(|id| !id.is_empty())
-                .map(|id| observe::clip(id, 256)),
-            value: item.value.clone(),
-            actions: item.actions.clone(),
-            frame: item.frame,
-            secure: item.secure,
-            enabled: item.enabled,
-            selected: item.selected,
-            checked: item.checked,
-            expanded: item.expanded,
-            focused: item.focused,
+        let values = [
+            Raw::Text(item.role.clone()),
+            Raw::Text(if item.secure { "AXSecureTextField" } else { "" }.into()),
+            Raw::Other,
+            item.label.clone().map_or(Raw::Other, Raw::Text),
+            item.value.clone().map_or(Raw::Other, Raw::Text),
+            Raw::Point(item.frame.x as f64, item.frame.y as f64),
+            Raw::Size(item.frame.width as f64, item.frame.height as f64),
+            item.enabled.map_or(Raw::Other, Raw::Flag),
+            item.selected.map_or(Raw::Other, Raw::Flag),
+            item.expanded.map_or(Raw::Other, Raw::Flag),
+            Raw::Flag(item.focused),
+            Raw::Items(item.children.iter().collect()),
+            item.id.clone().map_or(Raw::Other, Raw::Text),
+        ];
+        let values = ATTRIBUTES
+            .iter()
+            .zip(values)
+            .map(|(name, value)| {
+                item.faults
+                    .get(*name)
+                    .map_or(value, |code| Raw::Error(*code))
+            })
+            .collect();
+        let (mut attributes, children) = assemble(values, Ok(item.actions.clone()), (0.0, 0.0))?;
+        attributes.checked = match item.faults.get("AXChecked") {
+            Some(code) => match attribute_fault(*code)? {
+                AttributeFault::Absent => None,
+                AttributeFault::Unknown => Some(None),
+            },
+            None => item.checked.map(Some),
         };
-        Ok((attributes, item.children.iter().collect()))
+        Ok((attributes, children))
     }
 }
 
@@ -453,6 +471,82 @@ mod tests {
 
     fn path() -> Vec<Segment> {
         super::super::segments("AXButton[0]").expect("a ref")
+    }
+
+    fn observe_fault(attribute: &str, code: i32) -> Value {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let layout = json!({"windows":[{"id":9,"title":"Editor","pid":7,"elements":[
+        {"role":"AXGroup","frame":{"x":0,"y":0,"width":10,"height":10},
+         "children":[
+            {"role":"AXButton","label":"Faulted","enabled":true,
+             "frame":{"x":0,"y":0,"width":1,"height":1},
+             "children":[{"role":"AXTextField",
+                "frame":{"x":0,"y":0,"width":1,"height":1}}]},
+            {"role":"AXButton","label":"Sibling",
+             "frame":{"x":1,"y":0,"width":1,"height":1}}
+        ]}]}]});
+        let mut layout = layout;
+        layout["windows"][0]["elements"][0]["children"][0]["faults"] = json!({attribute: code});
+        let fixture = scripted(directory.path(), &layout.to_string());
+        let request = observe::Request {
+            target: observe::Target {
+                pid: 7,
+                window_id: 9,
+                epoch: Some(0),
+            },
+            since: None,
+            max_elements: 2000,
+        };
+        observe::Observations::default()
+            .observe(&fixture, &request, |_| Ok(None))
+            .unwrap_or_else(|refusal| refusal.observed())
+    }
+
+    #[test]
+    fn transient_flag_fault_preserves_observation_with_explicit_unknown() {
+        let observed = observe_fault("AXEnabled", -25204);
+        assert_eq!(observed["status"], "ok");
+        assert_eq!(observed["elements"][1]["enabled"], Value::Null);
+        assert!(observed["elements"][1].get("selected").is_none());
+        assert_eq!(observed["elements"][3]["ref"], "AXGroup[0]/AXButton[1]");
+        assert_eq!(observed["elements"].as_array().expect("elements").len(), 4);
+    }
+
+    #[test]
+    fn checked_fault_distinguishes_missing_and_unknown() {
+        let unknown = observe_fault("AXChecked", -25204);
+        assert_eq!(unknown["status"], "ok");
+        assert_eq!(unknown["elements"][1]["checked"], Value::Null);
+        let absent = observe_fault("AXChecked", -25212);
+        assert!(absent["elements"][1].get("checked").is_none());
+    }
+
+    #[test]
+    fn transient_children_fault_keeps_siblings_and_complete_census() {
+        let observed = observe_fault("AXChildren", -25202);
+        assert_eq!(observed["status"], "ok");
+        assert_eq!(observed["complete"], true);
+        assert_eq!(observed["elements"][1]["children"], Value::Null);
+        assert_eq!(observed["elements"][2]["ref"], "AXGroup[0]/AXButton[1]");
+        assert_eq!(observed["elements"].as_array().expect("elements").len(), 3);
+    }
+
+    #[test]
+    fn transient_role_fault_keeps_unaddressable_subtree() {
+        let observed = observe_fault("AXRole", -25201);
+        assert_eq!(observed["status"], "ok");
+        assert_eq!(observed["elements"][1]["role"], "");
+        assert_eq!(observed["elements"][1]["ref"], Value::Null);
+        assert_eq!(observed["elements"][2]["role"], "AXTextField");
+        assert_eq!(observed["elements"][2]["ref"], Value::Null);
+        assert_eq!(observed["elements"][3]["ref"], "AXGroup[0]/AXButton[0]");
+    }
+
+    #[test]
+    fn disabled_api_fault_refuses_entire_observation() {
+        let observed = observe_fault("AXEnabled", -25211);
+        assert_eq!(observed["status"], "refused");
+        assert_eq!(observed["reason"], "permission_denied");
     }
 
     #[test]
@@ -840,8 +934,8 @@ mod tests {
         layout["windows"][0]["elements"][0]["enabled"] = json!(true);
         action.wait_ms = 2000;
         assert_eq!(
-            observations.act_waiting(&fixture, &action, &|| true, &|start, _| {
-                Some(Box::new(RewriteTick {
+            observations.act_waiting(&fixture, &action, &|| true, &|start, _, _| {
+                let mut tick = RewriteTick {
                     layout: fixture.layout.clone(),
                     enabled: layout.clone(),
                     now: start,
@@ -849,19 +943,17 @@ mod tests {
                         layout: fixture.layout.clone(),
                         recorder: fixture.recorder.clone(),
                     },
-                }))
+                };
+                assert_eq!(
+                    tick.commit_if_current(Box::new(|| panic!("uncommitted sample"))),
+                    None
+                );
+                Some(Box::new(tick))
             }),
             Ok(())
         );
         let recorded = fs::read_to_string(&fixture.recorder).expect("action");
         assert_eq!(recorded.lines().count(), 1);
-        let mut tick = RewriteTick {
-            layout: fixture.layout.clone(),
-            enabled: layout,
-            now: Instant::now(),
-            fixture,
-        };
-        assert_eq!(tick.commit_if_current(Box::new(Value::default)), None);
     }
 
     #[test]
