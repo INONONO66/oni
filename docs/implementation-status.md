@@ -227,7 +227,13 @@ are written to `metrics.jsonl`; a refused restart restores the previous link
 and pin. `run` checks the persisted pin unless
 `--allow-unpinned` is passed. An active or rollback version cannot be
 restaged in place. Fixture tests cover refusals and symlink preservation;
-live MacBook grant retention and PVE bootstrap remain unverified (#1702).
+on macOS launchd runs the regular file `~/.oni/bin/mclient`, which is
+atomically replaced at the same real path on a pin update and restored on
+rollback. The release job signs with the imported certificate's leaf
+requirement when #1724 secrets exist, verifies that the designated
+requirement names that leaf rather than `cdhash`, and otherwise announces
+ad-hoc signing. Live MacBook grant retention and PVE bootstrap remain
+unverified (#1702).
 The host-self supervisor deployment and update recipe belongs to #1699.
 
 ## #1699 drain-restart deploy (PR pending)
