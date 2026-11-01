@@ -119,11 +119,17 @@ jobs:
       - name: Gate native line coverage (build.rs is not measured)
         run: |
           cd clients
-          if ! cargo llvm-cov --workspace --tests --locked --fail-under-lines 100; then
-            cargo llvm-cov report --text --output-path /tmp/oni-x11-coverage.txt
-            awk '/\/display\/xvfb.rs:$/ { show=1; next } show && /^[^|]+\.rs:$/ { exit } show { print }' /tmp/oni-x11-coverage.txt
-            exit 1
-          fi
+          if cargo llvm-cov --workspace --tests --locked --fail-under-lines 100; then exit 0; fi
+          # The summary folds a function's two crate builds (the unit-test harness
+          # and the mclient binary behind the integration tests) by max, so a line
+          # reached only in one build next to a line reached only in the other
+          # counts as a miss that `show` never prints. List those instantiations.
+          cargo llvm-cov report --json --output-path /tmp/oni-coverage.json
+          jq -r '.data[0].functions[]
+            | select(.filenames[0] | test("/clients/"))
+            | select((.regions | any(.[5] == 0 and .[7] == 0 and .[4] == 0)) and (.regions | any(.[5] == 0 and .[7] == 0 and .[4] > 0)))
+            | "\(.filenames[0] | sub(".*/clients/"; "")) \(.name) zero=" + ([.regions[] | select(.[5] == 0 and .[7] == 0 and .[4] == 0) | "\(.[0])-\(.[2])"] | join(","))' /tmp/oni-coverage.json
+          exit 1
 
   desktop-smoke:
     name: Desktop production smoke
