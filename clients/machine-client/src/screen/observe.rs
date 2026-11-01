@@ -458,6 +458,29 @@ impl Observations {
         Ok(self.commit(prepared, screenshot))
     }
 
+    pub fn observe_private(
+        &self,
+        observer: &dyn Observer,
+        request: &Request,
+    ) -> Result<Value, Refusal> {
+        let located = self.locate(observer, request.target)?;
+        let window = self.window(&located);
+        let _serial = lock(&window);
+        Ok(self.commit(
+            Prepared::new(
+                located,
+                None,
+                Walk {
+                    nodes: Vec::new(),
+                    focused: None,
+                    complete: true,
+                },
+                true,
+            ),
+            None,
+        ))
+    }
+
     fn prepare(
         &self,
         observer: &dyn Observer,
@@ -1055,12 +1078,16 @@ impl Screen {
                 usize::try_from(limit.get()).map_or(MAX_ELEMENTS, |limit| limit.min(MAX_ELEMENTS))
             }),
         };
-        self.observations.observe(observer, &parsed, |window| {
-            request
-                .screenshot
-                .then(|| self.window_shot(window))
-                .transpose()
-        })
+        if self.system_private() {
+            self.observations.observe_private(observer, &parsed)
+        } else {
+            self.observations.observe(observer, &parsed, |window| {
+                request
+                    .screenshot
+                    .then(|| self.window_shot(window))
+                    .transpose()
+            })
+        }
     }
 
     fn window_shot(&self, window: u32) -> Result<Value, Refusal> {
@@ -1093,6 +1120,9 @@ impl Screen {
         before_dispatch: &dyn Fn() -> bool,
     ) -> Result<(), Refusal> {
         let observer = self.observer.as_deref().ok_or(Refusal::NotAvailable)?;
+        if self.system_private() {
+            return Err(Refusal::Private);
+        }
         self.observations
             .act_waiting(observer, act, before_dispatch, &|started, end| {
                 self.subscribe_action(act.target, started, end)
@@ -1127,6 +1157,9 @@ impl Screen {
         reference: &str,
     ) -> Result<(Display, i32, i32), Refusal> {
         let observer = self.observer.as_deref().ok_or(Refusal::NotAvailable)?;
+        if self.system_private() {
+            return Err(Refusal::Private);
+        }
         let (x, y) = self.observations.point(observer, observation, reference)?;
         let displays = self.source()?.displays()?;
         let (x, y) = (i32::try_from(x), i32::try_from(y));

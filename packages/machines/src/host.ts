@@ -1221,7 +1221,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           const peer = attachments.get(key);
           if (peer === undefined) return { status: "refused", reason: "machine_not_attached" } as const;
           if (peer.offer.machineId !== event.machineId) return { status: "refused", reason: "machine_mismatch" } as const;
-          options.events.publish(Machine.Events.Private, { machineId: event.machineId, time: options.now(), target: event.target, state: event.state });
+          options.events.publish(Machine.Events.Private, { machineId: event.machineId, time: options.now(), target: event.target, state: event.state, reason: event.reason });
           return { status: "accepted" } as const;
         }));
       if (method === Machine.WireMethod.StreamSignal)

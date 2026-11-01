@@ -1,0 +1,1 @@
+#1727 (epic #1688) on `input/1727-secure-input` (2026-11-01, base `0fa2d753f`, PR pending): macOS system secure input enters private mode and clears after two refreshes; fixture and client gate receipts in the PR checks, shipped status in `docs/implementation-status.md`.

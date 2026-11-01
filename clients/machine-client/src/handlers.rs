@@ -965,7 +965,7 @@ impl Service {
         else {
             return;
         };
-        for (target, edge) in edges {
+        for (target, edge, reason) in edges {
             let state = match edge {
                 crate::screen::private::Edge::Entered => "entered",
                 crate::screen::private::Edge::Left => "left",
@@ -978,6 +978,7 @@ impl Service {
                     "epoch": target.epoch.unwrap_or(0),
                 },
                 "state": state,
+                "reason": reason.name(),
             });
             let _ = caller
                 .call_with_timeout(
@@ -1452,6 +1453,7 @@ mod private_tests {
                         "machineId":"laptop",
                         "target":{"pid":7,"windowId":9,"epoch":0},
                         "state":state,
+                        "reason":"secure_focus",
                     })
                 );
                 framing::write_frame(

@@ -483,6 +483,15 @@ clock and frame tests cover the timing without sleeps.
 
 ## #1695 private mode (PR pending)
 
+The #1727 client additionally reads the system-wide secure-input flag on
+macOS. While enabled, display and stream frames are fully masked, window
+captures and input refuse `private`, and observations return no elements or
+screenshot. A disabled flag must survive two 250 ms refreshes before input
+resumes. Private transition events identify `secure_focus` or
+`secure_input_enabled` on the machine wire and host bus. Linux reports the
+flag disabled; deterministic fixture tests cover masking, refusal and the
+two-read release. Live MacBook acceptance remains #1702.
+
 On `feat/1695-private-mode` (2026-10-31, rebased on `1a6c4c923` after
 #1689). Target contract: `docs/machines-and-delegation.md` 2.2.5.
 

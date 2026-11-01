@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use super::{
     ax::{Frame, Walk},
@@ -60,19 +63,77 @@ pub enum Edge {
     Left,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reason {
+    SecureFocus,
+    SecureInputEnabled,
+}
+
+impl Reason {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::SecureFocus => "secure_focus",
+            Self::SecureInputEnabled => "secure_input_enabled",
+        }
+    }
+}
+
 #[derive(Default)]
-pub struct States(HashMap<(u64, u64, Option<u64>), bool>);
+pub struct SecureInput {
+    checked_at: Option<Instant>,
+    clear_reads: u8,
+    active: bool,
+}
+
+impl SecureInput {
+    pub fn refresh(&mut self, now: Instant, enabled: bool) -> bool {
+        if enabled {
+            self.active = true;
+            self.clear_reads = 0;
+            self.checked_at = Some(now);
+        } else if self
+            .checked_at
+            .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_millis(250))
+        {
+            self.checked_at = Some(now);
+            self.clear_reads = self.clear_reads.saturating_add(1);
+            if self.clear_reads >= 2 {
+                self.active = false;
+            }
+        }
+        self.active
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "Carbon", kind = "framework")]
+unsafe extern "C" {
+    fn IsSecureEventInputEnabled() -> bool;
+}
+
+pub fn platform_secure_input_enabled() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: HIToolbox exposes an argument-free query of the process-wide input state.
+        unsafe { IsSecureEventInputEnabled() }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+#[derive(Default)]
+pub struct States(HashMap<(u64, u64, Option<u64>), Option<Reason>>);
 
 impl States {
-    pub fn update(&mut self, target: Target, private: bool) -> Option<Edge> {
+    pub fn update(&mut self, target: Target, reason: Option<Reason>) -> Option<(Edge, Reason)> {
         match self
             .0
-            .insert((target.pid, target.window_id, target.epoch), private)
+            .insert((target.pid, target.window_id, target.epoch), reason)
         {
-            Some(previous) if previous != private => {
-                Some(if private { Edge::Entered } else { Edge::Left })
-            }
-            None if private => Some(Edge::Entered),
+            Some(None) | None if reason.is_some() => Some((Edge::Entered, reason?)),
+            Some(Some(previous)) if reason.is_none() => Some((Edge::Left, previous)),
             _ => None,
         }
     }
@@ -273,20 +334,43 @@ mod tests {
             epoch: Some(2),
         };
         let mut states = States::default();
-        assert_eq!(states.update(target, false), None);
-        assert_eq!(states.update(target, true), Some(Edge::Entered));
-        assert_eq!(states.update(target, true), None);
-        assert_eq!(states.update(target, false), Some(Edge::Left));
+        assert_eq!(states.update(target, None), None);
+        assert_eq!(
+            states.update(target, Some(Reason::SecureFocus)),
+            Some((Edge::Entered, Reason::SecureFocus))
+        );
+        assert_eq!(
+            states.update(target, Some(Reason::SecureInputEnabled)),
+            None
+        );
+        assert_eq!(
+            states.update(target, None),
+            Some((Edge::Left, Reason::SecureInputEnabled))
+        );
         assert_eq!(
             states.update(
                 Target {
                     epoch: Some(3),
                     ..target
                 },
-                true
+                Some(Reason::SecureFocus)
             ),
-            Some(Edge::Entered)
+            Some((Edge::Entered, Reason::SecureFocus))
         );
+    }
+
+    #[test]
+    fn system_secure_input_requires_two_distinct_clear_refreshes() {
+        let start = Instant::now();
+        let mut state = SecureInput::default();
+        assert!(!state.refresh(start, false));
+        assert!(state.refresh(start, true));
+        assert!(state.refresh(start, false));
+        assert!(state.refresh(start + Duration::from_millis(249), false));
+        assert!(state.refresh(start + Duration::from_millis(250), false));
+        assert!(state.refresh(start + Duration::from_millis(499), false));
+        assert!(!state.refresh(start + Duration::from_millis(500), false));
+        assert!(state.refresh(start + Duration::from_millis(501), true));
     }
 
     #[test]

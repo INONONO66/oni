@@ -6,6 +6,13 @@
       "minLength": 1,
       "type": "string"
     },
+    "reason": {
+      "enum": [
+        "secure_focus",
+        "secure_input_enabled"
+      ],
+      "type": "string"
+    },
     "state": {
       "enum": [
         "entered",

@@ -171,6 +171,7 @@ export const PrivateEvent = z
     machineId: MachineId,
     target: WindowTarget.required({ epoch: true }),
     state: z.enum(["entered", "left"]),
+    reason: z.enum(["secure_focus", "secure_input_enabled"]).optional(),
   })
   .strict();
 export type PrivateEvent = z.infer<typeof PrivateEvent>;

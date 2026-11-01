@@ -184,14 +184,14 @@ test("private focus edges publish only from the attached machine identity", asyn
   try {
     const edge = f.events.next(Machine.Events.Private.name);
     expect(await desk.client.call(Machine.WireMethod.EventPrivate, {
-      machineId: "desk", target: { pid: 42, windowId: 7, epoch: 0 }, state: "entered",
+      machineId: "desk", target: { pid: 42, windowId: 7, epoch: 0 }, state: "entered", reason: "secure_input_enabled",
     })).toEqual({ status: "accepted" });
     expect(await edge).toEqual({
       name: Machine.Events.Private.name,
-      payload: { machineId: "desk", time: 100, target: { pid: 42, windowId: 7, epoch: 0 }, state: "entered" },
+      payload: { machineId: "desk", time: 100, target: { pid: 42, windowId: 7, epoch: 0 }, state: "entered", reason: "secure_input_enabled" },
     });
     expect(await desk.client.call(Machine.WireMethod.EventPrivate, {
-      machineId: "other", target: { pid: 42, windowId: 7, epoch: 0 }, state: "left",
+      machineId: "other", target: { pid: 42, windowId: 7, epoch: 0 }, state: "left", reason: "secure_focus",
     })).toEqual({ status: "refused", reason: "machine_mismatch" });
   } finally {
     await f.close();
