@@ -20,7 +20,6 @@ and #1702. The command and JSON shape are in `docs/first-live-run.md`.
 
 Ref-targeted press and perform check disabled, zero-size, off-window and hit-test occlusion before dispatch, setValue checks disabled, and blocked actions wait at most two seconds by default before a typed `not_actionable` refusal.
 
-||||||| f68476e73
 ## #1722 setup needs on screen verdicts
 
 The Rust client derives actionable `Report.screen.needs` from the screen
@@ -564,6 +563,7 @@ element: unknown flags serialize as `null`, unknown children as
 and its descendants unaddressable while sibling refs remain available. Disabled accessibility
 still refuses the observation. Headless fixtures exercise these outcomes;
 the schema and valid/invalid wire fixtures retain omitted versus null states.
+
 The #1717 follow-up adds `root`, `maxDepth` and label/role `match` scopes.
 Depth cuts carry direct-child counts and ignore unlabeled layout wrappers;
 matches retain ref-less ancestors. Full-path refs use a sibling census along
@@ -572,7 +572,6 @@ a whole-window census. Different-scope `since` requests refuse
 `stale_observation`. The 3,000-node fixture asserts exact reads for a
 three-node skeleton and a selected subtree, including action revalidation;
 an unscoped observation remains incomplete and ref-less.
-
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target
 contract: `docs/machines-and-delegation.md` 2.2.2.
 
