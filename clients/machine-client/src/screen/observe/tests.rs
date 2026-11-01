@@ -243,6 +243,175 @@ fn private_observation_issues_no_refs_for_actions() {
     assert!(fake.acted.lock().expect("lock").is_empty());
 }
 
+struct RejectNotifications(Arc<AtomicUsize>);
+
+impl super::super::settle::Notifications for RejectNotifications {
+    fn subscribe(
+        &self,
+        _: u32,
+        _: u32,
+        _: Instant,
+        _: Instant,
+        _: Arc<dyn Observer>,
+    ) -> Result<Box<dyn Subscription>, super::super::settle::Unsupported> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Err(super::super::settle::Unsupported::WindowNotFound)
+    }
+}
+
+#[test]
+fn screen_action_wait_subscription_refuses_missing_or_unrepresentable_targets() {
+    let mut nodes = tree();
+    nodes[0].attributes.enabled = Some(Some(false));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
+        1,
+    )
+    .observing(Box::new(Fake::new(nodes)))
+    .notifying(Box::new(RejectNotifications(Arc::clone(&calls))));
+    let request: ScreenObserveRequest =
+        oni_protocol::decode(json!({"target":{"pid":7,"windowId":9},"screenshot":false}))
+            .expect("observe request");
+    assert_eq!(screen.observe(&request)["observationId"], "o1");
+    let mut action = act("o1", "AXButton[0]", Action::Press);
+    action.wait_ms = 2000;
+    assert_eq!(screen.act(&action), Err(Refusal::NotActionable("disabled")));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    for target in [
+        Target {
+            pid: u64::MAX,
+            ..action.target
+        },
+        Target {
+            window_id: u64::MAX,
+            ..action.target
+        },
+    ] {
+        assert_eq!(
+            screen.act(&Act {
+                target,
+                ..act("o1", "AXButton[0]", Action::Press)
+            }),
+            Err(Refusal::WindowNotFound)
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let now = Instant::now();
+    for target in [
+        Target {
+            pid: u64::MAX,
+            ..action.target
+        },
+        Target {
+            window_id: u64::MAX,
+            ..action.target
+        },
+    ] {
+        assert!(screen
+            .subscribe_action(target, &window(0), now, now)
+            .is_none());
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(Screen::absent()
+        .subscribe_action(action.target, &window(0), now, now)
+        .is_none());
+}
+
+struct LaneRefusalTick {
+    fake: Arc<Fake>,
+    now: Instant,
+    refusal: Refusal,
+}
+
+impl Subscription for LaneRefusalTick {
+    fn now(&self) -> Instant {
+        self.now
+    }
+
+    fn receive_until(&mut self, deadline: Instant) -> Option<(Instant, Notification)> {
+        self.now = deadline;
+        (self.refusal == Refusal::WindowNotFound).then_some((deadline, Notification::Destroyed))
+    }
+
+    fn sample(&mut self, _: Instant) -> Result<super::super::settle::Sample, Refusal> {
+        if self.refusal == Refusal::Permission {
+            return Err(Refusal::Permission);
+        }
+        let bounds = Bounds {
+            max_elements: MAX_ELEMENTS,
+            max_visits: MAX_VISITS,
+            budget: BUDGET,
+        };
+        Ok(super::super::settle::Sample {
+            windows: if self.refusal == Refusal::EpochChanged {
+                vec![window(1)]
+            } else {
+                self.fake.windows().map_err(Refusal::from)?
+            },
+            walk: self.fake.walk(&window(0), &bounds).map_err(Refusal::from)?,
+            private: self.refusal == Refusal::Private,
+        })
+    }
+
+    fn commit_if_current(&mut self, _: Box<dyn FnOnce() -> Value + '_>) -> Option<Value> {
+        None
+    }
+}
+
+#[test]
+fn blocked_action_refuses_destroyed_private_and_recreated_targets_on_tick() {
+    let fake = Arc::new(Fake::new(tree()));
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(Some(false));
+    let observations = Observations::default();
+    observe(&observations, fake.as_ref(), None);
+    let mut action = act("o1", "AXButton[0]", Action::Press);
+    action.wait_ms = 2000;
+    assert_eq!(
+        observations.act_waiting(fake.as_ref(), &action, &|| true, &|_, _, _| None),
+        Err(Refusal::NotActionable("disabled"))
+    );
+    for refusal in [
+        Refusal::WindowNotFound,
+        Refusal::Private,
+        Refusal::EpochChanged,
+    ] {
+        assert_eq!(
+            observations.act_waiting(fake.as_ref(), &action, &|| true, &|start, _, _| {
+                Some(Box::new(LaneRefusalTick {
+                    fake: Arc::clone(&fake),
+                    now: start,
+                    refusal: refusal.clone(),
+                }))
+            }),
+            Err(refusal)
+        );
+    }
+    assert!(fake.acted.lock().expect("lock").is_empty());
+}
+
+#[test]
+fn blocked_action_propagates_a_failed_settle_sample() {
+    let fake = Arc::new(Fake::new(tree()));
+    fake.walk.lock().expect("lock")[0].attributes.enabled = Some(Some(false));
+    let observations = Observations::default();
+    observe(&observations, fake.as_ref(), None);
+    let mut action = act("o1", "AXButton[0]", Action::Press);
+    action.wait_ms = 2000;
+
+    assert_eq!(
+        observations.act_waiting(fake.as_ref(), &action, &|| true, &|start, _, _| {
+            Some(Box::new(LaneRefusalTick {
+                fake: Arc::clone(&fake),
+                now: start,
+                refusal: Refusal::Permission,
+            }))
+        }),
+        Err(Refusal::Permission)
+    );
+    assert!(fake.acted.lock().expect("lock").is_empty());
+}
+
 #[test]
 fn empty_accessibility_window_set_is_private_for_input() {
     let fake = Fake::new(tree());
@@ -2036,70 +2205,6 @@ fn screen_observation_respects_explicit_element_limit() {
     assert_eq!(observed["status"], "ok");
     assert_eq!(observed["complete"], false);
     assert_eq!(observed["elements"].as_array().expect("elements").len(), 1);
-}
-
-struct RejectNotifications(Arc<AtomicUsize>);
-
-impl super::super::settle::Notifications for RejectNotifications {
-    fn subscribe(
-        &self,
-        _: u32,
-        _: u32,
-        _: Instant,
-        _: Instant,
-        _: Arc<dyn Observer>,
-    ) -> Result<Box<dyn Subscription>, super::super::settle::Unsupported> {
-        self.0.fetch_add(1, Ordering::SeqCst);
-        Err(super::super::settle::Unsupported::WindowNotFound)
-    }
-}
-
-#[test]
-fn screen_action_wait_subscription_refuses_missing_or_unrepresentable_targets() {
-    let mut nodes = tree();
-    nodes[0].attributes.enabled = Some(Some(false));
-    let calls = Arc::new(AtomicUsize::new(0));
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
-        1,
-    )
-    .observing(Box::new(Fake::new(nodes)))
-    .notifying(Box::new(RejectNotifications(Arc::clone(&calls))));
-    let request: ScreenObserveRequest =
-        oni_protocol::decode(json!({"target":{"pid":7,"windowId":9},"screenshot":false}))
-            .expect("observe request");
-    assert_eq!(screen.observe(&request)["observationId"], "o1");
-    let mut action = act("o1", "AXButton[0]", Action::Press);
-    action.wait_ms = 2000;
-    assert_eq!(screen.act(&action), Err(Refusal::NotActionable("disabled")));
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-    let now = Instant::now();
-    assert!(screen
-        .subscribe_action(
-            Target {
-                pid: u64::MAX,
-                ..action.target
-            },
-            &window(0),
-            now,
-            now
-        )
-        .is_none());
-    assert!(screen
-        .subscribe_action(
-            Target {
-                window_id: u64::MAX,
-                ..action.target
-            },
-            &window(0),
-            now,
-            now
-        )
-        .is_none());
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert!(Screen::absent()
-        .subscribe_action(action.target, &window(0), now, now)
-        .is_none());
 }
 
 #[test]
