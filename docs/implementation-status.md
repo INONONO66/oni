@@ -1,5 +1,9 @@
 # Implementation Status
 
+## #1720 leased clipboard access
+
+Machine clipboard read/write runs through the captured computer-use lease gate; the client retains bounded previous contents locally for conditional lease-end restoration, and ledger facts expose only format and byte counts.
+
 ## #1722 setup needs on screen verdicts
 
 The Rust client derives actionable `Report.screen.needs` from the screen

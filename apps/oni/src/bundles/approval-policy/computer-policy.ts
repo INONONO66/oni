@@ -11,6 +11,8 @@ const Capture = z.object({
     Machine.InputPointerRequest, Machine.InputKeyRequest, Machine.InputTextRequest,
     Machine.InputActionRequest, Machine.ScreenObserveRequest, Machine.ScreenSettleRequest,
     Machine.AppLaunchRequest, Machine.AppQuitRequest, Machine.WindowCloseRequest, Machine.WindowParkRequest,
+    Machine.ClipboardReadRequest,
+    z.object({ formats: z.array(z.enum(["text", "html", "image"])), bytes: z.number().int().nonnegative() }).strict(),
   ]),
   binding: Machine.ComputerWindow.optional(),
 }).strict();
@@ -22,6 +24,8 @@ export interface LaunchedWindow {
   readonly launchedBy: { readonly sessionId: string; readonly turn: string };
   keep?: Machine.ComputerKeep["reason"];
 }
+
+const CLIPBOARD_WRITE_GRANTS: ReadonlySet<Machine.ComputerLease["clipboard"]> = new Set(["write", "read_write"]);
 
 export class ComputerPolicy {
   readonly turns = new Map<string, string>();
@@ -87,6 +91,8 @@ export class ComputerPolicy {
       this.end(sessionId, machineId, "expired");
       return "lease_expired";
     }
+    const clipboard = this.clipboardRefusal(method, lease);
+    if (clipboard !== undefined) return clipboard;
     const live = this.ports.host().list().find((info) => info.machineId === machineId)?.live;
     const session = live?.session;
     if (session?.locked || session?.asleep) {
@@ -103,7 +109,14 @@ export class ComputerPolicy {
     }
     const stale = this.staleAnchor(sessionId, machineId, params);
     if (stale !== undefined) return stale;
-    return this.scope(lease, params, binding);
+    return method === Machine.WireMethod.ClipboardRead || method === Machine.WireMethod.ClipboardWrite
+      ? undefined : this.scope(lease, params, binding);
+  }
+
+  private clipboardRefusal(method: string, lease: Machine.ComputerLease): Machine.ComputerRefusal["reason"] | undefined {
+    if (method === Machine.WireMethod.ClipboardRead && lease.state === "paused" && lease.pauseReason === "private") return "private";
+    if (method === Machine.WireMethod.ClipboardRead && lease.clipboard !== "read_write") return "clipboard_not_granted";
+    if (method === Machine.WireMethod.ClipboardWrite && !CLIPBOARD_WRITE_GRANTS.has(lease.clipboard)) return "clipboard_not_granted";
   }
 
   private humanRecentlyActive(machineId: string, reportedAt: number | undefined): boolean {
@@ -253,7 +266,15 @@ export class ComputerPolicy {
 
   intent(request: MachineInputCapture) {
     return PlainValueSchema.parse(JSON.parse(canonicalJson({
-      machineId: request.machineId, generation: request.generation, params: request.params,
+      machineId: request.machineId, generation: request.generation,
+      params: request.method === Machine.WireMethod.ClipboardWrite
+        ? {
+          formats: Object.keys(request.params),
+          bytes: Object.entries(request.params).reduce((sum, [format, value]) =>
+            sum + (typeof value === "string" ? format === "image"
+              ? Buffer.from(value, "base64").length : Buffer.byteLength(value) : 0), 0),
+        }
+        : request.params,
       ...(request.binding === undefined ? {} : { binding: request.binding }),
     })));
   }

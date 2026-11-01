@@ -1130,3 +1130,157 @@ async fn observation_methods_gate_like_screen_and_settle_uses_capture_without_an
         refusal("request_busy")
     );
 }
+
+fn clipboard_service(
+    root: &Path,
+    pty: Pty,
+    screen: oni_machine_client::screen::Screen,
+    clipboard: oni_machine_client::clipboard::Clipboard,
+) -> Arc<Service> {
+    use oni_machine_client::{cdp::Cdp, input::Input, stream::local_address};
+    Service::open_stream(
+        &settings(false, root),
+        pty,
+        (screen, Input::absent(), clipboard),
+        Cdp::absent(),
+        local_address(),
+    )
+    .expect("service")
+}
+
+fn grant_computer_use(service: &Service) {
+    service.attached(&Negotiated {
+        generation: NonZeroU64::MIN,
+        capabilities: vec!["computer.use".into()],
+        exports: vec![],
+    });
+}
+
+#[tokio::test]
+async fn clipboard_methods_gate_attachment_and_refuse_without_a_pasteboard() {
+    use oni_machine_client::clipboard::Clipboard;
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let service = clipboard_service(root.path(), pty, ordinary_screen(), Clipboard::absent());
+    let hooks = service.hooks(Duration::from_secs(60));
+    let call = |method: &str, params: Value| (hooks.service)(method.to_owned(), Some(params));
+    assert_eq!(
+        call("machine.clipboard.read", json!({}))
+            .await
+            .expect("read"),
+        refusal("machine_not_attached")
+    );
+    grant_computer_use(&service);
+    assert_eq!(
+        call("machine.clipboard.read", json!({}))
+            .await
+            .expect("read"),
+        refusal("clipboard_not_available")
+    );
+    assert_eq!(
+        call("machine.clipboard.write", json!({"text":"agent"}))
+            .await
+            .expect("write"),
+        refusal("clipboard_not_available")
+    );
+    assert!(call("machine.clipboard.write", json!({"bogus":1}))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn clipboard_reads_refuse_while_no_window_admits_input() {
+    use oni_machine_client::clipboard::{fixture, Clipboard};
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let source = oni_machine_client::screen::fixture::Fixture::display(32, 16, 1.0);
+    let screen = ordinary_focus::screen(source, 1, &[]);
+    let clipboard = Clipboard::new(Box::new(fixture::Fixture(fixture::text("personal"))));
+    let service = clipboard_service(root.path(), pty, screen, clipboard);
+    grant_computer_use(&service);
+    let hooks = service.hooks(Duration::from_secs(60));
+    assert_eq!(
+        (hooks.service)("machine.clipboard.read".to_owned(), Some(json!({})))
+            .await
+            .expect("read"),
+        refusal("private")
+    );
+}
+
+#[tokio::test]
+async fn clipboard_round_trip_reports_human_edits_to_the_host() {
+    use oni_machine_client::{
+        clipboard::{fixture, Clipboard},
+        transport::{
+            client::{handler, Client},
+            framing::Framed,
+        },
+    };
+    let root = tempfile::tempdir().expect("root");
+    let pty = Pty::new(MISSING_TMUX, None, "g".into()).await;
+    let contents = fixture::text("personal");
+    let clipboard = Clipboard::new(Box::new(fixture::Fixture(contents.clone())));
+    let service = clipboard_service(root.path(), pty, ordinary_screen(), clipboard);
+    grant_computer_use(&service);
+    let hooks = service.hooks(Duration::from_secs(60));
+    let call = |method: &str, params: Value| (hooks.service)(method.to_owned(), Some(params));
+    let human_edit = |data: &[u8]| {
+        let mut current = contents.lock().expect("fixture");
+        current.change_count += 1;
+        current.entries[0].data = data.to_vec();
+    };
+    assert_eq!(
+        call("machine.clipboard.read", json!({"formats":["text"]}))
+            .await
+            .expect("read"),
+        json!({"status":"ok","changeCount":1,"text":"personal"})
+    );
+    human_edit(b"unwatched");
+    assert_eq!(
+        call("machine.clipboard.read", json!({}))
+            .await
+            .expect("read")["text"],
+        "unwatched"
+    );
+    let (peer, host) = tokio::io::duplex(1 << 16);
+    let client = Client::from_stream(
+        peer,
+        handler(|_, _| async { Err("unexpected request".to_owned()) }),
+    );
+    service.connected(client.caller());
+    assert_eq!(
+        call("machine.clipboard.write", json!({"text":"agent"}))
+            .await
+            .expect("write"),
+        json!({"status":"ok","changeCount":3,
+            "previous":{"changeCount":2,"formats":["public.utf8-plain-text"],"bytes":9}})
+    );
+    human_edit(b"human");
+    assert_eq!(
+        call("machine.clipboard.read", json!({}))
+            .await
+            .expect("read")["text"],
+        "human"
+    );
+    let mut frames = Framed::new(host);
+    let event = tokio::time::timeout(Duration::from_secs(5), frames.next())
+        .await
+        .expect("human edit reported")
+        .expect("frame")
+        .expect("open stream");
+    assert_eq!(event["type"], "notification");
+    assert_eq!(event["method"], "machine.event.human_input");
+    assert_eq!(event["params"]["source"], "clipboard");
+    assert!(event["params"]["machineId"].is_string());
+    assert!(event["params"]["at"].is_u64());
+    assert_eq!(
+        call(
+            "machine.computer.close",
+            json!({"generation":1,"through":1})
+        )
+        .await
+        .expect("close"),
+        json!({"status":"closed"})
+    );
+    assert_eq!(contents.lock().expect("fixture").entries[0].data, b"human");
+}

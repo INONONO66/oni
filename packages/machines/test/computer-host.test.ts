@@ -98,6 +98,30 @@ const observationScript = {
 const observations = <E extends { readonly method: string }>(received: readonly E[]) => received.filter((entry) => entry.method === Machine.WireMethod.ScreenObserve || entry.method === Machine.WireMethod.InputAction);
 const inputs = <E extends { readonly method: string }>(received: readonly E[]) => received.filter((entry) => entry.method.startsWith("machine.input."));
 
+test("clipboard requests cross the captured gate with typed content-free write receipts", async () => {
+  const calls: MachineInputCapture[] = [];
+  const f = await fixture({ captureInput: (request, forward) => {
+    calls.push(request);
+    return forward;
+  } });
+  try {
+    const desk = await f.peer([COMPUTER], {
+      [Machine.WireMethod.ClipboardRead]: () => ({ status: "ok", text: "copied", changeCount: 4 }),
+      [Machine.WireMethod.ClipboardWrite]: () => ({
+        status: "ok", changeCount: 5,
+        previous: { changeCount: 4, formats: ["public.utf8-plain-text"], bytes: 6 },
+      }),
+    });
+    expect(await run(f.machine().clipboard.read({ formats: ["text"] }))).toEqual({ status: "ok", text: "copied", changeCount: 4 });
+    expect(await run(f.machine().clipboard.write({ text: "agent" }))).toEqual({
+      status: "ok", changeCount: 5,
+      previous: { changeCount: 4, formats: ["public.utf8-plain-text"], bytes: 6 },
+    });
+    expect(calls.map((request) => request.method)).toEqual([Machine.WireMethod.ClipboardRead, Machine.WireMethod.ClipboardWrite]);
+    expect(desk.received.map((request) => request.method)).toContain(Machine.WireMethod.ClipboardWrite);
+  } finally { await f.close(); }
+});
+
 test("computer close cancels an in-flight action without detaching unrelated machine work", async () => {
   const entered = Promise.withResolvers<void>();
   const closed = Promise.withResolvers<Machine.ComputerCloseRequest>();
