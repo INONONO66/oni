@@ -14,6 +14,7 @@ import { loadConfig } from "../config";
 import { installShutdownHandlers, startOni } from "..";
 import { type CliDeps, runCli } from "./commands";
 import { attachConfiguredMachine } from "./machine";
+import { connectProbe, streamProbeDeps } from "./stream-probe";
 import { deployClient, supervise } from "./supervise";
 import { platformEntropy } from "../composition/platform";
 import type { DaemonIo, DaemonTarget, ExecResult } from "./daemon";
@@ -377,6 +378,14 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
       },
     },
     channelHistory: { id: () => platformEntropy().id(), read: readChannelHistory },
+    streamProbe: streamProbeDeps(() => platformEntropy().id(), async () => {
+      const env = mergeEnvFile(existsSync(envPath) ? await Bun.file(envPath).text() : "");
+      const host = env.get("ONI_WS_HOST") ?? "127.0.0.1";
+      if (!LOOPBACK_HOSTS.has(host)) throw new CliError("stream probe requires the local daemon");
+      const token = env.get("ONI_WS_TOKEN");
+      if (token === undefined || token.length === 0) throw new CliError("stream probe requires ONI_WS_TOKEN");
+      return connectProbe(`ws://${host}:${env.get("ONI_WS_PORT") ?? "3000"}/ws`, token);
+    }),
     messagingFacts,
     supervise: () => {
       applyEnvFile(envPath);

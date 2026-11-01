@@ -1,0 +1,6 @@
+{
+  "machineId": "desk",
+  "reportedAt": 1,
+  "load": { "loadAvg1": 0, "memoryAvailableBytes": 1, "inFlight": 0 },
+  "transport": { "lastFailure": null, "attempts": 0, "clockOffsetMs": 500 }
+}

@@ -1,5 +1,5 @@
 import { composedHolder } from "./helpers/bundle-fixture";
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
 import { Bus } from "./helpers/bus";
 import { WebSocketHandler, type WsConnection } from "@oni/channels";
@@ -7,6 +7,7 @@ import { L0Observation, type LedgerAction, type LedgerSession, type PlainValue }
 import { adoptWriter, materializeSession } from "../../../packages/agent/test/store/helpers/session";
 type SessionKernel = import("@oni/agent").Core.SessionKernel;
 import { gatewayRuntime, readSessionCursor, webSocketCallbacks } from "../src/gateway";
+import { StreamProbeResponse } from "../src/composition/stream-probe";
 import { testPlane } from "./helpers/ledger";
 import { runSyncEffect } from "./helpers/scoped-effect";
 import { testIds } from "./helpers/test-entropy";
@@ -201,6 +202,63 @@ test("a reader whose kernel read throws receives a session_read_failed error fra
     gatewaySocket.callbacks.close(ws);
   } finally {
     plane.close();
+    await runtime.dispose();
+  }
+});
+
+test("the authenticated gateway opens, reports, and drains a failed probe close", async () => {
+  const runtime = gatewayRuntime({ composed: composedHolder(), observations: Bus });
+  const errors = spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    const handler = new WebSocketHandler(() => Effect.void, Bus.publish, { now: () => 0, id: testIds("probe-gateway") });
+    const frames: StreamProbeResponse[] = [];
+    const ws: WsConnection = {
+      data: { surfaceKey: "ws::dm:probe", authenticated: true, externalId: "owner" },
+      send: (line) => frames.push(StreamProbeResponse.parse(JSON.parse(line))),
+    };
+    let opens = 0;
+    const machines = {
+      list: () => [],
+      get: () => ({
+        computer: {
+          stream: {
+            open: (_request: object, listeners: { onSignal: (signal: { streamId: string; seq: number; signal: { type: "offer"; sdp: string } }) => void }) => {
+              opens += 1;
+              listeners.onSignal({ streamId: "fixture-stream", seq: 0, signal: { type: "offer", sdp: "offer" } });
+              return Effect.succeed({
+                streamId: "fixture-stream",
+                expiresAt: 1000,
+                capturedAt: (us: number) => us,
+                signal: () => Effect.succeed({ status: "accepted" as const, seq: 0 }),
+                close: () => Effect.die(new Error("fixture close failed")),
+              });
+            },
+          },
+        },
+      }),
+    };
+    const gateway = webSocketCallbacks(runtime, handler, Bus, undefined, undefined, undefined, machines,
+      undefined, undefined, undefined, () => 100);
+    await gateway.callbacks.message(ws, JSON.stringify({
+      type: "stream_probe_open", requestId: "p", machineId: "macbook", display: 1,
+    }));
+    expect(frames).toContainEqual({ type: "stream_probe_opened", requestId: "p", streamId: "fixture-stream" });
+    expect(frames).toContainEqual({ type: "stream_probe_signal", requestId: "p", signal: { type: "offer", sdp: "offer" } });
+    await gateway.callbacks.message(ws, JSON.stringify({
+      type: "stream_probe_frame", requestId: "p", seq: 0, capturedAtUs: 10, receivedAt: 20, decodedAt: 25,
+    }));
+    await gateway.callbacks.message(ws, JSON.stringify({ type: "stream_probe_report", requestId: "p" }));
+    expect(frames.at(-1)).toMatchObject({
+      stages: { captureToReceipt: { p99: 10 }, captureToDecoded: { p99: 15 } },
+    });
+    expect(opens).toBe(1);
+    gateway.callbacks.close(ws);
+    await gateway.settled();
+    expect(errors).toHaveBeenCalledTimes(1);
+    expect(errors.mock.calls[0]?.[0]).toBe("stream probe close failed");
+    expect(errors.mock.calls[0]?.[1]).toBeDefined();
+  } finally {
+    errors.mockRestore();
     await runtime.dispose();
   }
 });
