@@ -5,6 +5,9 @@
       "additionalProperties": false,
       "properties": {
         "accessibilityTree": {},
+        "accessibilityUnavailable": {
+          "type": "boolean"
+        },
         "captureId": {
           "minLength": 1,
           "type": "string"

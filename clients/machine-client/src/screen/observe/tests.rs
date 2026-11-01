@@ -226,15 +226,36 @@ impl Observer for Fake {
 }
 
 #[test]
-fn unreadable_focus_returns_empty_private_observation_without_tree_walk() {
+fn unreadable_focus_refuses_observation_without_tree_walk() {
     let fake = Fake::new(tree());
     *fake.focus_fault.lock().expect("lock") = Some(Fault::Permission);
     *fake.walk_fault.lock().expect("lock") = Some(Fault::Failed("walk must not run".into()));
     let observations = Observations::default();
-    let result = observe(&observations, &fake, None);
-    assert_eq!(result["status"], "ok");
-    assert_eq!(result["private"], true);
-    assert_eq!(result["elements"], json!([]));
+    assert_eq!(
+        shoot(&observations, &fake, &request(None, None)),
+        Err(Refusal::AccessibilityUnavailable)
+    );
+}
+
+#[test]
+fn unreadable_focus_refuses_a_fresh_reference_point() {
+    let fake = Fake::new(tree());
+    let observations = Observations::default();
+    let first = observe(&observations, &fake, None);
+    assert_eq!(first["status"], "ok");
+    *fake.focus_fault.lock().expect("lock") = Some(Fault::Permission);
+    assert_eq!(
+        observations.point(&fake, "o1", "AXButton[0]"),
+        Err(Refusal::AccessibilityUnavailable)
+    );
+    assert_eq!(
+        Refusal::from(Fault::AccessibilityUnavailable),
+        Refusal::AccessibilityUnavailable
+    );
+    assert_eq!(
+        Refusal::AccessibilityUnavailable.reason(),
+        "accessibility_unavailable"
+    );
 }
 
 #[test]
@@ -262,6 +283,101 @@ fn empty_accessibility_window_set_is_private_for_input() {
     )
     .observing(Box::new(fake));
     assert_eq!(screen.input_private(None), Ok(true));
+}
+
+#[test]
+fn failed_window_enumeration_marks_input_accessibility_unavailable() {
+    let fake = Fake::new(tree());
+    *fake.windows.lock().expect("lock") = Err(Fault::Permission);
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
+        1,
+    )
+    .observing(Box::new(fake));
+    assert_eq!(
+        screen.input_private(None),
+        Err(Fault::AccessibilityUnavailable)
+    );
+    assert!(!screen.capability(true).grants.accessibility);
+}
+
+#[test]
+fn display_capture_and_stream_propagate_absent_observer() {
+    let source = crate::screen::fixture::Fixture {
+        windows: vec![crate::screen::Window {
+            id: 9,
+            display: 1,
+            title: "Editor".into(),
+            owner: "fixture".into(),
+            pid: Some(7),
+            app: None,
+            x: 0,
+            y: 0,
+            width: 16,
+            height: 16,
+        }],
+        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+        "target":{"kind":"display","display":1},"encoding":{"format":"png"}
+    }))
+    .expect("capture");
+    assert_eq!(
+        screen.capture(&request),
+        json!({"status":"refused","reason":"screen_not_available"})
+    );
+    let stream = serde_json::from_value(json!({"kind":"display","display":1})).expect("stream");
+    assert_eq!(
+        screen.frame_private(&stream, 32, &mut Vec::new()),
+        Err(Fault::Absent)
+    );
+}
+
+#[test]
+fn stream_propagates_window_listing_failure_after_private_check() {
+    use crate::screen::{Display, Source, Window};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct ListingFails {
+        fixture: crate::screen::fixture::Fixture,
+        calls: AtomicUsize,
+    }
+    impl Source for ListingFails {
+        fn ready(&self) -> Result<(), Fault> {
+            self.fixture.ready()
+        }
+        fn displays(&self) -> Result<Vec<Display>, Fault> {
+            self.fixture.displays()
+        }
+        fn windows(&self) -> Result<Vec<Window>, Fault> {
+            if self.calls.fetch_add(1, Ordering::Relaxed) == 0 {
+                self.fixture.windows()
+            } else {
+                Err(Fault::Permission)
+            }
+        }
+        fn capture_display(&self, id: u32, pixels: &mut Vec<u8>) -> Result<(u32, u32), Fault> {
+            self.fixture.capture_display(id, pixels)
+        }
+        fn capture_window(&self, id: u32, pixels: &mut Vec<u8>) -> Result<(u32, u32), Fault> {
+            self.fixture.capture_window(id, pixels)
+        }
+    }
+
+    let screen = Screen::new(
+        Box::new(ListingFails {
+            fixture: crate::screen::fixture::Fixture::display(32, 16, 1.0),
+            calls: AtomicUsize::new(0),
+        }),
+        1,
+    )
+    .observing(Box::new(Fake::new(tree())));
+    let stream = serde_json::from_value(json!({"kind":"display","display":1})).expect("stream");
+    assert_eq!(
+        screen.frame_private(&stream, 32, &mut Vec::new()),
+        Err(Fault::Permission)
+    );
 }
 
 #[test]
@@ -421,7 +537,7 @@ fn window_capture_guard_propagates_observer_failure() {
 }
 
 #[test]
-fn display_capture_and_stream_propagate_mask_observer_failure() {
+fn display_capture_reports_observer_fault_while_stream_refuses() {
     let fake = Fake::new(tree());
     *fake.windows.lock().expect("lock") = Err(Fault::Failed("observer unavailable".into()));
     let source = crate::screen::fixture::Fixture {
@@ -445,14 +561,14 @@ fn display_capture_and_stream_propagate_mask_observer_failure() {
     }))
     .expect("capture");
     let result = screen.capture(&request);
-    assert_eq!(result["reason"], "capture_failed");
-    assert_eq!(result["message"], "observer unavailable");
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["accessibilityUnavailable"], true);
 
     let source = serde_json::from_value(json!({"kind":"display","display":1})).expect("source");
     let mut frame = Vec::new();
     assert_eq!(
         screen.frame_private(&source, 32, &mut frame),
-        Err(Fault::Failed("observer unavailable".into()))
+        Err(Fault::AccessibilityUnavailable)
     );
 }
 
@@ -505,6 +621,20 @@ fn display_capture_masks_a_private_window() {
     let ordinary = screen.capture(&request);
     assert_eq!(ordinary["status"], "ok");
     assert_ne!(result["data"], ordinary["data"]);
+    let stream = serde_json::from_value(json!({"kind":"display","display":1})).expect("stream");
+    let mut unmasked = Vec::new();
+    let (size, private) = screen
+        .frame_private(&stream, 32, &mut unmasked)
+        .expect("ordinary stream");
+    assert_eq!(size, (32, 16));
+    assert!(!private);
+    walk.lock().expect("walk")[3].attributes.secure = true;
+    let mut masked = Vec::new();
+    let (_, private) = screen
+        .frame_private(&stream, 32, &mut masked)
+        .expect("private stream");
+    assert!(private);
+    assert_ne!(masked, unmasked);
 }
 
 #[test]
@@ -519,6 +649,9 @@ fn private_edge_lookup_failure_refuses_before_any_edge() {
         screen.private_edges(),
         Err(Fault::Failed("permission_denied".into()))
     );
+    assert!(!screen.capability(true).grants.accessibility);
+    assert_eq!(screen.private_edges(), Ok(vec![]));
+    assert!(screen.capability(true).grants.accessibility);
 }
 
 #[test]

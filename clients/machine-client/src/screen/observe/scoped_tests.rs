@@ -391,7 +391,11 @@ fn wire_scopes_drive_the_fixture_observer_and_record_a_full_path_action() {
 #[test]
 fn private_scoped_observation_remains_empty_and_remembers_its_scope() {
     let fake = Fake::new(large());
-    *fake.focus_fault.lock().expect("focus") = Some(Fault::Permission);
+    {
+        let mut walk = fake.walk.lock().expect("walk");
+        walk[2].attributes.focused = true;
+        walk[2].attributes.secure = true;
+    }
     let observations = Observations::default();
     let private = shoot(&observations, &fake, &depth(2)).expect("private");
     assert_eq!(private["private"], true);
