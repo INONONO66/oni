@@ -973,7 +973,7 @@ impl Service {
         else {
             return;
         };
-        for (target, edge) in edges {
+        for (target, edge, reason) in edges {
             let state = match edge {
                 crate::screen::private::Edge::Entered => "entered",
                 crate::screen::private::Edge::Left => "left",
@@ -986,6 +986,7 @@ impl Service {
                     "epoch": target.epoch.unwrap_or(0),
                 },
                 "state": state,
+                "reason": reason.name(),
             });
             let _ = caller
                 .call_with_timeout(
@@ -1463,11 +1464,14 @@ mod private_tests {
             })
         };
         std::fs::write(&layout, row(true).to_string()).expect("layout");
-        let screen =
-            Screen::new(Box::new(Fixture::display(32, 16, 1.0)), 1).observing(Box::new(Scripted {
+        let system_secure = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let enabled = Arc::clone(&system_secure);
+        let screen = Screen::new(Box::new(Fixture::display(32, 16, 1.0)), 1)
+            .observing(Box::new(Scripted {
                 layout: layout.clone(),
                 recorder: directory.path().join("recorder.jsonl"),
-            }));
+            }))
+            .with_secure_input(move || enabled.load(std::sync::atomic::Ordering::SeqCst));
         let config = ClientConfig {
             machine_id: "laptop".into(),
             name: "Laptop".into(),
@@ -1495,8 +1499,13 @@ mod private_tests {
             frames.next().await.expect("probe response").expect("frame")["result"]["status"],
             "alive"
         );
-        for (secure, state) in [(true, "entered"), (false, "left")] {
+        for (secure, system, state, reason) in [
+            (true, false, "entered", "secure_focus"),
+            (false, false, "left", "secure_focus"),
+            (false, true, "entered", "secure_input_enabled"),
+        ] {
             std::fs::write(&layout, row(secure).to_string()).expect("focus");
+            system_secure.store(system, std::sync::atomic::Ordering::SeqCst);
             let publish = service.publish_private_edges();
             let respond = async {
                 let call = frames.next().await.expect("frame").expect("request");
@@ -1507,6 +1516,7 @@ mod private_tests {
                         "machineId":"laptop",
                         "target":{"pid":7,"windowId":9,"epoch":0},
                         "state":state,
+                        "reason":reason,
                     })
                 );
                 framing::write_frame(

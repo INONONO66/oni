@@ -12,7 +12,6 @@ use crate::screen::ax::AppIdentity;
 mod scoped;
 
 type WindowReads = Arc<Mutex<VecDeque<Result<Vec<WindowIdentity>, Fault>>>>;
-
 struct Fake {
     windows: Mutex<Result<Vec<WindowIdentity>, Fault>>,
     window_reads: WindowReads,
@@ -346,6 +345,25 @@ fn screen_action_wait_subscription_refuses_missing_or_unrepresentable_targets() 
         );
     }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let now = Instant::now();
+    for target in [
+        Target {
+            pid: u64::MAX,
+            ..action.target
+        },
+        Target {
+            window_id: u64::MAX,
+            ..action.target
+        },
+    ] {
+        assert!(screen
+            .subscribe_action(target, &window(0), now, now)
+            .is_none());
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(Screen::absent()
+        .subscribe_action(action.target, &window(0), now, now)
+        .is_none());
 }
 
 struct LaneRefusalTick {
@@ -633,14 +651,116 @@ fn private_edges_track_enter_and_leave_with_the_window_epoch() {
     };
     assert_eq!(
         screen.private_edges(),
-        Ok(vec![(target, crate::screen::private::Edge::Entered)])
+        Ok(vec![(
+            target,
+            crate::screen::private::Edge::Entered,
+            crate::screen::private::Reason::SecureFocus
+        )])
     );
     assert_eq!(screen.private_edges(), Ok(vec![]));
     walk.lock().expect("walk")[3].attributes.secure = false;
     assert_eq!(
         screen.private_edges(),
-        Ok(vec![(target, crate::screen::private::Edge::Left)])
+        Ok(vec![(
+            target,
+            crate::screen::private::Edge::Left,
+            crate::screen::private::Reason::SecureFocus
+        )])
     );
+}
+
+#[test]
+fn global_secure_input_masks_capture_observation_and_refuses_input() {
+    use std::sync::atomic::AtomicBool;
+
+    let enabled = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&enabled);
+    let fake = Fake::new(tree());
+    let source = crate::screen::fixture::Fixture {
+        windows: vec![crate::screen::Window {
+            id: 9,
+            display: 1,
+            title: "Editor".into(),
+            owner: "fixture".into(),
+            pid: Some(7),
+            app: None,
+            x: 0,
+            y: 0,
+            width: 16,
+            height: 16,
+        }],
+        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 2)
+        .observing(Box::new(fake))
+        .with_secure_input(move || flag.load(Ordering::SeqCst));
+    let target = Target {
+        pid: 7,
+        window_id: 9,
+        epoch: Some(0),
+    };
+    assert_eq!(screen.private_edges(), Ok(vec![]));
+    enabled.store(true, Ordering::SeqCst);
+    assert_eq!(
+        screen.private_edges(),
+        Ok(vec![(
+            target,
+            crate::screen::private::Edge::Entered,
+            crate::screen::private::Reason::SecureInputEnabled
+        )])
+    );
+    assert_eq!(screen.input_private(None), Ok(true));
+    assert_eq!(screen.input_target_private(7, 9), Ok(true));
+    let source = oni_protocol::stream_open_request::StreamOpenRequestSource::Display {
+        display: std::num::NonZeroU64::new(1).expect("display"),
+        region: None,
+    };
+    assert_eq!(screen.stream_private(&source), Ok(true));
+    let mut frame = Vec::new();
+    let ((_, _), private) = screen
+        .frame_private(&source, 32, &mut frame)
+        .expect("frame");
+    assert!(private);
+    assert!(frame.iter().all(|byte| *byte == 0));
+    let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+        "target":{"kind":"window","windowId":"9"},"encoding":{"format":"png"}
+    }))
+    .expect("capture request");
+    assert_eq!(
+        screen.capture(&request),
+        json!({"status":"refused","reason":"private"})
+    );
+    let display: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+        "target":{"kind":"display","display":1},"encoding":{"format":"png"}
+    }))
+    .expect("display request");
+    let captured = screen.capture(&display);
+    assert_eq!(captured["status"], "ok");
+    let bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        captured["data"].as_str().expect("png data"),
+    )
+    .expect("base64");
+    let image = image::load_from_memory(&bytes).expect("png").to_rgba8();
+    assert!(image.pixels().all(|pixel| pixel.0 == [0; 4]));
+    let request: oni_protocol::ScreenObserveRequest = oni_protocol::decode(json!({
+        "target":{"pid":7,"windowId":9},"screenshot":true
+    }))
+    .expect("observe request");
+    let result = screen.observe(&request);
+    assert_eq!(result["private"], true);
+    assert_eq!(result["elements"], json!([]));
+    assert!(result.get("screenshot").is_none());
+    assert_eq!(
+        screen.act(&act(
+            result["observationId"].as_str().expect("observation"),
+            "AXButton[0]",
+            Action::Press
+        )),
+        Err(Refusal::Private)
+    );
+    assert_eq!(screen.point("o1", "AXButton[0]"), Err(Refusal::Private));
+    assert_eq!(screen.private_edges(), Ok(vec![]));
 }
 
 #[test]
@@ -878,7 +998,8 @@ fn private_edge_lookup_failure_preserves_prior_edges() {
                 window_id: 9,
                 epoch: Some(0)
             },
-            crate::screen::private::Edge::Entered
+            crate::screen::private::Edge::Entered,
+            crate::screen::private::Reason::SecureFocus
         )])
     );
 }

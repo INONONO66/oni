@@ -241,7 +241,7 @@ impl Pump {
             .map_err(|fault| format!("{fault:?}"))?;
             self.private = private;
             if let Some(uplink) = &self.uplink {
-                for (target, edge) in edges {
+                for (target, edge, reason) in edges {
                     let state = match edge {
                         crate::screen::private::Edge::Entered => "entered",
                         crate::screen::private::Edge::Left => "left",
@@ -250,6 +250,7 @@ impl Pump {
                         "machineId": self.machine_id,
                         "target": {"pid": target.pid, "windowId": target.window_id, "epoch": target.epoch.unwrap_or(0)},
                         "state": state,
+                        "reason": reason.name(),
                     });
                     let _ = uplink.call("machine.event.private", params).await;
                 }
@@ -771,7 +772,7 @@ mod private_tests {
             assert_eq!(
                 call.params,
                 json!({
-                    "machineId":"laptop","target":{"pid":7,"windowId":9,"epoch":0},"state":"entered"
+                    "machineId":"laptop","target":{"pid":7,"windowId":9,"epoch":0},"state":"entered","reason":"secure_focus"
                 })
             );
             call.answer(Ok(Some(json!({"status":"accepted"}))));
@@ -788,7 +789,7 @@ mod private_tests {
             assert_eq!(
                 call.params,
                 json!({
-                    "machineId":"laptop","target":{"pid":7,"windowId":9,"epoch":0},"state":"left"
+                    "machineId":"laptop","target":{"pid":7,"windowId":9,"epoch":0},"state":"left","reason":"secure_focus"
                 })
             );
             call.answer(Ok(Some(json!({"status":"accepted"}))));

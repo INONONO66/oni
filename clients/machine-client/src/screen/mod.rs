@@ -38,7 +38,7 @@ use crate::attach::now_ms;
 use encode::{Encoding, Format};
 use observe::Observations;
 use pool::Pool;
-use private::{blank_rect, focus_state, overlaps, Edge, FocusState, States};
+use private::{blank_rect, focus_state, overlaps, Edge, FocusState, Reason, SecureInput, States};
 
 pub const MAX_BYTES: usize = 4_194_304;
 pub const MAX_DIMENSION: u32 = 16_384;
@@ -204,6 +204,8 @@ pub struct Screen {
     notifications: Option<Box<dyn settle::Notifications>>,
     observations: Observations,
     private_states: Mutex<States>,
+    secure_input: Mutex<SecureInput>,
+    secure_input_enabled: Box<dyn Fn() -> bool + Send + Sync>,
     accessibility_fault: AtomicBool,
     #[cfg(target_os = "linux")]
     virtual_display: Option<crate::display::xvfb::Owned>,
@@ -223,6 +225,8 @@ impl Screen {
             notifications: None,
             observations: Observations::default(),
             private_states: Mutex::default(),
+            secure_input: Mutex::default(),
+            secure_input_enabled: Box::new(private::platform_secure_input_enabled),
             accessibility_fault: AtomicBool::new(false),
             #[cfg(target_os = "linux")]
             virtual_display: None,
@@ -243,6 +247,8 @@ impl Screen {
             notifications: None,
             observations: Observations::default(),
             private_states: Mutex::default(),
+            secure_input: Mutex::default(),
+            secure_input_enabled: Box::new(private::platform_secure_input_enabled),
             accessibility_fault: AtomicBool::new(false),
             #[cfg(target_os = "linux")]
             virtual_display: None,
@@ -253,6 +259,22 @@ impl Screen {
     pub fn observing(mut self, observer: Box<dyn ax::Observer>) -> Self {
         self.observer = Some(Arc::from(observer));
         self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_secure_input(
+        mut self,
+        enabled: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.secure_input_enabled = Box::new(enabled);
+        self
+    }
+
+    fn system_private(&self) -> bool {
+        self.secure_input
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .refresh(std::time::Instant::now(), (self.secure_input_enabled)())
     }
 
     pub fn notifying(mut self, notifications: Box<dyn settle::Notifications>) -> Self {
@@ -421,6 +443,9 @@ impl Screen {
     }
 
     pub fn input_private(&self, aim: Option<(i32, i32)>) -> Result<bool, Fault> {
+        if self.system_private() {
+            return Ok(true);
+        }
         let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
         let windows = observer.windows().map_err(|_| {
             self.accessibility_fault.store(true, Ordering::Relaxed);
@@ -480,6 +505,9 @@ impl Screen {
 
     /// Check only the PID-addressed window's focused field, not overlapping windows.
     pub fn input_target_private(&self, pid: u32, id: u32) -> Result<bool, Fault> {
+        if self.system_private() {
+            return Ok(true);
+        }
         let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
         let window = observer
             .windows()?
@@ -526,7 +554,8 @@ impl Screen {
         })
     }
 
-    pub fn private_edges(&self) -> Result<Vec<(observe::Target, Edge)>, Fault> {
+    pub fn private_edges(&self) -> Result<Vec<(observe::Target, Edge, Reason)>, Fault> {
+        let system_private = self.system_private();
         let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
         let windows = observer.windows().inspect_err(|_| {
             self.accessibility_fault.store(true, Ordering::Relaxed);
@@ -551,9 +580,15 @@ impl Screen {
                     break;
                 }
             };
-            let private = self.checked_focus(observer, window)? == FocusState::Secure;
-            if let Some(edge) = states.update(target, private) {
-                edges.push((target, edge));
+            let reason = if system_private {
+                Some(Reason::SecureInputEnabled)
+            } else if self.checked_focus(observer, window)? == FocusState::Secure {
+                Some(Reason::SecureFocus)
+            } else {
+                None
+            };
+            if let Some((edge, reason)) = states.update(target, reason) {
+                edges.push((target, edge, reason));
             }
         }
         if !failed {
@@ -563,6 +598,9 @@ impl Screen {
     }
 
     fn window_private(&self, window_id: u32) -> Result<bool, Fault> {
+        if self.system_private() {
+            return Ok(true);
+        }
         let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
         let window = observer
             .windows()
@@ -590,6 +628,10 @@ impl Screen {
         transform: Transform,
         pixels: &mut [u8],
     ) -> Result<bool, Fault> {
+        if self.system_private() {
+            pixels.fill(0);
+            return Ok(false);
+        }
         let viewport = viewport(display, region)?;
         let pixel = |at: i64, origin: i32, points: u32, total: u32, upper: bool| {
             let scaled = u64::try_from(at - i64::from(origin)).unwrap_or(0) * u64::from(total);
@@ -662,6 +704,9 @@ impl Screen {
     }
 
     fn display_private(&self, number: u64, region: Option<&Region>) -> Result<bool, Fault> {
+        if self.system_private() {
+            return Ok(true);
+        }
         let source = self.source()?;
         let all = source.displays()?;
         let displays = shown(&all)?;

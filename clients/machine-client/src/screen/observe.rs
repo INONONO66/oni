@@ -513,6 +513,29 @@ impl Observations {
         Ok(self.commit(prepared, screenshot))
     }
 
+    pub fn observe_private(
+        &self,
+        observer: &dyn Observer,
+        request: &Request,
+    ) -> Result<Value, Refusal> {
+        let located = self.locate(observer, request.target)?;
+        let window = self.window(&located);
+        let _serial = lock(&window);
+        Ok(self.commit(
+            Prepared::new(
+                located,
+                None,
+                Walk {
+                    nodes: Vec::new(),
+                    focused: None,
+                    complete: true,
+                },
+                true,
+            ),
+            None,
+        ))
+    }
+
     fn prepare(
         &self,
         observer: &dyn Observer,
@@ -872,6 +895,7 @@ impl Observations {
             return Err(Refusal::Private);
         }
         let frame = fresh(observer, &located, reference, &key, &scope)?.frame;
+        lock(&self.state).latest(&located.lineage, observation)?;
         let (x, y) = located.window.origin;
         Ok((
             x + frame.x + frame.width / 2,
@@ -1253,12 +1277,16 @@ impl Screen {
                 }),
             },
         };
-        self.observations.observe(observer, &parsed, |window| {
-            request
-                .screenshot
-                .then(|| self.window_shot(window))
-                .transpose()
-        })
+        if self.system_private() {
+            self.observations.observe_private(observer, &parsed)
+        } else {
+            self.observations.observe(observer, &parsed, |window| {
+                request
+                    .screenshot
+                    .then(|| self.window_shot(window))
+                    .transpose()
+            })
+        }
     }
 
     fn window_shot(&self, window: u32) -> Result<Value, Refusal> {
@@ -1291,23 +1319,39 @@ impl Screen {
         before_dispatch: &dyn Fn() -> bool,
     ) -> Result<(), Refusal> {
         let observer = self.observer.as_deref().ok_or(Refusal::NotAvailable)?;
+        if self.system_private() {
+            return Err(Refusal::Private);
+        }
         self.observations
             .act_waiting(observer, act, before_dispatch, &|started, end, window| {
-                let (Some(notifications), Some(observer)) =
-                    (self.notifications.as_deref(), self.observer.as_ref())
-                else {
-                    return None;
-                };
-                notifications
-                    .subscribe(
-                        window.pid,
-                        window.window_id,
-                        started,
-                        end,
-                        Arc::clone(observer),
-                    )
-                    .ok()
+                self.subscribe_action(act.target, window, started, end)
             })
+    }
+
+    fn subscribe_action(
+        &self,
+        target: Target,
+        window: &WindowIdentity,
+        started: Instant,
+        end: Instant,
+    ) -> Option<Box<dyn Subscription>> {
+        let (Some(notifications), Some(observer)) =
+            (self.notifications.as_deref(), self.observer.as_ref())
+        else {
+            return None;
+        };
+        let (Ok(_), Ok(_)) = (u32::try_from(target.pid), u32::try_from(target.window_id)) else {
+            return None;
+        };
+        notifications
+            .subscribe(
+                window.pid,
+                window.window_id,
+                started,
+                end,
+                Arc::clone(observer),
+            )
+            .ok()
     }
 
     /// Where a pointer aimed at `reference` of `observation` lands: the
@@ -1318,6 +1362,9 @@ impl Screen {
         reference: &str,
     ) -> Result<(Display, i32, i32), Refusal> {
         let observer = self.observer.as_deref().ok_or(Refusal::NotAvailable)?;
+        if self.system_private() {
+            return Err(Refusal::Private);
+        }
         let (x, y) = self.observations.point(observer, observation, reference)?;
         let displays = self.source()?.displays()?;
         let (x, y) = (i32::try_from(x), i32::try_from(y));

@@ -3,7 +3,7 @@ import { BusEvent } from "../bus/index.js";
 import { CapabilityId, Enrollment, LeaseRefusal, Load, MachineId, PtyCursor, PtySessionName, uniqueCapabilities } from "./schema.js";
 import { EpochMs } from "../time.js";
 import { HumanInputNotification } from "./facts.js";
-import { WindowTarget } from "./observe.js";
+import { PrivateEvent, WindowTarget } from "./observe.js";
 
 const EventBase = z.object({
   machineId: MachineId,
@@ -50,5 +50,6 @@ export const Events = {
   Private: BusEvent.define("machine.private", EventBase.extend({
     target: WindowTarget.required({ epoch: true }),
     state: z.enum(["entered", "left"]),
+    reason: PrivateEvent.shape.reason.optional(),
   }), { visibility: "llm_reason" }),
 } as const;
