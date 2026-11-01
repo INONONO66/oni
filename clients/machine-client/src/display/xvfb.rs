@@ -99,22 +99,7 @@ pub fn open(config: &Config) -> Result<Owned, Error> {
     owned.id = format!(":{number}");
     await_ready(&mut owned)?;
     owned.manager = spawn_manager(config, &owned.id).map(Mutex::new);
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while owned.window_manager_missing() {
-        let running = owned.manager.as_ref().is_some_and(|manager| {
-            matches!(
-                manager
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .try_wait(),
-                Ok(None)
-            )
-        });
-        if !running || Instant::now() >= deadline {
-            break;
-        }
-        std::thread::park_timeout(Duration::from_millis(10));
-    }
+    wait_manager_ready(&owned);
     Ok(owned)
 }
 
@@ -130,6 +115,7 @@ fn spawn_server(config: &Config) -> Result<Child, Error> {
             &config.dpi.to_string(),
             "-nolisten",
             "tcp",
+            "-noreset",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -164,8 +150,8 @@ fn manager_ready(display: &str) -> bool {
     manager_property(&connection, connection.setup().roots[index].root).unwrap_or(false)
 }
 
-fn manager_property(
-    connection: &crate::screen::probe::x11::Connection,
+fn manager_property<S: x11rb::rust_connection::Stream>(
+    connection: &x11rb::rust_connection::RustConnection<S>,
     root: u32,
 ) -> Result<bool, x11rb::errors::ReplyError> {
     use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
@@ -179,6 +165,118 @@ fn manager_property(
         .value32()
         .and_then(|mut values| values.next())
         .is_some())
+}
+
+fn wait_manager_ready(owned: &Owned) {
+    wait_manager_ready_with(owned, &manager_ready);
+}
+
+fn wait_manager_ready_with(owned: &Owned, ready: &dyn Fn(&str) -> bool) {
+    use x11rb::connection::Connection;
+
+    if owned.manager.is_none() || !manager_running(owned) || ready(&owned.id) {
+        return;
+    }
+    let Ok((connection, index)) = x11rb::connect(Some(&owned.id)) else {
+        return;
+    };
+    let root = connection.setup().roots[index].root;
+    wait_manager_events(
+        owned,
+        &connection,
+        root,
+        ready,
+        &mut poll_manager_event(&connection),
+    );
+}
+
+fn poll_manager_event(
+    connection: &x11rb::rust_connection::RustConnection<x11rb::rust_connection::DefaultStream>,
+) -> impl FnMut() -> Result<Option<x11rb::protocol::Event>, x11rb::errors::ConnectionError> + '_ {
+    use x11rb::connection::Connection;
+    || connection.poll_for_event()
+}
+
+fn manager_running(owned: &Owned) -> bool {
+    owned.manager.as_ref().is_some_and(|manager| {
+        matches!(
+            manager
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .try_wait(),
+            Ok(None)
+        )
+    })
+}
+
+fn wait_manager_events(
+    owned: &Owned,
+    connection: &x11rb::rust_connection::RustConnection<x11rb::rust_connection::DefaultStream>,
+    root: u32,
+    ready: &dyn Fn(&str) -> bool,
+    next_event: &mut dyn FnMut() -> Result<
+        Option<x11rb::protocol::Event>,
+        x11rb::errors::ConnectionError,
+    >,
+) {
+    use rustix::event::{PollFd, PollFlags, Timespec};
+    use x11rb::{
+        connection::Connection,
+        protocol::{
+            xproto::{ChangeWindowAttributesAux, ConnectionExt, EventMask},
+            Event,
+        },
+    };
+
+    if connection
+        .change_window_attributes(
+            root,
+            &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+        )
+        .ok()
+        .and_then(|cookie| cookie.check().ok())
+        .is_none()
+        || connection.flush().is_err()
+    {
+        return;
+    }
+    // Subscribe before reading the property, so a manager starting between
+    // those operations cannot leave the readiness transition unobserved.
+    if ready(&owned.id) {
+        return;
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        if !manager_running(owned) {
+            return;
+        }
+        // Replies to the property probe can queue notifications in x11rb even
+        // after the socket stops being readable; drain those before polling.
+        loop {
+            match next_event() {
+                Ok(Some(Event::PropertyNotify(change))) if change.window == root => {
+                    if ready(&owned.id) {
+                        return;
+                    }
+                }
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => break,
+            }
+        }
+        let timeout = Timespec {
+            tv_sec: 0,
+            tv_nsec: i64::from(remaining.min(Duration::from_millis(100)).subsec_nanos()),
+        };
+        if !matches!(
+            rustix::event::poll(
+                &mut [PollFd::new(connection.stream(), PollFlags::IN)],
+                Some(&timeout)
+            ),
+            Ok(count) if count > 0
+        ) {
+            continue;
+        }
+    }
 }
 
 fn spawn_manager(config: &Config, display: &str) -> Option<Child> {
@@ -311,6 +409,138 @@ mod tests {
         }
     }
 
+    fn waiting_manager() -> Owned {
+        let mut owned = open(&config()).expect("display");
+        let manager = Command::new("/bin/sh")
+            .args(["-c", "read line"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("waiting manager");
+        owned.manager = Some(Mutex::new(manager));
+        owned
+    }
+
+    fn ready_on_call(
+        calls: &std::cell::Cell<usize>,
+        expected: usize,
+    ) -> impl Fn(&str) -> bool + '_ {
+        move |_| {
+            calls.set(calls.get() + 1);
+            calls.get() == expected
+        }
+    }
+
+    #[test]
+    fn readiness_probe_refuses_disconnected_display() {
+        let mut owned = waiting_manager();
+        owned.id = "not-a-display".into();
+        let calls = std::cell::Cell::new(0);
+        wait_manager_ready_with(&owned, &|_| {
+            calls.set(calls.get() + 1);
+            false
+        });
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn readiness_probe_refuses_invalid_subscription_root() {
+        let owned = waiting_manager();
+        let (connection, _) = x11rb::connect(Some(&owned.id)).expect("display connection");
+        let calls = std::cell::Cell::new(0);
+        wait_manager_events(
+            &owned,
+            &connection,
+            0,
+            &ready_on_call(&calls, 1),
+            &mut poll_manager_event(&connection),
+        );
+        assert_eq!(calls.get(), 0);
+    }
+
+    #[test]
+    fn readiness_probe_sees_manager_after_event_subscription() {
+        let owned = waiting_manager();
+        let calls = std::cell::Cell::new(0);
+        wait_manager_ready_with(&owned, &ready_on_call(&calls, 2));
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn readiness_probe_drains_unrelated_and_not_yet_ready_events() {
+        use std::collections::VecDeque;
+        use x11rb::{
+            connection::Connection,
+            protocol::{xproto, Event},
+        };
+        let owned = waiting_manager();
+        let (connection, index) = x11rb::connect(Some(&owned.id)).expect("display connection");
+        let root = connection.setup().roots[index].root;
+        let events = std::cell::RefCell::new(VecDeque::from([
+            Event::Expose(xproto::ExposeEvent {
+                response_type: xproto::EXPOSE_EVENT,
+                sequence: 0,
+                window: root,
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                count: 0,
+            }),
+            Event::PropertyNotify(xproto::PropertyNotifyEvent {
+                response_type: xproto::PROPERTY_NOTIFY_EVENT,
+                sequence: 0,
+                window: root,
+                atom: u32::from(xproto::AtomEnum::WM_NAME),
+                time: 0,
+                state: xproto::Property::NEW_VALUE,
+            }),
+            Event::PropertyNotify(xproto::PropertyNotifyEvent {
+                response_type: xproto::PROPERTY_NOTIFY_EVENT,
+                sequence: 0,
+                window: root,
+                atom: u32::from(xproto::AtomEnum::WM_NAME),
+                time: 0,
+                state: xproto::Property::NEW_VALUE,
+            }),
+        ]));
+        let calls = std::cell::Cell::new(0);
+        wait_manager_events(
+            &owned,
+            &connection,
+            root,
+            &|_| {
+                calls.set(calls.get() + 1);
+                calls.get() == 3
+            },
+            &mut || Ok(events.borrow_mut().pop_front()),
+        );
+        assert_eq!(calls.get(), 3);
+        assert!(events.borrow().is_empty());
+    }
+
+    #[test]
+    fn readiness_probe_rechecks_manager_after_empty_poll() {
+        use x11rb::connection::Connection;
+        let owned = waiting_manager();
+        let (connection, index) = x11rb::connect(Some(&owned.id)).expect("display connection");
+        let root = connection.setup().roots[index].root;
+        let polls = std::cell::Cell::new(0);
+        wait_manager_events(&owned, &connection, root, &|_| false, &mut || {
+            polls.set(polls.get() + 1);
+            let mut manager = owned
+                .manager
+                .as_ref()
+                .expect("waiting manager")
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            manager.kill().expect("manager exits");
+            manager.wait().expect("manager exit receipt");
+            Ok(None)
+        });
+        assert_eq!(polls.get(), 1);
+        assert!(!manager_running(&owned));
+    }
+
     #[test]
     fn concurrent_servers_receive_distinct_owned_displays() {
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
@@ -386,10 +616,19 @@ mod tests {
         })
         .expect("display with openbox");
         let id = owned.id.clone();
+        let manager = owned.manager.as_ref().map(|manager| {
+            manager
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .try_wait()
+        });
         let input = crate::input::Input::platform_on(Some(&id));
         let screen = crate::screen::Screen::platform_on(Some(&id)).virtualizing(owned);
         let verdict = screen.capability(input.ready());
-        assert_eq!(verdict.verdict, "available", "{verdict:?}");
+        assert_eq!(
+            verdict.verdict, "available",
+            "{verdict:?}; manager={manager:?}"
+        );
         assert!(verdict.display.isolated);
         assert!(!verdict.grants.accessibility);
     }

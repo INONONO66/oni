@@ -769,14 +769,14 @@ test("observe and action are captured like input and relay the peer's typed answ
   } finally { await f.close(); }
 });
 
-test("settle is captured with normalized defaults and returns the peer observation", async () => {
+test("settle preserves method-specific quiet defaults and returns the peer observation", async () => {
   const captured: MachineInputCapture[] = [];
   const f = await fixture({ captureInput: (request, forward) => { captured.push(request); return forward; } });
   try {
-    const desk = await f.peer([COMPUTER], { [Machine.WireMethod.ScreenSettle]: () => ({ status: "settled", observationId: "o4" }) });
+    const desk = await f.peer([COMPUTER], { [Machine.WireMethod.ScreenSettle]: () => ({ status: "settled", method: "accessibility", observationId: "o4" }) });
     const request: Machine.ScreenSettleRequest = { target: { pid: 42, windowId: 7, epoch: 0 } };
-    expect(await run(f.machine().settle(request))).toEqual({ status: "settled", observationId: "o4" });
-    const params = { ...request, quietMs: 200, timeoutMs: 5000 };
+    expect(await run(f.machine().settle(request))).toEqual({ status: "settled", method: "accessibility", observationId: "o4" });
+    const params = { ...request, timeoutMs: 5000 };
     expect(captured).toEqual([{ machineId: "desk", generation: 1, method: Machine.WireMethod.ScreenSettle, params }]);
     expect(desk.received).toContainEqual({ method: Machine.WireMethod.ScreenSettle, params });
   } finally { await f.close(); }
