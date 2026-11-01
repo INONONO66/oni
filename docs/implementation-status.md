@@ -260,7 +260,6 @@ driving fake host releases through deploy, rollback, shutdown and host exit
 yet exercised on a live host: a real `oni supervise` swapping two npm
 releases.
 
-
 ## #1698 machine client reconnect classes
 
 The client classifies attach failures and uses an upper-half jittered
@@ -479,10 +478,22 @@ capture supersession; window capture refuses minimized and excluded owners.
 
 The host and codemode expose `computer.app.launch/quit` and
 `computer.window.close/park`, all through the captured operation port.
-Headless conformance asserts PID-targeted recorder rows, background pointer
-refusal, and lifecycle receipts. The macOS ignored `native_occlusion` test
-builds a fixture with two overlapping windows and verifies that the covered
-window's own pattern is captured.
+Headless conformance asserts PID-targeted recorder rows, background move
+refusal, and lifecycle receipts. On macOS, background clicks and scrolls use
+the observation window or captured-window PID, or hit-test the frontmost
+layer-0 window beneath a display point; the successful result records the
+resolved `{ pid, windowId, source }`. PID-bound pointers check the target's
+focused secure field rather than unrelated overlapping windows; display-point
+anchors keep the conservative overlap gate. Events post to that PID without
+moving the shared cursor. Controls reading global pointer position may ignore
+them despite an `ok` dispatch. Linux remains foreground-only. The macOS ignored
+`native_occlusion` test builds a fixture with two overlapping windows and
+verifies that the covered window's own pattern is captured.
+Coordinate pointer calls can supply `at.within` as allowed PIDs or app
+identities; a live hit-test before injection and before each button edge
+refuses an unexpected overlay with `target_mismatch` and `landedOn`, while
+successful coordinate calls report `landedOn` as the first injected target.
+Excluded owners refuse regardless of the caller's expectation.
 
 Grant-dependent acceptance remains #1702. Windows adapters and
 ScreenCaptureKit remain #1700. Cleanup policy and keep records are described
@@ -559,18 +570,19 @@ remain #1700.
 
 ## #1689 window-bound observation and ref-targeted actions (machine contract 3, PR pending)
 
-The #1715 observation follow-up reads `AXIdentifier` and sends optional `id`
-(at most 256 characters). Sibling refs distinguish identifiers without
-changing the role-path grammar; identified ref actions resolve the path
-directly and use a bounded walk only when the identifier moved, refusing
-ambiguous or absent matches with `ref_not_found`. Unidentified refs retain
-the complete walk required to detect newly ambiguous siblings.
 The #1716 follow-up keeps transient per-attribute AX faults local to their
 element: unknown flags serialize as `null`, unknown children as
 `children: null`, and an unknown role, subrole, or label leaves the element
 and its descendants unaddressable while sibling refs remain available. Disabled accessibility
 still refuses the observation. Headless fixtures exercise these outcomes;
 the schema and valid/invalid wire fixtures retain omitted versus null states.
+
+The #1715 observation follow-up reads `AXIdentifier` and sends optional `id`
+(at most 256 characters). Sibling refs distinguish identifiers without
+changing the role-path grammar; identified ref actions resolve the path
+directly and use a bounded walk only when the identifier moved, refusing
+ambiguous or absent matches with `ref_not_found`. Unidentified refs retain
+the complete walk required to detect newly ambiguous siblings.
 
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target
 contract: `docs/machines-and-delegation.md` 2.2.2.

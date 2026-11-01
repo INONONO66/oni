@@ -14,6 +14,7 @@ pub enum Command {
         x: i32,
         y: i32,
         flags: u64,
+        position: (i32, i32),
     },
     Key {
         code: u16,
@@ -142,6 +143,7 @@ impl State {
                     x: if *horizontal { *delta } else { 0 },
                     y: if *horizontal { 0 } else { *delta },
                     flags: self.flags,
+                    position: self.position,
                 }]
             }
             Event::Key { key, down } => {
@@ -282,7 +284,8 @@ mod tests {
             vec![Command::Scroll {
                 x: 2,
                 y: 0,
-                flags: 0
+                flags: 0,
+                position: (4, 5),
             }]
         );
         assert_eq!(
@@ -293,7 +296,8 @@ mod tests {
             vec![Command::Scroll {
                 x: 0,
                 y: 3,
-                flags: 0
+                flags: 0,
+                position: (4, 5),
             }]
         );
     }
@@ -466,7 +470,8 @@ mod tests {
             &Command::Scroll {
                 x: 0,
                 y: 1,
-                flags: 0
+                flags: 0,
+                position: (0, 0),
             },
             None
         )

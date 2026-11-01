@@ -310,6 +310,7 @@ impl Key {
 struct Snapshot {
     id: String,
     target: Target,
+    owner_pid: u32,
     private: bool,
     elements: Vec<Element>,
     keys: HashMap<String, Key>,
@@ -593,6 +594,7 @@ impl Observations {
                 lineage,
                 Snapshot {
                     id,
+                    owner_pid: window.owner_pid,
                     target: Target {
                         pid: window.pid.into(),
                         window_id: window.window_id.into(),
@@ -625,6 +627,7 @@ impl Observations {
             .collect();
         let snapshot = Snapshot {
             id,
+            owner_pid: window.owner_pid,
             target: Target {
                 pid: window.pid.into(),
                 window_id: window.window_id.into(),
@@ -1195,6 +1198,21 @@ impl Screen {
         display
             .map(|display| (display, x, y))
             .ok_or(Refusal::OffScreen)
+    }
+
+    /// Owner of the window whose observation supplied a pointer point.
+    pub fn observation_target(&self, observation: &str) -> Result<(u32, u32), Refusal> {
+        let state = lock(&self.observations.state);
+        state
+            .snapshots
+            .values()
+            .find(|snapshot| snapshot.id == observation)
+            .and_then(|snapshot| {
+                u32::try_from(snapshot.target.window_id)
+                    .ok()
+                    .map(|id| (snapshot.owner_pid, id))
+            })
+            .ok_or(Refusal::Stale)
     }
 }
 

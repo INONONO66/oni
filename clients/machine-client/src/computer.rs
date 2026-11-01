@@ -282,6 +282,9 @@ impl Driver for Recorder {
     fn pid_delivery(&self) -> bool {
         true
     }
+    fn pointer_pid_delivery(&self) -> bool {
+        true
+    }
 
     fn post_to_pid(&mut self, pid: u32, event: &Event) -> Result<(), String> {
         let mut line = record(event);

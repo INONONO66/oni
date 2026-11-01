@@ -1,0 +1,13 @@
+{
+  "kind": "button",
+  "requestId": "1-2",
+  "delivery": "foreground",
+  "at": {
+    "captureId": "cap-1",
+    "x": 4,
+    "y": 5,
+    "within": { "apps": ["org.oni.fixture"] }
+  },
+  "button": "left",
+  "state": "down"
+}
