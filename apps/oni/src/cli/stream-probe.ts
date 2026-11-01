@@ -38,7 +38,7 @@ export function parseStreamProbeArgs(args: readonly string[]): StreamProbeOption
 }
 
 function requireAnswer(response: StreamProbeResponse, type: StreamProbeResponse["type"]): void {
-  if (response.type === "stream_probe_refused") throw new CliError(`${response.type}: ${response.reason}`);
+  if (response.type === "stream_probe_refused") throw new CliError(`${response.type}: ${response.reason}${response.message === undefined ? "" : `: ${response.message}`}`);
   if (response.type !== type) throw new CliError(`expected ${type}, got ${response.type}`);
 }
 

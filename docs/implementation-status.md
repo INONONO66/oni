@@ -568,7 +568,9 @@ issued ref and check the node's secure attribute or secure-text role;
 ref-targeted pointers check the window's current private focus. Window capture
 refuses before capture; capture-anchored input refuses before dispatch.
 Display captures and streams blank only intersecting private window
-rectangles, while private window streams blank the whole frame. Open streams
+rectangles, while private window streams blank the whole frame. An unreadable or
+vanished window does not stop a display stream; global AX permission failure
+refuses the stream with `permission_denied`. Open streams
 refresh focus every 250 ms and report their current private fact.
 
 **Known limit.** A custom-painted password interface without a secure

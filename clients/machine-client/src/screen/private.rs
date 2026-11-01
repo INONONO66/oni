@@ -350,7 +350,8 @@ mod tests {
         let baseline = Screen::new(Box::new(baseline_source), 1);
         let unreadable = Arc::new(AtomicBool::new(true));
         let screen = Screen::new(Box::new(source), 1)
-            .observing(Box::new(UnreadableFocus(Arc::clone(&unreadable))));
+            .observing(Box::new(UnreadableFocus(Arc::clone(&unreadable))))
+            .with_secure_input(|| false);
         let capture: ScreenCaptureRequest = oni_protocol::decode(json!({
             "target": {"kind":"display","display":1},
             "encoding": {"format":"png"}

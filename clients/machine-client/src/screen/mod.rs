@@ -605,7 +605,11 @@ impl Screen {
         let window = observer
             .windows()
             .map_err(|fault| match fault {
-                Fault::WindowNotFound => fault,
+                Fault::WindowNotFound | Fault::Failed(_) => fault,
+                Fault::Permission => {
+                    self.accessibility_fault.store(true, Ordering::Relaxed);
+                    fault
+                }
                 _ => {
                     self.accessibility_fault.store(true, Ordering::Relaxed);
                     Fault::AccessibilityUnavailable
@@ -614,7 +618,16 @@ impl Screen {
             .into_iter()
             .find(|window| window.window_id == window_id)
             .ok_or(Fault::WindowNotFound)?;
-        let private = self.checked_focus(observer, &window)? == FocusState::Secure;
+        let private = match focus_state(observer.focused(&window)) {
+            FocusState::Unknown(fault @ (Fault::Failed(_) | Fault::WindowNotFound)) => {
+                return Err(fault);
+            }
+            FocusState::Unknown(_) => {
+                self.accessibility_fault.store(true, Ordering::Relaxed);
+                return Err(Fault::AccessibilityUnavailable);
+            }
+            focus => focus == FocusState::Secure,
+        };
         self.accessibility_fault.store(false, Ordering::Relaxed);
         Ok(private)
     }
@@ -650,10 +663,11 @@ impl Screen {
         {
             let private = match self.window_private(window.id) {
                 Ok(private) => private,
-                Err(Fault::AccessibilityUnavailable | Fault::WindowNotFound) => {
+                Err(Fault::AccessibilityUnavailable | Fault::Permission) => {
                     accessibility_unavailable = true;
                     continue;
                 }
+                Err(Fault::Failed(_) | Fault::WindowNotFound) => continue,
                 Err(fault) => return Err(fault),
             };
             if private {
@@ -721,7 +735,11 @@ impl Screen {
             .into_iter()
             .filter(|window| overlaps(window_frame(window), viewport))
             .try_fold(false, |private, window| {
-                Ok(private || self.window_private(window.id)?)
+                match self.window_private(window.id) {
+                    Ok(secure) => Ok(private || secure),
+                    Err(Fault::Failed(_) | Fault::WindowNotFound) => Ok(private),
+                    Err(fault) => Err(fault),
+                }
             })
     }
 
@@ -790,6 +808,7 @@ impl Screen {
                 .and_then(|id| self.window_private(id));
             match private {
                 Ok(true) => return Fault::Private.refusal(),
+                Err(Fault::Permission) => return Fault::AccessibilityUnavailable.refusal(),
                 Err(fault) => return fault.refusal(),
                 Ok(false) => {}
             }
