@@ -165,6 +165,8 @@ macro_rules! decode_fixture {
                 ScreenDisplay,
                 ScreenListRequest,
                 ScreenListResult,
+                ScreenNeed,
+                ScreenNeedStep,
                 ScreenWindow,
                 StreamCloseRequest,
                 StreamCloseResult,
