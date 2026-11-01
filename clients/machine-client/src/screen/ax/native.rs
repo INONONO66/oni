@@ -14,9 +14,10 @@ use accessibility_sys::{
     kAXSecureTextFieldSubrole, kAXSubroleAttribute, kAXValueAttribute, kAXValueTypeAXError,
     kAXValueTypeCGPoint, kAXValueTypeCGSize, kAXWindowsAttribute, AXError, AXIsProcessTrusted,
     AXUIElementCopyActionNames, AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
-    AXUIElementCopyMultipleAttributeValues, AXUIElementCreateApplication, AXUIElementPerformAction,
-    AXUIElementRef, AXUIElementSetAttributeValue, AXUIElementSetMessagingTimeout, AXValueGetType,
-    AXValueGetTypeID, AXValueGetValue, AXValueRef,
+    AXUIElementCopyMultipleAttributeValues, AXUIElementCreateApplication,
+    AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementPerformAction, AXUIElementRef,
+    AXUIElementSetAttributeValue, AXUIElementSetMessagingTimeout, AXValueGetType, AXValueGetTypeID,
+    AXValueGetValue, AXValueRef,
 };
 use core_foundation::{
     array::{CFArray, CFArrayRef},
@@ -211,6 +212,42 @@ impl Tree for Window {
 pub(crate) fn trusted() -> bool {
     // SAFETY: an argument-free query with no preconditions.
     unsafe { AXIsProcessTrusted() }
+}
+
+/// The accessibility owner and window at a global point, if AX can resolve both.
+pub(crate) fn target_at(x: i32, y: i32) -> Option<(u32, u32)> {
+    // SAFETY: the system-wide constructor returns a retained application element.
+    let system = unsafe { CFType::wrap_under_create_rule(AXUIElementCreateSystemWide().cast()) };
+    let mut found: AXUIElementRef = ptr::null_mut();
+    // SAFETY: system is retained, the finite screen coordinates fit f32,
+    // and found is a writable out pointer for the returned +1 element.
+    let error = unsafe {
+        AXUIElementCopyElementAtPosition(
+            system.as_CFTypeRef() as AXUIElementRef,
+            x as f32,
+            y as f32,
+            &mut found,
+        )
+    };
+    if error != kAXErrorSuccess || found.is_null() {
+        return None;
+    }
+    // SAFETY: AX handed out the live element under the create rule.
+    let found = unsafe { CFType::wrap_under_create_rule(found.cast()) };
+    let mut pid = 0_i32;
+    let mut window = 0_u32;
+    // SAFETY: found stays retained and both output pointers are valid for the call.
+    if unsafe { AXUIElementGetPid(found.as_CFTypeRef() as AXUIElementRef, &mut pid) }
+        != kAXErrorSuccess
+        || unsafe { _AXUIElementGetWindow(found.as_CFTypeRef() as AXUIElementRef, &mut window) }
+            != kAXErrorSuccess
+    {
+        return None;
+    }
+    Some((
+        u32::try_from(pid).ok().filter(|pid| *pid > 0)?,
+        (window > 0).then_some(window)?,
+    ))
 }
 
 pub(crate) fn app(pid: u32) -> Option<AppIdentity> {

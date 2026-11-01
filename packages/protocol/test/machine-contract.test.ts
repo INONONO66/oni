@@ -61,6 +61,8 @@ describe("machine wire contract fixtures", () => {
       "InputRequestId.json",
       "InputStatusResult.json",
       "InputStatusResult.cancelled.json",
+      "InputWriteResult.mismatch-without-landed-on.json",
+      "InputWriteResult.unknown-status.json",
       "MachineId.wrong-type.json",
       "PtySessionName.wrong-type.json",
       "CapacityRow.missing-selector.json",

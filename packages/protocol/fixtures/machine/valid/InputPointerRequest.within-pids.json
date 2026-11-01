@@ -1,0 +1,8 @@
+{
+  "kind": "click",
+  "requestId": "1-1",
+  "delivery": "foreground",
+  "at": { "captureId": "cap-1", "x": 4, "y": 5, "within": { "pids": [4242] } },
+  "button": "left",
+  "count": 1
+}

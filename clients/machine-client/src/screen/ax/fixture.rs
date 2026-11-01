@@ -581,6 +581,50 @@ mod tests {
     }
 
     #[test]
+    fn hit_test_refuses_a_missing_path_and_an_occluding_window() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let fixture = scripted(directory.path(), LAYOUT);
+        let missing = super::super::segments("AXButton[1]").expect("missing path");
+        assert_eq!(
+            fixture.hit_test(&window(), &missing, (0, 0)),
+            Err(Fault::WindowNotFound)
+        );
+        assert_eq!(
+            fixture.hit_test(&window(), &path(), (2048, 2048)),
+            Ok(Hit::Occluded)
+        );
+        assert_eq!(
+            fixture.hit_test(&window(), &path(), (9, 9)),
+            Ok(Hit::Covered)
+        );
+        let overlay = json!({"windows": [
+            {"id": 10, "title": "Overlay", "pid": 8},
+            {"id": 9, "title": "Editor", "pid": 7, "elements": [{
+                "role": "AXButton", "actions": ["AXPress"],
+                "frame": {"x": 0, "y": 0, "width": 1, "height": 1}
+            }]}
+        ]});
+        fs::write(&fixture.layout, overlay.to_string()).expect("overlay");
+        assert_eq!(
+            fixture.hit_test(&window(), &path(), (0, 0)),
+            Ok(Hit::Occluded)
+        );
+        let nested = json!({"windows":[{"id":9,"title":"Editor","pid":7,"elements":[
+            {"role":"AXGroup","frame":{"x":0,"y":0,"width":4,"height":4},
+             "children":[{"role":"AXButton","frame":{"x":1,"y":1,"width":2,"height":2}}]}
+        ]}]});
+        fs::write(&fixture.layout, nested.to_string()).expect("nested layout");
+        assert_eq!(
+            fixture.hit_test(
+                &window(),
+                &super::super::segments("AXGroup[0]").expect("group"),
+                (2, 2),
+            ),
+            Ok(Hit::Target)
+        );
+    }
+
+    #[test]
     fn a_missing_or_malformed_layout_fails_every_read() {
         let directory = tempfile::tempdir().expect("tempdir");
         let missing = Scripted {

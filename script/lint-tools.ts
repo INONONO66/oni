@@ -605,8 +605,12 @@ export async function buildSchemaSnapshot(): Promise<SchemaSnapshot> {
         // Key discriminated-union options by their discriminator value, not
         // array position: reordering or inserting an option must not renumber
         // the others (an index shift reads as every later option "losing"
-        // fields). Plain unions without a discriminator keep index keys.
-        const discriminator = exportValue._def?.discriminator;
+        // fields). A plain union with status literals can also grow a
+        // specialized refusal without losing its recorded variant identities.
+        const discriminator = exportValue._def?.discriminator ??
+          (exportValue.options.every((option: object) =>
+            isZodSchema(option) && discriminatorValue(option, "status") !== undefined
+          ) ? "status" : undefined);
         exportValue.options.forEach((option: object, index: number) => {
           if (isZodSchema(option)) {
             const optionKeys = shapeKeys(option);
@@ -615,7 +619,9 @@ export async function buildSchemaSnapshot(): Promise<SchemaSnapshot> {
                 typeof discriminator === "string"
                   ? discriminatorValue(option, discriminator)
                   : undefined;
-              snapshot[`${namespaceName}.${exportName}#${label ?? index}`] = optionKeys;
+              const key = `${namespaceName}.${exportName}#${label ?? index}`;
+              snapshot[key] = [...new Set([...(snapshot[key] ?? []), ...optionKeys])]
+                .sort((a, b) => a.localeCompare(b));
             }
           }
         });
