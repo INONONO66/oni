@@ -379,6 +379,21 @@ impl Observer for Scripted {
         walk(&Rows(PhantomData), row.elements.iter().collect(), bounds)
     }
 
+    fn walk_scoped(
+        &self,
+        window: &WindowIdentity,
+        bounds: &Bounds,
+        scope: &super::scoped::Scope,
+    ) -> Result<super::scoped::ScopedWalk, Fault> {
+        let row = self.row(window)?;
+        super::scoped::walk(
+            &Rows(PhantomData),
+            row.elements.iter().collect(),
+            bounds,
+            scope,
+        )
+    }
+
     fn resolve(
         &self,
         window: &WindowIdentity,
@@ -496,6 +511,7 @@ mod tests {
             },
             since: None,
             max_elements: 2000,
+            scope: observe::scope::Scope::default(),
         };
         observe::Observations::default()
             .observe(&fixture, &request, |_| Ok(None))
@@ -735,6 +751,7 @@ mod tests {
             },
             since: None,
             max_elements: 2000,
+            scope: observe::scope::Scope::default(),
         };
         let observed = observations
             .observe(&fixture, &request, |_| Ok(None))
@@ -825,6 +842,7 @@ mod tests {
             target,
             since: None,
             max_elements: 2000,
+            scope: observe::scope::Scope::default(),
         };
         observations
             .observe(&fixture, &request, |_| Ok(None))
@@ -915,6 +933,7 @@ mod tests {
                     target,
                     since: None,
                     max_elements: 2000,
+                    scope: observe::scope::Scope::default(),
                 },
                 |_| Ok(None),
             )
@@ -984,6 +1003,7 @@ mod tests {
                     target,
                     since: None,
                     max_elements: 2000,
+                    scope: observe::scope::Scope::default(),
                 },
                 |_| Ok(None),
             )
