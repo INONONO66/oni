@@ -58,10 +58,14 @@ drop. Reports retain the selected display and probe the serving
 capture/input connections; another server or a replacement at the same display
 number cannot certify a disconnected driver. `computer.display.kind: "xvfb"` starts an owned
 Xvfb process with an optional window manager (openbox by default when
-installed). Xvfb allocates its display through `-displayfd`; launches cannot
+installed). Xvfb allocates its display through `-displayfd` and runs with
+`-noreset`, so the readiness handshake's disconnect does not regenerate the
+server under the window manager's or a later client's connection; launches cannot
 inherit or restore the human session's compositor, bus or runtime bindings.
 Both app and window-manager launches clear the inherited environment before
 applying the allowlist and selected display binding.
+Window-manager startup observes the X11 EWMH property notification before
+reporting readiness, with a bounded wait if the manager never publishes it.
 An isolated X11 desktop with capture, input and a live window manager
 reports available; accessibility remains false
 until observation is implemented. A console without an observer is partial.
@@ -453,6 +457,18 @@ coordinator without sleeps. Captured refusals carry bounded messages;
 missing capabilities report `unsupported`, while absent attachments report
 `machine_not_attached`. Code mode exposes `computer.screen.settle`.
 Native grant-dependent behavior awaits the MacBook live acceptance.
+
+## #1732 pixel-quiet window settle (PR pending)
+
+Window settle falls back to consecutive, bounded pixel thumbnails when the
+accessibility observer is unavailable but capture works. It samples every
+200 ms; over 0.5% changed pixels outside an RGB tolerance of 8 resets the
+quiet interval (500 ms by default; accessibility retains 200 ms). The first
+identical pair settles with a fresh `captureId`; timeout returns a pixel
+`pending` count, and a window lost during sampling returns `destroyed`.
+The fallback refuses secure focus when it can be identified and otherwise
+uses the window capture guard. Display settle remains deferred; scripted
+clock and frame tests cover the timing without sleeps.
 
 ## #1695 private mode (PR pending)
 
@@ -3826,6 +3842,7 @@ The comment gate has one enforcement layer, its existing exact per-file pins.
 - Review r1: High 2 (close/closeAll rejections; missing real-wiring TestClock test → `test/app-watch-cadence.test.ts` proves one armed cadence row per live path watch, a dropped create recovered by the fired cadence, zero rows after cancel), Medium 5 (per-tick drain, capacity, install after shutdown, `fs.watch` readiness, docs) all fixed; Lows recorded on the PR.
 - Verification (bun 1.4.1 pinned, behind the host gate lock): focused files after the r1 fix watch-sources 23 / app-watch-cadence 1 / cli-entry 28 pass; oniApp lane and patch coverage rerun after the rebase onto `11061c992` (recorded on the PR); check-types, lint, lint:tools, check-deps, check-effect-boundaries, check-dead-exports, check-journal-writers exit 0; PR CI green.
 - Quiet ticks (#1477): an empty cadence tick returns `{outcome: "quiet", at}`; the core moves the same armed occurrence forward in `armed_alarms` and re-sends it keyed `occurrenceId@tick` with no `fired` or re-arm row, so a path watch costs the journal nothing while nothing happens (was 2 rows/watch/second). A real fire or retire settles the chain as before. Receipt: `test/app-watch-cadence.test.ts`.
+- Command-watch follow-up (#1650): the PTY shell waits for a post-spawn release before executing the command, so a fast exit cannot overtake Bun's macOS process watch; the release line is excluded from monitor output and normal terminal echo is restored. PTY output drains before a bounded child-exit wait, a stalled exit reports `AlarmProcessExitTimeoutError`, and cancellation closes the PTY master before signalling the process group. Path creates missed by the native callback are recovered by stat reconciliation.
 
 ## #1427 — compaction summaries as session llm rows, no failed turn on summary failure (PR #1475, base `5d2de7484`, app half)
 

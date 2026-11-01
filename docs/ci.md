@@ -36,7 +36,12 @@ The **Clients (Rust)** lane runs on full plans and when a PR changes
 `.github/workflows/ci.yml`. It rebuilds the protocol schema before formatting,
 linting, and testing the `clients/` workspace. The setup action runs the sole
 `bun install`; the job pins `rust-toolchain` by SHA and gates workspace coverage
-with `cargo llvm-cov --fail-under-lines 100`.
+on the `cargo llvm-cov --lcov` export: every `DA` line record must be executed.
+The `--fail-under-lines` summary is not used because it scores each function by
+its best single build (the unit-test harness or the `mclient` binary behind the
+integration tests), so a line only one build reaches beside a line only the
+other reaches reads as a miss that no line view shows; the LCOV export unions
+the builds.
 Changes under `clients/**` also select the `machines`, `codemode`, and
 `oniApp` TypeScript test lanes because they exercise the client over the wire.
 Each of those matrix lanes installs the pinned Rust toolchain, caches the
@@ -355,6 +360,7 @@ intentionally selects everything.
 
 `bun test --timeout 15000` remains a useful local test command, but is not
 equivalent to all CI gates. `bun run ci test --lane <key>` matches a CI lane.
+Local rule: run per package locally, CI lanes are authoritative.
 Do not use a cached Turbo test result as evidence that a fresh coverage report
 was produced.
 

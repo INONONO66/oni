@@ -1,0 +1,1 @@
+Issue #1703 on `fix/1703-lifecycle-stacked` (2026-11-01, base `c9d9131de` from PR #1753, PR #1755): the desktop lifecycle tests subscribe to their WebSocket signal before sending and await it under the suite deadline without a private two-second timer; receipts in `apps/desktop/test/app-lifecycle.test.tsx` and PR #1755.
