@@ -932,6 +932,7 @@
             "window_not_found",
             "epoch_changed",
             "stale_observation",
+            "ref_not_found",
             "observe_failed",
             "lease_missing",
             "lease_expired",

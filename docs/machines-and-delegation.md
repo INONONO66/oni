@@ -354,7 +354,7 @@ purpose display is tracked by #1701.
 without a wire call, when the attached peer offered a contract below 3.
 
 - **Observe.** `machine.screen.observe` takes `{target: {pid, windowId,
-  epoch?}, since?, screenshot, maxElements?}` and answers one window's
+  epoch?}, since?, screenshot, maxElements?, root?, maxDepth?, match?}` and answers one window's
   accessibility elements. Each element carries a `ref` minted from its role
   path (`role[i]` segments joined by `/`, `i` counting same-role siblings;
   an element with an empty role has `ref: null` and no actions), `role`,
@@ -365,8 +365,8 @@ without a wire call, when the attached peer offered a contract below 3.
   is not exposed; `null` means its read failed. A transient AX attribute
   fault preserves the observation: unknown role, subrole, or label emits an
   empty role and unaddressable ref while its descendants and siblings are still walked;
-  unknown children emits `children: null` without descendants. The optional
-  `children` count is reserved for a later observer revision. A disabled
+  unknown children emits `children: null` without descendants. A depth cut
+  emits `children` with the direct-child count. A disabled
   accessibility API still refuses `permission_denied`. The walk stops at 2000
   elements (or `maxElements`), 5000 visited nodes, 2.5 s and 256 KiB of
   serialized elements, answering `complete: false` when a bound cut it.
@@ -374,6 +374,21 @@ without a wire call, when the attached peer offered a contract below 3.
   `screenshot: true` adds a window capture that becomes the display's input
   anchor. `private` is normally `false`; private mode below defines its only
   `true` shape.
+- **Scope.** `root` names a ref in the lineage's latest observation and
+  selects that subtree; its path and unclipped identity must still match.
+  `maxDepth` is 1–32 relative to that root (or the window's element roots).
+  Unlabeled `AXGroup`, `AXGenericElement`, `AXSection`, `AXSplitGroup`,
+  `AXScrollArea` and `AXLayoutArea` containers do not consume a depth level.
+  `match: {role?, label?}` requires the exact role and a case-insensitive
+  label substring, never a value match. Only matches and their ancestors
+  are emitted, and nonmatching ancestors have no refs. The walk reads
+  complete sibling sets along a selected path but never descends into
+  unrelated subtrees; refs retain their full window-root paths. Requested
+  root, depth and match cuts are complete; only a hard bound makes them
+  incomplete. A missing latest snapshot refuses `stale_observation`; a
+  missing, changed or newly ambiguous root refuses `ref_not_found`.
+  A filtered root retains its identity for repeated same-scope observations,
+  but remains unavailable to ref-targeted input unless it matched.
 - **Identity.** The answer names `observationId` (`o<n>`), the lineage
   `w<pid>-<windowId>-<epoch>`, the target with its `epoch`, and the window's
   `title` and owning app (`bundleId`, executable `path`). The peer keeps an
@@ -382,12 +397,13 @@ without a wire call, when the attached peer offered a contract below 3.
   observation is live.
 - **Diff.** `since` naming the lineage's latest observation answers a
   `diff` (`added` and `changed` whole, `removed` by ref) instead of
-  `elements`; any other id refuses `stale_observation`. Full-refresh
+  `elements`; any other id refuses `stale_observation`. A different root,
+  depth or match also refuses `stale_observation` with a scope message. Full-refresh
   exception: when either snapshot holds an element without a ref (empty
   role, ambiguous sibling or descendant, too-deep path, incomplete walk),
   the answer carries `elements` instead of a lossy `diff`. A walk cut by
   `maxElements` or the hard walk limit (`complete: false`) mints no refs,
-  and a full walk used to confirm an unidentified ref must be complete too.
+  and the census used to confirm an unidentified ref must be complete too.
 - **Action.** `machine.input.action` takes `{observationId, target: {pid,
   windowId, epoch}, ref, action: press|setValue|perform, value?, name?, waitMs?}`
   (value at most 65536 characters) and answers `InputWriteResult`. The peer
@@ -395,7 +411,11 @@ without a wire call, when the attached peer offered a contract below 3.
   identifier before it acts. An identified ref resolves its role path
   directly; if it moved, one bounded walk finds a unique matching
   identifier and role or refuses `ref_not_found`. Unidentified refs retain
-  their complete-walk ambiguity check. Nothing is executed on
+  their complete-walk ambiguity check for unscoped observations. Scoped
+  refs instead re-prove only the sibling sets along their full path; this
+  detects newly ambiguous ancestors without repeating a whole-window walk.
+  Identified-ref relocation stays within the observed root and depth.
+  Nothing is executed on
   any refusal. Refusals: `window_not_found`, `epoch_changed`,
   `stale_observation`, `ref_not_found`, `action_not_supported`,
   `permission_denied`, `input_not_available`, `input_failed`.

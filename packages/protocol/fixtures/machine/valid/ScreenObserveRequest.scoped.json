@@ -1,0 +1,7 @@
+{
+  "target": { "pid": 7, "windowId": 9, "epoch": 0 },
+  "screenshot": false,
+  "root": "AXWindow[0]/AXGroup[1]",
+  "maxDepth": 2,
+  "match": { "role": "AXButton", "label": "save" }
+}
