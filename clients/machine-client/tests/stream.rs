@@ -14,6 +14,7 @@ use oni_machine_client::{
     attach::{Hooks, Negotiated, Session as Attachment, Uplink, UplinkCall},
     budget::Pressure,
     cdp::Cdp,
+    clipboard::Clipboard,
     config::ClientConfig,
     handlers::Service,
     input::Input,
@@ -737,7 +738,7 @@ impl Machine {
         let service = Service::open_stream(
             &settings(root.path()),
             pty,
-            (screen, Input::absent()),
+            (screen, Input::absent(), Clipboard::absent()),
             Cdp::absent(),
             address,
         )

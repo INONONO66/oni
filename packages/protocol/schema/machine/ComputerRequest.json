@@ -34,6 +34,15 @@
       ],
       "type": "object"
     },
+    "clipboard": {
+      "default": "none",
+      "enum": [
+        "none",
+        "write",
+        "read_write"
+      ],
+      "type": "string"
+    },
     "foreground": {
       "additionalProperties": false,
       "properties": {
@@ -56,6 +65,7 @@
   },
   "required": [
     "apps",
+    "clipboard",
     "minutes"
   ],
   "type": "object"
