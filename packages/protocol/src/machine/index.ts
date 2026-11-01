@@ -139,8 +139,8 @@ export namespace Machine {
   export const TransportFailureClass = Facts.TransportFailureClass;
   export const TransportFacts = Facts.TransportFacts;
   export type TransportFacts = Facts.TransportFacts;
-  export const PingResult = Facts.PingResult;
-  export type PingResult = Facts.PingResult;
+  export const PingResult = Schema.PingResult;
+  export type PingResult = Schema.PingResult;
   export const ReportResult = Schema.ReportResult;
   export type ReportResult = Schema.ReportResult;
   export const CellRequest = Schema.CellRequest;
@@ -291,6 +291,14 @@ export namespace Machine {
   export type ScreenCaptureRequest = Schema.ScreenCaptureRequest;
   export const ScreenCaptureResult = Schema.ScreenCaptureResult;
   export type ScreenCaptureResult = Schema.ScreenCaptureResult;
+  export const ClipboardReadRequest = Schema.ClipboardReadRequest;
+  export type ClipboardReadRequest = Schema.ClipboardReadRequest;
+  export const ClipboardReadResult = Schema.ClipboardReadResult;
+  export type ClipboardReadResult = Schema.ClipboardReadResult;
+  export const ClipboardWriteRequest = Schema.ClipboardWriteRequest;
+  export type ClipboardWriteRequest = Schema.ClipboardWriteRequest;
+  export const ClipboardWriteResult = Schema.ClipboardWriteResult;
+  export type ClipboardWriteResult = Schema.ClipboardWriteResult;
   export const InputPointerRequest = Schema.InputPointerRequest;
   export type InputPointerRequest = Schema.InputPointerRequest;
   export const InputKeyRequest = Schema.InputKeyRequest;

@@ -26,7 +26,7 @@ export const ScreenSettleResult = z.union([
     "paused:private", "paused:locked", "paused:asleep",
     "window_minimized", "capture_blank", "capture_failed", "own_window",
     "superseded", "screen_not_available", "invalid_region", "display_not_found",
-    "private", "budget_exhausted",
+    "private", "budget_exhausted", "clipboard_not_granted",
   ]), message: z.string().min(1).max(256).optional(),
     humanActiveMs: z.number().int().nonnegative().optional(),
     retryAfterMs: z.number().int().nonnegative().optional(),

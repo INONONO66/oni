@@ -17,7 +17,7 @@ export type Session = z.infer<typeof Session>;
 export const HumanInputNotification = z.object({
   machineId: z.string().min(1),
   at: EpochMs,
-  source: z.enum(["pointer", "keyboard"]),
+  source: z.enum(["pointer", "keyboard", "clipboard"]),
 }).strict();
 export type HumanInputNotification = z.infer<typeof HumanInputNotification>;
 
@@ -30,6 +30,3 @@ export const TransportFacts = z.object({
   attempts: z.number().int().nonnegative(),
 }).strict();
 export type TransportFacts = z.infer<typeof TransportFacts>;
-
-export const PingResult = z.object({ status: z.literal("alive") }).strict();
-export type PingResult = z.infer<typeof PingResult>;

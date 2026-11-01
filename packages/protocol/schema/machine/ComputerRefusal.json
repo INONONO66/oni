@@ -18,6 +18,8 @@
             "app_out_of_scope",
             "foreground_not_granted",
             "excluded",
+            "clipboard_not_granted",
+            "private",
             "stale_capture",
             "stale_observation",
             "paused:takeover",

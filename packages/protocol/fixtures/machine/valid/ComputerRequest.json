@@ -1,1 +1,6 @@
-{ "apps": "any", "foreground": { "purpose": "Show the result" }, "minutes": 10 }
+{
+  "apps": "any",
+  "clipboard": "none",
+  "foreground": { "purpose": "Show the result" },
+  "minutes": 10
+}

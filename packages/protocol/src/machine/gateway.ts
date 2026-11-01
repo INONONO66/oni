@@ -18,7 +18,9 @@ export const Info = Enrollment.extend({
   live: z.object({
     reportedAt: EpochMs, load: Load, screen: Screen.optional(),
     humanInput: HumanInput.optional(),
-    session: Session.optional(), transport: TransportFacts.optional(), stale: z.boolean(),
+    session: Session.optional(),
+    transport: TransportFacts.extend({ clockOffsetMs: z.number().finite().optional() }).optional(),
+    stale: z.boolean(),
     windows: z.record(z.string(), ComputerWindow).optional(),
   }).strict().optional(),
 });

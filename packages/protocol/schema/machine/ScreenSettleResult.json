@@ -207,7 +207,8 @@
             "invalid_region",
             "display_not_found",
             "private",
-            "budget_exhausted"
+            "budget_exhausted",
+            "clipboard_not_granted"
           ],
           "type": "string"
         },

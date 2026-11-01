@@ -11,6 +11,7 @@ import { decodeMachineFailure } from "./failure";
 import { observeRefusal } from "./observe";
 import { onAbort } from "./interrupt-on";
 import { PingLiveness } from "./ping-liveness";
+import { ClockSamples, capturedAt, clockSample } from "./clock-samples";
 import { Reservations } from "./reservation";
 import { ComputerWindows } from "./computer-windows";
 import { ComputerRelay } from "./computer-relay";
@@ -137,7 +138,7 @@ export interface MachineHandle {
   readonly computer?: ComputerHandle;
 }
 /** Computer-use wire methods (#1662) the host originates. */
-type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "ScreenSettle" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "InputStatus" | "ComputerClose" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
+type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "ScreenSettle" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "InputStatus" | "ClipboardRead" | "ClipboardWrite" | "ComputerClose" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
 type LifecycleMethod = (typeof Machine.WireMethod)["AppLaunch" | "AppQuit" | "WindowClose" | "WindowPark"];
 type LifecycleParams = Machine.AppLaunchRequest | Machine.AppQuitRequest | Machine.WindowCloseRequest | Machine.WindowParkRequest;
 type LifecycleResult = Machine.AppLaunchResult | Machine.AppQuitResult | Machine.WindowCloseResult | Machine.WindowParkResult;
@@ -145,10 +146,10 @@ type InputMethod = (typeof Machine.WireMethod)["InputPointer" | "InputKey" | "In
 type InputParams = Machine.InputPointerRequest | Machine.InputKeyRequest | Machine.InputTextRequest;
 type PointerCall = Machine.InputPointerRequest extends infer P ? P extends Machine.InputPointerRequest ? Omit<P, "requestId"> : never : never;
 type ActionRequest = Omit<Machine.InputActionRequest, "requestId">;
-type CapturedMethod = InputMethod | (typeof Machine.WireMethod)["ScreenObserve" | "ScreenSettle" | "InputAction"] | LifecycleMethod;
-type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.ScreenSettleRequest | Machine.InputActionRequest | LifecycleParams;
+type CapturedMethod = InputMethod | (typeof Machine.WireMethod)["ScreenObserve" | "ScreenSettle" | "InputAction" | "ClipboardRead" | "ClipboardWrite"] | LifecycleMethod;
+type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.ScreenSettleRequest | Machine.InputActionRequest | Machine.ClipboardReadRequest | Machine.ClipboardWriteRequest | LifecycleParams;
 /** What a captured call answers when it was forwarded (#1689 adds observation). */
-export type CapturedResult = Machine.InputWriteResult | Machine.ScreenObserveResult | Machine.ScreenSettleResult | LifecycleResult;
+export type CapturedResult = Machine.InputWriteResult | Machine.ScreenObserveResult | Machine.ScreenSettleResult | Machine.ClipboardReadResult | Machine.ClipboardWriteResult | LifecycleResult;
 /** The capture port's own refusal, valid in every captured answer vocabulary. */
 export type CaptureRefusal = Machine.ComputerRefusal | Machine.ComputerCancelled;
 /** What the captured-input port records: the exact call the host would forward. */
@@ -176,6 +177,8 @@ export interface ChannelListeners {
 export interface ComputerStream {
   readonly streamId: string;
   readonly expiresAt: number;
+  /** Host wall-clock milliseconds for a sidecar's client-monotonic timestamp. */
+  capturedAt(capturedAtUs: number): number | undefined;
   signal(signal: Machine.StreamSignalRequest["signal"]): Effect.Effect<Machine.StreamSignalResult, MachineError>;
   close(): Effect.Effect<Machine.StreamCloseResult, MachineError>;
 }
@@ -188,6 +191,10 @@ export interface ComputerChannel {
 }
 type ComputerCapture = Exclude<Machine.ScreenCaptureResult, { status: "ok" }> | (Omit<Extract<Machine.ScreenCaptureResult, { status: "ok" }>, "data"> & { readonly data: Buffer });
 export interface ComputerHandle {
+  readonly clipboard: {
+    read(request?: Machine.ClipboardReadRequest): Effect.Effect<Machine.ClipboardReadResult | CaptureRefusal, MachineError>;
+    write(request: Machine.ClipboardWriteRequest): Effect.Effect<Machine.ClipboardWriteResult | CaptureRefusal, MachineError>;
+  };
   readonly app: {
     launch(request: Machine.AppLaunchRequest): Effect.Effect<Machine.AppLaunchResult, MachineError>;
     quit(request: Machine.AppQuitRequest): Effect.Effect<Machine.AppQuitResult, MachineError>;
@@ -346,6 +353,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
     const reports = new Map<string, { readonly report: Machine.Report; readonly receivedAt: number }>();
     const pings = new PingLiveness();
+    const clocks = new Map<string, ClockSamples>();
     const staleAfterMs = options.staleAfterMs ?? REPORT_STALE_AFTER_MS;
     const capacity = createCapacity({ ...options, rows, list });
     function detach(key: string, reason: DetachReason): void {
@@ -360,6 +368,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       computerWindows.delete(attachment.offer.machineId);
       computerRelays.delete(attachment.offer.machineId);
       pings.detach(key);
+      clocks.delete(key);
       endRelays(key);
       capacity.detach(attachment.offer.machineId, reason === "superseded" ? "stale_generation" : "disconnected");
       if (connectionByMachine.get(attachment.offer.machineId) === key) connectionByMachine.delete(attachment.offer.machineId);
@@ -523,11 +532,22 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         }
         if (!pings.begin(peer.key)) return;
         yield* Effect.gen(function* () {
+          const sentAt = options.now();
           const answer = yield* peer.server.callConnection(peer.rawId, Machine.WireMethod.Ping, {}, PING_TIMEOUT_MS).pipe(
             Effect.flatMap((raw) => Effect.try({ try: () => Machine.PingResult.parse(raw), catch: decodeMachineFailure("ping.decode") })),
             Effect.option,
           );
-          pings.finish(peer.key, options.now(), answer._tag === "Some" && attachments.get(peer.key) === peer);
+          const receivedAt = options.now();
+          const accepted = answer._tag === "Some" && attachments.get(peer.key) === peer;
+          pings.finish(peer.key, receivedAt, accepted);
+          if (accepted && answer._tag === "Some") {
+            const sample = clockSample(answer.value, sentAt, receivedAt);
+            if (sample !== undefined) {
+              const history = clocks.get(peer.key) ?? new ClockSamples();
+              history.add(sample);
+              clocks.set(peer.key, history);
+            }
+          }
         }).pipe(Effect.ensuring(Effect.sync(() => pings.finish(peer.key, options.now(), false))));
       });
     }
@@ -993,9 +1013,11 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         };
         if (latest === undefined) return info;
         const { machineId: _machineId, streams: _streams, ...facts } = latest.report;
+        const offset = clocks.get(key)?.best()?.clockOffsetMs;
         const windows = computerWindows.get(offer.machineId)?.windows;
         return { ...info, live: {
           ...structuredClone(facts),
+          ...(offset === undefined || facts.transport === undefined ? {} : { transport: { ...facts.transport, clockOffsetMs: offset } }),
           ...(windows === undefined || windows.size === 0 ? {} : { windows: Object.fromEntries(windows) }),
           stale: options.now() - latest.receivedAt > staleAfterMs,
         } };
@@ -1267,6 +1289,10 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     function streamOf(peer: Attachment, streamId: string, relay: Extract<Relay, { kind: "stream" }>, expiresAt: number): ComputerStream {
       return {
         streamId, expiresAt,
+        capturedAt: (capturedAtUs) => {
+          const offset = clocks.get(peer.key)?.best()?.clockOffsetMs;
+          return offset === undefined ? undefined : capturedAt(capturedAtUs, offset);
+        },
         signal: (signal) => relay.lock.withPermits(1)(Effect.gen(function* () {
           const refusal = signalRefusal(peer.key, streamId, relay.outbound, expiresAt);
           if (refusal !== undefined) return refusal;
@@ -1329,6 +1355,18 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     }
     function computerHandle(id: string): ComputerHandle {
       return {
+        clipboard: {
+          read: (request = {}) => decode(Machine.ClipboardReadRequest, request, "clipboard.read.request").pipe(
+            Effect.flatMap((params) => captured(id, Machine.WireMethod.ClipboardRead, params,
+              (grant): Machine.ClipboardReadResult => ({ status: "refused", reason: grant === "permission_denied" ? grant : "clipboard_not_available" }),
+              (peer) => computerCall(peer, Machine.WireMethod.ClipboardRead, params, Machine.ClipboardReadResult))),
+          ),
+          write: (request) => decode(Machine.ClipboardWriteRequest, request, "clipboard.write.request").pipe(
+            Effect.flatMap((params) => captured(id, Machine.WireMethod.ClipboardWrite, params,
+              (grant): Machine.ClipboardWriteResult => ({ status: "refused", reason: grant === "permission_denied" ? grant : "clipboard_not_available" }),
+              (peer) => computerCall(peer, Machine.WireMethod.ClipboardWrite, params, Machine.ClipboardWriteResult))),
+          ),
+        },
         app: {
           launch: (request) => lifecycle(id, Machine.WireMethod.AppLaunch, Machine.AppLaunchRequest, request, Machine.AppLaunchResult),
           quit: (request) => lifecycle(id, Machine.WireMethod.AppQuit, Machine.AppQuitRequest, request, Machine.AppQuitResult),
