@@ -4,7 +4,6 @@ import { StringDecoder } from "node:string_decoder";
 import { Bundle } from "@oni/agent";
 import { MachineRefusalError } from "@oni/machines";
 import { TranscriptRef, canonicalJson, parseJson, type Alarm, type Machine } from "@oni/protocol";
-import { processEnvironment } from "../cli/env-file";
 import type { FilePorts } from "../bundles/tools/core/filesystem";
 import type { ChildWatch } from "../bundles/child-activity/index";
 import { selectPack } from "../bundles/child-activity/dialects/index";
@@ -68,6 +67,28 @@ class AlarmProcessGroupError extends Error {
   }
 }
 
+export class AlarmProcessExitTimeoutError extends Error {
+  constructor(readonly pid: number) {
+    super(`alarm command process ${pid} did not exit within 15000 ms`);
+    this.name = "AlarmProcessExitTimeoutError";
+  }
+}
+
+export async function waitForCommandExit(pid: number, drained: Promise<void>, exited: Promise<number>): Promise<number> {
+  await drained;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      exited,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new AlarmProcessExitTimeoutError(pid)), 15_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface AlarmSource {
   observe?(): void;
   /** Resolves once the source is subscribed; install awaits it so no trigger can race the baseline. */
@@ -104,13 +125,31 @@ export function commandSource(
 ): AlarmSource {
   assertAlarmRuntime();
   const decoder = new StringDecoder("utf8");
-  const framer = lineFramer(line);
+  const release = Promise.withResolvers<void>();
+  const marker = "__oni_command_ready__";
+  let awaitingReady = true;
+  const framer = lineFramer((content) => {
+    if (awaitingReady && content === marker) {
+      awaitingReady = false;
+      release.resolve();
+      return;
+    }
+    line(content);
+  });
   let closing = false;
   const eof = Promise.withResolvers<void>();
+  const processExit = Promise.withResolvers<number>();
   // This terminal belongs to one child, not a reusable Terminal instance. Bun
   // then closes the parent's slave descriptor on child exit so EOF can arrive.
-  const child = Bun.spawn(["/bin/sh", "-c", command], {
+  // Bun 1.4.1 can block macOS in wait4 when a PTY child exits before spawn
+  // returns. The shell disables echo and waits for a release after Bun has
+  // registered its exit watch; its readiness line is not command output.
+  const child = Bun.spawn(["/bin/sh", "-c", `stty -echo; printf '%s\\n' ${marker}; IFS= read -r _; stty echo; exec /bin/sh -c "$1"`, "--", command], {
     detached: true,
+    onExit(_process, code, signal, error) {
+      if (error) processExit.reject(new AlarmSourceError(undefined, "pty.eof"));
+      else processExit.resolve(code ?? 128 + (signal ?? 0));
+    },
     terminal: {
       data(_terminal, bytes) {
         if (closing) return;
@@ -138,34 +177,54 @@ export function commandSource(
     },
   });
   const terminal = child.terminal;
+  void release.promise.then(() => {
+    if (!closing) terminal?.write("\n");
+  });
+  let reported = false;
+  const report = (error: Error) => {
+    if (reported) return;
+    reported = true;
+    failure(error);
+  };
+  // Drain the PTY before waiting for the child's exit. Start the exit clock
+  // only after EOF: a live command watch is allowed to run indefinitely.
+  const completed = waitForCommandExit(child.pid, eof.promise, processExit.promise);
   let shutdown: Promise<void> | undefined;
   function terminate() {
     shutdown ??= (async () => {
       try {
-        // The shell can exit before its children. Kill its group even then, before
-        // awaiting PTY EOF; waiting for EOF first lets HUP-ignoring descendants hang.
-        await killCommandGroup(child.pid);
-        await child.exited;
-        // Cancellation has no remaining output to drain. Retire the master after
-        // the owned group was signalled and the leader reaped, even if Bun omits EOF.
+        // Cancellation no longer delivers output. Drop the PTY master before
+        // signalling the group so a child cannot stick in terminal teardown.
         if (closing) {
           terminal?.close();
           eof.resolve();
         }
-        await eof.promise;
+        // The shell can exit before its children. Kill its group even then;
+        // waiting for group EOF first lets HUP-ignoring descendants hang.
+        await killCommandGroup(child.pid);
+        await completed;
       } finally {
         // A kill failure propagates as the typed error, but the master never outlives it.
         terminal?.close();
         eof.resolve();
       }
     })();
+    void shutdown.catch(report);
     return shutdown;
   }
-  const settled = child.exited.then(async (code) => {
+  // A leader may exit while a descendant still holds the PTY slave open.
+  // Retire the group on leader exit without waiting for the final EOF.
+  void processExit.promise.then(() => terminate()).catch(report);
+  const settled = completed.then(async (code) => {
     await terminate();
     if (!closing) exit(code);
   });
-  void settled.catch((error: Error) => failure(error));
+  void settled.catch((error: Error) => {
+    if (error instanceof AlarmProcessExitTimeoutError) {
+      void terminate().catch(report);
+    }
+    report(error);
+  });
   return {
     async close() {
       closing = true;
@@ -175,19 +234,17 @@ export function commandSource(
   };
 }
 
-async function killCommandGroup(pid: number): Promise<void> {
+export async function killCommandGroup(pid: number): Promise<void> {
   // Keep signalling the group after leader exit. Darwin can report EPERM for
   // zombie-only groups; accept that only after an authoritative process readback.
-  const signal = Bun.spawn(["/bin/kill", "-KILL", "--", `-${pid}`], {
-    stdout: "ignore",
-    stderr: "pipe",
-    // Environment values come from the env-file owner (#1245); LC_ALL pins
-    // the C locale so the kill(1) stderr parse below stays literal.
-    env: { ...processEnvironment(), LC_ALL: "C" },
-  });
-  const [code, error] = await Promise.all([signal.exited, new Response(signal.stderr).text()]);
-  if (code === 0 || error.includes("No such process")) return;
-  if (error.includes("Operation not permitted")) {
+  try {
+    process.kill(-pid, "SIGKILL");
+    return;
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error)) throw error;
+    if (error.code === "ESRCH") return;
+    if (error.code !== "EPERM")
+      throw new AlarmProcessGroupError(`alarm process group ${pid} termination failed: ${error.message}`);
     const probe = Bun.spawn(["ps", "-axo", "pgid=,stat="], { stdout: "pipe", stderr: "pipe" });
     const [status, processes, diagnostic] = await Promise.all([
       probe.exited,
@@ -200,8 +257,8 @@ async function killCommandGroup(pid: number): Promise<void> {
       return Number(group) === pid && !state?.startsWith("Z");
     });
     if (!alive) return;
+    throw new AlarmProcessGroupError(`alarm process group ${pid} termination failed: ${error.message}`);
   }
-  throw new AlarmProcessGroupError(`alarm process group ${pid} termination failed: ${error.trim()}`);
 }
 
 /** Long-poll quantum per drain round: each round blocks on the daemon's

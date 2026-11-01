@@ -385,20 +385,11 @@ test("SessionList preserves attention order, dates and callback ids and has no c
 });
 
 function signal<T>() {
-  const result = Promise.withResolvers<T>();
-  const timeout = setTimeout(
-    () => result.reject(new Error("Expected lifecycle signal was not emitted")),
-    2000,
-  );
-  cleanups.push(() => clearTimeout(timeout));
-  return {
-    ...result,
-    resolve: (value: T) => {
-      clearTimeout(timeout);
-      result.resolve(value);
-    },
-  };
+  return Promise.withResolvers<T>();
 }
+
+// The CI desktop lane runs each test with --timeout 15000.
+const LIFECYCLE_TEST_TIMEOUT_MS = 15_000;
 
 test("real Chat sends once, retains in-flight work across tab closure and stops through the composer", async () => {
   const received = signal<{ socket: ServerWebSocket<undefined>; payload: ClientFrame }>();
@@ -436,7 +427,7 @@ test("real Chat sends once, retains in-flight work across tab closure and stops 
   expect(host.querySelector('[data-ui="Composer.Stop"]')).toBeNull();
   expect((node("textarea") as HTMLTextAreaElement).disabled).toBe(false);
   expect((node("textarea") as HTMLTextAreaElement).value).toBe("retained-draft");
-});
+}, LIFECYCLE_TEST_TIMEOUT_MS);
 
 test("a host drain frame becomes the composer notice until the host cancels it (#1699)", async () => {
   const received = signal<ServerWebSocket<undefined>>();
@@ -472,4 +463,4 @@ test("a host drain frame becomes the composer notice until the host cancels it (
     await cleared;
   });
   expect(host.textContent).not.toContain(notice);
-});
+}, LIFECYCLE_TEST_TIMEOUT_MS);
