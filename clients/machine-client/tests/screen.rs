@@ -110,7 +110,7 @@ impl oni_machine_client::screen::ax::Observer for DeniedAx {
 }
 
 #[test]
-fn window_capture_refuses_when_accessibility_is_denied() {
+fn window_capture_reports_unavailable_accessibility_when_ax_lookup_fails() {
     let mut source = Fixture::display(8, 8, 1.0);
     source.windows.push(window(7, 1, 0, 0, 8, 8));
     let granted = screen(source.clone()).observing(Box::new(DeniedAx(Fault::Permission)));
@@ -119,7 +119,7 @@ fn window_capture_refuses_when_accessibility_is_denied() {
             &granted,
             json!({"target":{"kind":"window","windowId":"7"},"encoding":{"format":"png"}})
         ),
-        refusal("permission_denied")
+        refusal("accessibility_unavailable")
     );
     let failed = screen(source).observing(Box::new(DeniedAx(Fault::Failed(
         "source unavailable".into(),
@@ -129,7 +129,7 @@ fn window_capture_refuses_when_accessibility_is_denied() {
             &failed,
             json!({"target":{"kind":"window","windowId":"7"},"encoding":{"format":"png"}})
         )["reason"],
-        "capture_failed"
+        "accessibility_unavailable"
     );
 }
 

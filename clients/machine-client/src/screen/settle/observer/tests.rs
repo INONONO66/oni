@@ -143,6 +143,7 @@ impl Driver for Fake {
 struct Source {
     windows: Vec<WindowIdentity>,
     fault: Option<Fault>,
+    focus_fault: Option<Fault>,
     budget: Mutex<Option<Duration>>,
 }
 
@@ -151,6 +152,9 @@ impl Observer for Source {
         &self,
         _: &WindowIdentity,
     ) -> Result<Option<crate::screen::private::Focused>, Fault> {
+        if let Some(fault) = &self.focus_fault {
+            return Err(fault.clone());
+        }
         Ok(Some(crate::screen::private::Focused {
             role: "AXButton".into(),
             secure: false,
@@ -180,6 +184,7 @@ fn source() -> Arc<dyn Observer> {
     Arc::new(Source {
         windows: vec![],
         fault: None,
+        focus_fault: None,
         budget: Mutex::new(None),
     })
 }
@@ -470,12 +475,42 @@ fn sample_requires_an_in_budget_target_and_propagates_faults() {
     let failing = Source {
         windows: vec![],
         fault: Some(Fault::Permission),
+        focus_fault: None,
         budget: Mutex::new(None),
     };
     assert!(matches!(
         sample(&failing, 42, 7, now + Duration::from_secs(1), || now),
         Err(observe::Refusal::Permission)
     ));
+}
+
+#[test]
+fn sample_refuses_an_unreadable_focus_before_walking() {
+    let now = Instant::now();
+    let observer = Source {
+        windows: vec![WindowIdentity {
+            pid: 42,
+            window_id: 7,
+            owner_pid: 42,
+            title: "Editor".into(),
+            app: crate::screen::ax::AppIdentity {
+                bundle_id: None,
+                path: "/fixture/editor".into(),
+            },
+            token: 0,
+            origin: (0, 0),
+            minimized: false,
+            surface: None,
+        }],
+        fault: None,
+        focus_fault: Some(Fault::Permission),
+        budget: Mutex::new(None),
+    };
+    assert!(matches!(
+        sample(&observer, 42, 7, now + Duration::from_secs(1), || now),
+        Err(observe::Refusal::AccessibilityUnavailable)
+    ));
+    assert_eq!(*observer.budget.lock().expect("walk budget"), None);
 }
 
 #[test]

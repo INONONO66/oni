@@ -190,6 +190,7 @@ pub fn linux_ready(
     {
         verdict.verdict = "available";
     }
+    verdict.refresh_needs();
     verdict
 }
 
@@ -233,6 +234,7 @@ pub fn macos(env: &impl MacEnv, input: bool) -> Verdict {
     if same_user && verdict.verdict == "unavailable" {
         verdict.verdict = "partial";
     }
+    verdict.refresh_needs();
     verdict
 }
 
@@ -371,6 +373,7 @@ mod tests {
                 kind: "surface_enumeration_unavailable"
             }]
         );
+        assert!(linux(&ready, Some(":48"), true).needs.is_empty());
         assert!(linux(&ready, Some(":48"), true).display.isolated);
         let no_input = linux(&ready, Some(":48"), false);
         assert_eq!(no_input.verdict, "partial");
@@ -533,6 +536,19 @@ mod tests {
             .blockers[0]
                 .kind,
             "wayland_only_no_x"
+        );
+        assert_eq!(
+            linux(
+                &X {
+                    wayland: true,
+                    ..none
+                },
+                None,
+                false
+            )
+            .needs[0]
+                .step,
+            "x11_session"
         );
         assert_eq!(
             linux(
@@ -701,5 +717,69 @@ mod tests {
             .grants
             .input
         );
+    }
+
+    #[test]
+    fn macos_needs_match_probed_grants_and_console_user() {
+        let ready = M {
+            console: Some(501),
+            capture: true,
+            accessibility: true,
+            asleep: false,
+        };
+        assert!(macos(&ready, true).needs.is_empty());
+        let denied = macos(
+            &M {
+                capture: false,
+                accessibility: false,
+                ..ready
+            },
+            true,
+        );
+        assert_eq!(
+            denied.needs.iter().map(|row| row.step).collect::<Vec<_>>(),
+            ["screen_recording_grant", "accessibility_grant"]
+        );
+        assert!(denied
+            .needs
+            .iter()
+            .all(|row| row.on_screen && row.blocker.is_some()));
+        let absent = macos(
+            &M {
+                console: None,
+                ..ready
+            },
+            true,
+        );
+        assert_eq!(absent.needs[0].step, "console_login");
+    }
+
+    #[test]
+    fn linux_needs_x11_only_when_wayland_has_no_x() {
+        let ready = X {
+            display: Some(":48"),
+            x: true,
+            socket: true,
+            a11y: false,
+            libs: true,
+            wayland: false,
+            session: false,
+        };
+        assert!(linux(&ready, Some(":48"), true).needs.is_empty());
+        let wayland = linux(
+            &X {
+                display: None,
+                x: false,
+                socket: false,
+                wayland: true,
+                ..ready
+            },
+            None,
+            false,
+        );
+        assert_eq!(wayland.needs.len(), 1);
+        assert_eq!(wayland.needs[0].step, "x11_session");
+        assert_eq!(wayland.needs[0].blocker, Some("wayland_only_no_x"));
+        assert!(!wayland.needs[0].on_screen);
     }
 }

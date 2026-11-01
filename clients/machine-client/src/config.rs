@@ -62,6 +62,8 @@ pub struct ClientConfig {
 pub struct JoinOptions {
     pub host: String,
     #[arg(long)]
+    pub json: bool,
+    #[arg(long)]
     pub name: Option<String>,
     #[arg(long = "tag")]
     pub tags: Vec<String>,

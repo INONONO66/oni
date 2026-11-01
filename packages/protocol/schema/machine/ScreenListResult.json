@@ -225,7 +225,8 @@
             "window_minimized",
             "capture_blank",
             "own_window",
-            "superseded"
+            "superseded",
+            "accessibility_unavailable"
           ],
           "type": "string"
         },

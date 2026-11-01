@@ -313,7 +313,7 @@ impl Screen {
             .map_err(sample_refusal)?;
             match self.window_private(window_id) {
                 Ok(true) => return Err(refusal("paused:private")),
-                Ok(false) | Err(Fault::Permission) => {}
+                Ok(false) | Err(Fault::Permission | Fault::AccessibilityUnavailable) => {}
                 Err(fault) => return Err(fault.refusal()),
             }
         } else if epoch != 0 {
