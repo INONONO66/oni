@@ -87,7 +87,6 @@ fn missing_fixture_window_and_layout_refuse_distinctly() {
         Err(Unsupported::WindowNotFound)
     ));
 }
-
 #[test]
 fn transient_menu_and_sheet_are_listed_observed_acted_and_destroyed() {
     let directory = tempfile::tempdir().expect("fixture");
@@ -166,6 +165,7 @@ fn transient_menu_and_sheet_are_listed_observed_acted_and_destroyed() {
             observation: observed["observationId"].as_str().expect("id").into(),
             reference: "AXMenuItem[0]".into(),
             action: Action::Press,
+            wait_ms: 0,
         })
         .expect("press");
     assert_eq!(
@@ -222,4 +222,36 @@ fn a_surface_closed_before_settle_answers_destroyed_without_a_notification() {
         ),
         json!({"status": "destroyed"})
     );
+}
+#[test]
+fn fixture_hit_test_distinguishes_outside_overlay_and_missing_element() {
+    let directory = tempfile::tempdir().expect("temp layout");
+    let layout = directory.path().join("layout.json");
+    fs::write(
+        &layout,
+        json!({"windows": [
+            {"id": 8, "pid": 8, "title": "Overlay", "width": 10, "height": 10},
+            {"id": 9, "pid": 7, "title": "Editor", "x": 20, "width": 10, "height": 10,
+             "elements": [{"role": "AXButton", "frame": {"x": 1, "y": 1, "width": 2, "height": 2}}]}
+        ]})
+        .to_string(),
+    )
+    .expect("layout");
+    let fixture = Scripted {
+        layout,
+        recorder: directory.path().join("recorder.jsonl"),
+    };
+    let window = fixture.windows().expect("windows").pop().expect("editor");
+    let path = super::super::segments("AXButton[0]").expect("valid path");
+    let missing = super::super::segments("AXButton[1]").expect("valid path");
+    assert_eq!(
+        fixture.hit_test(&window, &path, (50, 50)),
+        Ok(Hit::Occluded)
+    );
+    assert_eq!(fixture.hit_test(&window, &path, (2, 2)), Ok(Hit::Occluded));
+    assert_eq!(
+        fixture.hit_test(&window, &missing, (22, 2)),
+        Err(Fault::WindowNotFound)
+    );
+    assert_eq!(fixture.hit_test(&window, &path, (22, 2)), Ok(Hit::Target));
 }

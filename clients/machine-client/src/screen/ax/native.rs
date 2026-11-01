@@ -15,7 +15,7 @@ use accessibility_sys::{
     kAXErrorSuccess, kAXFocusedUIElementAttribute, kAXPressAction, kAXRoleAttribute,
     kAXSecureTextFieldSubrole, kAXSubroleAttribute, kAXValueAttribute, kAXValueTypeAXError,
     kAXValueTypeCGPoint, kAXValueTypeCGSize, kAXWindowsAttribute, AXError, AXIsProcessTrusted,
-    AXUIElementCopyActionNames, AXUIElementCopyAttributeValue,
+    AXUIElementCopyActionNames, AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
     AXUIElementCopyMultipleAttributeValues, AXUIElementCreateApplication, AXUIElementGetTypeID,
     AXUIElementPerformAction, AXUIElementRef, AXUIElementSetAttributeValue,
     AXUIElementSetMessagingTimeout, AXValueGetType, AXValueGetTypeID, AXValueGetValue, AXValueRef,
@@ -32,7 +32,7 @@ use xcap::Window as XWindow;
 
 use super::{
     assemble, bundle_root, checked, items, performed, target, walk, ActFault, Action, Admit,
-    AppIdentity, Attributes, Bounds, Observer, Raw, Segment, Surface, SurfaceKind, Tree, Walk,
+    AppIdentity, Attributes, Bounds, Hit, Observer, Raw, Segment, Surface, SurfaceKind, Tree, Walk,
     WindowIdentity, ATTRIBUTES,
 };
 use crate::screen::private::Focused;
@@ -457,6 +457,85 @@ fn opened(window: &WindowIdentity) -> Result<(Vec<Element>, (f64, f64)), Fault> 
 }
 
 impl Observer for Native {
+    fn window_size(&self, window: &WindowIdentity) -> Result<(i64, i64), Fault> {
+        let root = root(window)?.ok_or(Fault::WindowNotFound)?;
+        let (attributes, _) = Window { origin: (0.0, 0.0) }.read(&root)?;
+        Ok((attributes.frame.width, attributes.frame.height))
+    }
+
+    fn hit_test(
+        &self,
+        window: &WindowIdentity,
+        path: &[Segment],
+        point: (i64, i64),
+    ) -> Result<Hit, Fault> {
+        let windows = XWindow::all().map_err(|error| Fault::Failed(error.to_string()))?;
+        let top = windows.iter().find(|candidate| {
+            let (Ok(x), Ok(y), Ok(width), Ok(height)) = (
+                candidate.x(),
+                candidate.y(),
+                candidate.width(),
+                candidate.height(),
+            ) else {
+                return false;
+            };
+            let (x, y, width, height) = (
+                i64::from(x),
+                i64::from(y),
+                i64::from(width),
+                i64::from(height),
+            );
+            point.0 >= x && point.0 < x + width && point.1 >= y && point.1 < y + height
+        });
+        if top.and_then(|top| top.id().ok()) != Some(window.window_id) {
+            return Ok(Hit::Occluded);
+        }
+        let (children, origin) = opened(window)?;
+        let (target, _) =
+            super::resolve(&Window { origin }, children, path)?.ok_or(Fault::WindowNotFound)?;
+        let pid = i32::try_from(window.pid).map_err(|_| Fault::WindowNotFound)?;
+        // SAFETY: the application element is a +1 reference retained by CFType.
+        let app = unsafe {
+            CFType::wrap_under_create_rule(AXUIElementCreateApplication(pid) as CFTypeRef)
+        };
+        let mut found: AXUIElementRef = ptr::null_mut();
+        // SAFETY: app is live, the coordinates are finite, and found is a writable out pointer.
+        checked(unsafe {
+            AXUIElementCopyElementAtPosition(
+                app.as_CFTypeRef() as AXUIElementRef,
+                point.0 as f32,
+                point.1 as f32,
+                &mut found,
+            )
+        })?;
+        if found.is_null() {
+            return Ok(Hit::Covered);
+        }
+        // SAFETY: a successful copy hands over a live +1 element reference.
+        let mut found = Element(unsafe { CFType::wrap_under_create_rule(found.cast()) });
+        let parent = CFString::new("AXParent");
+        for _ in 0..128 {
+            if found.0 == target.0 {
+                return Ok(Hit::Target);
+            }
+            let mut ancestor: CFTypeRef = ptr::null();
+            // SAFETY: found and parent are retained for the duration of this call.
+            let error = unsafe {
+                AXUIElementCopyAttributeValue(
+                    found.raw(),
+                    parent.as_concrete_TypeRef(),
+                    &mut ancestor,
+                )
+            };
+            if error != kAXErrorSuccess || ancestor.is_null() {
+                break;
+            }
+            // SAFETY: a successful copy hands over the ancestor's +1 reference.
+            found = Element(unsafe { CFType::wrap_under_create_rule(ancestor) });
+        }
+        Ok(Hit::Covered)
+    }
+
     fn lifecycle(&self, window: &WindowIdentity, park: bool) -> Result<(), ActFault> {
         if !trusted() {
             return Err(ActFault::Permission);
@@ -547,6 +626,16 @@ impl Observer for Native {
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault> {
         let (children, origin) = opened(window)?;
         walk(&Window { origin }, children, bounds)
+    }
+
+    fn resolve(
+        &self,
+        window: &WindowIdentity,
+        path: &[Segment],
+    ) -> Result<Option<Attributes>, Fault> {
+        let (children, origin) = opened(window)?;
+        super::resolve(&Window { origin }, children, path)
+            .map(|found| found.map(|(_, attributes)| attributes))
     }
 
     fn act(
