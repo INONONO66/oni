@@ -102,7 +102,7 @@ export function writeEnvFile(path: string, entries: readonly EnvEntry[]): void {
  * every other module receives environment values from here rather than
  * reading `process.env` itself.
  */
-export function processEnvironment(): Record<string, string | undefined> {
+function processEnvironment(): Record<string, string | undefined> {
   return process.env;
 }
 

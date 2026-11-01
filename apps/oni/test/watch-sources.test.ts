@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,9 +8,12 @@ import { Effect } from "effect";
 import { alarmChainReads, foldAlarmChains } from "../src/bundles/alarms/index";
 import { createWatchPlane } from "../src/composition/watch-plane";
 import {
+  AlarmProcessExitTimeoutError,
   AlarmRuntimeError,
   commandSource,
   createWatchSources,
+  killCommandGroup,
+  waitForCommandExit,
   type ArmedWatch,
   type WatchHitSend,
 } from "../src/composition/watch-sources";
@@ -99,20 +102,23 @@ test("command watch resends the armed occurrence per filtered line and a termina
     },
     { clock: () => 41_000, failure: (_id, error) => terminal.reject(error) },
   );
-  await sources.install(
-    armed({
-      id: "watch-cmd",
-      armSeq: 3,
-      watch: {
-        command: "printf 'keep:1\\nskip\\nkeep:2\\n'; exit 3",
-        filter: "^keep:",
-        description: "filtered lines",
-        timeout_ms: 1000,
-      },
-    }),
-  );
-  await terminal.promise;
-  await sources.closeAll();
+  try {
+    await sources.install(
+      armed({
+        id: "watch-cmd",
+        armSeq: 3,
+        watch: {
+          command: "printf 'keep:1\\nskip\\nkeep:2\\n'; exit 3",
+          filter: "^keep:",
+          description: "filtered lines",
+          timeout_ms: 1000,
+        },
+      }),
+    );
+    await terminal.promise;
+  } finally {
+    await sources.closeAll();
+  }
   const hits = sends.map(parseHit);
   expect(hits.map((entry) => [entry.hit.detail, entry.hit.content])).toEqual([
     ["line:1", "keep:1"],
@@ -213,10 +219,10 @@ test("refresh swaps the armed occurrence without touching the native handle", as
   }
 });
 
-test("path watch native callback observes a created target", async () => {
+test("path watch stat reconciliation observes a created target when the native callback is lost", async () => {
   const directory = mkdtempSync(join(tmpdir(), "watch-sources-create-"));
   const path = join(directory, "target");
-  const created = eventSignal<WatchHitSend>("native path create", SPAWNED_PTY_MS);
+  const created = eventSignal<WatchHitSend>("path create", SPAWNED_PTY_MS);
   const sources = createWatchSources(
     {
       deliver: (send) => {
@@ -224,7 +230,11 @@ test("path watch native callback observes a created target", async () => {
         return Promise.resolve();
       },
     },
-    { clock: () => 0, failure: (_id, error) => created.reject(error) },
+    {
+      clock: () => 0,
+      failure: (_id, error) => created.reject(error),
+      pathWatch: () => ({ on: () => undefined, close: () => undefined }),
+    },
   );
   try {
     await sources.install(
@@ -234,6 +244,7 @@ test("path watch native callback observes a created target", async () => {
       }),
     );
     writeFileSync(path, "created");
+    sources.observe("monitor-session", "watch-create");
     const send = await created.promise;
     const entry = parseHit(send);
     expect(send.alarmId).toBe("watch-create");
@@ -666,77 +677,125 @@ test("a watch cadence retiring a gone source refuses with the entity's typed arm
   expect(refused.reason).toBe("not_live");
 });
 
-/** The stderr each process tool fails with (exit 1); `/bin/kill` still kills the group so the held shell exits. */
-interface ProcessToolFailures {
-  readonly kill: string;
-  readonly ps?: string;
-}
-
-/** Holds one command, then closes it while the process tools fail as declared. */
-function closeUnderFailingProcessTools(failing: ProcessToolFailures) {
-  const failures: Error[] = [];
-  const reported = Promise.withResolvers<Error>();
-  let terminalClosed = 0;
+test("command group signal accepts EPERM when readback finds no live members", async () => {
+  const kill = jest.spyOn(process, "kill").mockImplementation(() => {
+    throw Object.assign(new Error("Operation not permitted"), { code: "EPERM" });
+  });
   const spawn = Bun.spawn;
-  const failing_ = (stderr: string, before = "") => ["/bin/sh", "-c", `${before}printf '${stderr}\\n' >&2; exit 1`];
-  const failingSpawn = new Proxy(spawn, {
-    apply(
-      target,
-      thisArg: typeof Bun,
-      args: Parameters<typeof Bun.spawn>,
-    ): ReturnType<typeof Bun.spawn> {
+  Reflect.set(Bun, "spawn", new Proxy(spawn, {
+    apply(target, thisArg: typeof Bun, args: Parameters<typeof Bun.spawn>): ReturnType<typeof Bun.spawn> {
       const [command, options] = args;
-      if (!Array.isArray(command)) return Reflect.apply(target, thisArg, args);
-      if (command[0] === "/bin/sh") {
-        // The watched child: count its PTY master closes so teardown is observable.
-        const child = Reflect.apply(target, thisArg, args);
-        const close = child.terminal?.close.bind(child.terminal);
-        if (child.terminal && close)
-          child.terminal.close = () => { terminalClosed += 1; return close(); };
-        return child;
-      }
-      if (command[0] === "/bin/kill")
-        return Reflect.apply(target, thisArg, [failing_(failing.kill, `/bin/kill -KILL -- ${command.at(-1)}; `), options]);
-      if (command[0] === "ps" && failing.ps !== undefined)
-        return Reflect.apply(target, thisArg, [failing_(failing.ps), options]);
-      return Reflect.apply(target, thisArg, args);
+      return Array.isArray(command) && command[0] === "ps"
+        ? Reflect.apply(target, thisArg, [["/bin/sh", "-c", "printf '999 Z\\n'"], options])
+        : Reflect.apply(target, thisArg, args);
     },
-  });
-  // Installed before the source spawns its child so the PTY close hook sees that child.
-  Reflect.set(Bun, "spawn", failingSpawn);
-  const source = commandSource("read hold", () => undefined, () => undefined, (error) => {
-    failures.push(error);
-    reported.resolve(error);
-  });
-  const closed = source.close().finally(() => Reflect.set(Bun, "spawn", spawn));
-  return { closed, failures, reported: reported.promise, terminalClosed: () => terminalClosed };
-}
+  }));
+  try {
+    await expect(killCommandGroup(123)).resolves.toBeUndefined();
+  } finally {
+    kill.mockRestore();
+    Reflect.set(Bun, "spawn", spawn);
+  }
+});
 
-test("command close accepts EPERM after readback finds no live group members", async () => {
-  const { closed, failures } = closeUnderFailingProcessTools({ kill: "Operation not permitted" });
-  await closed;
-  expect(failures).toEqual([]);
+test("a stalled PTY exit reports a typed timeout after its output drains", async () => {
+  jest.useFakeTimers();
+  try {
+    const drained = Promise.withResolvers<void>();
+    const completed = waitForCommandExit(123, drained.promise, new Promise<never>(() => undefined));
+    const failure = completed.then(() => undefined, (error: Error) => error);
+    jest.advanceTimersByTime(15_000);
+    drained.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(15_000);
+    expect(await failure).toBeInstanceOf(AlarmProcessExitTimeoutError);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("a drained PTY whose child never reports exit retires its group and reports the timeout once", async () => {
+  jest.useFakeTimers();
+  const kill = jest.spyOn(process, "kill").mockImplementation(() => {
+    throw Object.assign(new Error("No such process"), { code: "ESRCH" });
+  });
+  const spawn = Bun.spawn;
+  let drain: ((terminal: Bun.Terminal, code: number) => void) | undefined;
+  const closes: number[] = [];
+  Reflect.set(Bun, "spawn", new Proxy(spawn, {
+    apply(target, thisArg: typeof Bun, args: Parameters<typeof Bun.spawn>): ReturnType<typeof Bun.spawn> {
+      const [command, options] = args;
+      if (!Array.isArray(command) || command[0] !== "/bin/sh") return Reflect.apply(target, thisArg, args);
+      // The child's slave hangs up (EOF) but its exit is never reported.
+      drain = (options as { terminal: { exit(terminal: Bun.Terminal, code: number): void } }).terminal.exit;
+      return {
+        pid: 424_242,
+        exitCode: null,
+        signalCode: null,
+        terminal: { write: () => undefined, close: () => closes.push(1) },
+      } as never;
+    },
+  }));
+  const failures: Error[] = [];
+  const exits: number[] = [];
+  const failed = Promise.withResolvers<Error>();
+  try {
+    const source = commandSource("true", () => undefined, (code) => exits.push(code), (error) => {
+      failures.push(error);
+      failed.resolve(error);
+    });
+    drain?.(undefined as never, 0);
+    await Promise.resolve();
+    jest.advanceTimersByTime(15_000);
+    // The group is retired before the failure is reported; close then joins that one retirement.
+    expect(await failed.promise).toBeInstanceOf(AlarmProcessExitTimeoutError);
+    await expect(source.close()).rejects.toBeInstanceOf(AlarmProcessExitTimeoutError);
+    expect(failures.map((error) => error.name)).toEqual(["AlarmProcessExitTimeoutError"]);
+    expect(exits).toEqual([]);
+    expect(kill).toHaveBeenCalledWith(-424_242, "SIGKILL");
+    expect(closes).toEqual([1]);
+  } finally {
+    kill.mockRestore();
+    Reflect.set(Bun, "spawn", spawn);
+    jest.useRealTimers();
+  }
 });
 
 test.each([
   [
     "a kill failure that is neither ESRCH nor EPERM",
-    { kill: "kill: unexpected failure" },
+    { code: "EINVAL", kill: "kill: unexpected failure", ps: undefined },
     /^alarm process group \d+ termination failed: kill: unexpected failure$/,
   ],
   [
     "an EPERM whose process readback fails",
-    { kill: "Operation not permitted", ps: "ps: readback unavailable" },
+    { code: "EPERM", kill: "Operation not permitted", ps: "ps: readback unavailable" },
     /^alarm process-group readback failed: ps: readback unavailable$/,
   ],
-])("command close reports %s as a named process-group failure", async (_case, failing, message) => {
-  const { closed, reported, terminalClosed } = closeUnderFailingProcessTools(failing);
-  // Both the caller's close and the source's failure port receive the one typed error.
-  const [rejection, failure] = await Promise.all([closed.then(() => undefined, (error: Error) => error), reported]);
-  expect(rejection).toBe(failure);
-  expect(failure).toMatchObject({ name: "AlarmProcessGroupError", message: expect.stringMatching(message) });
-  // The kill failure must not leak the PTY master: teardown still closes it.
-  expect(terminalClosed()).toBeGreaterThanOrEqual(1);
+])("command group reports %s as a named failure", async (_case, failing, message) => {
+  const kill = jest.spyOn(process, "kill").mockImplementation(() => {
+    throw Object.assign(new Error(failing.kill), { code: failing.code });
+  });
+  const spawn = Bun.spawn;
+  const diagnostic = failing.ps;
+  if (diagnostic)
+    Reflect.set(Bun, "spawn", new Proxy(spawn, {
+      apply(target, thisArg: typeof Bun, args: Parameters<typeof Bun.spawn>): ReturnType<typeof Bun.spawn> {
+        const [command, options] = args;
+        return Array.isArray(command) && command[0] === "ps"
+          ? Reflect.apply(target, thisArg, [["/bin/sh", "-c", `printf '${diagnostic}\\n' >&2; exit 1`], options])
+          : Reflect.apply(target, thisArg, args);
+      },
+    }));
+  try {
+    await expect(killCommandGroup(123)).rejects.toMatchObject({
+      name: "AlarmProcessGroupError",
+      message: expect.stringMatching(message),
+    });
+  } finally {
+    kill.mockRestore();
+    Reflect.set(Bun, "spawn", spawn);
+  }
 });
 
 test("a faulting path source sends a terminal source_error summary and the typed failure", async () => {

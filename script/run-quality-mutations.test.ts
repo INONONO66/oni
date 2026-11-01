@@ -10,6 +10,10 @@ import { analyze, enumerate, programs, diagnostics, failedAssertions, assertionI
 import { tmpdir } from "node:os";
 import { MutationCompilerWorker } from "./quality-mutation-compiler";
 
+if (process.env.D945_PYTHON === undefined) {
+	test.skip("D945_PYTHON is unset; mutation runner tests require the pinned Python runtime", () => undefined);
+} else {
+
 function captureOutput(): { output: string[]; restore: () => void } {
 	const output: string[] = [];
 	const log: (value: string) => void = console.log;
@@ -1836,3 +1840,4 @@ for (const example of [
 		expect(result.report.originalHashesVerified).toBe(true);
 		expect(result.report.cleanupVerified).toBe(true);
 	}, 90000);
+}
