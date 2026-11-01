@@ -29,6 +29,7 @@ import { Machine } from "../../../packages/protocol/src/index.js";
 import { type FakeDevtools, startFakeDevtools } from "./devtools.js";
 import { type ReportTap, startReportTap } from "./tap.js";
 import { MASKED_PIXEL_SUM, openViewer } from "./viewer.js";
+import { probeStream } from "./probe.js";
 
 const LAYOUT = resolve(
   import.meta.dir,
@@ -646,7 +647,7 @@ function streamRequest(display: number): Omit<Machine.StreamOpenRequest, "stream
       maxDimension: 640,
       maxFrameBytes: 1_000_000,
     },
-    dataChannel: false,
+    dataChannel: true,
     lifetimeMs: 120_000,
   };
 }
@@ -730,6 +731,13 @@ async function exerciseStream(context: Context): Promise<void> {
       viewer.until(STREAM_FRAMES, STREAM_KEYFRAMES),
       "encoded stream frames",
     );
+    check(frames.sidecars.length >= STREAM_FRAMES &&
+      frames.sidecars.every((sidecar, index) => {
+        const previous = frames.sidecars[index - 1];
+        return previous === undefined ||
+          (sidecar.seq === previous.seq + 1 && sidecar.capturedAtUs >= previous.capturedAtUs);
+      }),
+    `each encoded frame must carry an ordered monotonic sidecar: video=${frames.count}, sidecars=${frames.sidecars.length}, first=${JSON.stringify(frames.sidecars.slice(0, 3))}`);
     check(
       ANNEX_B.every((byte, index) => frames.head[index] === byte),
       `first keyframe head ${frames.head.join(",")}`,
@@ -974,6 +982,18 @@ export async function exerciseComputer(
     await exerciseSettle(context);
     await exercisePrivate(context);
     await exerciseStream(context);
+    const [display] = layout.displays;
+    check(display !== undefined, "fixture layout has no display for probe");
+    const metrics = await harness.within(probeStream(host, machineId, display.id), "stream stage metrics probe");
+    check(metrics.stages.captureToReceipt.frames >= 1 &&
+      metrics.stages.captureToDecoded.frames >= 1 &&
+      metrics.stages.captureToReceipt.p99 !== null &&
+      metrics.stages.captureToDecoded.p99 !== null &&
+      metrics.stages.captureToDisplay === null &&
+      metrics.stages.displayedBy === "none" &&
+      metrics.reconnect === "not_requested",
+    `stream probe JSON ${JSON.stringify(metrics)}`);
+    harness.record(`stream probe JSON ${JSON.stringify(metrics)}`);
     await exerciseCdp(context);
     await exerciseOverflowAndRelease(context);
   } finally {

@@ -757,6 +757,12 @@ describe("cli dispatch", () => {
         envPath: "/Users/owner/.oni/env",
         startApp: () => Promise.resolve(),
         attachMachine: async () => 0,
+        streamProbe: {
+          id: () => "request-1",
+          connect: () => Promise.reject(new Error("no probe socket in this test")),
+          viewer: () => Promise.reject(new Error("no viewer in this test")),
+          wait: () => Promise.resolve(),
+        },
         ask: () => Promise.resolve(""),
         writeEnv: () => undefined,
         login: {
@@ -813,6 +819,13 @@ describe("cli dispatch", () => {
     expect(await runCli(["machine", "attach", "config.json", "extra"], cli)).toBe(1);
     expect(await runCli(["machine", "attach", "config.json"], cli)).toBe(7);
     expect(seen).toEqual(["config.json"]);
+  });
+
+  test("machine probe dispatch reports invalid options without opening a socket", async () => {
+    const { deps: cli, err } = deps();
+    expect(await runCli(["machine", "probe", "macbook", "invalid"], cli)).toBe(1);
+    expect(err).toHaveLength(1);
+    expect(err[0]).toContain("usage: oni machine probe");
   });
 
   test("login dispatches to the sign-in with the login deps; --print declares nothing", async () => {
