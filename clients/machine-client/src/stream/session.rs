@@ -52,6 +52,7 @@ pub struct Session {
     video: Video,
     mid: Mid,
     channel: Option<ChannelId>,
+    channel_open: bool,
     /// Relayed bytes that arrived while the negotiated channel's open
     /// acknowledgement was still in flight; written on `ChannelOpen`.
     early: VecDeque<Vec<u8>>,
@@ -59,6 +60,7 @@ pub struct Session {
     connected: bool,
     failed: bool,
     started: Instant,
+    frame_seq: u64,
 }
 
 fn failure(error: impl ToString) -> String {
@@ -97,11 +99,13 @@ impl Session {
             video,
             mid,
             channel,
+            channel_open: false,
             early: VecDeque::new(),
             pending: Some(pending),
             connected: false,
             failed: false,
             started: now,
+            frame_seq: 0,
         };
         Ok((
             session,
@@ -215,6 +219,7 @@ impl Session {
         match event {
             Event::Connected => self.connected = true,
             Event::ChannelOpen(id, _) if Some(id) == self.channel => {
+                self.channel_open = true;
                 while let Some(bytes) = self.early.pop_front() {
                     let channel = self.rtc.channel(id).ok_or("data channel closed")?;
                     Self::write(channel, &bytes)?;
@@ -234,7 +239,7 @@ impl Session {
 
     /// Connected and not since lost.
     pub fn live(&self) -> bool {
-        self.connected && !self.failed
+        self.connected && !self.failed && (self.channel.is_none() || self.channel_open)
     }
 
     pub fn failed(&self) -> bool {
@@ -257,10 +262,29 @@ impl Session {
     }
 
     /// Encodes and sends the frame admitted at `now`; false when it was dropped.
-    pub fn frame(&mut self, now: Instant, rgba: &[u8], size: (u32, u32)) -> Result<bool, String> {
+    pub fn frame(
+        &mut self,
+        now: Instant,
+        captured_at_us: u64,
+        rgba: &[u8],
+        size: (u32, u32),
+    ) -> Result<bool, String> {
         let Some((unit, _)) = self.video.encode(now, rgba, size)? else {
             return Ok(false);
         };
+        let elapsed = now.duration_since(self.started).as_micros();
+        let rtp_timestamp = (elapsed * 9 / 100) as u64;
+        if let Some(id) = self.channel {
+            let sidecar = serde_json::json!({"seq": self.frame_seq, "capturedAtUs": captured_at_us, "rtpTimestamp": rtp_timestamp});
+            let bytes = serde_json::to_vec(&sidecar).map_err(failure)?;
+            let mut channel = self.rtc.channel(id).ok_or("data channel closed")?;
+            if !channel.write(true, &bytes).map_err(failure)? {
+                self.video.stats.frames -= 1;
+                self.video.stats.bytes -= unit.len() as u64;
+                self.video.backlog()?;
+                return Ok(false);
+            }
+        }
         let writer = self
             .rtc
             .writer(self.mid)
@@ -270,9 +294,9 @@ impl Session {
             .find(|params| params.spec().codec == Codec::H264)
             .map(|params| params.pt())
             .ok_or("H.264 not negotiated")?;
-        let elapsed = now.duration_since(self.started).as_micros();
-        let rtp = MediaTime::new((elapsed * 9 / 100) as u64, Frequency::NINETY_KHZ);
+        let rtp = MediaTime::new(rtp_timestamp, Frequency::NINETY_KHZ);
         writer.write(pt, now, rtp, unit).map_err(failure)?;
+        self.frame_seq = self.frame_seq.wrapping_add(1);
         Ok(true)
     }
 

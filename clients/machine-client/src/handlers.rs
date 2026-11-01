@@ -1419,8 +1419,8 @@ mod private_tests {
                 .next()
                 .await
                 .expect("probe response")
-                .expect("frame")["result"],
-            Value::Null
+                .expect("frame")["result"]["status"],
+            "alive"
         );
         service
     }
@@ -1491,8 +1491,8 @@ mod private_tests {
         .await
         .expect("probe written");
         assert_eq!(
-            frames.next().await.expect("probe response").expect("frame")["result"],
-            Value::Null
+            frames.next().await.expect("probe response").expect("frame")["result"]["status"],
+            "alive"
         );
         for (secure, state) in [(true, "entered"), (false, "left")] {
             std::fs::write(&layout, row(secure).to_string()).expect("focus");
