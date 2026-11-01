@@ -1,0 +1,10 @@
+{
+  "status": "ok",
+  "changeCount": 2,
+  "previous": {
+    "changeCount": 1,
+    "formats": ["text"],
+    "bytes": 6,
+    "text": "secret"
+  }
+}

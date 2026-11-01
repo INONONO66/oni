@@ -1159,6 +1159,71 @@ mod tests {
     }
 
     #[test]
+    fn background_route_refuses_when_the_target_focus_is_unreadable() {
+        let directory = tempfile::tempdir().expect("fixture directory");
+        let layout = directory.path().join("layout.json");
+        let window = |focus_error: bool| {
+            format!(
+                r#"{{"windows":[{{"id":9,"title":"Editor","pid":7,"focusError":{focus_error},
+                "frame":{{"x":0,"y":0,"width":16,"height":16}},"elements":[]}}]}}"#
+            )
+        };
+        std::fs::write(&layout, window(false)).expect("layout");
+        let source = Fixture {
+            windows: vec![crate::screen::Window {
+                id: 9,
+                display: 1,
+                title: "Editor".into(),
+                owner: "fixture".into(),
+                pid: Some(7),
+                app: None,
+                x: 0,
+                y: 0,
+                width: 16,
+                height: 16,
+            }],
+            ..Fixture::display(16, 16, 1.0)
+        };
+        let screen = Screen::new(Box::new(source), 1).observing(Box::new(
+            crate::screen::ax::fixture::Scripted {
+                layout: layout.clone(),
+                recorder: directory.path().join("actions.jsonl"),
+            },
+        ));
+        let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target":{"kind":"window","windowId":"9"},"encoding":{"format":"png"}
+        }))
+        .expect("capture request");
+        let capture = screen.capture(&request);
+        assert_eq!(capture["status"], "ok", "{capture}");
+        let anchor = capture["captureId"].as_str().expect("capture id");
+        std::fs::write(&layout, window(true)).expect("unreadable focus layout");
+        let recorder = Recorder::default();
+        let mut driver = recorder.clone();
+        let input = Input::new(recorder.clone());
+
+        let result = input.attempt(
+            (&mut driver, &mut Vec::new()),
+            &screen,
+            &Anchor::Point {
+                capture: anchor,
+                x: 1,
+                y: 1,
+                within: None,
+            },
+            false,
+            (None, None),
+            &scroll,
+        );
+
+        assert_eq!(
+            result.err().map(|refusal| refusal.reason),
+            Some("accessibility_unavailable")
+        );
+        assert!(recorder.events().is_empty());
+    }
+
+    #[test]
     fn input_without_an_observer_refuses_before_posting() {
         let screen = Screen::new(Box::new(Fixture::display(8, 8, 1.0)), 1);
         let capture: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({

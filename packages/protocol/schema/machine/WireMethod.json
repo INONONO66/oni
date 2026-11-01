@@ -29,6 +29,8 @@
     "agent.session.permission",
     "machine.screen.list",
     "machine.screen.capture",
+    "machine.clipboard.read",
+    "machine.clipboard.write",
     "machine.input.pointer",
     "machine.input.key",
     "machine.input.text",

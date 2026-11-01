@@ -17,6 +17,11 @@ const accepted: Responder = (params) => ({ status: "accepted", seq: (params as {
 const script: Record<string, Responder> = {
   [Machine.WireMethod.ScreenList]: () => ({ status: "ok", displays: [{ display: 1, width: 4, height: 4, scale: 1, primary: true }], windows: [], truncated: false, observedAt: 7 }),
   [Machine.WireMethod.ScreenCapture]: () => ({ status: "ok", captureId: "cap-1", display: 1, format: "png", data: Buffer.from("png").toString("base64"), width: 4, height: 4, downscaled: false, observedAt: 8 }),
+  [Machine.WireMethod.ClipboardRead]: () => ({ status: "ok", text: "copied", changeCount: 4 }),
+  [Machine.WireMethod.ClipboardWrite]: () => ({
+    status: "ok", changeCount: 5,
+    previous: { changeCount: 4, formats: ["public.utf8-plain-text"], bytes: 6 },
+  }),
   [Machine.WireMethod.InputPointer]: () => ({ status: "ok" }),
   [Machine.WireMethod.InputKey]: () => ({ status: "ok" }),
   [Machine.WireMethod.InputText]: () => ({ status: "ok" }),
@@ -86,6 +91,21 @@ test("the code-mode handle reaches screen and input under the wire op names, inp
     const sent = [Machine.WireMethod.InputPointer, Machine.WireMethod.InputKey, Machine.WireMethod.InputText, Machine.WireMethod.ScreenObserve, Machine.WireMethod.ScreenSettle, Machine.WireMethod.InputAction];
     expect(captured.map((entry) => entry.method)).toEqual(sent);
     expect(received).toEqual([Machine.WireMethod.ScreenList, Machine.WireMethod.ScreenCapture, ...sent.slice(0, 3), Machine.WireMethod.InputStatus, ...sent.slice(3)]);
+  });
+});
+
+test("clipboard handles route through the captured computer-use gate", async () => {
+  await fixture(async ({ mode, received, captured }) => {
+    const clipboard = mode.native.getMachine("desk").computer.clipboard;
+    expect(await run(clipboard.read({ formats: ["text"] }))).toEqual({
+      status: "ok", text: "copied", changeCount: 4,
+    });
+    expect(await run(clipboard.write({ text: "agent" }))).toEqual({
+      status: "ok", changeCount: 5,
+      previous: { changeCount: 4, formats: ["public.utf8-plain-text"], bytes: 6 },
+    });
+    expect(received).toEqual([Machine.WireMethod.ClipboardRead, Machine.WireMethod.ClipboardWrite]);
+    expect(captured.map((entry) => entry.method)).toEqual([Machine.WireMethod.ClipboardRead, Machine.WireMethod.ClipboardWrite]);
   });
 });
 

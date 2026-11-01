@@ -18,11 +18,11 @@ use oni_protocol::{
     AgentPermissionRequest, AgentSessionListRequest, AgentSessionListResult,
     AgentSessionOpenRequest, AgentSessionOpenResult, AgentSessionSendRequest,
     AgentSessionSendResult, AgentSessionStopRequest, AgentSessionStopResult,
-    AgentSessionTailRequest, AgentSessionTailResult, CancelCode, CellRequest, ExecRequest,
-    FsRequest, FsStreamRequest, InputActionRequest, InputStatusRequest, InputWriteRequest,
-    PeekCode, PtyCloseRequest, PtyListRequest, PtyOpenRequest, PtyReadRequest,
-    PtyReadScreenRequest, PtyResizeRequest, PtyWriteRequest, ScreenReadRequest, WireMethod,
-    WireRoot,
+    AgentSessionTailRequest, AgentSessionTailResult, CancelCode, CellRequest, ClipboardReadRequest,
+    ClipboardWriteRequest, ExecRequest, FsRequest, FsStreamRequest, InputActionRequest,
+    InputStatusRequest, InputWriteRequest, PeekCode, PtyCloseRequest, PtyListRequest,
+    PtyOpenRequest, PtyReadRequest, PtyReadScreenRequest, PtyResizeRequest, PtyWriteRequest,
+    ScreenReadRequest, WireMethod, WireRoot,
 };
 use oni_protocol::{CdpChunk, CdpCloseRequest, CdpOpenRequest};
 use oni_protocol::{InputKeyRequest, InputPointerRequest, InputTextRequest};
@@ -44,6 +44,7 @@ use crate::{
     },
     attach::{Hooks, Negotiated, Session},
     budget::{Pressure, Retained},
+    clipboard::Clipboard,
     code::Code,
     config::ClientConfig,
     exec::{Exec, DEFAULT_DEADLINE},
@@ -144,6 +145,7 @@ pub struct Service {
     caller: Mutex<Option<Caller>>,
     screen: Arc<Screen>,
     input: Arc<Input>,
+    clipboard: Arc<Clipboard>,
     cdp: Cdp,
     stream: Stream,
     code: Code,
@@ -151,6 +153,7 @@ pub struct Service {
 
 impl Service {
     pub async fn shutdown(&self) {
+        self.clipboard.close();
         self.code.shutdown().await;
         self.exec.shutdown().await;
     }
@@ -258,7 +261,7 @@ impl Service {
         Self::open_full(
             config,
             pty,
-            (Screen::absent(), Input::absent()),
+            (Screen::absent(), Input::absent(), Clipboard::absent()),
             Cdp::absent(),
             stream::local_address(),
             options,
@@ -294,15 +297,21 @@ impl Service {
         input: Input,
         cdp: Cdp,
     ) -> Result<Arc<Self>, FsError> {
-        Self::open_stream(config, pty, (screen, input), cdp, stream::local_address())
+        Self::open_stream(
+            config,
+            pty,
+            (screen, input, Clipboard::local()),
+            cdp,
+            stream::local_address(),
+        )
     }
 
     /// Screen streams ride `computer.use` and gather their host candidate
-    /// on `address`.
+    /// on `address`; the clipboard rides `computer.use` too.
     pub fn open_stream(
         config: &ClientConfig,
         pty: Pty,
-        (screen, input): (Screen, Input),
+        desk: (Screen, Input, Clipboard),
         cdp: Cdp,
         address: std::net::IpAddr,
     ) -> Result<Arc<Self>, FsError> {
@@ -310,8 +319,7 @@ impl Service {
         Ok(Self::assemble(
             config.machine_id.clone(),
             drivers,
-            screen,
-            input,
+            desk,
             cdp,
             address,
             None,
@@ -324,7 +332,7 @@ impl Service {
     pub(crate) fn open_full(
         config: &ClientConfig,
         pty: Pty,
-        (screen, input): (Screen, Input),
+        desk: (Screen, Input, Clipboard),
         cdp: Cdp,
         address: std::net::IpAddr,
         options: AgentOptions,
@@ -334,8 +342,7 @@ impl Service {
         Ok(Self::assemble(
             config.machine_id.clone(),
             drivers,
-            screen,
-            input,
+            desk,
             cdp,
             address,
             Some((registry, options)),
@@ -359,8 +366,7 @@ impl Service {
     fn assemble(
         machine_id: String,
         Drivers { exports, fs, pty }: Drivers,
-        screen: Screen,
-        input: Input,
+        (screen, input, clipboard): (Screen, Input, Clipboard),
         cdp: Cdp,
         address: std::net::IpAddr,
         agents: Option<(Registry, AgentOptions)>,
@@ -409,6 +415,7 @@ impl Service {
             caller: Mutex::new(None),
             screen: Arc::new(screen),
             input: Arc::new(input),
+            clipboard: Arc::new(clipboard),
             cdp,
             stream: Stream::new(address, machine_id.clone()),
             code: Code::with_socket(tmux_socket),
@@ -912,6 +919,7 @@ impl Session for Service {
     }
 
     fn detached(&self) {
+        self.clipboard.close();
         self.input.ledger().cancel();
         self.code.detach();
         self.exec.detach();
@@ -1060,10 +1068,17 @@ impl Service {
 impl Service {
     async fn serve_computer(&self, method: WireMethod, params: Value) -> Result<Value, String> {
         match method {
-            WireMethod::MachineComputerClose => Ok(crate::computer_close::serve_computer_close(
-                &self.input.ledger(),
-                &decode(params)?,
-            )),
+            WireMethod::MachineComputerClose => {
+                let request = decode(params)?;
+                self.clipboard.close();
+                Ok(crate::computer_close::serve_computer_close(
+                    &self.input.ledger(),
+                    &request,
+                ))
+            }
+            WireMethod::MachineClipboardRead | WireMethod::MachineClipboardWrite => {
+                self.serve_clipboard(method, params).await
+            }
             WireMethod::MachineScreenList
             | WireMethod::MachineScreenCapture
             | WireMethod::MachineScreenRead
@@ -1090,6 +1105,45 @@ impl Service {
             | WireMethod::MachineStreamClose => self.serve_stream(method, params).await,
             host_served => Err(invalid(host_served)),
         }
+    }
+
+    /// Reads refuse while the focused window is private, exactly like
+    /// injected input; a change the human made since the last look is
+    /// reported to the host once the answer is known.
+    async fn serve_clipboard(&self, method: WireMethod, params: Value) -> Result<Value, String> {
+        let clipboard = self.clipboard.clone();
+        let unavailable = "clipboard_not_available";
+        let answer = if method == WireMethod::MachineClipboardRead {
+            let request: ClipboardReadRequest = decode(params)?;
+            if self.grant().is_some() && self.has(COMPUTER_USE) {
+                self.publish_private_edges().await;
+                let screen = self.screen.clone();
+                let private = tokio::task::spawn_blocking(move || screen.input_private(None)).await;
+                if !matches!(private, Ok(Ok(false))) {
+                    return Ok(refused("private"));
+                }
+            }
+            self.capture(COMPUTER_USE, unavailable, move || clipboard.read(&request))
+                .await?
+        } else {
+            let request: ClipboardWriteRequest = decode(params)?;
+            self.capture(COMPUTER_USE, unavailable, move || clipboard.write(&request))
+                .await?
+        };
+        if self.clipboard.take_human_edge() {
+            let caller = self.caller().clone();
+            if let Some(caller) = caller {
+                let params = json!({
+                    "machineId": self.machine_id,
+                    "at": crate::attach::now_ms(),
+                    "source": "clipboard",
+                });
+                let _ = caller
+                    .notify("machine.event.human_input", Some(params))
+                    .await;
+            }
+        }
+        Ok(answer)
     }
 
     async fn serve_screen(&self, method: WireMethod, params: Value) -> Result<Value, String> {

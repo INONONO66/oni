@@ -1,5 +1,9 @@
 # Implementation Status
 
+## #1720 leased clipboard access
+
+Machine clipboard read/write runs through the captured computer-use lease gate; the client retains bounded previous contents locally for conditional lease-end restoration, and ledger facts expose only format and byte counts.
+
 ## #1718 ref actionability
 
 Ref-targeted press and perform check disabled, zero-size, off-window and hit-test occlusion before dispatch, setValue checks disabled, and blocked actions wait at most two seconds by default before a typed `not_actionable` refusal.

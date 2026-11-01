@@ -3,6 +3,7 @@ import { Machine } from "@oni/protocol";
 import { ToolCapabilityPort } from "../seams";
 
 const COMPUTER_METHODS = [
+  Machine.WireMethod.ClipboardRead, Machine.WireMethod.ClipboardWrite,
   Machine.WireMethod.InputPointer, Machine.WireMethod.InputKey, Machine.WireMethod.InputText,
   Machine.WireMethod.InputAction, Machine.WireMethod.ScreenObserve, Machine.WireMethod.ScreenSettle,
   Machine.WireMethod.AppLaunch, Machine.WireMethod.AppQuit, Machine.WireMethod.WindowClose, Machine.WireMethod.WindowPark,
