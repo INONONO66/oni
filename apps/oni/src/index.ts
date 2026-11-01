@@ -1477,7 +1477,7 @@ export async function startOni(options: StartOptions = {}) {
         id: services.entropy.id,
       }), { respond: automationWire(provisioningPort.automations), stores: channelStores }, host,
       { respond: channelWire(provisioningPort, services.now) }, wsMedia,
-      channelHistoryLookup(historyRoutes, supervisor));
+      channelHistoryLookup(historyRoutes, supervisor), services.now);
     const server = Bun.serve({
       hostname: config.host,
       port: config.wsPort,
