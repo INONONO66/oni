@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "oneOf": [
+  "anyOf": [
     {
       "additionalProperties": false,
       "properties": {
@@ -32,6 +32,10 @@
     {
       "additionalProperties": false,
       "properties": {
+        "method": {
+          "const": "accessibility",
+          "type": "string"
+        },
         "observationId": {
           "maxLength": 32,
           "pattern": "^o\\d+$",
@@ -44,7 +48,31 @@
       },
       "required": [
         "status",
+        "method",
         "observationId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "captureId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "method": {
+          "const": "pixels",
+          "type": "string"
+        },
+        "status": {
+          "const": "settled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "method",
+        "captureId"
       ],
       "type": "object"
     },
@@ -56,6 +84,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "method": {
+          "const": "accessibility",
+          "type": "string"
+        },
         "observationId": {
           "maxLength": 32,
           "pattern": "^o\\d+$",
@@ -63,12 +95,39 @@
         },
         "status": {
           "const": "pending",
+          "title": "AccessibilitySettlePendingStatus",
           "type": "string"
         }
       },
       "required": [
         "status",
+        "method",
         "observationId",
+        "changesInWindow"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "changesInWindow": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "method": {
+          "const": "pixels",
+          "type": "string"
+        },
+        "status": {
+          "const": "pending",
+          "title": "PixelSettlePendingStatus",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "method",
         "changesInWindow"
       ],
       "type": "object"
@@ -139,8 +198,16 @@
             "paused:private",
             "paused:locked",
             "paused:asleep",
-            "budget_exhausted",
+            "window_minimized",
+            "capture_blank",
+            "capture_failed",
+            "own_window",
+            "superseded",
+            "screen_not_available",
+            "invalid_region",
+            "display_not_found",
             "private",
+            "budget_exhausted",
             "clipboard_not_granted"
           ],
           "type": "string"
