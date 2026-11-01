@@ -947,7 +947,7 @@ async fn run_default_with_screen(
     let service = Service::open_full(
         &config,
         pty,
-        (screen, input),
+        (screen, input, crate::clipboard::Clipboard::local()),
         crate::cdp::Cdp::new(manifest, crate::cdp::OPEN_DEADLINE),
         crate::stream::local_address(),
         options,

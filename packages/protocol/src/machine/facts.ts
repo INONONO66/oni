@@ -17,7 +17,7 @@ export type Session = z.infer<typeof Session>;
 export const HumanInputNotification = z.object({
   machineId: z.string().min(1),
   at: EpochMs,
-  source: z.enum(["pointer", "keyboard"]),
+  source: z.enum(["pointer", "keyboard", "clipboard"]),
 }).strict();
 export type HumanInputNotification = z.infer<typeof HumanInputNotification>;
 

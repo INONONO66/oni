@@ -1401,6 +1401,11 @@
                         }
                       ]
                     },
+                    "clipboard": {
+                      "default": "none",
+                      "type": "string",
+                      "enum": ["none", "write", "read_write"]
+                    },
                     "budget": {
                       "type": "object",
                       "properties": {

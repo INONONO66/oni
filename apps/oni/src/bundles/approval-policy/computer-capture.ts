@@ -1,6 +1,6 @@
 import { Core } from "@oni/agent";
 import { MachinesFailure, type CapturedResult, type CaptureRefusal, type MachineError, type MachineInputCapture } from "@oni/machines";
-import { PlainValueSchema, type PlainValue } from "@oni/protocol";
+import { Machine, PlainValueSchema, type PlainValue } from "@oni/protocol";
 import { Effect, Result } from "effect";
 import type { ComputerPolicy } from "./computer-policy";
 
@@ -23,6 +23,15 @@ export function computerCapture(policy: ComputerPolicy) {
         sent = result;
         if (Result.isFailure(result)) return { status: "failed", message: result.failure.message };
         policy.answered(intent.action.sessionId, request, result.success);
+        if (request.method === Machine.WireMethod.ClipboardRead && result.success.status === "ok" &&
+          "changeCount" in result.success && !("previous" in result.success)) {
+          const formats = ["text", "html", "image"].filter((format) => format in result.success);
+          const bytes = Object.entries(result.success).reduce((count, [format, content]) => {
+            return count + (typeof content === "string" ? format === "image"
+              ? Buffer.from(content, "base64").length : Buffer.byteLength(content) : 0);
+          }, 0);
+          return { status: "ok", changeCount: result.success.changeCount, formats, bytes };
+        }
         return PlainValueSchema.parse(result.success);
       }),
     )).pipe(Effect.mapError((error) => new MachinesFailure({ operation: `${request.method}.capture`, cause: String(error) })));

@@ -1,5 +1,9 @@
 # Implementation Status
 
+## #1720 leased clipboard access
+
+Machine clipboard read/write runs through the captured computer-use lease gate; the client retains bounded previous contents locally for conditional lease-end restoration, and ledger facts expose only format and byte counts.
+
 The #1719 macOS observer lists open menus, sheets, popovers and alerts as distinct epoch-bound targets for background ref actions and settle, verified by a headless menu-and-sheet fixture while live macOS permission verification remains blocked by #1676; Linux reports `surface_enumeration_unavailable`.
 
 ## #1722 setup needs on screen verdicts

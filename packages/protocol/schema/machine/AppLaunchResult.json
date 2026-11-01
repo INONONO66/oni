@@ -95,7 +95,9 @@
             "paused:private",
             "paused:locked",
             "paused:asleep",
-            "budget_exhausted"
+            "budget_exhausted",
+            "private",
+            "clipboard_not_granted"
           ],
           "type": "string"
         },
