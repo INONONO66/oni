@@ -63,6 +63,17 @@ pub struct Caller {
 }
 
 impl Caller {
+    pub async fn notify(&self, method: &str, params: Option<Value>) -> Result<(), CallError> {
+        let mut frame = serde_json::json!({ "v": 2, "type": "notification", "method": method });
+        if let Some(params) = params {
+            frame["params"] = params;
+        }
+        self.outbound
+            .send(Outbound::Frame(frame))
+            .await
+            .map_err(|_| CallError::Disconnected)
+    }
+
     pub async fn call_with_timeout(
         &self,
         method: &str,

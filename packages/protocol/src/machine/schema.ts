@@ -125,6 +125,8 @@ export const WireMethod = {
   /** Computer use (#1662): every method below is gated by `computer.use`. */
   ScreenList: "machine.screen.list",
   ScreenCapture: "machine.screen.capture",
+  ClipboardRead: "machine.clipboard.read",
+  ClipboardWrite: "machine.clipboard.write",
   InputPointer: "machine.input.pointer",
   InputKey: "machine.input.key",
   InputText: "machine.input.text",
@@ -911,7 +913,7 @@ export const InputWriteResult = z.union([
         "accessibility_unavailable",
         "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
         "foreground_not_granted", "excluded", "paused:human_input", "paused:takeover",
-        "paused:private", "paused:locked", "paused:asleep", "budget_exhausted",
+        "paused:private", "paused:locked", "paused:asleep", "budget_exhausted", "clipboard_not_granted",
       ]),
       /** Human-readable detail, e.g. which display a refused anchor captured. */
       message: z.string().min(1).max(256).optional(),
@@ -1504,6 +1506,43 @@ export const ScreenCaptureResult = z.discriminatedUnion("status", [
   CaptureRefusal,
 ]);
 export type ScreenCaptureResult = z.infer<typeof ScreenCaptureResult>;
+
+const ClipboardFormat = z.enum(["text", "html", "image"]);
+const ClipboardImage = Base64.min(1).max(SCREEN_CAPTURE_MAX_BASE64);
+export const ClipboardReadRequest = z.object({
+  formats: z.array(ClipboardFormat).min(1).max(3).optional(),
+}).strict();
+export type ClipboardReadRequest = z.infer<typeof ClipboardReadRequest>;
+export const ClipboardReadResult = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    text: z.string().max(SCREEN_PNG_MAX_BYTES).optional(),
+    html: z.string().max(SCREEN_PNG_MAX_BYTES).optional(),
+    image: ClipboardImage.optional(),
+    changeCount: z.number().int().nonnegative(),
+  }).strict(),
+  z.object({ status: z.literal("refused"), reason: z.enum(["machine_not_attached", "permission_denied", "clipboard_not_available", "clipboard_not_granted", "private", "clipboard_too_large"]) }).strict(),
+]);
+export type ClipboardReadResult = z.infer<typeof ClipboardReadResult>;
+export const ClipboardWriteRequest = z.union([
+  z.object({ text: z.string().max(SCREEN_PNG_MAX_BYTES) }).strict(),
+  z.object({ html: z.string().max(SCREEN_PNG_MAX_BYTES) }).strict(),
+  z.object({ image: ClipboardImage }).strict(),
+]);
+export type ClipboardWriteRequest = z.infer<typeof ClipboardWriteRequest>;
+export const ClipboardWriteResult = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    changeCount: z.number().int().nonnegative(),
+    previous: z.object({
+      changeCount: z.number().int().nonnegative(),
+      formats: z.array(z.string().min(1)),
+      bytes: z.number().int().nonnegative(),
+    }).strict(),
+  }).strict(),
+  z.object({ status: z.literal("refused"), reason: z.enum(["machine_not_attached", "permission_denied", "clipboard_not_available", "clipboard_too_large"]) }).strict(),
+]);
+export type ClipboardWriteResult = z.infer<typeof ClipboardWriteResult>;
 
 /**
  * Pointer input `at` either a point of the display `captureId` captured or

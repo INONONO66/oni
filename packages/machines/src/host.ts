@@ -137,7 +137,7 @@ export interface MachineHandle {
   readonly computer?: ComputerHandle;
 }
 /** Computer-use wire methods (#1662) the host originates. */
-type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "ScreenSettle" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "InputStatus" | "ComputerClose" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
+type ComputerMethod = (typeof Machine.WireMethod)["ScreenList" | "ScreenCapture" | "ScreenObserve" | "ScreenSettle" | "InputAction" | "InputPointer" | "InputKey" | "InputText" | "InputStatus" | "ClipboardRead" | "ClipboardWrite" | "ComputerClose" | "StreamOpen" | "StreamSignal" | "StreamClose" | "CdpOpen" | "CdpChunk" | "CdpClose"] | LifecycleMethod;
 type LifecycleMethod = (typeof Machine.WireMethod)["AppLaunch" | "AppQuit" | "WindowClose" | "WindowPark"];
 type LifecycleParams = Machine.AppLaunchRequest | Machine.AppQuitRequest | Machine.WindowCloseRequest | Machine.WindowParkRequest;
 type LifecycleResult = Machine.AppLaunchResult | Machine.AppQuitResult | Machine.WindowCloseResult | Machine.WindowParkResult;
@@ -145,10 +145,10 @@ type InputMethod = (typeof Machine.WireMethod)["InputPointer" | "InputKey" | "In
 type InputParams = Machine.InputPointerRequest | Machine.InputKeyRequest | Machine.InputTextRequest;
 type PointerCall = Machine.InputPointerRequest extends infer P ? P extends Machine.InputPointerRequest ? Omit<P, "requestId"> : never : never;
 type ActionRequest = Omit<Machine.InputActionRequest, "requestId">;
-type CapturedMethod = InputMethod | (typeof Machine.WireMethod)["ScreenObserve" | "ScreenSettle" | "InputAction"] | LifecycleMethod;
-type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.ScreenSettleRequest | Machine.InputActionRequest | LifecycleParams;
+type CapturedMethod = InputMethod | (typeof Machine.WireMethod)["ScreenObserve" | "ScreenSettle" | "InputAction" | "ClipboardRead" | "ClipboardWrite"] | LifecycleMethod;
+type CapturedParams = InputParams | Machine.ScreenObserveRequest | Machine.ScreenSettleRequest | Machine.InputActionRequest | Machine.ClipboardReadRequest | Machine.ClipboardWriteRequest | LifecycleParams;
 /** What a captured call answers when it was forwarded (#1689 adds observation). */
-export type CapturedResult = Machine.InputWriteResult | Machine.ScreenObserveResult | Machine.ScreenSettleResult | LifecycleResult;
+export type CapturedResult = Machine.InputWriteResult | Machine.ScreenObserveResult | Machine.ScreenSettleResult | Machine.ClipboardReadResult | Machine.ClipboardWriteResult | LifecycleResult;
 /** The capture port's own refusal, valid in every captured answer vocabulary. */
 export type CaptureRefusal = Machine.ComputerRefusal | Machine.ComputerCancelled;
 /** What the captured-input port records: the exact call the host would forward. */
@@ -188,6 +188,10 @@ export interface ComputerChannel {
 }
 type ComputerCapture = Exclude<Machine.ScreenCaptureResult, { status: "ok" }> | (Omit<Extract<Machine.ScreenCaptureResult, { status: "ok" }>, "data"> & { readonly data: Buffer });
 export interface ComputerHandle {
+  readonly clipboard: {
+    read(request?: Machine.ClipboardReadRequest): Effect.Effect<Machine.ClipboardReadResult | CaptureRefusal, MachineError>;
+    write(request: Machine.ClipboardWriteRequest): Effect.Effect<Machine.ClipboardWriteResult | CaptureRefusal, MachineError>;
+  };
   readonly app: {
     launch(request: Machine.AppLaunchRequest): Effect.Effect<Machine.AppLaunchResult, MachineError>;
     quit(request: Machine.AppQuitRequest): Effect.Effect<Machine.AppQuitResult, MachineError>;
@@ -1329,6 +1333,18 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     }
     function computerHandle(id: string): ComputerHandle {
       return {
+        clipboard: {
+          read: (request = {}) => decode(Machine.ClipboardReadRequest, request, "clipboard.read.request").pipe(
+            Effect.flatMap((params) => captured(id, Machine.WireMethod.ClipboardRead, params,
+              (grant): Machine.ClipboardReadResult => ({ status: "refused", reason: grant === "permission_denied" ? grant : "clipboard_not_available" }),
+              (peer) => computerCall(peer, Machine.WireMethod.ClipboardRead, params, Machine.ClipboardReadResult))),
+          ),
+          write: (request) => decode(Machine.ClipboardWriteRequest, request, "clipboard.write.request").pipe(
+            Effect.flatMap((params) => captured(id, Machine.WireMethod.ClipboardWrite, params,
+              (grant): Machine.ClipboardWriteResult => ({ status: "refused", reason: grant === "permission_denied" ? grant : "clipboard_not_available" }),
+              (peer) => computerCall(peer, Machine.WireMethod.ClipboardWrite, params, Machine.ClipboardWriteResult))),
+          ),
+        },
         app: {
           launch: (request) => lifecycle(id, Machine.WireMethod.AppLaunch, Machine.AppLaunchRequest, request, Machine.AppLaunchResult),
           quit: (request) => lifecycle(id, Machine.WireMethod.AppQuit, Machine.AppQuitRequest, request, Machine.AppQuitResult),

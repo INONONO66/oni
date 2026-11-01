@@ -173,6 +173,10 @@ export function createCodemode(options: CodemodeOptions) {
         close: () => fenced(open.close()),
       });
       return {
+        clipboard: {
+          read: (request?: Machine.ClipboardReadRequest) => use((computer) => computer.clipboard.read(request)),
+          write: (request: Machine.ClipboardWriteRequest) => use((computer) => computer.clipboard.write(request)),
+        },
         screen: {
           list: (request?: Machine.ScreenListRequest) => use((computer) => computer.list(request)),
           capture: (request: Machine.ScreenCaptureRequest) => use((computer) => computer.capture(request)),
