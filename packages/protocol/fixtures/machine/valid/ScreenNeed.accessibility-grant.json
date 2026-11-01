@@ -1,0 +1,6 @@
+{
+  "step": "accessibility_grant",
+  "action": "Allow mclient in System Settings > Privacy & Security > Accessibility.",
+  "onScreen": true,
+  "blocker": "accessibility_denied"
+}

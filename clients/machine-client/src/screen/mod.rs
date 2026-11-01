@@ -22,7 +22,7 @@ mod x11_pixels;
 use std::{
     num::NonZeroU64,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, PoisonError,
     },
 };
@@ -38,9 +38,7 @@ use crate::attach::now_ms;
 use encode::{Encoding, Format};
 use observe::Observations;
 use pool::Pool;
-use private::{
-    blank_rect, focus_admits_input, focus_is_secure, overlaps, Edge, Reason, SecureInput, States,
-};
+use private::{blank_rect, focus_state, overlaps, Edge, FocusState, Reason, SecureInput, States};
 
 pub const MAX_BYTES: usize = 4_194_304;
 pub const MAX_DIMENSION: u32 = 16_384;
@@ -102,6 +100,7 @@ pub enum Fault {
     OwnWindow,
     Superseded,
     Private,
+    AccessibilityUnavailable,
     Failed(String),
 }
 
@@ -118,6 +117,7 @@ impl Fault {
             Self::OwnWindow => "own_window",
             Self::Superseded => "superseded",
             Self::Private => "private",
+            Self::AccessibilityUnavailable => "accessibility_unavailable",
             Self::Failed(_) => "capture_failed",
         }
     }
@@ -173,6 +173,7 @@ struct Shot<'a> {
     height: u32,
     downscaled: bool,
     data: &'a [u8],
+    accessibility_unavailable: bool,
 }
 
 /// The latest successful capture: input names it, and only it, as its anchor.
@@ -205,6 +206,7 @@ pub struct Screen {
     private_states: Mutex<States>,
     secure_input: Mutex<SecureInput>,
     secure_input_enabled: Box<dyn Fn() -> bool + Send + Sync>,
+    accessibility_fault: AtomicBool,
     #[cfg(target_os = "linux")]
     virtual_display: Option<crate::display::xvfb::Owned>,
 }
@@ -225,6 +227,7 @@ impl Screen {
             private_states: Mutex::default(),
             secure_input: Mutex::default(),
             secure_input_enabled: Box::new(private::platform_secure_input_enabled),
+            accessibility_fault: AtomicBool::new(false),
             #[cfg(target_os = "linux")]
             virtual_display: None,
         }
@@ -246,6 +249,7 @@ impl Screen {
             private_states: Mutex::default(),
             secure_input: Mutex::default(),
             secure_input_enabled: Box::new(private::platform_secure_input_enabled),
+            accessibility_fault: AtomicBool::new(false),
             #[cfg(target_os = "linux")]
             virtual_display: None,
         }
@@ -368,13 +372,22 @@ impl Screen {
     }
 
     pub fn capability(&self, input: bool) -> probe::Verdict {
-        match &self.backend {
+        let mut verdict = match &self.backend {
             Backend::Injected => probe::injected(self.probe(), self.observer.is_some(), input),
             #[cfg(target_os = "macos")]
             Backend::Mac => probe::macos_verdict(&probe::macos::System, input),
             #[cfg(target_os = "linux")]
             Backend::X11(selected) => self.linux_capability(selected.clone(), input),
+        };
+        if self.accessibility_fault.load(Ordering::Relaxed) {
+            verdict.grants.accessibility = false;
+            verdict.blockers.push(probe::Blocker {
+                kind: "accessibility_unavailable",
+            });
+            verdict = probe::fold(verdict.display, verdict.grants, verdict.blockers);
         }
+        verdict.refresh_needs();
+        verdict
     }
 
     #[cfg(target_os = "linux")]
@@ -396,6 +409,7 @@ impl Screen {
             });
             verdict.verdict = "partial";
         }
+        verdict.refresh_needs();
         verdict
     }
 
@@ -430,7 +444,10 @@ impl Screen {
             return Ok(true);
         }
         let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
-        let windows = observer.windows()?;
+        let windows = observer.windows().map_err(|_| {
+            self.accessibility_fault.store(true, Ordering::Relaxed);
+            Fault::AccessibilityUnavailable
+        })?;
         if windows.is_empty() {
             return Ok(true);
         }
@@ -449,17 +466,38 @@ impl Screen {
             let [window] = candidates.as_slice() else {
                 return Ok(true);
             };
-            return Ok(windows
+            let private = windows
                 .into_iter()
                 .find(|identity| identity.window_id == window.id)
-                .is_none_or(|identity| !focus_admits_input(&observer.focused(&identity))));
+                .map(|identity| self.checked_focus(observer, &identity))
+                .transpose()?
+                .is_none_or(|focus| focus != FocusState::Admits);
+            self.accessibility_fault.store(false, Ordering::Relaxed);
+            return Ok(private);
         }
-        let focused: Vec<_> = windows
-            .into_iter()
-            .map(|window| observer.focused(&window))
-            .filter(|focused| matches!(focused, Ok(Some(_))))
-            .collect();
-        Ok(focused.len() != 1 || !focus_admits_input(&focused[0]))
+        let mut focused = Vec::new();
+        for window in &windows {
+            match self.checked_focus(observer, window)? {
+                FocusState::Idle => {}
+                focus => focused.push(focus),
+            }
+        }
+        self.accessibility_fault.store(false, Ordering::Relaxed);
+        Ok(focused.len() != 1 || focused.pop() != Some(FocusState::Admits))
+    }
+
+    fn checked_focus(
+        &self,
+        observer: &dyn ax::Observer,
+        window: &ax::WindowIdentity,
+    ) -> Result<FocusState, Fault> {
+        match focus_state(observer.focused(window)) {
+            FocusState::Unknown(_) => {
+                self.accessibility_fault.store(true, Ordering::Relaxed);
+                Err(Fault::AccessibilityUnavailable)
+            }
+            focus => Ok(focus),
+        }
     }
 
     /// Check only the PID-addressed window's focused field, not overlapping windows.
@@ -473,7 +511,9 @@ impl Screen {
             .into_iter()
             .find(|window| window.owner_pid == pid && window.window_id == id)
             .ok_or(Fault::WindowNotFound)?;
-        Ok(!focus_admits_input(&observer.focused(&window)))
+        let private = self.checked_focus(observer, &window)? != FocusState::Admits;
+        self.accessibility_fault.store(false, Ordering::Relaxed);
+        Ok(private)
     }
 
     /// Identify the live window beneath a pointer before enforcing the caller's expectation.
@@ -514,24 +554,32 @@ impl Screen {
     pub fn private_edges(&self) -> Result<Vec<(observe::Target, Edge, Reason)>, Fault> {
         let system_private = self.system_private();
         let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
-        let windows = observer.windows()?;
+        let windows = observer.windows().inspect_err(|_| {
+            self.accessibility_fault.store(true, Ordering::Relaxed);
+        })?;
         let observations = &self.observations;
         let mut states = self
             .private_states
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         let mut edges = Vec::new();
+        let mut failed = false;
         for window in &windows {
             let target = match observations.target_for(observer, window) {
                 Ok(target) => target,
                 Err(refusal) if edges.is_empty() => {
-                    return Err(Fault::Failed(refusal.reason().to_owned()))
+                    self.accessibility_fault.store(true, Ordering::Relaxed);
+                    return Err(Fault::Failed(refusal.reason().to_owned()));
                 }
-                Err(_) => break,
+                Err(_) => {
+                    self.accessibility_fault.store(true, Ordering::Relaxed);
+                    failed = true;
+                    break;
+                }
             };
             let reason = if system_private {
                 Some(Reason::SecureInputEnabled)
-            } else if focus_is_secure(observer.focused(window)) {
+            } else if self.checked_focus(observer, window)? == FocusState::Secure {
                 Some(Reason::SecureFocus)
             } else {
                 None
@@ -539,6 +587,9 @@ impl Screen {
             if let Some((edge, reason)) = states.update(target, reason) {
                 edges.push((target, edge, reason));
             }
+        }
+        if !failed {
+            self.accessibility_fault.store(false, Ordering::Relaxed);
         }
         Ok(edges)
     }
@@ -549,11 +600,20 @@ impl Screen {
         }
         let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
         let window = observer
-            .windows()?
+            .windows()
+            .map_err(|fault| match fault {
+                Fault::WindowNotFound => fault,
+                _ => {
+                    self.accessibility_fault.store(true, Ordering::Relaxed);
+                    Fault::AccessibilityUnavailable
+                }
+            })?
             .into_iter()
             .find(|window| window.window_id == window_id)
             .ok_or(Fault::WindowNotFound)?;
-        Ok(focus_is_secure(observer.focused(&window)))
+        let private = self.checked_focus(observer, &window)? == FocusState::Secure;
+        self.accessibility_fault.store(false, Ordering::Relaxed);
+        Ok(private)
     }
 
     fn mask_private(
@@ -564,10 +624,10 @@ impl Screen {
         size: (u32, u32),
         transform: Transform,
         pixels: &mut [u8],
-    ) -> Result<(), Fault> {
+    ) -> Result<bool, Fault> {
         if self.system_private() {
             pixels.fill(0);
-            return Ok(());
+            return Ok(false);
         }
         let viewport = viewport(display, region)?;
         let pixel = |at: i64, origin: i32, points: u32, total: u32, upper: bool| {
@@ -579,12 +639,21 @@ impl Screen {
             };
             i64::try_from(position).unwrap_or(i64::MAX)
         };
+        let mut accessibility_unavailable = false;
         for window in source
             .windows()?
             .into_iter()
             .filter(|window| overlaps(window_frame(window), viewport))
         {
-            if self.window_private(window.id)? {
+            let private = match self.window_private(window.id) {
+                Ok(private) => private,
+                Err(Fault::AccessibilityUnavailable | Fault::WindowNotFound) => {
+                    accessibility_unavailable = true;
+                    continue;
+                }
+                Err(fault) => return Err(fault),
+            };
+            if private {
                 let left = pixel(
                     i64::from(window.x),
                     display.x,
@@ -626,7 +695,9 @@ impl Screen {
                 );
             }
         }
-        Ok(())
+        self.accessibility_fault
+            .store(accessibility_unavailable, Ordering::Relaxed);
+        Ok(accessibility_unavailable)
     }
 
     fn display_private(&self, number: u64, region: Option<&Region>) -> Result<bool, Fault> {
@@ -755,12 +826,16 @@ impl Screen {
             }
         };
         self.shoot(&target, &encoding, |shot| {
-            json!({
+            let mut answer = json!({
                 "status":"ok","captureId":shot.id,"display":shot.display,
                 "format":format.name(),"data":STANDARD.encode(shot.data),
                 "width":shot.width,"height":shot.height,
                 "downscaled":shot.downscaled,"observedAt":now_ms()
-            })
+            });
+            if shot.accessibility_unavailable {
+                answer["accessibilityUnavailable"] = json!(true);
+            }
+            answer
         })
         .unwrap_or_else(|fault| fault.refusal())
     }
@@ -780,11 +855,14 @@ impl Screen {
             max_bytes: MAX_BYTES,
             max_dimension: MAX_DIMENSION,
         };
-        self.shoot(
-            &target,
-            &encoding,
-            |shot| json!({"status":"ok","captureId":shot.id,"png":STANDARD.encode(shot.data)}),
-        )
+        self.shoot(&target, &encoding, |shot| {
+            let mut answer =
+                json!({"status":"ok","captureId":shot.id,"png":STANDARD.encode(shot.data)});
+            if shot.accessibility_unavailable {
+                answer["accessibilityUnavailable"] = json!(true);
+            }
+            answer
+        })
         .unwrap_or_else(|fault| fault.legacy())
     }
 
@@ -857,7 +935,7 @@ impl Screen {
                 size,
                 transform,
             } = raw(source, displays, target, &mut slot.pixels)?;
-            if let Target::Display(_, region) = target {
+            let accessibility_unavailable = if let Target::Display(_, region) = target {
                 self.mask_private(
                     source,
                     anchor,
@@ -865,8 +943,10 @@ impl Screen {
                     size,
                     transform,
                     &mut slot.pixels,
-                )?;
-            }
+                )?
+            } else {
+                false
+            };
             if ticket.is_some() && blank::blank(&slot.pixels) {
                 return Err(Fault::CaptureBlank);
             }
@@ -886,6 +966,7 @@ impl Screen {
                 height: fitted.height,
                 downscaled: fitted.downscaled,
                 data: &slot.encoded,
+                accessibility_unavailable,
             });
             let publish = || {
                 self.anchor(seq, &id, anchor, window);
@@ -1148,7 +1229,7 @@ impl Screen {
             ),
             Feed::Window { window_id } => Target::Window(window_id.to_string()),
         };
-        let private = self.stream_private(source).unwrap_or(true);
+        let private = self.stream_private(source)?;
         let capture = self.source()?;
         let all = capture.displays()?;
         let displays = shown(&all)?;

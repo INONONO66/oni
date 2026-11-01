@@ -195,6 +195,15 @@ fn refuse(reason: &'static str) -> Refusal {
     }
 }
 
+fn refuse_private_point(screen: &Screen, point: Option<(i32, i32)>) -> Result<(), Refusal> {
+    match screen.input_private(point) {
+        Ok(false) => Ok(()),
+        Ok(true) => Err(refuse("private")),
+        Err(Fault::AccessibilityUnavailable) => Err(refuse("accessibility_unavailable")),
+        Err(_) => Err(refuse("private")),
+    }
+}
+
 fn explain(reason: &'static str, message: String) -> Refusal {
     Refusal {
         reason,
@@ -873,19 +882,20 @@ impl Input {
             landing_at(driver, screen, &display, point, within.as_ref())?;
         }
         if let Some(target) = &target {
-            if target.source == "display_hit_test" && screen.input_private(point).unwrap_or(true) {
-                return Err(refuse("private"));
+            if target.source == "display_hit_test" {
+                refuse_private_point(screen, point)?;
             }
             match screen.input_target_private(target.pid, target.window_id) {
                 Ok(false) => {}
                 Ok(true) => return Err(refuse("private")),
                 Err(Fault::WindowNotFound) => return Err(refuse("window_not_found")),
+                Err(Fault::AccessibilityUnavailable) => {
+                    return Err(refuse("accessibility_unavailable"))
+                }
                 Err(_) => return Err(refuse("private")),
             }
-        } else if !matches!(anchor, Anchor::Ref { .. })
-            && screen.input_private(point).unwrap_or(true)
-        {
-            return Err(refuse("private"));
+        } else if !matches!(anchor, Anchor::Ref { .. }) {
+            refuse_private_point(screen, point)?;
         }
         if !driver.permitted() {
             return Err(refuse("permission_denied"));
@@ -1068,6 +1078,7 @@ fn track(held: &mut Vec<(Route, Event)>, route: Route, event: &Event) {
 mod tests {
     use super::{recorder::Recorder, Anchor, Event, Input, Plan, Refusal, Route};
     use crate::screen::{fixture::Fixture, Screen};
+    use oni_protocol::InputWriteRequest;
     use serde_json::json;
 
     fn scroll(plan: &mut Plan<'_>) -> Result<(), Refusal> {
@@ -1145,5 +1156,28 @@ mod tests {
                 delta: 1,
             }]
         );
+    }
+
+    #[test]
+    fn input_without_an_observer_refuses_before_posting() {
+        let screen = Screen::new(Box::new(Fixture::display(8, 8, 1.0)), 1);
+        let capture: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target":{"kind":"display","display":1},"encoding":{"format":"png"}
+        }))
+        .expect("capture request");
+        let id = screen.capture(&capture)["captureId"]
+            .as_str()
+            .expect("capture id")
+            .to_owned();
+        let request: InputWriteRequest = oni_protocol::decode(json!({
+            "captureId":id,"actions":[{"key":{"name":"Enter"}}]
+        }))
+        .expect("input request");
+        let recorder = Recorder::default();
+        assert_eq!(
+            Input::new(recorder.clone()).write(&screen, &request),
+            json!({"status":"refused","reason":"private"})
+        );
+        assert!(recorder.events().is_empty());
     }
 }

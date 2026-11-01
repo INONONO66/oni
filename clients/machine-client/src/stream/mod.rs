@@ -222,13 +222,11 @@ impl Pump {
             let screen = self.screen.clone();
             let source = self.source.clone();
             let (private, edges) = tokio::task::spawn_blocking(move || {
-                (
-                    screen.stream_private(&source).unwrap_or(true),
-                    screen.private_edges().unwrap_or_default(),
-                )
+                Ok::<_, Fault>((screen.stream_private(&source)?, screen.private_edges()?))
             })
             .await
-            .map_err(failure)?;
+            .map_err(failure)?
+            .map_err(|fault| format!("{fault:?}"))?;
             self.private = private;
             if let Some(uplink) = &self.uplink {
                 for (target, edge, reason) in edges {
@@ -409,7 +407,9 @@ impl Stream {
         screen: &Arc<Screen>,
     ) -> Result<(Pump, session::Offer), Value> {
         let bounds = bounds(request);
-        let private = screen.stream_private(&request.source).unwrap_or(true);
+        let private = screen
+            .stream_private(&request.source)
+            .map_err(|fault| fault_refusal(&fault))?;
         let (shared, source) = (screen.clone(), request.source.clone());
         let mut frame = Vec::new();
         tokio::task::spawn_blocking(move || {
@@ -719,6 +719,24 @@ mod private_tests {
             .expect("refresh without uplink");
 
         assert!(pump.private);
+    }
+
+    #[tokio::test]
+    async fn failed_focus_refresh_reports_fault_without_entering_private_mode() {
+        let directory = tempfile::tempdir().expect("directory");
+        let layout = directory.path().join("layout.json");
+        std::fs::write(&layout, row(false).to_string()).expect("layout");
+        let mut pump = private_focus_pump(&layout).await;
+        let mut unavailable = row(false);
+        unavailable["windows"][0]["focusError"] = json!(true);
+        std::fs::write(&layout, unavailable.to_string()).expect("focus fault");
+
+        let result = pump
+            .refresh_focus(pump.started_at + Duration::from_millis(250))
+            .await;
+
+        assert!(result.is_err());
+        assert!(!pump.private);
     }
 
     #[tokio::test]
