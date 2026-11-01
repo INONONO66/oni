@@ -80,6 +80,10 @@ describe("machine wire contract fixtures", () => {
       "ScreenObserveResult.private-true.json",
       "ScreenObserveResult.unknown-reason.json",
       "ScreenNeedStep.json",
+      "ScreenSettleResult.accessibility-capture.json",
+      "ScreenSettleResult.negative-changes.json",
+      "ScreenSettleResult.pixels-observation.json",
+      "ScreenSettleResult.unknown-blocker.json",
       "WindowTarget.unknown-field.json",
       "TransportFailureClass.unsupported.json",
     ];
