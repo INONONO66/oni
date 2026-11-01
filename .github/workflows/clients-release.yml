@@ -39,7 +39,7 @@ jobs:
         run: |
           cd clients && cargo build --release --locked -p oni-machine-client
           mkdir -p ../out && cp target/release/mclient ../out/mclient
-      - name: Build universal binary and sign ad hoc (macOS)
+      - name: Build universal binary (macOS)
         if: matrix.platform == 'darwin-universal'
         run: |
           cd clients
@@ -48,8 +48,47 @@ jobs:
           mkdir -p ../out
           lipo -create -output ../out/mclient \
             target/aarch64-apple-darwin/release/mclient target/x86_64-apple-darwin/release/mclient
-          codesign --force --sign - --identifier ai.oni.mclient ../out/mclient
-          codesign --verify --verbose ../out/mclient
+      - name: Sign and verify universal binary (macOS)
+        if: matrix.platform == 'darwin-universal'
+        env:
+          SIGNING_P12: ${{ secrets.MCLIENT_SIGNING_P12 }}
+          SIGNING_PASSWORD: ${{ secrets.MCLIENT_SIGNING_PASSWORD }}
+        run: |
+          if [[ -z "$SIGNING_P12" || -z "$SIGNING_PASSWORD" ]]; then
+            echo "::notice::mclient signing secrets are absent; using ad-hoc signing until #1724 is complete (TCC grants will churn)"
+            codesign --force --sign - --identifier ai.oni.mclient out/mclient
+          else
+            umask 077
+            directory=$(mktemp -d)
+            keychain="$directory/signing.keychain-db"
+            keychain_password=$(openssl rand -hex 24)
+            cleanup() {
+              security delete-keychain "$keychain" || true
+              rm -f "$directory/certificate.p12"
+              rmdir "$directory"
+            }
+            trap cleanup EXIT
+            printf '%s' "$SIGNING_P12" | base64 -D > "$directory/certificate.p12"
+            security create-keychain -p "$keychain_password" "$keychain"
+            security unlock-keychain -p "$keychain_password" "$keychain"
+            security import "$directory/certificate.p12" -k "$keychain" -P "$SIGNING_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+            identity=$(security find-identity -p codesigning "$keychain" | grep -Eo '[[:xdigit:]]{40}' | head -n 1)
+            test -n "$identity"
+            leaf=$(printf '%s' "$identity" | tr '[:lower:]' '[:upper:]')
+            requirement="designated => identifier \"ai.oni.mclient\" and certificate leaf = H\"$leaf\""
+            codesign --force --keychain "$keychain" --sign "$identity" --identifier ai.oni.mclient \
+              -r="$requirement" out/mclient
+            actual=$(codesign -d -r- out/mclient 2>&1)
+            printf '%s\n' "$actual"
+            printf '%s\n' "$actual" | grep -F "$requirement"
+            if printf '%s\n' "$actual" | grep -q cdhash; then
+              echo "::error::mclient designated requirement contains cdhash"
+              exit 1
+            fi
+          fi
+          codesign --verify --verbose out/mclient
+          codesign -d -r- out/mclient
       - name: Probe the built binary
         run: |
           version=$(./out/mclient --version --json | jq -r .version)
