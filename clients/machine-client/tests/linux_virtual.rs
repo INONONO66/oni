@@ -726,6 +726,7 @@ fn server(arguments: &[&str]) -> Server {
             "32x24x24",
             "-nolisten",
             "tcp",
+            "-noreset",
         ])
         .args(arguments)
         .stdout(Stdio::piped())
