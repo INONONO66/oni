@@ -115,6 +115,7 @@ fn spawn_server(config: &Config) -> Result<Child, Error> {
             &config.dpi.to_string(),
             "-nolisten",
             "tcp",
+            "-noreset",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

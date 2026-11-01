@@ -54,7 +54,9 @@ drop. Reports retain the selected display and probe the serving
 capture/input connections; another server or a replacement at the same display
 number cannot certify a disconnected driver. `computer.display.kind: "xvfb"` starts an owned
 Xvfb process with an optional window manager (openbox by default when
-installed). Xvfb allocates its display through `-displayfd`; launches cannot
+installed). Xvfb allocates its display through `-displayfd` and runs with
+`-noreset`, so the readiness handshake's disconnect does not regenerate the
+server under the window manager's or a later client's connection; launches cannot
 inherit or restore the human session's compositor, bus or runtime bindings.
 Both app and window-manager launches clear the inherited environment before
 applying the allowlist and selected display binding.
