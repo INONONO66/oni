@@ -1,0 +1,9 @@
+{
+  "verdict": "partial",
+  "blockers": [],
+  "display": { "kind": "none", "isolated": false },
+  "grants": { "capture": false, "accessibility": false, "input": false },
+  "needs": [
+    { "step": "unknown_step", "action": "Do something.", "onScreen": false }
+  ]
+}

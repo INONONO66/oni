@@ -570,7 +570,7 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         }
     }
 
-    fn beat(&mut self, screen: crate::screen::probe::Verdict) -> Result<Value, AttachError> {
+    fn beat(&mut self, mut screen: crate::screen::probe::Verdict) -> Result<Value, AttachError> {
         let at = now_ms();
         let in_flight = self.in_flight.load(Ordering::Relaxed);
         let rss_bytes = self.probe.rss()?;
@@ -596,6 +596,17 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         }
         self.restricted
             .store(self.budget.restricted(), Ordering::Relaxed);
+        #[cfg(target_os = "macos")]
+        if !self.human.available() {
+            screen.blockers.push(crate::screen::probe::Blocker {
+                kind: "input_monitoring_not_granted",
+            });
+            if screen.verdict == "available" {
+                screen.verdict = "partial";
+            }
+        }
+        screen.refresh_needs();
+        crate::service::setup_needs(&mut screen, &config::home(), None, false);
         let mut report = json!({
             "machineId": self.config.machine_id, "reportedAt": at,
             "load": self.probe.load(in_flight)?,
@@ -606,16 +617,6 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         {
             let (locked, asleep) = crate::input::tap::session();
             report["session"] = json!({ "locked": locked, "asleep": asleep });
-        }
-        #[cfg(target_os = "macos")]
-        if !self.human.available() {
-            report["screen"]["blockers"]
-                .as_array_mut()
-                .expect("screen blockers")
-                .push(json!({"kind":"input_monitoring_not_granted"}));
-            if report["screen"]["verdict"] == "available" {
-                report["screen"]["verdict"] = json!("partial");
-            }
         }
         if let Some(input) = self.human.consume(
             at,

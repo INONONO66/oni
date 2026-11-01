@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "enum": [
+    "screen_recording_grant",
+    "accessibility_grant",
+    "portal_consent",
+    "service_install",
+    "linger_enable",
+    "uinput_group",
+    "console_login",
+    "x11_session"
+  ],
+  "type": "string"
+}

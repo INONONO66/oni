@@ -61,3 +61,17 @@ test.each(["superseded", "superseded_by_reattach"] as const)("machine detach rea
   const event = { machineId: "mac-0", time: 1, reason };
   expect(Machine.Events.Detached.schema.parse(JSON.parse(JSON.stringify(event)))).toEqual(event);
 });
+
+describe("Machine.Screen", () => {
+  const available = {
+    verdict: "available",
+    blockers: [],
+    display: { kind: "virtual", isolated: true },
+    grants: { capture: true, accessibility: true, input: true },
+  } satisfies Machine.Screen;
+
+  test("an available verdict refuses a needs list", () => {
+    expect(Machine.Screen.safeParse(available).success).toBe(true);
+    expectIssue(Machine.Screen.safeParse({ ...available, needs: [] }), { path: "needs" });
+  });
+});

@@ -593,9 +593,29 @@ fn no_arguments_reports_usage_and_exits_two() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("utf-8 stderr"),
-        "usage: mclient --version | join <host> | run | update | probe\n"
+        "usage: mclient --version | join <host> | status | run | update | probe\n"
     );
     assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn status_json_reports_setup_work_for_an_uninstalled_service() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["status", "--json"])
+        .output()
+        .expect("status");
+    assert!(output.status.success());
+    let record: serde_json::Value = serde_json::from_slice(&output.stdout).expect("status JSON");
+    assert_eq!(record["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(record["os"], std::env::consts::OS);
+    assert_eq!(record["ok"], false);
+    assert!(record["needs"]
+        .as_array()
+        .expect("needs")
+        .iter()
+        .any(|row| row["step"] == "service_install" && row["onScreen"] == false));
 }
 
 #[test]
@@ -729,6 +749,69 @@ fn rejoin_preserves_enrolled_identity_and_receipt() {
         std::fs::read(directory.join("client-cert.pem")).expect("rejoined certificate"),
         cert
     );
+}
+
+#[test]
+fn json_join_reports_setup_without_human_join_output() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args([
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--json",
+            "--no-service",
+            "--no-open",
+        ])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("single JSON status");
+    assert!(status["needs"].as_array().is_some());
+    assert!(status["verdict"].as_str().is_some());
+    assert!(home.path().join(".oni/machine-client/client.json").exists());
+}
+
+#[test]
+fn human_status_prints_missing_service_setup_action() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["status"])
+        .output()
+        .expect("mclient status");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).expect("status text");
+    assert!(stdout.contains("screen:"));
+    assert!(stdout.contains("setup: \"service_install\""), "{stdout}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn wayland_only_status_prints_each_required_setup_action() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let _socket = std::os::unix::net::UnixListener::bind(home.path().join("wayland-0"))
+        .expect("Wayland socket");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("XDG_RUNTIME_DIR", home.path())
+        .env("WAYLAND_DISPLAY", "wayland-0")
+        .env_remove("DISPLAY")
+        .args(["status"])
+        .output()
+        .expect("mclient status");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).expect("status text");
+    assert!(stdout.contains("setup: \"x11_session\""), "{stdout}");
+    assert!(stdout.contains("setup: \"service_install\""), "{stdout}");
 }
 
 #[test]
@@ -928,7 +1011,8 @@ fn join_installs_restarts_and_reports_manager_failure() {
         serde_json::from_str::<serde_json::Value>(stdout.lines().next().expect("receipt")).is_ok()
     );
     let lines = stdout.lines().skip(1).collect::<Vec<_>>();
-    assert_eq!(lines.len(), 5);
+    assert!(lines.len() >= 6);
+    assert!(lines[5].starts_with("screen: "));
     assert_eq!(
         lines[0],
         format!(
