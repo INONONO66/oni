@@ -50,6 +50,66 @@ pub struct Verdict {
     pub blockers: Vec<Blocker>,
     pub display: Display,
     pub grants: Grants,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub needs: Vec<Need>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Need {
+    pub step: &'static str,
+    pub action: &'static str,
+    pub on_screen: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<&'static str>,
+}
+
+impl Verdict {
+    pub fn add_need(&mut self, need: Need) {
+        if self.verdict != "available" && !self.needs.iter().any(|row| row.step == need.step) {
+            self.needs.push(need);
+        }
+    }
+
+    pub fn refresh_needs(&mut self) {
+        self.needs.clear();
+        if self.verdict == "available" {
+            return;
+        }
+        let kinds: Vec<_> = self.blockers.iter().map(|blocker| blocker.kind).collect();
+        for kind in kinds {
+            let row = match kind {
+                "screen_recording_denied" => Some(Need {
+                    step: "screen_recording_grant",
+                    action: "Allow mclient in System Settings > Privacy & Security > Screen Recording.",
+                    on_screen: true,
+                    blocker: Some(kind),
+                }),
+                "accessibility_denied" => Some(Need {
+                    step: "accessibility_grant",
+                    action: "Allow mclient in System Settings > Privacy & Security > Accessibility.",
+                    on_screen: true,
+                    blocker: Some(kind),
+                }),
+                "no_console_user" | "other_console_user" => Some(Need {
+                    step: "console_login",
+                    action: "Log in as the client's user at this machine's console.",
+                    on_screen: true,
+                    blocker: Some(kind),
+                }),
+                "wayland_only_no_x" => Some(Need {
+                    step: "x11_session",
+                    action: "Start an X11 session or Xvfb for the client's user; Wayland portals are not supported yet.",
+                    on_screen: false,
+                    blocker: Some(kind),
+                }),
+                _ => None,
+            };
+            if let Some(row) = row {
+                self.add_need(row);
+            }
+        }
+    }
 }
 
 pub fn fold(display: Display, grants: Grants, blockers: Vec<Blocker>) -> Verdict {
@@ -62,12 +122,15 @@ pub fn fold(display: Display, grants: Grants, blockers: Vec<Blocker>) -> Verdict
         0 => "unavailable",
         _ => "partial",
     };
-    Verdict {
+    let mut result = Verdict {
         verdict,
         blockers,
         display,
         grants,
-    }
+        needs: Vec::new(),
+    };
+    result.refresh_needs();
+    result
 }
 
 pub fn capture_grant(probe: Option<Result<(), Fault>>) -> bool {
@@ -246,5 +309,64 @@ mod tests {
                 }]
             );
         }
+    }
+
+    #[test]
+    fn needs_follow_only_supported_blockers_and_are_absent_when_available() {
+        let display = Display {
+            kind: "console",
+            id: None,
+            isolated: false,
+        };
+        let grants = Grants {
+            capture: false,
+            accessibility: false,
+            input: false,
+        };
+        let screen = fold(
+            display.clone(),
+            grants.clone(),
+            [
+                "screen_recording_denied",
+                "accessibility_denied",
+                "no_console_user",
+                "wayland_only_no_x",
+                "input_backend_unavailable",
+            ]
+            .into_iter()
+            .map(|kind| Blocker { kind })
+            .collect(),
+        );
+        assert_eq!(
+            screen.needs.iter().map(|row| row.step).collect::<Vec<_>>(),
+            [
+                "screen_recording_grant",
+                "accessibility_grant",
+                "console_login",
+                "x11_session"
+            ]
+        );
+        assert_eq!(
+            screen
+                .needs
+                .iter()
+                .map(|row| row.on_screen)
+                .collect::<Vec<_>>(),
+            [true, true, true, false]
+        );
+        let available = fold(
+            display,
+            Grants {
+                capture: true,
+                accessibility: true,
+                input: true,
+            },
+            vec![],
+        );
+        assert!(available.needs.is_empty());
+        assert!(serde_json::to_value(available)
+            .expect("serialized verdict")
+            .get("needs")
+            .is_none());
     }
 }

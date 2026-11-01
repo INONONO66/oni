@@ -23,6 +23,7 @@
  *                                                      refine: per-stream byte bound
  *   ScreenReadResult, ScreenCaptureResult              refine: accessibility tree byte bound
  *   ScreenObserveResult                                refine: element list byte bound
+ *   Screen                                             refine: an available verdict carries no needs
  * Regex grammars (CapabilityId, ExportName, KeyFingerprint, PtySessionName,
  * base64 fields) are carried as `pattern`.
  */

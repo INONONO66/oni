@@ -798,6 +798,8 @@ export const ScreenReadResult = z.discriminatedUnion("status", [
       captureId: z.string().min(1),
       png: Base64.min(1).max(SCREEN_PNG_MAX_BASE64),
       accessibilityTree: BoundedAccessibilityTree.optional(),
+      /** A per-window accessibility lookup failed; the frame is unmasked for that window. */
+      accessibilityUnavailable: z.boolean().optional(),
     })
     .strict(),
   z
@@ -895,6 +897,7 @@ export const InputWriteResult = z.discriminatedUnion("status", [
         "window_busy",
         "request_busy",
         "private",
+        "accessibility_unavailable",
         "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
         "foreground_not_granted", "excluded", "paused:human_input", "paused:takeover",
         "paused:private", "paused:locked", "paused:asleep", "budget_exhausted", "clipboard_not_granted",
@@ -1350,6 +1353,7 @@ const ScreenRefusalReason = z.enum([
   "capture_blank",
   "own_window",
   "superseded",
+  "accessibility_unavailable",
 ]);
 const ScreenRefusal = z
   .object({ status: z.literal("refused"), reason: ScreenRefusalReason, message: RefusalMessage.optional() })
@@ -1477,6 +1481,8 @@ export const ScreenCaptureResult = z.discriminatedUnion("status", [
       downscaled: z.boolean(),
       observedAt: EpochMs,
       accessibilityTree: BoundedAccessibilityTree.optional(),
+      /** A per-window accessibility lookup failed; the frame is unmasked for that window. */
+      accessibilityUnavailable: z.boolean().optional(),
     })
     .strict(),
   CaptureRefusal,

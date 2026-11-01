@@ -4,6 +4,17 @@
 
 Machine clipboard read/write runs through the captured computer-use lease gate; the client retains bounded previous contents locally for conditional lease-end restoration, and ledger facts expose only format and byte counts.
 
+## #1722 setup needs on screen verdicts
+
+The Rust client derives actionable `Report.screen.needs` from the screen
+blockers it probes and its service and linger facts. The eight stable step ids
+include reserved `portal_consent` and `uinput_group` for the unshipped Linux
+backends tracked in #1700; neither is emitted today. Wayland without X11
+instead reports `x11_session`. Available screens omit `needs`. `mclient
+join --json` and `mclient status --json` print the same setup verdict fields,
+and the host preserves reported needs in `Machine.Info.live.screen` for
+`machine_list`.
+
 ## #1729 human-input quiet window and typed retry
 
 The computer-use guard admits observation and settle during a human-input
@@ -486,10 +497,14 @@ valid/invalid fixtures cover each shape.
 
 **Client.** `screen/private.rs` owns the cfg-free focus folds,
 epoch-scoped transition state, 250 ms refresh cadence, rectangle intersection
-and pixel blanking. A failed focus query is private; an absent focused element
-is not. Text and key input require a known non-secure focus, with exactly one
-focused window for un-aimed input. Observe resolves the window and epoch before
-returning an empty private result that issues no refs. Ref actions require an
+and pixel blanking. A failed focus query is an accessibility fault, not a
+private window: display capture keeps its unmasked pixels and reports
+`accessibilityUnavailable`, input refuses `accessibility_unavailable`, and
+the capability verdict marks accessibility unavailable until a successful
+walk. An absent focused element is not private. Text and key input require a
+known non-secure focus, with exactly one focused window for un-aimed input.
+Observe resolves the window and epoch before returning an empty result for
+secure focus that issues no refs; AX lookup faults refuse observation. Ref actions require an
 issued ref and check the node's secure attribute or secure-text role;
 ref-targeted pointers check the window's current private focus. Window capture
 refuses before capture; capture-anchored input refuses before dispatch.

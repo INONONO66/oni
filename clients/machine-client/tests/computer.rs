@@ -264,7 +264,7 @@ fn overlapping_pointer_windows_are_private() {
 }
 
 #[test]
-fn lost_observer_refuses_display_capture_and_stream_frame() {
+fn lost_observer_reports_display_capture_fault_and_refuses_stream_frame() {
     let directory = tempfile::tempdir().expect("tempdir");
     let mut layout: Value = serde_json::from_str(LAYOUT).expect("layout");
     layout["windows"][0]["pid"] = json!(4242);
@@ -279,13 +279,14 @@ fn lost_observer_refuses_display_capture_and_stream_frame() {
         "target":{"kind":"display","display":1},"encoding":{"format":"png"}
     }))
     .expect("request");
-    let refused = screen.capture(&request);
-    assert_eq!(refused["reason"], "capture_failed");
+    let captured = screen.capture(&request);
+    assert_eq!(captured["status"], "ok");
+    assert_eq!(captured["accessibilityUnavailable"], true);
     let source = serde_json::from_value(json!({"kind":"display","display":1})).expect("source");
     let mut frame = Vec::new();
     assert!(matches!(
         screen.frame_private(&source, 320, &mut frame),
-        Err(oni_machine_client::screen::Fault::Failed(_))
+        Err(oni_machine_client::screen::Fault::AccessibilityUnavailable)
     ));
 }
 
@@ -319,7 +320,7 @@ fn unknown_focus_refuses_text_without_injection() {
         .expect("text");
         assert_eq!(
             input.text(&screen, &text),
-            json!({ "status": "refused", "reason": "private" })
+            json!({ "status": "refused", "reason": if focus_error { "accessibility_unavailable" } else { "private" } })
         );
         assert!(!directory.path().join("input.jsonl").exists());
     }
@@ -885,27 +886,12 @@ fn fixture_windows_observe_diff_and_act_by_ref() {
     let late = json!({ "pid": 4243, "windowId": 9 });
     assert_eq!(
         observe(&screen, json!({ "target": late, "screenshot": true })),
-        json!({
-            "status": "ok",
-            "observationId": "o3",
-            "lineage": "w4243-9-0",
-            "target": { "pid": 4243, "windowId": 9, "epoch": 0 },
-            "window": {
-                "pid": 4243,
-                "windowId": 9,
-                "epoch": 0,
-                "title": "Late",
-                "app": { "bundleId": null, "path": "/fixture/4243" }
-            },
-            "complete": true,
-            "private": true,
-            "elements": []
-        })
+        json!({ "status": "refused", "reason": "observe_failed" })
     );
     let unshot = observe(&screen, json!({ "target": late, "screenshot": false }));
     assert_eq!(
-        unshot["window"]["app"],
-        json!({ "bundleId": null, "path": "/fixture/4243" })
+        unshot,
+        json!({ "status": "refused", "reason": "observe_failed" })
     );
 }
 

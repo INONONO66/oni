@@ -518,6 +518,14 @@
       "name": "ScreenListResult"
     },
     {
+      "file": "ScreenNeed.json",
+      "name": "ScreenNeed"
+    },
+    {
+      "file": "ScreenNeedStep.json",
+      "name": "ScreenNeedStep"
+    },
+    {
       "file": "ScreenObserveRequest.json",
       "name": "ScreenObserveRequest"
     },

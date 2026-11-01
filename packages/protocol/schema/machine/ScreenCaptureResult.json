@@ -5,6 +5,9 @@
       "additionalProperties": false,
       "properties": {
         "accessibilityTree": {},
+        "accessibilityUnavailable": {
+          "type": "boolean"
+        },
         "captureId": {
           "maxLength": 128,
           "minLength": 1,
@@ -87,6 +90,7 @@
             "capture_blank",
             "own_window",
             "superseded",
+            "accessibility_unavailable",
             "private"
           ],
           "type": "string"
