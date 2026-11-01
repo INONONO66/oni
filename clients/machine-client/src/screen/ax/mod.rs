@@ -561,6 +561,16 @@ mod tests {
         };
         let path = segments("AXButton[0]").expect("a ref");
         assert_eq!(observer.windows().expect("no windows"), Vec::new());
+        assert_eq!(
+            observer.lifecycle(&window, false),
+            Err(ActFault::Unsupported)
+        );
+        assert_eq!(observer.window_size(&window), Err(Fault::Absent));
+        assert_eq!(
+            observer.hit_test(&window, &path, (0, 0)),
+            Err(Fault::Absent)
+        );
+        assert_eq!(observer.resolve(&window, &path), Err(Fault::Absent));
         let walk = observer
             .walk(&window, &bounds(8, Duration::from_millis(50)))
             .expect("empty walk");

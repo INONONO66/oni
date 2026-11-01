@@ -1,0 +1,8 @@
+{
+  "status": "ok",
+  "target": {
+    "pid": 4242,
+    "windowId": 7,
+    "source": "window_capture"
+  }
+}

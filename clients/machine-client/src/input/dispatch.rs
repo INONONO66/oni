@@ -258,6 +258,7 @@ mod tests {
             Route::Background(42),
             &events,
             Some((&entry, &ledger)),
+            None,
         );
         assert_eq!(driver.events.len(), expected);
         assert_eq!(
@@ -459,6 +460,7 @@ mod tests {
             Route::Background(42),
             &[Event::Text("hello".into())],
             Some((&entry, &ledger)),
+            None,
         );
         assert_eq!(
             outcome.err().map(|refusal| refusal.reason),

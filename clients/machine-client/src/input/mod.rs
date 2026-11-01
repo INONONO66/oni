@@ -129,6 +129,12 @@ pub trait Driver: Send {
     fn inject(&mut self, event: &Event) -> Result<(), String>;
     fn pid_delivery(&self) -> bool;
     fn post_to_pid(&mut self, pid: u32, event: &Event) -> Result<(), String>;
+    fn pointer_pid_delivery(&self) -> bool {
+        false
+    }
+    fn target_at(&self, screen: &Screen, _: &Display, x: i32, y: i32) -> Option<(u32, u32)> {
+        screen.pointer_at(x, y)
+    }
 }
 
 const NAMED: [(&str, Named); 20] = [
@@ -178,12 +184,23 @@ pub fn key(name: &str) -> Option<Key> {
 struct Refusal {
     reason: &'static str,
     message: Option<String>,
+    landed_on: Option<Landing>,
 }
 
 fn refuse(reason: &'static str) -> Refusal {
     Refusal {
         reason,
         message: None,
+        landed_on: None,
+    }
+}
+
+fn refuse_private_point(screen: &Screen, point: Option<(i32, i32)>) -> Result<(), Refusal> {
+    match screen.input_private(point) {
+        Ok(false) => Ok(()),
+        Ok(true) => Err(refuse("private")),
+        Err(Fault::AccessibilityUnavailable) => Err(refuse("accessibility_unavailable")),
+        Err(_) => Err(refuse("private")),
     }
 }
 
@@ -191,14 +208,20 @@ fn explain(reason: &'static str, message: String) -> Refusal {
     Refusal {
         reason,
         message: Some(message.chars().take(MAX_MESSAGE).collect()),
+        landed_on: None,
     }
 }
 
 impl Refusal {
     fn value(self) -> Value {
-        match self.message {
-            Some(message) => json!({"status":"refused","reason":self.reason,"message":message}),
-            None => json!({"status":"refused","reason":self.reason}),
+        match (self.message, self.landed_on) {
+            (Some(message), _) => {
+                json!({"status":"refused","reason":self.reason,"message":message})
+            }
+            (None, Some(landed)) => {
+                json!({"status":"refused","reason":self.reason,"landedOn":landed})
+            }
+            (None, None) => json!({"status":"refused","reason":self.reason}),
         }
     }
 }
@@ -230,6 +253,7 @@ enum Anchor<'a> {
         capture: &'a str,
         x: i64,
         y: i64,
+        within: Option<Within>,
     },
     Ref {
         observation: &'a str,
@@ -237,15 +261,26 @@ enum Anchor<'a> {
     },
 }
 
+enum Within {
+    Pids(Vec<u64>),
+    Apps(Vec<String>),
+}
+
 macro_rules! pointer_anchor {
-    ($($at:ident),+) => {$(
+    ($($at:ident => $within:ident),+) => {$(
         impl<'a> From<&'a $at> for Anchor<'a> {
             fn from(at: &'a $at) -> Self {
                 match at {
-                    $at::Variant0 { capture_id, x, y } => Anchor::Point {
+                    $at::Variant0 { capture_id, x, y, within } => Anchor::Point {
                         capture: capture_id.as_str(),
                         x: *x,
                         y: *y,
+                        within: within.as_ref().map(|expected| match expected {
+                            oni_protocol::input_pointer_request::$within::Pids(pids) =>
+                                Within::Pids(pids.iter().map(|pid| pid.get()).collect()),
+                            oni_protocol::input_pointer_request::$within::Apps(apps) =>
+                                Within::Apps(apps.iter().map(|app| app.as_str().to_owned()).collect()),
+                        }),
                     },
                     $at::Variant1 { observation_id, ref_ } => Anchor::Ref {
                         observation: observation_id.as_str(),
@@ -258,10 +293,10 @@ macro_rules! pointer_anchor {
 }
 
 pointer_anchor!(
-    InputPointerRequestMoveAt,
-    InputPointerRequestClickAt,
-    InputPointerRequestButtonAt,
-    InputPointerRequestScrollAt
+    InputPointerRequestMoveAt => InputPointerRequestMoveAtVariant0Within,
+    InputPointerRequestClickAt => InputPointerRequestClickAtVariant0Within,
+    InputPointerRequestButtonAt => InputPointerRequestButtonAtVariant0Within,
+    InputPointerRequestScrollAt => InputPointerRequestScrollAtVariant0Within
 );
 
 fn anchored(screen: &Screen, capture: &str) -> Result<Display, Refusal> {
@@ -276,13 +311,13 @@ fn anchored(screen: &Screen, capture: &str) -> Result<Display, Refusal> {
 
 /// The anchor's display and, for a pointer anchor, its global point.
 fn resolve(screen: &Screen, anchor: &Anchor<'_>) -> Result<(Display, Option<Event>), Refusal> {
-    match *anchor {
+    match anchor {
         Anchor::Capture(capture) => Ok((anchored(screen, capture)?, None)),
-        Anchor::Point { capture, x, y } => {
+        Anchor::Point { capture, x, y, .. } => {
             let display = anchored(screen, capture)?;
             let aim = Event::Move {
-                x: offset(x, display.width, display.x)?,
-                y: offset(y, display.height, display.y)?,
+                x: offset(*x, display.width, display.x)?,
+                y: offset(*y, display.height, display.y)?,
                 reference: None,
             };
             Ok((display, Some(aim)))
@@ -297,8 +332,9 @@ fn resolve(screen: &Screen, anchor: &Anchor<'_>) -> Result<(Display, Option<Even
                     .map_err(|refusal| Refusal {
                         reason: refusal.reason(),
                         message: refusal.message(),
+                        landed_on: None,
                     })?;
-            let reference = Some(reference.to_owned());
+            let reference = Some((*reference).to_owned());
             Ok((display, Some(Event::Move { x, y, reference })))
         }
     }
@@ -308,6 +344,68 @@ struct Plan<'a> {
     display: &'a Display,
     events: Vec<Event>,
     typed: usize,
+}
+
+struct PointerTarget {
+    pid: u32,
+    window_id: u32,
+    source: &'static str,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct Landing {
+    pid: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app: Option<String>,
+}
+
+struct Outcome {
+    target: Option<PointerTarget>,
+    landed_on: Option<Landing>,
+}
+
+#[derive(Clone, Copy)]
+struct PointGuard<'a> {
+    screen: &'a Screen,
+    display: &'a Display,
+    point: (i32, i32),
+    within: Option<&'a Within>,
+}
+
+fn landing_at(
+    driver: &dyn Driver,
+    screen: &Screen,
+    display: &Display,
+    point: (i32, i32),
+    within: Option<&Within>,
+) -> Result<Landing, Refusal> {
+    let (pid, id) = driver
+        .target_at(screen, display, point.0, point.1)
+        .ok_or_else(|| refuse("window_not_found"))?;
+    if pid == std::process::id() {
+        return Err(refuse("excluded"));
+    }
+    let app = screen.pointer_landing(pid, id).map_err(|fault| {
+        refuse(match fault {
+            Fault::OwnWindow => "excluded",
+            Fault::WindowNotFound => "window_not_found",
+            _ => "private",
+        })
+    })?;
+    let landed = Landing { pid, app };
+    let matches = match within {
+        None => true,
+        Some(Within::Pids(pids)) => pids.contains(&u64::from(pid)),
+        Some(Within::Apps(apps)) => landed.app.as_ref().is_some_and(|app| apps.contains(app)),
+    };
+    if !matches {
+        return Err(Refusal {
+            reason: "target_mismatch",
+            message: None,
+            landed_on: Some(landed),
+        });
+    }
+    Ok(landed)
 }
 
 impl Plan<'_> {
@@ -535,8 +633,8 @@ impl Input {
             InputPointerRequest::Button { delivery, .. } => delivery.to_string() == "foreground",
             InputPointerRequest::Scroll { delivery, .. } => delivery.to_string() == "foreground",
         };
-        if !foreground {
-            return refuse("foreground_required").value();
+        if !foreground && matches!(request, InputPointerRequest::Move { .. }) {
+            return refuse("unsupported_action").value();
         }
         let anchor = match request {
             InputPointerRequest::Move { at, .. } => at.into(),
@@ -544,29 +642,36 @@ impl Input {
             InputPointerRequest::Button { at, .. } => at.into(),
             InputPointerRequest::Scroll { at, .. } => at.into(),
         };
-        self.run(screen, &anchor, false, Route::Foreground, guard, &|plan| {
-            match request {
-                InputPointerRequest::Move { .. } => {}
-                InputPointerRequest::Click {
-                    button: b, count, ..
-                } => {
-                    plan.press(button(&b.to_string()), count.get());
+        self.run(
+            screen,
+            &anchor,
+            false,
+            foreground.then_some(Route::Foreground),
+            guard,
+            &|plan| {
+                match request {
+                    InputPointerRequest::Move { .. } => {}
+                    InputPointerRequest::Click {
+                        button: b, count, ..
+                    } => {
+                        plan.press(button(&b.to_string()), count.get());
+                    }
+                    InputPointerRequest::Button {
+                        button: b, state, ..
+                    } => {
+                        plan.events.push(Event::Button {
+                            button: button(&b.to_string()),
+                            down: *state == InputPointerRequestButtonState::Down,
+                            click: 1,
+                        });
+                    }
+                    InputPointerRequest::Scroll {
+                        delta_x, delta_y, ..
+                    } => plan.scroll(*delta_x, *delta_y)?,
                 }
-                InputPointerRequest::Button {
-                    button: b, state, ..
-                } => {
-                    plan.events.push(Event::Button {
-                        button: button(&b.to_string()),
-                        down: *state == InputPointerRequestButtonState::Down,
-                        click: 1,
-                    });
-                }
-                InputPointerRequest::Scroll {
-                    delta_x, delta_y, ..
-                } => plan.scroll(*delta_x, *delta_y)?,
-            }
-            Ok(())
-        })
+                Ok(())
+            },
+        )
     }
 
     pub fn key(&self, screen: &Screen, request: &InputKeyRequest) -> Value {
@@ -590,7 +695,7 @@ impl Input {
             screen,
             &Anchor::Capture(&request.capture_id),
             false,
-            route,
+            Some(route),
             guard,
             &|plan| {
                 let pressed = key(&request.key).ok_or_else(|| unknown(&request.key))?;
@@ -637,7 +742,7 @@ impl Input {
             screen,
             &Anchor::Capture(&request.capture_id),
             false,
-            route,
+            Some(route),
             guard,
             &|plan| plan.text(&request.text),
         )
@@ -650,7 +755,7 @@ impl Input {
             screen,
             &Anchor::Capture(&request.capture_id),
             true,
-            Route::Foreground,
+            Some(Route::Foreground),
             None,
             &|plan| {
                 for action in &request.actions {
@@ -682,7 +787,7 @@ impl Input {
         screen: &Screen,
         anchor: &Anchor<'_>,
         main_only: bool,
-        route: Route,
+        route: Option<Route>,
         guard: Option<&Entry>,
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
     ) -> Value {
@@ -704,7 +809,23 @@ impl Input {
                 .expect("cancelled requires a dispatch entry")
                 .cancelled_result(),
             Err(refusal) => refusal.value(),
-            Ok(()) => json!({"status":"ok"}),
+            Ok(Outcome {
+                target: Some(target),
+                landed_on: Some(landed),
+            }) => json!({"status":"ok","target":{
+                "pid":target.pid,"windowId":target.window_id,"source":target.source
+            },"landedOn":landed}),
+            Ok(Outcome {
+                target: Some(target),
+                ..
+            }) => json!({"status":"ok","target":{
+                "pid":target.pid,"windowId":target.window_id,"source":target.source
+            }}),
+            Ok(Outcome {
+                landed_on: Some(landed),
+                ..
+            }) => json!({"status":"ok","landedOn":landed}),
+            Ok(_) => json!({"status":"ok"}),
         }
     }
 
@@ -714,23 +835,67 @@ impl Input {
         screen: &Screen,
         anchor: &Anchor<'_>,
         main_only: bool,
-        (route, guard): (Route, Option<&Entry>),
+        (route, guard): (Option<Route>, Option<&Entry>),
         build: &dyn Fn(&mut Plan<'_>) -> Result<(), Refusal>,
-    ) -> Result<(), Refusal> {
+    ) -> Result<Outcome, Refusal> {
         let (display, aim) = resolve(screen, anchor)?;
+        let (route, target) = match route {
+            Some(route) => (route, None),
+            None => {
+                let ((pid, window_id), source) = match (anchor, &aim) {
+                    (Anchor::Ref { observation, .. }, Some(Event::Move { .. })) => screen
+                        .observation_target(observation)
+                        .map_err(|error| Refusal {
+                            reason: error.reason(),
+                            message: error.message(),
+                            landed_on: None,
+                        })
+                        .map(|target| (target, "window_capture"))?,
+                    (Anchor::Point { capture, .. }, Some(Event::Move { x, y, .. })) => {
+                        match screen.anchor_window(capture) {
+                            Some(target) => (target, "window_capture"),
+                            None => (
+                                driver
+                                    .target_at(screen, &display, *x, *y)
+                                    .ok_or_else(|| refuse("window_not_found"))?,
+                                "display_hit_test",
+                            ),
+                        }
+                    }
+                    _ => return Err(refuse("window_not_found")),
+                };
+                (
+                    Route::Background(pid),
+                    Some(PointerTarget {
+                        pid,
+                        window_id,
+                        source,
+                    }),
+                )
+            }
+        };
         let point = match &aim {
             Some(Event::Move { x, y, .. }) => Some((*x, *y)),
             _ => None,
         };
-        if !matches!(anchor, Anchor::Ref { .. }) {
-            match screen.input_private(point) {
+        if let (Anchor::Point { within, .. }, Some(point)) = (anchor, point) {
+            landing_at(driver, screen, &display, point, within.as_ref())?;
+        }
+        if let Some(target) = &target {
+            if target.source == "display_hit_test" {
+                refuse_private_point(screen, point)?;
+            }
+            match screen.input_target_private(target.pid, target.window_id) {
+                Ok(false) => {}
                 Ok(true) => return Err(refuse("private")),
-                Err(crate::screen::Fault::AccessibilityUnavailable) => {
-                    return Err(refuse("accessibility_unavailable"));
+                Err(Fault::WindowNotFound) => return Err(refuse("window_not_found")),
+                Err(Fault::AccessibilityUnavailable) => {
+                    return Err(refuse("accessibility_unavailable"))
                 }
                 Err(_) => return Err(refuse("private")),
-                Ok(false) => {}
             }
+        } else if !matches!(anchor, Anchor::Ref { .. }) {
+            refuse_private_point(screen, point)?;
         }
         if !driver.permitted() {
             return Err(refuse("permission_denied"));
@@ -748,18 +913,34 @@ impl Input {
             typed: 0,
         };
         build(&mut plan)?;
-        let delivery = delivery::Plan::classify(route, &plan.events, driver.pid_delivery())
-            .map_err(|_| refuse("foreground_required"))?;
+        let delivery = delivery::Plan::classify(
+            route,
+            &plan.events,
+            driver.pid_delivery(),
+            driver.pointer_pid_delivery(),
+        )
+        .map_err(|_| refuse("foreground_required"))?;
         driver
             .prepare(delivery.route, delivery.events)
             .map_err(|message| explain("unsupported_action", message))?;
-        inject(
+        let point_guard = match (anchor, point) {
+            (Anchor::Point { within, .. }, Some(point)) => Some(PointGuard {
+                screen,
+                display: &display,
+                point,
+                within: within.as_ref(),
+            }),
+            _ => None,
+        };
+        let landed_on = inject(
             driver,
             held,
             delivery.route,
             delivery.events,
             guard.map(|entry| (entry, self.dispatch.as_ref())),
-        )
+            point_guard,
+        )?;
+        Ok(Outcome { target, landed_on })
     }
 }
 
@@ -772,8 +953,10 @@ fn inject(
     route: Route,
     events: &[Event],
     guard: Option<(&Entry, &DispatchLedger)>,
-) -> Result<(), Refusal> {
+    point_guard: Option<PointGuard<'_>>,
+) -> Result<Option<Landing>, Refusal> {
     let mut held: Vec<(Route, Event)> = Vec::new();
+    let mut landed_on = None;
     for event in events {
         if let Some((entry, ledger)) = guard {
             if !entry.before_event(ledger.current()) {
@@ -781,6 +964,41 @@ fn inject(
                 return Err(refuse("cancelled"));
             }
             entry.dispatching();
+        }
+        if let Some(PointGuard {
+            screen,
+            display,
+            point,
+            within,
+        }) = point_guard
+        {
+            if landed_on.is_none() || matches!(event, Event::Button { .. }) {
+                let checked = landing_at(driver, screen, display, point, within).and_then(
+                    |landed| match route {
+                        Route::Background(pid) if pid != landed.pid => Err(Refusal {
+                            reason: "target_mismatch",
+                            message: None,
+                            landed_on: Some(landed),
+                        }),
+                        Route::Foreground | Route::Background(_) => Ok(landed),
+                    },
+                );
+                match checked {
+                    Ok(landed) => {
+                        if landed_on.is_none() {
+                            landed_on = Some(landed);
+                        }
+                    }
+                    Err(refusal) => {
+                        for (route, release) in held.iter().rev() {
+                            if delivery::post(driver, *route, release).is_ok() {
+                                track(kept, *route, release);
+                            }
+                        }
+                        return Err(refusal);
+                    }
+                }
+            }
         }
         if let Err(error) = delivery::post(driver, route, event) {
             let stuck = held
@@ -806,7 +1024,7 @@ fn inject(
             entry.delivered();
         }
     }
-    Ok(())
+    Ok(landed_on)
 }
 
 fn route(
@@ -821,6 +1039,7 @@ fn route(
     let (window, _) = screen.window_target(target).map_err(|error| Refusal {
         reason: error.reason(),
         message: error.message(),
+        landed_on: None,
     })?;
     Ok(Route::Background(window.pid))
 }
@@ -857,8 +1076,152 @@ fn track(held: &mut Vec<(Route, Event)>, route: Route, event: &Event) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::screen::fixture::Fixture;
+    use super::{recorder::Recorder, Anchor, Event, Input, Plan, Refusal, Route};
+    use crate::screen::{fixture::Fixture, Screen};
+    use oni_protocol::InputWriteRequest;
+    use serde_json::json;
+
+    fn scroll(plan: &mut Plan<'_>) -> Result<(), Refusal> {
+        plan.scroll(0, 1)
+    }
+
+    #[test]
+    fn background_route_refuses_a_capture_without_a_pointer_target() {
+        let screen = Screen::new(Box::new(Fixture::display(16, 16, 1.0)), 1);
+        let capture: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target":{"kind":"display","display":1},"encoding":{"format":"png"}
+        }))
+        .expect("capture request");
+        let observed = screen.capture(&capture);
+        let anchor = observed["captureId"].as_str().expect("capture id");
+        let recorder = Recorder::default();
+        let mut driver = recorder.clone();
+        let input = Input::new(recorder.clone());
+        let result = input.attempt(
+            (&mut driver, &mut Vec::new()),
+            &screen,
+            &Anchor::Capture(anchor),
+            false,
+            (None, None),
+            &scroll,
+        );
+        assert_eq!(
+            result.err().map(|refusal| refusal.reason),
+            Some("window_not_found")
+        );
+        assert!(recorder.events().is_empty());
+    }
+
+    #[test]
+    fn foreground_route_builds_and_delivers_a_scroll() {
+        let directory = tempfile::tempdir().expect("fixture directory");
+        let layout = directory.path().join("layout.json");
+        std::fs::write(
+            &layout,
+            r#"{"windows":[{"id":9,"title":"Editor","pid":7,"elements":[
+                {"role":"AXButton","focused":true,
+                 "frame":{"x":0,"y":0,"width":1,"height":1}}]}]}"#,
+        )
+        .expect("layout");
+        let screen = Screen::new(Box::new(Fixture::display(16, 16, 1.0)), 1).observing(Box::new(
+            crate::screen::ax::fixture::Scripted {
+                layout,
+                recorder: directory.path().join("actions.jsonl"),
+            },
+        ));
+        let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target":{"kind":"display","display":1},"encoding":{"format":"png"}
+        }))
+        .expect("capture request");
+        let capture = screen.capture(&request);
+        let anchor = capture["captureId"].as_str().expect("capture id");
+        let recorder = Recorder::default();
+        let mut driver = recorder.clone();
+        let input = Input::new(recorder.clone());
+
+        let result = input.attempt(
+            (&mut driver, &mut Vec::new()),
+            &screen,
+            &Anchor::Capture(anchor),
+            false,
+            (Some(Route::Foreground), None),
+            &scroll,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(
+            recorder.events(),
+            vec![Event::Scroll {
+                horizontal: false,
+                delta: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn background_route_refuses_when_the_target_focus_is_unreadable() {
+        let directory = tempfile::tempdir().expect("fixture directory");
+        let layout = directory.path().join("layout.json");
+        let window = |focus_error: bool| {
+            format!(
+                r#"{{"windows":[{{"id":9,"title":"Editor","pid":7,"focusError":{focus_error},
+                "frame":{{"x":0,"y":0,"width":16,"height":16}},"elements":[]}}]}}"#
+            )
+        };
+        std::fs::write(&layout, window(false)).expect("layout");
+        let source = Fixture {
+            windows: vec![crate::screen::Window {
+                id: 9,
+                display: 1,
+                title: "Editor".into(),
+                owner: "fixture".into(),
+                pid: Some(7),
+                app: None,
+                x: 0,
+                y: 0,
+                width: 16,
+                height: 16,
+            }],
+            ..Fixture::display(16, 16, 1.0)
+        };
+        let screen = Screen::new(Box::new(source), 1).observing(Box::new(
+            crate::screen::ax::fixture::Scripted {
+                layout: layout.clone(),
+                recorder: directory.path().join("actions.jsonl"),
+            },
+        ));
+        let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target":{"kind":"window","windowId":"9"},"encoding":{"format":"png"}
+        }))
+        .expect("capture request");
+        let capture = screen.capture(&request);
+        assert_eq!(capture["status"], "ok", "{capture}");
+        let anchor = capture["captureId"].as_str().expect("capture id");
+        std::fs::write(&layout, window(true)).expect("unreadable focus layout");
+        let recorder = Recorder::default();
+        let mut driver = recorder.clone();
+        let input = Input::new(recorder.clone());
+
+        let result = input.attempt(
+            (&mut driver, &mut Vec::new()),
+            &screen,
+            &Anchor::Point {
+                capture: anchor,
+                x: 1,
+                y: 1,
+                within: None,
+            },
+            false,
+            (None, None),
+            &scroll,
+        );
+
+        assert_eq!(
+            result.err().map(|refusal| refusal.reason),
+            Some("accessibility_unavailable")
+        );
+        assert!(recorder.events().is_empty());
+    }
 
     #[test]
     fn input_without_an_observer_refuses_before_posting() {
@@ -875,7 +1238,7 @@ mod tests {
             "captureId":id,"actions":[{"key":{"name":"Enter"}}]
         }))
         .expect("input request");
-        let recorder = recorder::Recorder::default();
+        let recorder = Recorder::default();
         assert_eq!(
             Input::new(recorder.clone()).write(&screen, &request),
             json!({"status":"refused","reason":"private"})

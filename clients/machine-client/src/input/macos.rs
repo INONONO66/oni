@@ -7,7 +7,9 @@ use super::{
 use core_foundation::{
     base::{CFType, CFTypeRef, TCFType},
     data::{CFData, CFDataRef},
-    string::CFStringRef,
+    dictionary::CFDictionary,
+    number::CFNumber,
+    string::{CFString, CFStringRef},
 };
 use core_graphics::{
     event::{
@@ -16,6 +18,7 @@ use core_graphics::{
     },
     event_source::{CGEventSource, CGEventSourceStateID},
     geometry::CGPoint,
+    window::{self, kCGWindowListOptionOnScreenOnly},
 };
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -113,10 +116,17 @@ fn convert(command: &Command, keys: Option<&[(u16, String)]>) -> Result<CGEvent,
             event.set_flags(CGEventFlags::from_bits_truncate(*flags));
             event.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, i64::from(*click));
         }),
-        Command::Scroll { x, y, flags } => {
-            CGEvent::new_scroll_event(source, ScrollEventUnit::LINE, 2, *y, *x, 0)
-                .inspect(|event| event.set_flags(CGEventFlags::from_bits_truncate(*flags)))
-        }
+        Command::Scroll {
+            x,
+            y,
+            flags,
+            position,
+        } => CGEvent::new_scroll_event(source, ScrollEventUnit::LINE, 2, *y, *x, 0).inspect(
+            |event| {
+                event.set_flags(CGEventFlags::from_bits_truncate(*flags));
+                event.set_location(CGPoint::new(f64::from(position.0), f64::from(position.1)));
+            },
+        ),
         Command::Key {
             down, text, flags, ..
         } => keyboard(
@@ -207,6 +217,64 @@ impl Driver for Native {
     fn pid_delivery(&self) -> bool {
         true
     }
+    fn pointer_pid_delivery(&self) -> bool {
+        true
+    }
+    fn target_at(
+        &self,
+        _: &crate::screen::Screen,
+        _: &crate::screen::Display,
+        x: i32,
+        y: i32,
+    ) -> Option<(u32, u32)> {
+        if let Some(target) = crate::screen::ax::native::target_at(x, y) {
+            return Some(target);
+        }
+        let rows = window::copy_window_info(kCGWindowListOptionOnScreenOnly, 0)?;
+        rows.iter().find_map(|raw| {
+            // SAFETY: CoreGraphics owns each CFDictionary in the retained array;
+            // wrapping under the get rule retains it before the array is dropped.
+            let row = unsafe { CFDictionary::<CFString, CFType>::wrap_under_get_rule(raw.cast()) };
+            let number = |key: &str| {
+                row.find(CFString::new(key))?
+                    .downcast::<CFNumber>()?
+                    .to_i32()
+            };
+            if number("kCGWindowLayer")? != 0 {
+                return None;
+            }
+            let pid = number("kCGWindowOwnerPID")?;
+            if pid <= 0 || u32::try_from(pid).ok()? == std::process::id() {
+                return None;
+            }
+            let value = row.find(CFString::new("kCGWindowBounds"))?;
+            if !value.instance_of::<CFDictionary>() {
+                return None;
+            }
+            // SAFETY: the CF type ID above proves this retained value is a
+            // dictionary; CoreGraphics supplies CFString keys and CF values.
+            let bounds = unsafe {
+                CFDictionary::<CFString, CFType>::wrap_under_get_rule(value.as_CFTypeRef().cast())
+            };
+            let edge = |key: &str| {
+                bounds
+                    .find(CFString::new(key))?
+                    .downcast::<CFNumber>()?
+                    .to_i32()
+            };
+            let (left, top, width, height) =
+                (edge("X")?, edge("Y")?, edge("Width")?, edge("Height")?);
+            ((i64::from(left)..i64::from(left) + i64::from(width)).contains(&i64::from(x))
+                && (i64::from(top)..i64::from(top) + i64::from(height)).contains(&i64::from(y)))
+            .then(|| {
+                Some((
+                    u32::try_from(pid).ok()?,
+                    u32::try_from(number("kCGWindowNumber")?).ok()?,
+                ))
+            })
+            .flatten()
+        })
+    }
     fn inject(&mut self, event: &Event) -> Result<(), String> {
         self.post(Route::Foreground, event)
     }
@@ -223,6 +291,11 @@ mod tests {
     #[test]
     fn constructed_pointer_events_keep_modifiers_and_click_ordinals() {
         let mut state = State::default();
+        state.commands(&Event::Move {
+            x: 21,
+            y: 34,
+            reference: None,
+        });
         state.commands(&Event::Key {
             key: Key::Named(Named::Shift),
             down: true,
@@ -252,5 +325,7 @@ mod tests {
             convert(&scroll, None).expect("scroll").get_flags().bits() & (1 << 17),
             1 << 17
         );
+        let location = convert(&scroll, None).expect("scroll").location();
+        assert_eq!((location.x, location.y), (21.0, 34.0));
     }
 }

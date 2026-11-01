@@ -220,6 +220,10 @@ fn ok() -> Value {
     json!({"status":"ok"})
 }
 
+fn landed() -> Value {
+    json!({"status":"ok","landedOn":{"pid":1,"app":"/fixture"}})
+}
+
 fn click(capture: &str, x: i64, y: i64) -> Value {
     json!({"kind":"click","at":{"captureId":capture,"x":x,"y":y},"button":"left","count":1})
 }
@@ -245,19 +249,19 @@ fn pointer_actions_translate_display_points_to_global_points() {
     let capture = rig.capture(2);
     let double =
         json!({"kind":"click","at":{"captureId":capture,"x":5,"y":6},"button":"right","count":2});
-    assert_eq!(rig.pointer(double), ok());
+    assert_eq!(rig.pointer(double), landed());
     let hold = json!({"kind":"button","at":{"captureId":capture,"x":79,"y":39},"button":"middle","state":"down"});
-    assert_eq!(rig.pointer(hold), ok());
+    assert_eq!(rig.pointer(hold), landed());
     let lift = json!({"kind":"button","at":{"captureId":capture,"x":0,"y":0},"button":"left","state":"up"});
-    assert_eq!(rig.pointer(lift), ok());
+    assert_eq!(rig.pointer(lift), landed());
     let scroll =
         json!({"kind":"scroll","at":{"captureId":capture,"x":1,"y":2},"deltaX":3,"deltaY":-10000});
-    assert_eq!(rig.pointer(scroll), ok());
+    assert_eq!(rig.pointer(scroll), landed());
     let still =
         json!({"kind":"scroll","at":{"captureId":capture,"x":1,"y":2},"deltaX":0,"deltaY":0});
-    assert_eq!(rig.pointer(still), ok());
+    assert_eq!(rig.pointer(still), landed());
     let hover = json!({"kind":"move","at":{"captureId":capture,"x":2,"y":3}});
-    assert_eq!(rig.pointer(hover), ok());
+    assert_eq!(rig.pointer(hover), landed());
     let right = |down, click| Button {
         button: Right,
         down,
@@ -349,7 +353,7 @@ fn only_the_latest_capture_of_an_unchanged_display_anchors_input() {
     rig.desk.layout().displays[0].width = 99;
     rig.refused(&rig.pointer(click(&latest, 1, 1)), "stale_capture");
     rig.desk.layout().displays[0].width = 100;
-    assert_eq!(rig.pointer(click(&latest, 1, 1)), ok());
+    assert_eq!(rig.pointer(click(&latest, 1, 1)), landed());
     rig.screen.forget();
     let before = rig.recorder.events();
     let answer = rig.pointer(click(&latest, 1, 1));
@@ -695,7 +699,7 @@ fn held_keys_and_buttons_survive_requests_until_settled() {
     let down = json!({"captureId":capture,"key":"Shift","action":"down"});
     assert_eq!(rig.key(down), ok());
     let press = json!({"kind":"button","at":{"captureId":capture,"x":1,"y":1},"button":"left","state":"down"});
-    assert_eq!(rig.pointer(press), ok());
+    assert_eq!(rig.pointer(press), landed());
     let held = rig.recorder.events();
     rig.input.settle();
     let released: Vec<Event> = rig.recorder.events().split_off(held.len());

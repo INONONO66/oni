@@ -225,7 +225,13 @@ are written to `metrics.jsonl`; a refused restart restores the previous link
 and pin. `run` checks the persisted pin unless
 `--allow-unpinned` is passed. An active or rollback version cannot be
 restaged in place. Fixture tests cover refusals and symlink preservation;
-live MacBook grant retention and PVE bootstrap remain unverified (#1702).
+on macOS launchd runs the regular file `~/.oni/bin/mclient`, which is
+atomically replaced at the same real path on a pin update and restored on
+rollback. The release job signs with the imported certificate's leaf
+requirement when #1724 secrets exist, verifies that the designated
+requirement names that leaf rather than `cdhash`, and otherwise announces
+ad-hoc signing. Live MacBook grant retention and PVE bootstrap remain
+unverified (#1702).
 The host-self supervisor deployment and update recipe belongs to #1699.
 
 ## #1699 drain-restart deploy (PR pending)
@@ -251,7 +257,6 @@ driving fake host releases through deploy, rollback, shutdown and host exit
 (`packages/agent/test/core/session/owner-lock.test.ts`, `host.test.ts`). Not
 yet exercised on a live host: a real `oni supervise` swapping two npm
 releases.
-
 
 ## #1698 machine client reconnect classes
 
@@ -471,10 +476,22 @@ capture supersession; window capture refuses minimized and excluded owners.
 
 The host and codemode expose `computer.app.launch/quit` and
 `computer.window.close/park`, all through the captured operation port.
-Headless conformance asserts PID-targeted recorder rows, background pointer
-refusal, and lifecycle receipts. The macOS ignored `native_occlusion` test
-builds a fixture with two overlapping windows and verifies that the covered
-window's own pattern is captured.
+Headless conformance asserts PID-targeted recorder rows, background move
+refusal, and lifecycle receipts. On macOS, background clicks and scrolls use
+the observation window or captured-window PID, or hit-test the frontmost
+layer-0 window beneath a display point; the successful result records the
+resolved `{ pid, windowId, source }`. PID-bound pointers check the target's
+focused secure field rather than unrelated overlapping windows; display-point
+anchors keep the conservative overlap gate. Events post to that PID without
+moving the shared cursor. Controls reading global pointer position may ignore
+them despite an `ok` dispatch. Linux remains foreground-only. The macOS ignored
+`native_occlusion` test builds a fixture with two overlapping windows and
+verifies that the covered window's own pattern is captured.
+Coordinate pointer calls can supply `at.within` as allowed PIDs or app
+identities; a live hit-test before injection and before each button edge
+refuses an unexpected overlay with `target_mismatch` and `landedOn`, while
+successful coordinate calls report `landedOn` as the first injected target.
+Excluded owners refuse regardless of the caller's expectation.
 
 Grant-dependent acceptance remains #1702. Windows adapters and
 ScreenCaptureKit remain #1700. Cleanup policy and keep records are described
@@ -551,18 +568,19 @@ remain #1700.
 
 ## #1689 window-bound observation and ref-targeted actions (machine contract 3, PR pending)
 
-The #1715 observation follow-up reads `AXIdentifier` and sends optional `id`
-(at most 256 characters). Sibling refs distinguish identifiers without
-changing the role-path grammar; identified ref actions resolve the path
-directly and use a bounded walk only when the identifier moved, refusing
-ambiguous or absent matches with `ref_not_found`. Unidentified refs retain
-the complete walk required to detect newly ambiguous siblings.
 The #1716 follow-up keeps transient per-attribute AX faults local to their
 element: unknown flags serialize as `null`, unknown children as
 `children: null`, and an unknown role, subrole, or label leaves the element
 and its descendants unaddressable while sibling refs remain available. Disabled accessibility
 still refuses the observation. Headless fixtures exercise these outcomes;
 the schema and valid/invalid wire fixtures retain omitted versus null states.
+
+The #1715 observation follow-up reads `AXIdentifier` and sends optional `id`
+(at most 256 characters). Sibling refs distinguish identifiers without
+changing the role-path grammar; identified ref actions resolve the path
+directly and use a bounded walk only when the identifier moved, refusing
+ambiguous or absent matches with `ref_not_found`. Unidentified refs retain
+the complete walk required to detect newly ambiguous siblings.
 
 The #1717 follow-up adds `root`, `maxDepth` and label/role `match` scopes.
 Depth cuts carry direct-child counts and ignore unlabeled layout wrappers;

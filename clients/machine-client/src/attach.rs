@@ -1164,7 +1164,7 @@ mod tests {
     async fn pending_routed_call_fails_when_attach_connection_closes() {
         let (ready, attached) = watch::channel(false);
         let service = gated(
-            handler(|_, _| async { Ok(json!({"status":"completed"})) }),
+            super::refuse_inbound(),
             std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             attached,
@@ -1189,6 +1189,33 @@ mod tests {
             service("machine.ping".into(), Some(json!({}))).await,
             Ok(json!({"status":"alive"}))
         );
+    }
+
+    #[tokio::test]
+    async fn restricted_routed_call_waits_for_attach_then_refuses_without_dispatch() {
+        let (ready, attached) = watch::channel(false);
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = calls.clone();
+        let gate = gated(
+            handler(move |_, _| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async { Ok(json!({"status":"completed"})) }
+            }),
+            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            attached,
+        );
+        ready.send_replace(true);
+        assert_eq!(
+            gate("machine.exec".into(), Some(json!({}))).await,
+            Ok(json!({"status":"refused","reason":"exec_not_available"}))
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(
+            gate("machine.fs_op".into(), Some(json!({}))).await,
+            Ok(json!({"status":"completed"}))
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[tokio::test(start_paused = true)]

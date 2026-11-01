@@ -874,8 +874,20 @@ export const InputWriteRequest = z
   .strict();
 export type InputWriteRequest = z.infer<typeof InputWriteRequest>;
 
-export const InputWriteResult = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("ok") }).strict(),
+const InputLanding = z.object({
+  pid: z.number().int().positive(),
+  app: z.string().min(1).optional(),
+}).strict();
+export const InputWriteResult = z.union([
+  z.object({
+    status: z.literal("ok"),
+    landedOn: InputLanding.optional(),
+    target: z.object({
+      pid: z.number().int().positive(),
+      windowId: z.number().int().nonnegative(),
+      source: z.enum(["window_capture", "display_hit_test"]),
+    }).strict().optional(),
+  }).strict(),
   z.object({
     status: z.literal("unverifiable"),
     reason: z.enum(["transport_lost", "cancelled", "detached", "driver_timeout"]),
@@ -918,6 +930,11 @@ export const InputWriteResult = z.discriminatedUnion("status", [
       resetAt: z.number().nonnegative().optional(),
     })
     .strict(),
+  z.object({
+    status: z.literal("refused"),
+    reason: z.literal("target_mismatch"),
+    landedOn: InputLanding,
+  }).strict(),
 ]);
 export type InputWriteResult = z.infer<typeof InputWriteResult>;
 
@@ -1543,11 +1560,15 @@ export type ClipboardWriteResult = z.infer<typeof ClipboardWriteResult>;
  * executes; the answer is {@link InputWriteResult}.
  */
 const PointerButton = z.enum(["left", "right", "middle"]);
+const PointerWithin = z.union([
+  z.object({ pids: z.array(z.number().int().positive()).min(1) }).strict(),
+  z.object({ apps: z.array(z.string().min(1)).min(1) }).strict(),
+]);
 const PointerAt = {
   requestId: InputRequestId,
   delivery: z.enum(["background", "foreground"]).default("background"),
   at: z.union([
-    z.object({ captureId: CaptureId, x: Coordinate, y: Coordinate }).strict(),
+    z.object({ captureId: CaptureId, x: Coordinate, y: Coordinate, within: PointerWithin.optional() }).strict(),
     z
       .object({
         observationId: ObservationId,

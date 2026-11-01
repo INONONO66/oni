@@ -1,0 +1,1 @@
+#1723 (epic #1688) on `clients/1723-stable-signing` (2026-10-31, base `757332579`, PR #1759): conditional certificate-backed release signing and a stable real macOS service executable with atomic pin updates; receipts in `.github/workflows/clients-release.yml`, `clients/machine-client/tests/cli.rs`, and `docs/implementation-status.md`.

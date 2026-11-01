@@ -8,6 +8,7 @@ import { normalizeKnipIssues, runKnip } from "./check-dead-exports";
 import type { PlainValue } from "../packages/protocol/src/json";
 import type { AnyToolDefinition, ToolCategory } from "../packages/protocol/src/tool/index";
 import {
+  buildSchemaSnapshot,
   checkEarned,
   checkNaming,
   checkToolLint,
@@ -245,6 +246,18 @@ describe("lint-tools definition invariants", () => {
       diffSnapshots({ "Tool.Call": ["id"] }, { "Tool.Call": ["payload"] })[0]?.message,
     ).toContain("id");
     expect(diffSnapshots({ "Tool.Call": ["id"] }, { "Tool.Call": ["id", "extra"] })).toEqual([]);
+  });
+
+  test("input result variants retain their status identities across a plain union", async () => {
+    const current = await buildSchemaSnapshot();
+    const previous = JSON.parse(readFileSync(join(import.meta.dir, "conformance/schema-snapshot.json"), "utf8"));
+    expect(current["Machine.InputWriteResult#ok"]).toContain("status");
+    expect(current["Machine.InputWriteResult#refused"]).toEqual(
+      expect.arrayContaining(["message", "reason", "status"]),
+    );
+    expect(diffSnapshots(previous, current).filter(({ subject }) =>
+      subject.startsWith("Machine.InputWriteResult#")
+    )).toEqual([]);
   });
 });
 
