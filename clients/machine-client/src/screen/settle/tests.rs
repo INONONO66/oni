@@ -1,10 +1,16 @@
-use std::sync::Mutex;
+use std::{
+    cell::Cell,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    },
+};
 
 use super::*;
 use crate::screen::{
     ax::{ActFault, Action, Admit, AppIdentity, Bounds, Observer, Segment, Walk, WindowIdentity},
     fixture::Fixture,
-    Fault,
+    Fault, Window,
 };
 
 #[derive(Default)]
@@ -15,6 +21,8 @@ struct Model {
     during: Vec<(usize, Duration, Notification)>,
     tokens: Vec<u64>,
     fault: Option<Fault>,
+    fault_after_windows: Option<(usize, Fault)>,
+    window_reads: usize,
     budgets: Vec<Duration>,
     before_commit: Option<Notification>,
     private: bool,
@@ -34,6 +42,12 @@ impl Observer for FakeObserver {
     }
     fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
         let mut model = self.0.lock().expect("model");
+        model.window_reads += 1;
+        if let Some((after, fault)) = &model.fault_after_windows {
+            if model.window_reads >= *after {
+                return Err(fault.clone());
+            }
+        }
         if let Some(fault) = &model.fault {
             return Err(fault.clone());
         }
@@ -199,7 +213,7 @@ fn settle_commits_fresh_observation_usable_as_since() {
     let (screen, model) = setup(Model::default(), 0, vec![], None);
     assert_eq!(
         screen.settle(&request(50, 100)),
-        json!({"status":"settled", "observationId":"o2"})
+        json!({"status":"settled", "method":"accessibility", "observationId":"o2"})
     );
     assert_eq!(model.lock().expect("model").walks, 2);
     assert_eq!(since(&screen, "o2")["diff"]["since"], "o2");
@@ -218,7 +232,7 @@ fn settle_private_focus_commits_only_empty_observations_without_walking() {
     );
     assert_eq!(
         screen.settle(&request(50, 100)),
-        json!({"status":"settled", "observationId":"o2"})
+        json!({"status":"settled", "method":"accessibility", "observationId":"o2"})
     );
     assert_eq!(model.lock().expect("model").walks, 0);
     let observation = since(&screen, "o2");
@@ -232,7 +246,7 @@ fn delayed_readiness_never_counts_unobserved_time_as_quiet() {
     let (screen, _) = setup(Model::default(), 70, vec![], None);
     assert_eq!(
         screen.settle(&request(50, 100)),
-        json!({"status":"pending", "observationId":"o2", "changesInWindow":0})
+        json!({"status":"pending", "method":"accessibility", "observationId":"o2", "changesInWindow":0})
     );
 }
 
@@ -346,7 +360,7 @@ fn event_armed_before_baseline_is_counted() {
     let (screen, _) = setup(model, 0, vec![], None);
     assert_eq!(
         screen.settle(&request(200, 100)),
-        json!({"status":"pending", "observationId":"o2", "changesInWindow":1})
+        json!({"status":"pending", "method":"accessibility", "observationId":"o2", "changesInWindow":1})
     );
 }
 
@@ -362,15 +376,15 @@ fn destruction_during_baseline_still_invalidates_the_target() {
 }
 
 #[test]
-fn subscription_blockers_and_absent_sources_remain_distinct() {
+fn observer_blockers_fall_back_to_window_capture_when_available() {
     for (blocker, expected) in [
         (
             Unsupported::AccessibilityNotGranted,
-            json!({"status":"unsupported","blocker":"accessibility_not_granted"}),
+            json!({"status":"refused","reason":"window_not_found"}),
         ),
         (
             Unsupported::NoObserver,
-            json!({"status":"unsupported","blocker":"no_observer"}),
+            json!({"status":"refused","reason":"window_not_found"}),
         ),
         (
             Unsupported::WindowNotFound,
@@ -446,4 +460,368 @@ fn observation_budget_and_overrun_are_bounded() {
     assert_eq!(screen.settle(&request(50, 100))["blocker"], "no_observer");
     let (screen, _) = setup(Model::default(), 100, vec![], None);
     assert_eq!(screen.settle(&request(50, 100))["blocker"], "no_observer");
+}
+
+fn pixel_fixture() -> Fixture {
+    let mut fixture = Fixture::display(100, 100, 1.0);
+    fixture.windows.push(Window {
+        id: 7,
+        display: 1,
+        title: "Test".into(),
+        owner: "fixture".into(),
+        pid: Some(42),
+        app: None,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+    });
+    fixture
+}
+
+#[test]
+fn pixel_sample_uses_window_capture_and_checks_target_identity() {
+    let screen = Screen::new(Box::new(pixel_fixture()), 1);
+    let source = screen.source().expect("fixture source");
+    assert_eq!(
+        screen
+            .pixel_sample(source, 42, 7, 0)
+            .expect("thumbnail")
+            .len(),
+        100 * 100 * 4
+    );
+    assert_eq!(
+        screen.pixel_sample(source, 42, 7, 1).expect_err("epoch")["reason"],
+        "epoch_changed"
+    );
+    assert_eq!(
+        screen.pixel_sample(source, 43, 7, 0).expect_err("owner")["reason"],
+        "window_not_found"
+    );
+    assert_eq!(
+        screen
+            .pixel_sample(source, std::process::id(), 7, 0)
+            .expect_err("owner")["reason"],
+        "window_not_found"
+    );
+}
+
+#[test]
+fn pixel_sample_refuses_excluded_owner_and_private_focus_before_capture() {
+    let mut fixture = pixel_fixture();
+    fixture.windows[0].pid = Some(std::process::id());
+    let screen = Screen::new(Box::new(fixture), 1);
+    assert_eq!(
+        screen
+            .pixel_sample(screen.source().expect("source"), std::process::id(), 7, 0)
+            .expect_err("own window")["reason"],
+        "excluded"
+    );
+
+    let (mut screen, _) = setup(
+        Model {
+            private: true,
+            ..Model::default()
+        },
+        0,
+        vec![],
+        None,
+    );
+    screen.source = Some(Box::new(pixel_fixture()));
+    assert_eq!(
+        screen
+            .pixel_sample(screen.source().expect("source"), 42, 7, 0)
+            .expect_err("private focus")["reason"],
+        "paused:private"
+    );
+
+    assert_eq!(
+        screen
+            .pixel_sample(screen.source().expect("source"), 42, 7, 1)
+            .expect_err("stale window epoch")["reason"],
+        "epoch_changed"
+    );
+}
+
+struct PixelClock(Cell<Instant>);
+
+impl app::Clock for PixelClock {
+    fn now(&self) -> Instant {
+        self.0.get()
+    }
+
+    fn wait(&self, duration: Duration) {
+        self.0.set(self.0.get() + duration);
+    }
+}
+
+#[test]
+fn pixel_fallback_returns_fresh_window_capture_without_observer() {
+    let screen = Screen::new(Box::new(pixel_fixture()), 1);
+    let clock = PixelClock(Cell::new(Instant::now()));
+    let result = screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock);
+    assert_eq!(
+        result,
+        json!({"status":"settled","method":"pixels","captureId":"cap-1"})
+    );
+}
+
+#[test]
+fn pixel_fallback_requires_capture_and_reports_disappearing_anchor() {
+    let screen = Screen::absent();
+    let clock = PixelClock(Cell::new(Instant::now()));
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock),
+        json!({"status":"unsupported","blocker":"no_observer"})
+    );
+    let mut fixture = pixel_fixture();
+    fixture.blank_windows.push(7);
+    let screen = Screen::new(Box::new(fixture), 1);
+    let result = screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock);
+    assert_eq!(result["reason"], "capture_blank");
+}
+
+struct PixelSource {
+    fixture: Fixture,
+    ready_fault: Option<Fault>,
+    invalid_frame: bool,
+    vanish_after: Option<usize>,
+    window_reads: AtomicUsize,
+    windows_fault: Option<Fault>,
+    change_each_capture: bool,
+    change_after_baseline: bool,
+    captures: AtomicUsize,
+    fail_capture_after: Option<usize>,
+}
+
+impl PixelSource {
+    fn new() -> Self {
+        Self {
+            fixture: pixel_fixture(),
+            ready_fault: None,
+            invalid_frame: false,
+            vanish_after: None,
+            window_reads: AtomicUsize::new(0),
+            windows_fault: None,
+            change_each_capture: false,
+            change_after_baseline: false,
+            captures: AtomicUsize::new(0),
+            fail_capture_after: None,
+        }
+    }
+}
+
+impl Source for PixelSource {
+    fn ready(&self) -> Result<(), Fault> {
+        self.ready_fault.clone().map_or(Ok(()), Err)
+    }
+
+    fn displays(&self) -> Result<Vec<crate::screen::Display>, Fault> {
+        self.fixture.displays()
+    }
+
+    fn windows(&self) -> Result<Vec<Window>, Fault> {
+        if let Some(fault) = &self.windows_fault {
+            return Err(fault.clone());
+        }
+        let calls = self.window_reads.fetch_add(1, Ordering::Relaxed) + 1;
+        if self.vanish_after.is_some_and(|after| calls > after) {
+            Ok(vec![])
+        } else {
+            self.fixture.windows()
+        }
+    }
+
+    fn capture_display(&self, display: u32, pixels: &mut Vec<u8>) -> Result<(u32, u32), Fault> {
+        self.fixture.capture_display(display, pixels)
+    }
+
+    fn capture_window(&self, window: u32, pixels: &mut Vec<u8>) -> Result<(u32, u32), Fault> {
+        let captures = self.captures.fetch_add(1, Ordering::Relaxed) + 1;
+        if self
+            .fail_capture_after
+            .is_some_and(|after| captures > after)
+        {
+            return Err(Fault::Permission);
+        }
+        if self.invalid_frame {
+            Ok((0, 0))
+        } else {
+            let size = self.fixture.capture_window(window, pixels)?;
+            if self.change_each_capture {
+                let color = u8::try_from(captures % 2).expect("alternating fixture color");
+                pixels.fill(color.saturating_mul(255));
+            } else if self.change_after_baseline && captures > 1 {
+                for pixel in pixels.as_chunks_mut::<4>().0 {
+                    pixel[0] = 16;
+                }
+            }
+            Ok(size)
+        }
+    }
+}
+
+#[test]
+fn pixel_fallback_reports_pending_when_window_pixels_keep_changing() {
+    let source = PixelSource {
+        change_each_capture: true,
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle(&request(50, 100)),
+        json!({"status":"pending","method":"pixels","changesInWindow":1})
+    );
+}
+
+#[test]
+fn pixel_fallback_requires_quiet_after_one_window_change() {
+    let source = PixelSource {
+        change_after_baseline: true,
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle(&request(500, 1000)),
+        json!({"status":"settled","method":"pixels","captureId":"cap-1"})
+    );
+}
+
+#[test]
+fn pixel_fallback_propagates_window_enumeration_failure() {
+    let source = PixelSource {
+        windows_fault: Some(Fault::Permission),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle(&request(50, 100))["reason"],
+        "permission_denied"
+    );
+}
+
+#[test]
+fn pixel_fallback_on_public_settle_reports_quiet_and_lost_windows() {
+    let screen = Screen::new(Box::new(PixelSource::new()), 1);
+    assert_eq!(
+        screen.settle(&request(50, 100)),
+        json!({"status":"settled","method":"pixels","captureId":"cap-1"})
+    );
+
+    let vanished = PixelSource {
+        vanish_after: Some(1),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(vanished), 1);
+    assert_eq!(screen.settle(&request(50, 100))["status"], "destroyed");
+
+    let denied = PixelSource {
+        fail_capture_after: Some(1),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(denied), 1);
+    assert_eq!(
+        screen.settle(&request(50, 100))["reason"],
+        "permission_denied"
+    );
+
+    let denied_before_baseline = PixelSource {
+        fail_capture_after: Some(0),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(denied_before_baseline), 1);
+    assert_eq!(
+        screen.settle(&request(50, 100))["reason"],
+        "permission_denied"
+    );
+
+    let vanished_at_anchor = PixelSource {
+        vanish_after: Some(2),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(vanished_at_anchor), 1);
+    assert_eq!(screen.settle(&request(50, 100))["status"], "destroyed");
+}
+
+#[test]
+fn pixel_fallback_refuses_capture_failure_after_quiet_window() {
+    let source = PixelSource {
+        fail_capture_after: Some(2),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    let clock = PixelClock(Cell::new(Instant::now()));
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(50, 100), 42, 7, &clock)["reason"],
+        "permission_denied"
+    );
+}
+
+#[test]
+fn pixel_sample_propagates_native_capture_failure() {
+    let source = PixelSource {
+        fail_capture_after: Some(0),
+        ..PixelSource::new()
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen
+            .pixel_sample(screen.source().expect("source"), 42, 7, 0)
+            .expect_err("capture permission")["reason"],
+        "permission_denied"
+    );
+}
+
+#[test]
+fn pixel_fallback_handles_capture_permission_bad_frame_and_missing_anchor() {
+    let clock = PixelClock(Cell::new(Instant::now()));
+    let mut denied = pixel_fixture();
+    denied.denied = true;
+    let screen = Screen::new(Box::new(denied), 1);
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock)["reason"],
+        "permission_denied"
+    );
+
+    let mut source = PixelSource::new();
+    source.ready_fault = Some(Fault::WindowNotFound);
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock)["reason"],
+        "window_not_found"
+    );
+
+    let mut source = PixelSource::new();
+    source.invalid_frame = true;
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock)["reason"],
+        "permission_denied"
+    );
+
+    let mut source = PixelSource::new();
+    source.vanish_after = Some(2);
+    let screen = Screen::new(Box::new(source), 1);
+    assert_eq!(
+        screen.settle_pixels_with_clock(&request(500, 1000), 42, 7, &clock)["status"],
+        "destroyed"
+    );
+}
+
+#[test]
+fn pixel_fallback_refuses_unknown_private_state() {
+    for fault in [Fault::Permission, Fault::WindowNotFound] {
+        let (mut screen, model) = setup(Model::default(), 0, vec![], None);
+        screen.source = Some(Box::new(pixel_fixture()));
+        model.lock().expect("model").fault_after_windows = Some((2, fault.clone()));
+        let result = screen.pixel_sample(screen.source().expect("source"), 42, 7, 0);
+        if fault == Fault::Permission {
+            assert!(result.is_ok());
+        } else {
+            assert_eq!(
+                result.expect_err("window lost")["reason"],
+                "window_not_found"
+            );
+        }
+    }
 }

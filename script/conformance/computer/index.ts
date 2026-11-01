@@ -535,12 +535,12 @@ async function exerciseSettle(context: Context): Promise<void> {
   check(baseline.status === "ok", `settle baseline ${JSON.stringify(baseline)}`);
   const pinned = { ...target, epoch: baseline.target.epoch };
   const settled = await run(computer.settle({ target: pinned, quietMs: 50, timeoutMs: 100 }));
-  check(settled.status === "settled", `quiet settle ${JSON.stringify(settled)}`);
+  check(settled.status === "settled" && settled.method === "accessibility", `quiet settle ${JSON.stringify(settled)}`);
   const since = await run(computer.observe({ target, screenshot: false, since: settled.observationId }));
   check(since.status === "ok" && "diff" in since, `settled id as since ${JSON.stringify(since)}`);
   writeFileSync(observedLayout(setup), observableLayout(layout, 1, [{ atMs: 40, kind: "value_changed" }, { atMs: 80, kind: "layout_changed" }]));
   const pending = await run(computer.settle({ target: pinned, quietMs: 200, timeoutMs: 100 }));
-  check(pending.status === "pending" && pending.changesInWindow === 2, `busy settle ${JSON.stringify(pending)}`);
+  check(pending.status === "pending" && pending.method === "accessibility" && pending.changesInWindow === 2, `busy settle ${JSON.stringify(pending)}`);
   const next = await run(computer.observe({ target, screenshot: false, since: pending.observationId }));
   check(next.status === "ok" && "diff" in next, `pending id as since ${JSON.stringify(next)}`);
   const names = recorder.captured.slice(-4).map((call) => call.method);

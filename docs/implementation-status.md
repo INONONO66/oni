@@ -450,6 +450,18 @@ missing capabilities report `unsupported`, while absent attachments report
 `machine_not_attached`. Code mode exposes `computer.screen.settle`.
 Native grant-dependent behavior awaits the MacBook live acceptance.
 
+## #1732 pixel-quiet window settle (PR pending)
+
+Window settle falls back to consecutive, bounded pixel thumbnails when the
+accessibility observer is unavailable but capture works. It samples every
+200 ms; over 0.5% changed pixels outside an RGB tolerance of 8 resets the
+quiet interval (500 ms by default; accessibility retains 200 ms). The first
+identical pair settles with a fresh `captureId`; timeout returns a pixel
+`pending` count, and a window lost during sampling returns `destroyed`.
+The fallback refuses secure focus when it can be identified and otherwise
+uses the window capture guard. Display settle remains deferred; scripted
+clock and frame tests cover the timing without sleeps.
+
 ## #1695 private mode (PR pending)
 
 On `feat/1695-private-mode` (2026-10-31, rebased on `1a6c4c923` after
