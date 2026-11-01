@@ -584,6 +584,14 @@ directly and use a bounded walk only when the identifier moved, refusing
 ambiguous or absent matches with `ref_not_found`. Unidentified refs retain
 the complete walk required to detect newly ambiguous siblings.
 
+The #1717 follow-up adds `root`, `maxDepth` and label/role `match` scopes.
+Depth cuts carry direct-child counts and ignore unlabeled layout wrappers;
+matches retain ref-less ancestors. Full-path refs use a sibling census along
+the selected path, so scoped actions and pointer revalidation never require
+a whole-window census. Different-scope `since` requests refuse
+`stale_observation`. The 3,000-node fixture asserts exact reads for a
+three-node skeleton and a selected subtree, including action revalidation;
+an unscoped observation remains incomplete and ref-less.
 On `feat/1689-observation-model` (2026-10-29, base `712f621d4`). Target
 contract: `docs/machines-and-delegation.md` 2.2.2.
 

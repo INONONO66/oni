@@ -11,6 +11,7 @@ pub mod linux;
 pub mod native;
 #[cfg(target_os = "macos")]
 pub mod observer;
+pub mod scoped;
 
 use std::{
     fmt,
@@ -104,6 +105,21 @@ pub struct Attributes {
     pub expanded: Option<Option<bool>>,
     pub focused: bool,
     pub children_unknown: bool,
+    pub children_cut: Option<usize>,
+}
+
+/// Unlabeled layout containers do not spend the requested semantic depth.
+fn transparent(attributes: &Attributes) -> bool {
+    attributes.label.as_deref().is_none_or(str::is_empty)
+        && matches!(
+            attributes.role.as_str(),
+            "AXGroup"
+                | "AXGenericElement"
+                | "AXSection"
+                | "AXSplitGroup"
+                | "AXScrollArea"
+                | "AXLayoutArea"
+        )
 }
 
 /// A walked element; `parent` indexes an earlier node of the same walk.
@@ -113,7 +129,7 @@ pub struct Node {
     pub parent: Option<usize>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Walk {
     pub nodes: Vec<Node>,
     pub focused: Option<usize>,
@@ -182,6 +198,14 @@ pub trait Observer: Send + Sync {
         Err(Fault::Absent)
     }
     fn walk(&self, window: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault>;
+    fn walk_scoped(
+        &self,
+        _: &WindowIdentity,
+        _: &Bounds,
+        _: &scoped::Scope,
+    ) -> Result<scoped::ScopedWalk, Fault> {
+        Err(Fault::Absent)
+    }
     fn resolve(
         &self,
         window: &WindowIdentity,
@@ -472,6 +496,7 @@ pub fn assemble<I>(
         expanded: flag(take(9)),
         focused: matches!(flag(take(10)), Some(Some(true))),
         children_unknown,
+        children_cut: None,
     };
     let children = match take(11) {
         Some(Raw::Error(_)) => Vec::new(),
@@ -585,6 +610,14 @@ mod tests {
             Err(Fault::Absent)
         );
         assert_eq!(observer.resolve(&window, &path), Err(Fault::Absent));
+        assert!(matches!(
+            observer.walk_scoped(
+                &window,
+                &bounds(8, Duration::from_secs(1)),
+                &scoped::Scope::default()
+            ),
+            Err(Fault::Absent)
+        ));
         assert_eq!(
             observer.act_guarded(&window, &path, &|_| true, &Action::Press, &|| false),
             Err(ActFault::NotFound)
@@ -821,6 +854,7 @@ mod tests {
                 expanded: Some(Some(false)),
                 focused: true,
                 children_unknown: false,
+                children_cut: None,
             }
         );
         assert_eq!(children, vec![1, 2]);

@@ -665,6 +665,16 @@ impl Observer for Native {
         walk(&Window { origin }, children, bounds)
     }
 
+    fn walk_scoped(
+        &self,
+        window: &WindowIdentity,
+        bounds: &Bounds,
+        scope: &super::scoped::Scope,
+    ) -> Result<super::scoped::ScopedWalk, Fault> {
+        let (children, origin) = opened(window)?;
+        super::scoped::walk(&Window { origin }, children, bounds, scope)
+    }
+
     fn resolve(
         &self,
         window: &WindowIdentity,

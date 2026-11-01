@@ -38,6 +38,9 @@ use super::private::{focus_state, FocusState};
 use super::settle::{Notification, Subscription};
 use super::{Display, Fault, Screen, MAX_DIMENSION};
 
+pub mod scope;
+use scope::{Matching, Scope};
+
 pub const MAX_ELEMENTS: usize = 2000;
 pub const MAX_VISITS: usize = 5000;
 pub const BUDGET: Duration = Duration::from_millis(2500);
@@ -87,6 +90,7 @@ pub enum Refusal {
     WindowNotFound,
     EpochChanged,
     Stale,
+    ScopeChanged,
     RefNotFound,
     Unsupported,
     OffScreen,
@@ -129,10 +133,10 @@ impl Refusal {
             Self::Permission => "permission_denied",
             Self::WindowNotFound => "window_not_found",
             Self::EpochChanged => "epoch_changed",
-            Self::Stale => "stale_observation",
+            Self::Stale | Self::ScopeChanged => "stale_observation",
+            Self::RefNotFound => "ref_not_found",
             Self::Private => "observe_failed",
             Self::AccessibilityUnavailable
-            | Self::RefNotFound
             | Self::Unsupported
             | Self::OffScreen
             | Self::NotActionable(_)
@@ -153,7 +157,7 @@ impl Refusal {
             Self::Permission => "permission_denied",
             Self::WindowNotFound => "window_not_found",
             Self::EpochChanged => "epoch_changed",
-            Self::Stale => "stale_observation",
+            Self::Stale | Self::ScopeChanged => "stale_observation",
             Self::RefNotFound => "ref_not_found",
             Self::Unsupported => "action_not_supported",
             Self::OffScreen => "invalid_region",
@@ -169,6 +173,9 @@ impl Refusal {
         match self {
             Self::Failed(message) if !message.is_empty() => Some(clip(message, MAX_MESSAGE)),
             Self::NotActionable(blocker) => Some(format!("{blocker}: element is not actionable")),
+            Self::ScopeChanged => {
+                Some("observation scope changed: root, maxDepth or match differs".into())
+            }
             _ => None,
         }
     }
@@ -193,6 +200,7 @@ pub struct Request {
     pub target: Target,
     pub since: Option<String>,
     pub max_elements: usize,
+    pub scope: Scope,
 }
 
 pub struct Act {
@@ -314,6 +322,7 @@ struct Snapshot {
     private: bool,
     elements: Vec<Element>,
     keys: HashMap<String, Key>,
+    scope: Scope,
 }
 
 impl Snapshot {
@@ -343,6 +352,8 @@ pub struct Prepared {
     since: Option<(String, Vec<Element>)>,
     minted: Minted,
     private: bool,
+    scope: Scope,
+    root_key: Option<Key>,
 }
 
 impl Prepared {
@@ -357,6 +368,8 @@ impl Prepared {
             since,
             minted: mint(walk),
             private,
+            scope: Scope::default(),
+            root_key: None,
         }
     }
 }
@@ -506,13 +519,40 @@ impl Observations {
         request: &Request,
         located: Located,
     ) -> Result<Prepared, Refusal> {
+        let (since, root_key) = {
+            let state = lock(&self.state);
+            let since = match &request.since {
+                Some(id) => {
+                    let before = state.latest(&located.lineage, id)?;
+                    if before.scope != request.scope {
+                        return Err(Refusal::ScopeChanged);
+                    }
+                    Some((id.clone(), before.elements.clone()))
+                }
+                None => None,
+            };
+            let root_key = match &request.scope.root {
+                Some(root) => Some(
+                    state
+                        .snapshots
+                        .get(&located.lineage)
+                        .ok_or(Refusal::Stale)?
+                        .keys
+                        .get(root)
+                        .cloned()
+                        .ok_or(Refusal::RefNotFound)?,
+                ),
+                None => None,
+            };
+            (since, root_key)
+        };
         let private = match focus_state(observer.focused(&located.window)) {
             FocusState::Secure => true,
             FocusState::Admits | FocusState::Idle => false,
             FocusState::Unknown(_) => return Err(Refusal::AccessibilityUnavailable),
         };
         if private {
-            return Ok(Prepared::new(
+            let mut prepared = Prepared::new(
                 located,
                 None,
                 Walk {
@@ -521,23 +561,46 @@ impl Observations {
                     complete: true,
                 },
                 true,
-            ));
+            );
+            prepared.scope = request.scope.clone();
+            return Ok(prepared);
         }
-        let since = match &request.since {
-            Some(id) => {
-                let state = lock(&self.state);
-                let before = state.latest(&located.lineage, id)?.elements.clone();
-                Some((id.clone(), before))
-            }
-            None => None,
-        };
         let bounds = Bounds {
-            max_elements: request.max_elements,
+            max_elements: if request.scope.matching.is_some() {
+                MAX_VISITS
+            } else {
+                request.max_elements
+            },
             max_visits: MAX_VISITS,
             budget: BUDGET,
         };
-        let walk = observer.walk(&located.window, &bounds)?;
-        Ok(Prepared::new(located, since, walk, false))
+        let walked = request.scope.walk(observer, &located, &bounds)?;
+        if let Some(key) = &root_key {
+            let root = walked
+                .included
+                .iter()
+                .position(|included| *included)
+                .ok_or(Refusal::RefNotFound)?;
+            if Key::of(&walked.walk.nodes[root].attributes) != *key {
+                return Err(Refusal::RefNotFound);
+            }
+            if walked.walk.complete {
+                let mut root_only = vec![false; walked.included.len()];
+                root_only[root] = true;
+                let census = mint_selected(walked.walk.clone(), &root_only, &root_only);
+                if census.elements[0].reference != request.scope.root {
+                    return Err(Refusal::RefNotFound);
+                }
+            }
+        }
+        Ok(Prepared {
+            located,
+            since,
+            minted: request.scope.mint(walked, request.max_elements),
+            private: false,
+            scope: request.scope.clone(),
+            root_key,
+        })
     }
 
     /// Settle samples outside the store lock, then fences the sampled
@@ -603,6 +666,7 @@ impl Observations {
                     private: true,
                     elements: Vec::new(),
                     keys: HashMap::new(),
+                    scope: prepared.scope,
                 },
             );
             body["elements"] = json!([]);
@@ -620,11 +684,16 @@ impl Observations {
             }
             _ => body["elements"] = json!(elements),
         }
-        let keys = elements
+        let mut keys: HashMap<String, Key> = elements
             .iter()
             .zip(keys)
             .filter_map(|(element, key)| Some((element.reference.clone()?, key)))
             .collect();
+        // A match projection can hide the root's ref; retain its identity
+        // for the next same-scope observation, not for ref-targeted input.
+        if let (Some(root), Some(key)) = (&prepared.scope.root, prepared.root_key) {
+            keys.insert(root.clone(), key);
+        }
         let snapshot = Snapshot {
             id,
             owner_pid: window.owner_pid,
@@ -636,6 +705,7 @@ impl Observations {
             private: false,
             elements,
             keys,
+            scope: prepared.scope,
         };
         lock(&self.state).snapshots.insert(lineage, snapshot);
         body
@@ -673,6 +743,7 @@ impl Observations {
             return Err(Refusal::Private);
         }
         let (observed, key) = snapshot.element(&act.reference)?;
+        let scope = snapshot.scope.clone();
         drop(snapshots);
         if observed.secure || observed.role == "AXSecureTextField" {
             return Err(Refusal::Private);
@@ -697,7 +768,7 @@ impl Observations {
                 if let Some(attributes) = current.filter(|at| Key::of(at) == key) {
                     (attributes, path.clone())
                 } else {
-                    let moved = ax::segments(&relocate(observer, &located, &key)?)
+                    let moved = ax::segments(&relocate(observer, &located, &key, &scope)?)
                         .ok_or(Refusal::RefNotFound)?;
                     let attributes = observer
                         .resolve(&located.window, &moved)?
@@ -707,7 +778,7 @@ impl Observations {
                 }
             } else {
                 (
-                    fresh_unidentified(observer, &located, &act.reference, &key)?,
+                    fresh_unidentified(observer, &located, &act.reference, &key, &scope)?,
                     path.clone(),
                 )
             };
@@ -776,14 +847,18 @@ impl Observations {
         observation: &str,
         reference: &str,
     ) -> Result<(i64, i64), Refusal> {
-        let (target, key) = {
+        let (target, key, scope) = {
             let state = lock(&self.state);
             let snapshot = state
                 .snapshots
                 .values()
                 .find(|snapshot| snapshot.id == observation)
                 .ok_or(Refusal::Stale)?;
-            (snapshot.target, snapshot.element(reference)?.1)
+            (
+                snapshot.target,
+                snapshot.element(reference)?.1,
+                snapshot.scope.clone(),
+            )
         };
         let located = self.locate(observer, target)?;
         let window = self.window(&located);
@@ -796,7 +871,7 @@ impl Observations {
         if private {
             return Err(Refusal::Private);
         }
-        let frame = fresh(observer, &located, reference, &key)?.frame;
+        let frame = fresh(observer, &located, reference, &key, &scope)?.frame;
         let (x, y) = located.window.origin;
         Ok((
             x + frame.x + frame.width / 2,
@@ -816,9 +891,10 @@ fn fresh(
     located: &Located,
     reference: &str,
     key: &Key,
+    scope: &Scope,
 ) -> Result<Attributes, Refusal> {
     if key.identifier.is_none() {
-        return fresh_unidentified(observer, located, reference, key);
+        return fresh_unidentified(observer, located, reference, key, scope);
     }
     let path = ax::segments(reference).ok_or(Refusal::RefNotFound)?;
     if let Some(attributes) = observer.resolve(&located.window, &path)? {
@@ -826,7 +902,7 @@ fn fresh(
             return Ok(attributes);
         }
     }
-    let relocated = relocate(observer, located, key)?;
+    let relocated = relocate(observer, located, key, scope)?;
     let path = ax::segments(&relocated).ok_or(Refusal::RefNotFound)?;
     observer
         .resolve(&located.window, &path)?
@@ -841,22 +917,35 @@ fn fresh_unidentified(
     located: &Located,
     reference: &str,
     key: &Key,
+    scope: &Scope,
 ) -> Result<Attributes, Refusal> {
     let bounds = Bounds {
         max_elements: MAX_ELEMENTS,
         max_visits: MAX_VISITS,
         budget: BUDGET,
     };
-    let walk = observer.walk(&located.window, &bounds)?;
+    let proof = if scope.scoped() {
+        Scope {
+            root: Some(reference.into()),
+            max_depth: Some(0),
+            matching: None,
+        }
+    } else {
+        Scope::default()
+    };
+    let walked = proof.walk(observer, located, &bounds)?;
+    let walk = walked.walk;
     if !walk.complete {
         return Err(Refusal::RefNotFound);
     }
     let attributes: Vec<_> = walk
         .nodes
         .iter()
-        .map(|node| node.attributes.clone())
+        .zip(&walked.included)
+        .filter(|(_, included)| **included)
+        .map(|(node, _)| node.attributes.clone())
         .collect();
-    let minted = mint(walk);
+    let minted = mint_selected(walk, &walked.included, &walked.included);
     let element = minted
         .elements
         .iter()
@@ -873,13 +962,19 @@ fn fresh_unidentified(
 }
 
 /// Search only after an identified element's old path stops matching.
-fn relocate(observer: &dyn Observer, located: &Located, key: &Key) -> Result<String, Refusal> {
+fn relocate(
+    observer: &dyn Observer,
+    located: &Located,
+    key: &Key,
+    scope: &Scope,
+) -> Result<String, Refusal> {
     let bounds = Bounds {
         max_elements: MAX_ELEMENTS,
         max_visits: MAX_VISITS,
         budget: BUDGET,
     };
-    let minted = mint(observer.walk(&located.window, &bounds)?);
+    let walked = scope.walk(observer, located, &bounds)?;
+    let minted = mint_selected(walked.walk, &walked.included, &walked.included);
     if !minted.complete {
         return Err(Refusal::RefNotFound);
     }
@@ -925,6 +1020,11 @@ struct Minted {
 /// they and their descendants get no ref; an incomplete walk has not seen
 /// every sibling, so none of its elements gets one.
 fn mint(walk: Walk) -> Minted {
+    let included = vec![true; walk.nodes.len()];
+    mint_selected(walk, &included, &included)
+}
+
+fn mint_selected(walk: Walk, included: &[bool], matched: &[bool]) -> Minted {
     let census = walk.complete;
     let mut siblings: HashMap<Identity, usize> = HashMap::new();
     for node in &walk.nodes {
@@ -936,7 +1036,7 @@ fn mint(walk: Walk) -> Minted {
     let mut elements: Vec<Element> = Vec::with_capacity(walk.nodes.len());
     let mut keys: Vec<Key> = Vec::with_capacity(walk.nodes.len());
     let (mut bytes, mut complete) = (2, walk.complete);
-    for node in walk.nodes {
+    for (index, node) in walk.nodes.into_iter().enumerate() {
         let hidden = siblings[&identity(&node)] > 1 || node.parent.is_some_and(|at| ambiguous[at]);
         let role = ax::slug(&node.attributes.role);
         let count = counts.entry((node.parent, role.clone())).or_default();
@@ -950,18 +1050,20 @@ fn mint(walk: Walk) -> Minted {
             None => segment.to_string(),
         };
         let addressable = census && !hidden && !segment.role.is_empty() && path.len() <= MAX_REF;
-        let reference = addressable.then(|| path.clone());
+        let reference = (addressable && matched[index]).then(|| path.clone());
         let parent = node
             .parent
             .and_then(|parent| elements[parent].reference.clone());
         let key = Key::of(&node.attributes);
         let element = element(node.attributes, reference, parent);
         let size = serde_json::to_vec(&element).map_or(MAX_BYTES, |json| json.len()) + 1;
-        if bytes + size > MAX_BYTES {
+        if included[index] && bytes + size > MAX_BYTES {
             complete = false;
             break;
         }
-        bytes += size;
+        if included[index] {
+            bytes += size;
+        }
         paths.push(path);
         ambiguous.push(hidden || !addressable);
         elements.push(element);
@@ -971,10 +1073,24 @@ fn mint(walk: Walk) -> Minted {
         .focused
         .and_then(|index| elements.get(index))
         .and_then(|element| element.reference.clone());
+    let (mut elements, keys): (Vec<_>, Vec<_>) = elements
+        .into_iter()
+        .zip(keys)
+        .zip(included)
+        .filter(|(_, included)| **included)
+        .map(|(pair, _)| pair)
+        .unzip();
+    if !complete {
+        for element in &mut elements {
+            element.reference = None;
+            element.parent = None;
+            element.actions.clear();
+        }
+    }
     Minted {
         elements,
         keys,
-        focused,
+        focused: focused.filter(|_| complete),
         complete,
     }
 }
@@ -1007,7 +1123,11 @@ fn element(attributes: Attributes, reference: Option<String>, parent: Option<Str
         selected: attributes.selected,
         checked: attributes.checked,
         expanded: attributes.expanded,
-        children: attributes.children_unknown.then_some(None),
+        children: if attributes.children_unknown {
+            Some(None)
+        } else {
+            attributes.children_cut.map(Some)
+        },
     }
 }
 
@@ -1122,6 +1242,16 @@ impl Screen {
             max_elements: request.max_elements.map_or(MAX_ELEMENTS, |limit| {
                 usize::try_from(limit.get()).map_or(MAX_ELEMENTS, |limit| limit.min(MAX_ELEMENTS))
             }),
+            scope: Scope {
+                root: request.root.as_ref().map(|root| root.to_string()),
+                max_depth: request
+                    .max_depth
+                    .map(|depth| usize::try_from(depth.get()).unwrap_or(32)),
+                matching: request.match_.as_ref().map(|matching| Matching {
+                    role: matching.role.as_ref().map(|role| role.to_string()),
+                    label: matching.label.as_ref().map(|label| label.to_lowercase()),
+                }),
+            },
         };
         self.observations.observe(observer, &parsed, |window| {
             request

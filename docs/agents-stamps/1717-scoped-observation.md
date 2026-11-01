@@ -1,0 +1,1 @@
+#1717 (#1688) · `screen/1717-scoped-observation` · 2026-11-01 · base `dc6b2d60f` · PR pending · Scoped root/depth/match observation, full-path sibling proofs and same-scope diffs; receipts in `clients/machine-client/src/screen/observe/scoped_tests.rs` and machine wire fixtures.

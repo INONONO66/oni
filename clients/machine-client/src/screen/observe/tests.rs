@@ -8,6 +8,9 @@ use serde_json::json;
 use super::*;
 use crate::screen::ax::AppIdentity;
 
+#[path = "scoped_tests.rs"]
+mod scoped;
+
 type WindowReads = Arc<Mutex<VecDeque<Result<Vec<WindowIdentity>, Fault>>>>;
 
 struct Fake {
@@ -24,6 +27,7 @@ struct Fake {
     hold: Mutex<Option<(Sender<()>, Receiver<()>)>>,
     walks: AtomicUsize,
     resolves: AtomicUsize,
+    scoped_reads: Mutex<Vec<usize>>,
     missing_size: std::sync::atomic::AtomicBool,
     forget_on_walk: Arc<Mutex<Option<Weak<Screen>>>>,
 }
@@ -42,6 +46,7 @@ impl Fake {
             hold: Mutex::new(None),
             walks: AtomicUsize::new(0),
             resolves: AtomicUsize::new(0),
+            scoped_reads: Mutex::new(Vec::new()),
             missing_size: std::sync::atomic::AtomicBool::new(false),
             forget_on_walk: Arc::new(Mutex::new(None)),
         }
@@ -70,6 +75,50 @@ fn resolve<'a>(nodes: &'a [Node], path: &str) -> Option<&'a Node> {
 }
 
 impl Observer for Fake {
+    fn walk_scoped(
+        &self,
+        _: &WindowIdentity,
+        bounds: &Bounds,
+        scope: &ax::scoped::Scope,
+    ) -> Result<ax::scoped::ScopedWalk, Fault> {
+        struct Tree<'a> {
+            nodes: &'a [Node],
+            reads: &'a Mutex<Vec<usize>>,
+        }
+        impl ax::Tree for Tree<'_> {
+            type Item = usize;
+            fn read(&self, item: &usize) -> Result<(Attributes, Vec<usize>), Fault> {
+                self.reads.lock().expect("reads").push(*item);
+                Ok((
+                    self.nodes[*item].attributes.clone(),
+                    self.nodes
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(at, node)| (node.parent == Some(*item)).then_some(at))
+                        .collect(),
+                ))
+            }
+        }
+        if let Some(fault) = self.walk_fault.lock().expect("lock").clone() {
+            return Err(fault);
+        }
+        let nodes = self.walk.lock().expect("lock");
+        let roots = nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(at, node)| node.parent.is_none().then_some(at))
+            .collect();
+        ax::scoped::walk(
+            &Tree {
+                nodes: &nodes,
+                reads: &self.scoped_reads,
+            },
+            roots,
+            bounds,
+            scope,
+        )
+    }
+
     fn window_size(&self, _: &WindowIdentity) -> Result<(i64, i64), Fault> {
         if self.missing_size.load(Ordering::SeqCst) {
             Err(Fault::Absent)
@@ -1175,6 +1224,7 @@ fn request(epoch: Option<u64>, since: Option<&str>) -> Request {
         },
         since: since.map(Into::into),
         max_elements: MAX_ELEMENTS,
+        scope: Scope::default(),
     }
 }
 
@@ -1233,7 +1283,7 @@ fn refusals_map_faults_and_render_both_wire_reasons() {
         ),
         (Refusal::EpochChanged, "epoch_changed", "epoch_changed"),
         (Refusal::Stale, "stale_observation", "stale_observation"),
-        (Refusal::RefNotFound, "observe_failed", "ref_not_found"),
+        (Refusal::RefNotFound, "ref_not_found", "ref_not_found"),
         (Refusal::OffScreen, "observe_failed", "invalid_region"),
         (
             Refusal::Unsupported,
