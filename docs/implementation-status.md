@@ -1,5 +1,9 @@
 # Implementation Status
 
+## #1720 leased clipboard access
+
+Machine clipboard read/write runs through the captured computer-use lease gate; the client retains bounded previous contents locally for conditional lease-end restoration, and ledger facts expose only format and byte counts.
+
 ## #1677 gateway screen stream stage-metrics probe
 
 `oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]`

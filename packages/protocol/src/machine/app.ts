@@ -16,7 +16,7 @@ const Refused = z.object({
     "epoch_changed", "window_not_found",
     "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
     "foreground_not_granted", "stale_capture", "stale_observation", "paused:human_input", "paused:takeover",
-    "paused:private", "paused:locked", "paused:asleep", "budget_exhausted",
+    "paused:private", "paused:locked", "paused:asleep", "budget_exhausted", "private", "clipboard_not_granted",
   ]),
   blocker: z.enum(["launch_timeout", "launch_failed", "platform"]).optional(),
   message: z.string().min(1).max(256).optional(),

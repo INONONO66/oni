@@ -150,6 +150,22 @@
       "name": "CellState"
     },
     {
+      "file": "ClipboardReadRequest.json",
+      "name": "ClipboardReadRequest"
+    },
+    {
+      "file": "ClipboardReadResult.json",
+      "name": "ClipboardReadResult"
+    },
+    {
+      "file": "ClipboardWriteRequest.json",
+      "name": "ClipboardWriteRequest"
+    },
+    {
+      "file": "ClipboardWriteResult.json",
+      "name": "ClipboardWriteResult"
+    },
+    {
       "file": "CompletionRequest.json",
       "name": "CompletionRequest"
     },

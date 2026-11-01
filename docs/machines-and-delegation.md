@@ -186,9 +186,17 @@ offer `computer.use` is never sent the new methods.
 
 - **Methods.** `machine.screen.list` and `machine.screen.capture`,
   `machine.input.pointer` (`move|click|button|scroll`), `machine.input.key`,
-  `machine.input.text`, `machine.stream.open|signal|close` and
+  `machine.input.text`, `machine.clipboard.read|write`, `machine.stream.open|signal|close` and
   `machine.cdp.open|chunk|close`. Every result is a typed `refused` union
   with a closed reason enum; nothing on this surface is `unknown`.
+- **Clipboard.** A computer lease grants `clipboard: none|write|read_write`.
+  Read requires `read_write`, refuses while private focus is active, and
+  records only formats and byte counts in the ledger. Write returns a
+  content-free previous receipt `{changeCount, formats, bytes}`; the client
+  holds the previous bytes locally and restores them when the lease ends
+  unless the pasteboard changed externally or the agent restored it.
+  Clipboard changes outside agent writes are human-input edges. Content
+  and restoration snapshots are bounded to 4 MiB.
 - **Screen.** Listing caps at 16 displays and 512 windows with a
   `truncated` flag, titles at 256 characters. A capture targets a display, a
   window or a display-relative region, as PNG or JPEG (quality 1..100), and

@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "changeCount": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "html": {
+          "maxLength": 4194304,
+          "type": "string"
+        },
+        "image": {
+          "maxLength": 5592408,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4194304,
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "changeCount"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "machine_not_attached",
+            "permission_denied",
+            "clipboard_not_available",
+            "clipboard_not_granted",
+            "private",
+            "clipboard_too_large"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}
