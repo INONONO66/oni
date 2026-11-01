@@ -46,7 +46,7 @@ export const ObservedElement = z
     selected: z.boolean().nullable().optional(),
     checked: z.boolean().nullable().optional(),
     expanded: z.boolean().nullable().optional(),
-    /** Null means the child read failed; a count is reserved for the next observer revision. */
+    /** Direct-child count when depth cuts descendants; null means the child read failed. */
     children: z.number().int().nonnegative().nullable().optional(),
   })
   .strict();
@@ -72,6 +72,12 @@ export const ScreenObserveRequest = z
     since: ObservationId.optional(),
     screenshot: z.boolean(),
     maxElements: z.number().int().min(1).max(OBSERVE_MAX_ELEMENTS).optional(),
+    root: ObservedRef.optional(),
+    maxDepth: z.number().int().min(1).max(32).optional(),
+    match: z.object({
+      role: z.string().max(128).optional(),
+      label: z.string().max(OBSERVE_MAX_LABEL_CHARS).optional(),
+    }).strict().optional(),
   })
   .strict();
 export type ScreenObserveRequest = z.infer<typeof ScreenObserveRequest>;
@@ -134,6 +140,7 @@ export const ScreenObserveResult = z.xor([
         "window_not_found",
         "epoch_changed",
         "stale_observation",
+        "ref_not_found",
         "observe_failed",
         "lease_missing", "lease_expired", "target_unbound", "app_out_of_scope",
         "foreground_not_granted", "excluded", "stale_capture", "paused:human_input", "paused:takeover",

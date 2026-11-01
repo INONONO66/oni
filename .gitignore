@@ -67,3 +67,4 @@ skills-lock.json
 /quality-audit.json
 /quality-audit-input/
 __pycache__/
+clients/machine-client/core

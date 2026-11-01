@@ -2,10 +2,34 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "properties": {
+    "match": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "maxDepth": {
+      "maximum": 32,
+      "minimum": 1,
+      "type": "integer"
+    },
     "maxElements": {
       "maximum": 2000,
       "minimum": 1,
       "type": "integer"
+    },
+    "root": {
+      "maxLength": 256,
+      "pattern": "^[^/[\\]]*\\[\\d+\\](?:\\/[^/[\\]]*\\[\\d+\\])*$",
+      "type": "string"
     },
     "screenshot": {
       "type": "boolean"
