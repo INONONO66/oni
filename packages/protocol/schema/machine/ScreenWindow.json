@@ -66,9 +66,45 @@
       "maximum": 16,
       "type": "integer"
     },
+    "kind": {
+      "default": "window",
+      "enum": [
+        "window",
+        "menu",
+        "sheet",
+        "popover",
+        "alert"
+      ],
+      "type": "string"
+    },
     "owner": {
       "maxLength": 256,
       "type": "string"
+    },
+    "parent": {
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pid": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "windowId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pid",
+        "windowId"
+      ],
+      "type": "object"
     },
     "pid": {
       "maximum": 9007199254740991,
@@ -87,6 +123,7 @@
   },
   "required": [
     "windowId",
+    "kind",
     "display",
     "title",
     "owner",

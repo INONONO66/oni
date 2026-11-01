@@ -1,0 +1,13 @@
+{
+  "windowId": "81",
+  "kind": "tooltip",
+  "display": 1,
+  "title": "File",
+  "owner": "Editor",
+  "bounds": {
+    "x": 4,
+    "y": 5,
+    "width": 20,
+    "height": 15
+  }
+}

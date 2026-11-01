@@ -500,6 +500,7 @@ fn sample_refuses_an_unreadable_focus_before_walking() {
             token: 0,
             origin: (0, 0),
             minimized: false,
+            surface: None,
         }],
         fault: None,
         focus_fault: Some(Fault::Permission),
