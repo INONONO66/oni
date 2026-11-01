@@ -355,6 +355,7 @@ intentionally selects everything.
 
 `bun test --timeout 15000` remains a useful local test command, but is not
 equivalent to all CI gates. `bun run ci test --lane <key>` matches a CI lane.
+Local rule: run per package locally, CI lanes are authoritative.
 Do not use a cached Turbo test result as evidence that a fresh coverage report
 was produced.
 
