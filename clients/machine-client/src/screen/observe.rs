@@ -69,13 +69,15 @@ pub struct Element {
     pub parent: Option<String>,
     pub secure: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
+    pub enabled: Option<Option<bool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub selected: Option<bool>,
+    pub selected: Option<Option<bool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub checked: Option<bool>,
+    pub checked: Option<Option<bool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expanded: Option<bool>,
+    pub expanded: Option<Option<bool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Option<usize>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -201,6 +203,9 @@ pub struct Act {
     pub wait_ms: u64,
 }
 
+type Subscribe<'a> =
+    dyn Fn(Instant, Instant, &WindowIdentity) -> Option<Box<dyn Subscription>> + 'a;
+
 /// The first reason a resolved action cannot reach its target. A missing
 /// enabled flag is not evidence of a disabled custom view.
 fn blocker(
@@ -209,7 +214,7 @@ fn blocker(
     action: &Action,
     hit: Option<Hit>,
 ) -> Option<&'static str> {
-    if attributes.enabled == Some(false) {
+    if attributes.enabled == Some(Some(false)) {
         return Some("disabled");
     }
     if matches!(action, Action::SetValue(_)) {
@@ -639,7 +644,7 @@ impl Observations {
         act: &Act,
         before_dispatch: &dyn Fn() -> bool,
     ) -> Result<(), Refusal> {
-        self.act_waiting(observer, act, before_dispatch, &|_, _| None)
+        self.act_waiting(observer, act, before_dispatch, &|_, _, _| None)
     }
 
     pub fn act_waiting(
@@ -647,7 +652,7 @@ impl Observations {
         observer: &dyn Observer,
         act: &Act,
         before_dispatch: &dyn Fn() -> bool,
-        subscribe: &dyn Fn(Instant, Instant) -> Option<Box<dyn Subscription>>,
+        subscribe: &Subscribe<'_>,
     ) -> Result<(), Refusal> {
         let located = self.locate(observer, act.target)?;
         let window = self.window(&located);
@@ -726,7 +731,7 @@ impl Observations {
                 return Err(Refusal::NotActionable(reason));
             }
             if subscription.is_none() {
-                subscription = subscribe(started, end);
+                subscription = subscribe(started, end, &located.window);
             }
             let Some(watch) = subscription.as_mut() else {
                 return Err(Refusal::NotActionable(reason));
@@ -782,6 +787,7 @@ impl Observations {
             return Err(Refusal::Private);
         }
         let frame = fresh(observer, &located, reference, &key)?.frame;
+        lock(&self.state).latest(&located.lineage, observation)?;
         let (x, y) = located.window.origin;
         Ok((
             x + frame.x + frame.width / 2,
@@ -948,7 +954,7 @@ fn mint(walk: Walk) -> Minted {
         }
         bytes += size;
         paths.push(path);
-        ambiguous.push(hidden);
+        ambiguous.push(hidden || !addressable);
         elements.push(element);
         keys.push(key);
     }
@@ -992,6 +998,7 @@ fn element(attributes: Attributes, reference: Option<String>, parent: Option<Str
         selected: attributes.selected,
         checked: attributes.checked,
         expanded: attributes.expanded,
+        children: attributes.children_unknown.then_some(None),
     }
 }
 
@@ -1153,14 +1160,15 @@ impl Screen {
             return Err(Refusal::Private);
         }
         self.observations
-            .act_waiting(observer, act, before_dispatch, &|started, end| {
-                self.subscribe_action(act.target, started, end)
+            .act_waiting(observer, act, before_dispatch, &|started, end, window| {
+                self.subscribe_action(act.target, window, started, end)
             })
     }
 
     fn subscribe_action(
         &self,
         target: Target,
+        window: &WindowIdentity,
         started: Instant,
         end: Instant,
     ) -> Option<Box<dyn Subscription>> {
@@ -1169,12 +1177,17 @@ impl Screen {
         else {
             return None;
         };
-        let (Ok(pid), Ok(window)) = (u32::try_from(target.pid), u32::try_from(target.window_id))
-        else {
+        let (Ok(_), Ok(_)) = (u32::try_from(target.pid), u32::try_from(target.window_id)) else {
             return None;
         };
         notifications
-            .subscribe(pid, window, started, end, Arc::clone(observer))
+            .subscribe(
+                window.pid,
+                window.window_id,
+                started,
+                end,
+                Arc::clone(observer),
+            )
             .ok()
     }
 

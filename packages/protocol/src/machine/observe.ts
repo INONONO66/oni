@@ -42,10 +42,12 @@ export const ObservedElement = z
     frame: z.object({ x: Position, y: Position, width: Extent, height: Extent }).strict(),
     parent: Ref.optional(),
     secure: z.boolean(),
-    enabled: z.boolean().optional(),
-    selected: z.boolean().optional(),
-    checked: z.boolean().optional(),
-    expanded: z.boolean().optional(),
+    enabled: z.boolean().nullable().optional(),
+    selected: z.boolean().nullable().optional(),
+    checked: z.boolean().nullable().optional(),
+    expanded: z.boolean().nullable().optional(),
+    /** Null means the child read failed; a count is reserved for the next observer revision. */
+    children: z.number().int().nonnegative().nullable().optional(),
   })
   .strict();
 export type ObservedElement = z.infer<typeof ObservedElement>;

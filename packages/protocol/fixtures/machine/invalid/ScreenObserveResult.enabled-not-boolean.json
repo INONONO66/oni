@@ -1,0 +1,28 @@
+{
+  "status": "ok",
+  "observationId": "o1",
+  "lineage": "w4242-7-0",
+  "target": { "pid": 4242, "windowId": 7, "epoch": 0 },
+  "window": {
+    "pid": 4242,
+    "windowId": 7,
+    "epoch": 0,
+    "title": "Notes",
+    "app": {
+      "bundleId": "com.example.notes",
+      "path": "/Applications/Notes.app"
+    }
+  },
+  "complete": true,
+  "private": false,
+  "elements": [
+    {
+      "ref": null,
+      "role": "",
+      "actions": [],
+      "frame": { "x": 0, "y": 0, "width": 400, "height": 300 },
+      "secure": false,
+      "enabled": "unknown"
+    }
+  ]
+}
