@@ -40,7 +40,7 @@ use oni_protocol::{
 };
 use serde_json::{json, Value};
 
-use crate::screen::{Display, Fault, Screen};
+use crate::screen::{observe, Display, Fault, Screen};
 use delivery::Route;
 use dispatch::{DispatchLedger, Entry};
 use std::sync::Arc;
@@ -187,6 +187,16 @@ struct Refusal {
     landed_on: Option<Landing>,
 }
 
+impl From<observe::Refusal> for Refusal {
+    fn from(refusal: observe::Refusal) -> Self {
+        Refusal {
+            reason: refusal.reason(),
+            message: refusal.message(),
+            landed_on: None,
+        }
+    }
+}
+
 fn refuse(reason: &'static str) -> Refusal {
     Refusal {
         reason,
@@ -326,14 +336,7 @@ fn resolve(screen: &Screen, anchor: &Anchor<'_>) -> Result<(Display, Option<Even
             observation,
             reference,
         } => {
-            let (display, x, y) =
-                screen
-                    .point(observation, reference)
-                    .map_err(|refusal| Refusal {
-                        reason: refusal.reason(),
-                        message: refusal.message(),
-                        landed_on: None,
-                    })?;
+            let (display, x, y) = screen.point(observation, reference)?;
             let reference = Some((*reference).to_owned());
             Ok((display, Some(Event::Move { x, y, reference })))
         }
@@ -843,14 +846,9 @@ impl Input {
             Some(route) => (route, None),
             None => {
                 let ((pid, window_id), source) = match (anchor, &aim) {
-                    (Anchor::Ref { observation, .. }, Some(Event::Move { .. })) => screen
-                        .observation_target(observation)
-                        .map_err(|error| Refusal {
-                            reason: error.reason(),
-                            message: error.message(),
-                            landed_on: None,
-                        })
-                        .map(|target| (target, "window_capture"))?,
+                    (Anchor::Ref { observation, .. }, Some(Event::Move { .. })) => {
+                        (screen.observation_target(observation)?, "window_capture")
+                    }
                     (Anchor::Point { capture, .. }, Some(Event::Move { x, y, .. })) => {
                         match screen.anchor_window(capture) {
                             Some(target) => (target, "window_capture"),
@@ -1036,11 +1034,7 @@ fn route(
         return Ok(Route::Foreground);
     }
     let target = target.ok_or_else(|| refuse("foreground_required"))?;
-    let (window, _) = screen.window_target(target).map_err(|error| Refusal {
-        reason: error.reason(),
-        message: error.message(),
-        landed_on: None,
-    })?;
+    let (window, _) = screen.window_target(target)?;
     Ok(Route::Background(window.pid))
 }
 

@@ -262,7 +262,10 @@ impl Screen {
     }
 
     #[cfg(test)]
-    fn with_secure_input(mut self, enabled: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+    pub(crate) fn with_secure_input(
+        mut self,
+        enabled: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.secure_input_enabled = Box::new(enabled);
         self
     }
