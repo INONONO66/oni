@@ -517,9 +517,12 @@ impl Screen {
         let observer = self.observer.as_deref().ok_or(Fault::Absent)?;
         let window = observer
             .windows()
-            .map_err(|_| {
-                self.accessibility_fault.store(true, Ordering::Relaxed);
-                Fault::AccessibilityUnavailable
+            .map_err(|fault| match fault {
+                Fault::WindowNotFound => fault,
+                _ => {
+                    self.accessibility_fault.store(true, Ordering::Relaxed);
+                    Fault::AccessibilityUnavailable
+                }
             })?
             .into_iter()
             .find(|window| window.window_id == window_id)
