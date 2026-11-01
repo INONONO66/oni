@@ -171,6 +171,7 @@ describe("machine.report heartbeat", () => {
     const peer = await connectIpcClient(host.endpoints.unix ?? "");
     const load = { loadAvg1: 0, memoryAvailableBytes: 0, inFlight: 0 };
     const screen = { verdict: "unavailable", blockers: [{ kind: "screen_recording_denied" }],
+      needs: [{ step: "screen_recording_grant", action: "Open System Settings > Privacy & Security > Screen Recording.", onScreen: true, blocker: "screen_recording_denied" }],
       display: { kind: "console", isolated: false },
       grants: { capture: false, accessibility: false, input: false } } satisfies Machine.Screen;
     const report = (machineId: string) => peer.call(Machine.WireMethod.Report, { machineId, reportedAt: 1, load, screen });
@@ -206,6 +207,7 @@ describe("machine.report heartbeat", () => {
         }))
           .toEqual({ status: "accepted" });
         expect(host.list()[0]?.live?.transport).toEqual({ lastFailure: "timeout", attempts: 3 });
+        expect(host.list()[0]?.live?.screen?.needs).toEqual(screen.needs);
       } finally {
         await current.close();
       }

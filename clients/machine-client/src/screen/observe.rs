@@ -34,7 +34,7 @@ use super::ax::{
     WindowIdentity,
 };
 use super::encode::{Encoding, Format};
-use super::private::focus_is_secure;
+use super::private::{focus_state, FocusState};
 use super::settle::{Notification, Subscription};
 use super::{Display, Fault, Screen, MAX_DIMENSION};
 
@@ -92,6 +92,7 @@ pub enum Refusal {
     OffScreen,
     NotActionable(&'static str),
     Private,
+    AccessibilityUnavailable,
     Failed(String),
 }
 
@@ -101,6 +102,7 @@ impl From<Fault> for Refusal {
             Fault::Absent => Self::NotAvailable,
             Fault::Permission => Self::Permission,
             Fault::WindowNotFound => Self::WindowNotFound,
+            Fault::AccessibilityUnavailable => Self::AccessibilityUnavailable,
             Fault::Failed(message) => Self::Failed(message),
             other => Self::Failed(other.reason().to_owned()),
         }
@@ -129,7 +131,8 @@ impl Refusal {
             Self::EpochChanged => "epoch_changed",
             Self::Stale => "stale_observation",
             Self::Private => "observe_failed",
-            Self::RefNotFound
+            Self::AccessibilityUnavailable
+            | Self::RefNotFound
             | Self::Unsupported
             | Self::OffScreen
             | Self::NotActionable(_)
@@ -156,6 +159,7 @@ impl Refusal {
             Self::OffScreen => "invalid_region",
             Self::NotActionable(_) => "not_actionable",
             Self::Private => "private",
+            Self::AccessibilityUnavailable => "accessibility_unavailable",
             Self::Failed(_) => "input_failed",
         }
     }
@@ -468,7 +472,12 @@ impl Observations {
         request: &Request,
         located: Located,
     ) -> Result<Prepared, Refusal> {
-        if focus_is_secure(observer.focused(&located.window)) {
+        let private = match focus_state(observer.focused(&located.window)) {
+            FocusState::Secure => true,
+            FocusState::Admits | FocusState::Idle => false,
+            FocusState::Unknown(_) => return Err(Refusal::AccessibilityUnavailable),
+        };
+        if private {
             return Ok(Prepared::new(
                 located,
                 None,
@@ -743,7 +752,12 @@ impl Observations {
         let located = self.locate(observer, target)?;
         let window = self.window(&located);
         let _serial = lock(&window);
-        if focus_is_secure(observer.focused(&located.window)) {
+        let private = match focus_state(observer.focused(&located.window)) {
+            FocusState::Secure => true,
+            FocusState::Admits | FocusState::Idle => false,
+            FocusState::Unknown(_) => return Err(Refusal::AccessibilityUnavailable),
+        };
+        if private {
             return Err(Refusal::Private);
         }
         let frame = fresh(observer, &located, reference, &key)?.frame;
@@ -1044,8 +1058,23 @@ impl Screen {
     }
 
     pub fn observe(&self, request: &ScreenObserveRequest) -> Value {
-        self.observed(request)
-            .unwrap_or_else(|refusal| refusal.observed())
+        match self.observed(request) {
+            Ok(value) => {
+                self.accessibility_fault
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+                value
+            }
+            Err(refusal) => {
+                if matches!(
+                    refusal,
+                    Refusal::AccessibilityUnavailable | Refusal::Permission | Refusal::Failed(_)
+                ) {
+                    self.accessibility_fault
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                refusal.observed()
+            }
+        }
     }
 
     fn observed(&self, request: &ScreenObserveRequest) -> Result<Value, Refusal> {

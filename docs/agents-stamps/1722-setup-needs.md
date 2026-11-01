@@ -1,0 +1,1 @@
+#1722 (epic #1688) on `screen/1722-setup-needs` (2026-11-01, base `4b0d5c963`, PR #1761): Rust screen setup needs, CLI JSON status, protocol step fixtures and machine-list projection; receipt in PR CI checks.
