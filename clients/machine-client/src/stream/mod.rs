@@ -666,15 +666,14 @@ mod private_tests {
 
     struct FaultyObserver {
         fixture: Scripted,
-        permission: bool,
+        windows_fault: Option<Fault>,
     }
 
     impl Observer for FaultyObserver {
         fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
-            if self.permission {
-                Err(Fault::Permission)
-            } else {
-                self.fixture.windows()
+            match &self.windows_fault {
+                Some(fault) => Err(fault.clone()),
+                None => self.fixture.windows(),
             }
         }
 
@@ -703,7 +702,7 @@ mod private_tests {
 
     async fn prepare_faulty_display(
         directory: &std::path::Path,
-        permission: bool,
+        windows_fault: Option<Fault>,
         secure: bool,
     ) -> (Result<(Pump, session::Offer), Value>, Arc<Screen>) {
         let layout = directory.join("layout.json");
@@ -744,7 +743,7 @@ mod private_tests {
                     layout,
                     recorder: directory.join("recorder.jsonl"),
                 },
-                permission,
+                windows_fault,
             }))
             .with_secure_input(|| false),
         );
@@ -763,7 +762,7 @@ mod private_tests {
     #[tokio::test]
     async fn display_stream_opens_past_failed_window_ax_read() {
         let directory = tempfile::tempdir().expect("directory");
-        let (result, screen) = prepare_faulty_display(directory.path(), false, true).await;
+        let (result, screen) = prepare_faulty_display(directory.path(), None, true).await;
         let (pump, _) = result.expect("display stream opens");
         assert!(pump.private);
         assert!(screen.capability(true).grants.accessibility);
@@ -772,13 +771,13 @@ mod private_tests {
     #[tokio::test]
     async fn display_stream_faulty_observer_retains_readable_window_ax_operations() {
         let directory = tempfile::tempdir().expect("directory");
-        let _ = prepare_faulty_display(directory.path(), false, false).await;
+        let _ = prepare_faulty_display(directory.path(), None, false).await;
         let observer = FaultyObserver {
             fixture: Scripted {
                 layout: directory.path().join("layout.json"),
                 recorder: directory.path().join("recorder.jsonl"),
             },
-            permission: false,
+            windows_fault: None,
         };
         let window = observer.windows().expect("windows").remove(1);
         let bounds = ax::Bounds {
@@ -799,7 +798,8 @@ mod private_tests {
     #[tokio::test]
     async fn display_stream_refuses_global_ax_permission_failure() {
         let directory = tempfile::tempdir().expect("directory");
-        let (result, screen) = prepare_faulty_display(directory.path(), true, false).await;
+        let (result, screen) =
+            prepare_faulty_display(directory.path(), Some(Fault::Permission), false).await;
         assert_eq!(
             result.err(),
             Some(json!({"status":"refused","reason":"permission_denied"}))
@@ -817,6 +817,25 @@ mod private_tests {
             screen.capture(&capture),
             json!({"status":"refused","reason":"accessibility_unavailable"})
         );
+    }
+
+    #[tokio::test]
+    async fn display_stream_unclassified_window_list_fault_marks_accessibility_unavailable() {
+        let directory = tempfile::tempdir().expect("directory");
+        let (result, screen) =
+            prepare_faulty_display(directory.path(), Some(Fault::Absent), false).await;
+        assert_eq!(
+            result.err(),
+            Some(json!({
+                "status":"refused","reason":"stream_not_available",
+                "message":"AccessibilityUnavailable"
+            }))
+        );
+        assert!(screen
+            .capability(true)
+            .blockers
+            .iter()
+            .any(|blocker| blocker.kind == "accessibility_unavailable"));
     }
 
     fn row(secure: bool) -> Value {
