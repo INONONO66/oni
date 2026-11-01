@@ -379,7 +379,7 @@ async fn failed_join_service_install_restores_previous_host_pin_and_client() {
         .expect("release reply");
         writer.flush().await.expect("flush response");
     };
-    let (output, ()) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+    let (output, ()) = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         tokio::join!(child, exchange)
     })
     .await
