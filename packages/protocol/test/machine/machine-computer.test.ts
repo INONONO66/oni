@@ -261,6 +261,25 @@ describe("Machine.ScreenObserveResult", () => {
   });
 });
 
+test("screen list decodes a sheet parent and defaults an ordinary window kind", () => {
+  const result = Machine.ScreenListResult.parse({
+    status: "ok",
+    displays: [{ display: 1, width: 100, height: 100, scale: 1, primary: true }],
+    windows: [
+      { windowId: "7", display: 1, title: "Editor", owner: "Fixture", bounds: { x: 0, y: 0, width: 100, height: 100 } },
+      { windowId: "82", kind: "sheet", parent: { pid: 42, windowId: 7, epoch: 0 },
+        display: 1, title: "Save", owner: "Fixture", bounds: { x: 5, y: 5, width: 30, height: 20 } },
+    ],
+    truncated: false,
+    observedAt: 1,
+  });
+  expect(result.status).toBe("ok");
+  if (result.status === "ok") {
+    expect(result.windows[0]?.kind).toBe("window");
+    expect(result.windows[1]?.parent).toEqual({ pid: 42, windowId: 7, epoch: 0 });
+  }
+});
+
 test("private mode wire shapes stay explicit", () => {
   expect(Machine.ScreenCaptureResult.parse({ status: "refused", reason: "private" })).toEqual({
     status: "refused", reason: "private",

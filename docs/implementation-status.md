@@ -16,6 +16,8 @@ The report marks capture-to-display `null` with `displayedBy: "none"`:
 the desktop presenter and live MacBook acceptance remain open on #1677
 and #1702. The command and JSON shape are in `docs/first-live-run.md`.
 
+The #1719 macOS observer lists open menus, sheets, popovers and alerts as distinct epoch-bound targets for background ref actions and settle, verified by a headless menu-and-sheet fixture while live macOS permission verification remains blocked by #1676; Linux reports `surface_enumeration_unavailable`.
+
 ## #1718 ref actionability
 
 Ref-targeted press and perform check disabled, zero-size, off-window and hit-test occlusion before dispatch, setValue checks disabled, and blocked actions wait at most two seconds by default before a typed `not_actionable` refusal.

@@ -1046,7 +1046,142 @@ fn window_at(window_id: u32, token: u64) -> WindowIdentity {
         token,
         origin: (100, 50),
         minimized: false,
+        surface: None,
     }
+}
+
+fn surface(window_id: u32, x: i64, parent: Option<u32>) -> WindowIdentity {
+    let mut identity = window_at(window_id, 0);
+    identity.surface = Some(ax::Surface {
+        kind: ax::SurfaceKind::Menu,
+        parent,
+        frame: Frame {
+            x,
+            y: 1,
+            width: 10,
+            height: 10,
+        },
+    });
+    identity
+}
+
+#[test]
+fn listing_skips_surfaces_off_display_but_keeps_visible_siblings() {
+    let fake = Fake::new(vec![]);
+    *fake.windows.lock().expect("windows") = Ok(vec![
+        window_at(9, 0),
+        surface(10, 100, None),
+        surface(11, 1, Some(9)),
+    ]);
+    let screen = Screen::new(
+        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
+        1,
+    )
+    .observing(Box::new(fake));
+    let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
+    assert_eq!(listed["windows"].as_array().expect("windows").len(), 1);
+    assert_eq!(listed["windows"][0]["windowId"], "11");
+    assert_eq!(
+        listed["windows"][0]["parent"],
+        json!({"pid":7,"windowId":9,"epoch":0})
+    );
+    assert_eq!(listed["truncated"], true);
+}
+
+#[test]
+fn listing_bounded_surfaces_reports_truncation() {
+    let fake = Fake::new(vec![]);
+    *fake.windows.lock().expect("windows") = Ok(vec![surface(10, 1, None), surface(11, 2, None)]);
+    let source = crate::screen::fixture::Fixture {
+        windows: vec![
+            crate::screen::Window {
+                id: 9,
+                display: 1,
+                title: "Editor".into(),
+                owner: "fixture".into(),
+                pid: Some(7),
+                app: None,
+                x: 0,
+                y: 0,
+                width: 10,
+                height: 10,
+            };
+            crate::screen::MAX_WINDOWS
+        ],
+        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
+    assert_eq!(
+        listed["windows"].as_array().expect("windows").len(),
+        crate::screen::MAX_WINDOWS
+    );
+    assert_eq!(listed["truncated"], true);
+}
+
+#[test]
+fn listing_retains_capture_windows_when_accessibility_refuses() {
+    let fake = Fake::new(vec![]);
+    *fake.windows.lock().expect("windows") = Err(Fault::Permission);
+    let source = crate::screen::fixture::Fixture {
+        windows: vec![crate::screen::Window {
+            id: 9,
+            display: 1,
+            title: "Editor".into(),
+            owner: "fixture".into(),
+            pid: Some(7),
+            app: None,
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+        }],
+        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
+    assert_eq!(listed["windows"].as_array().expect("windows").len(), 1);
+    assert_eq!(listed["windows"][0]["windowId"], "9");
+    assert_eq!(listed["truncated"], false);
+}
+
+#[test]
+fn listing_without_accessibility_observer_keeps_capture_windows() {
+    let source = crate::screen::fixture::Fixture {
+        windows: vec![crate::screen::Window {
+            id: 9,
+            display: 1,
+            title: "Editor".into(),
+            owner: "fixture".into(),
+            pid: Some(7),
+            app: None,
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+        }],
+        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
+    };
+    let screen = Screen::new(Box::new(source), 1);
+    let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
+    assert_eq!(listed["windows"].as_array().expect("windows").len(), 1);
+    assert_eq!(listed["windows"][0]["windowId"], "9");
+    assert_eq!(listed["truncated"], false);
+}
+
+#[test]
+fn surface_target_outside_native_window_id_range_is_not_known() {
+    let observations = Observations::default();
+    assert!(!observations.surface(Target {
+        pid: u64::from(u32::MAX) + 1,
+        window_id: 9,
+        epoch: Some(0),
+    }));
+    assert!(!observations.surface(Target {
+        pid: 7,
+        window_id: u64::from(u32::MAX) + 1,
+        epoch: Some(0),
+    }));
 }
 
 fn node(role: &str, label: Option<&str>, parent: Option<usize>) -> Node {

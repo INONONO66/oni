@@ -142,6 +142,9 @@ pub fn linux_ready(
     // Bus reachability cannot grant an observer the client does not implement.
     let accessibility = false;
     let mut blockers = linux_blockers(&facts, libs, bus);
+    blockers.push(Blocker {
+        kind: "surface_enumeration_unavailable",
+    });
     if bus && !binding.isolated {
         blockers.push(Blocker {
             kind: "observer_unavailable",
@@ -177,7 +180,14 @@ pub fn linux_ready(
     }
     // An isolated X11 desktop is usable without an AX tree; console observation
     // remains partial. Screen adds the live manager blocker for virtual displays.
-    if binding.isolated && x_ready && input_ready && verdict.blockers.is_empty() {
+    if binding.isolated
+        && x_ready
+        && input_ready
+        && verdict
+            .blockers
+            .iter()
+            .all(|blocker| blocker.kind == "surface_enumeration_unavailable")
+    {
         verdict.verdict = "available";
     }
     verdict.refresh_needs();
@@ -335,9 +345,14 @@ mod tests {
         assert!(!linux(&ready, None, true).grants.accessibility);
         assert_eq!(
             linux(&ready, None, true).blockers,
-            vec![Blocker {
-                kind: "observer_unavailable"
-            }]
+            vec![
+                Blocker {
+                    kind: "surface_enumeration_unavailable"
+                },
+                Blocker {
+                    kind: "observer_unavailable"
+                }
+            ]
         );
         assert_eq!(linux(&ready, Some(":48"), true).verdict, "available");
         assert_eq!(
@@ -352,7 +367,12 @@ mod tests {
             .verdict,
             "available"
         );
-        assert_eq!(linux(&ready, Some(":48"), true).blockers, vec![]);
+        assert_eq!(
+            linux(&ready, Some(":48"), true).blockers,
+            vec![Blocker {
+                kind: "surface_enumeration_unavailable"
+            }]
+        );
         assert!(linux(&ready, Some(":48"), true).needs.is_empty());
         assert!(linux(&ready, Some(":48"), true).display.isolated);
         let no_input = linux(&ready, Some(":48"), false);
@@ -367,9 +387,14 @@ mod tests {
         );
         assert_eq!(
             no_input.blockers,
-            vec![Blocker {
-                kind: "input_backend_unavailable"
-            }]
+            vec![
+                Blocker {
+                    kind: "surface_enumeration_unavailable"
+                },
+                Blocker {
+                    kind: "input_backend_unavailable"
+                }
+            ]
         );
         oni_protocol::decode::<oni_protocol::Screen>(
             serde_json::to_value(no_input).expect("verdict"),
@@ -389,9 +414,14 @@ mod tests {
         assert_eq!(disconnected.verdict, "unavailable");
         assert_eq!(
             disconnected.blockers,
-            vec![Blocker {
-                kind: "no_x_display"
-            }]
+            vec![
+                Blocker {
+                    kind: "no_x_display"
+                },
+                Blocker {
+                    kind: "surface_enumeration_unavailable"
+                }
+            ]
         );
         assert_eq!(
             linux(

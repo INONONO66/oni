@@ -5,7 +5,7 @@ export const ScreenBlocker = z.object({
     "screen_recording_denied", "accessibility_denied", "no_console_user",
     "other_console_user", "display_asleep", "no_x_display", "x_auth_refused",
     "x_display_forwarded", "wayland_only_no_x", "missing_x_libs",
-    "no_atspi_bus", "observer_unavailable", "session_zero", "window_manager_missing",
+    "no_atspi_bus", "observer_unavailable", "surface_enumeration_unavailable", "session_zero", "window_manager_missing",
     "input_monitoring_not_granted", "no_screen_backend", "input_backend_unavailable",
     "accessibility_unavailable",
     "restart_bound",

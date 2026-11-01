@@ -1375,6 +1375,7 @@ mod private_tests {
             token: 0,
             origin: (0, 0),
             minimized: false,
+            surface: None,
         };
         let bounds = ax::Bounds {
             max_elements: 1,

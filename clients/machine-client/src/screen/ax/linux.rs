@@ -28,6 +28,7 @@ impl Observer for Native {
                     token: u64::from(window.id),
                     origin: (i64::from(window.x), i64::from(window.y)),
                     minimized: false,
+                    surface: None,
                 })
             })
             .collect())
@@ -65,6 +66,7 @@ mod tests {
             token: 1,
             origin: (0, 0),
             minimized: false,
+            surface: None,
         };
         let bounds = Bounds {
             max_elements: 10,

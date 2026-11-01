@@ -851,6 +851,61 @@ impl Screen {
                 }
                 rows.push(window_row(&window, index, &displays[index]));
             }
+            if let Some(observer) = self.observer.as_deref() {
+                if let Ok(identities) = self.observations.listed(observer) {
+                    let epochs: std::collections::HashMap<_, _> = identities
+                        .iter()
+                        .map(|(identity, epoch)| ((identity.pid, identity.window_id), *epoch))
+                        .collect();
+                    for (identity, _) in identities {
+                        let Some(surface) = identity.surface else {
+                            continue;
+                        };
+                        let Some(index) = displays.iter().position(|display| {
+                            let frame = &surface.frame;
+                            i64::from(display.x) <= frame.x
+                                && frame.x < i64::from(display.x) + i64::from(display.width)
+                                && i64::from(display.y) <= frame.y
+                                && frame.y < i64::from(display.y) + i64::from(display.height)
+                        }) else {
+                            truncated = true;
+                            continue;
+                        };
+                        if rows.len() == MAX_WINDOWS {
+                            truncated = true;
+                            break;
+                        }
+                        let frame = &surface.frame;
+                        let display = &displays[index];
+                        let mut row = json!({
+                            "windowId":identity.window_id.to_string(),
+                            "kind":surface.kind.name(),
+                            "display":index + 1,
+                            "title":identity.title.chars().take(MAX_TEXT).collect::<String>(),
+                            "owner":identity.app.bundle_id.as_deref().unwrap_or(&identity.app.path).chars().take(MAX_TEXT).collect::<String>(),
+                            "pid":identity.pid,
+                            "app":identity.app,
+                            "bounds":{
+                                "x":(frame.x - i64::from(display.x)).clamp(-COORDINATE, COORDINATE),
+                                "y":(frame.y - i64::from(display.y)).clamp(-COORDINATE, COORDINATE),
+                                "width":u32::try_from(frame.width.max(0)).unwrap_or(MAX_DIMENSION).min(MAX_DIMENSION),
+                                "height":u32::try_from(frame.height.max(0)).unwrap_or(MAX_DIMENSION).min(MAX_DIMENSION),
+                            }
+                        });
+                        if let Some((parent, epoch)) = surface.parent.and_then(|parent| {
+                            epochs
+                                .get(&(identity.pid, parent))
+                                .map(|epoch| (parent, epoch))
+                        }) {
+                            row["parent"] = json!({
+                                "pid":identity.pid,"windowId":parent,
+                                "epoch":epoch
+                            });
+                        }
+                        rows.push(row);
+                    }
+                }
+            }
         }
         let displays: Vec<Value> = displays
             .iter()
@@ -1078,7 +1133,7 @@ fn window_row(window: &Window, index: usize, display: &Display) -> Value {
     let offset =
         |at: i32, origin: i32| (i64::from(at) - i64::from(origin)).clamp(-COORDINATE, COORDINATE);
     let mut row = json!({
-        "windowId":window.id.to_string(),"display":index + 1,
+        "windowId":window.id.to_string(),"kind":"window","display":index + 1,
         "title":window.title.chars().take(MAX_TEXT).collect::<String>(),
         "owner":window.owner.chars().take(MAX_TEXT).collect::<String>(),
         "bounds":{

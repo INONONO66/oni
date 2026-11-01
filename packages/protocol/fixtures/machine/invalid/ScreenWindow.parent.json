@@ -1,0 +1,18 @@
+{
+  "windowId": "82",
+  "kind": "sheet",
+  "parent": {
+    "pid": 42,
+    "windowId": 7,
+    "epoch": -1
+  },
+  "display": 1,
+  "title": "Save",
+  "owner": "Editor",
+  "bounds": {
+    "x": 6,
+    "y": 8,
+    "width": 30,
+    "height": 20
+  }
+}

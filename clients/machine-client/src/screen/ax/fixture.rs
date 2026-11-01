@@ -19,8 +19,8 @@ use serde_json::{json, Value};
 
 use super::{
     assemble, attribute_fault, resolve, target, walk, ActFault, Action, Admit, AppIdentity,
-    AttributeFault, Attributes, Bounds, Frame, Hit, Observer, Raw, Segment, Tree, Walk,
-    WindowIdentity, ATTRIBUTES,
+    AttributeFault, Attributes, Bounds, Frame, Hit, Observer, Raw, Segment, Surface, SurfaceKind,
+    Tree, Walk, WindowIdentity, ATTRIBUTES,
 };
 use crate::screen::observe;
 use crate::screen::settle::{
@@ -83,14 +83,34 @@ struct Row {
     focus_error: bool,
     #[serde(default)]
     minimized: bool,
+    kind: Option<FixtureKind>,
+    parent: Option<u32>,
     #[serde(default)]
     timeline: Vec<Timeline>,
 }
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum FixtureKind {
+    Menu,
+    Sheet,
+    Popover,
+    Alert,
+}
+
+impl From<FixtureKind> for SurfaceKind {
+    fn from(kind: FixtureKind) -> Self {
+        match kind {
+            FixtureKind::Menu => Self::Menu,
+            FixtureKind::Sheet => Self::Sheet,
+            FixtureKind::Popover => Self::Popover,
+            FixtureKind::Alert => Self::Alert,
+        }
+    }
+}
 fn default_extent() -> i64 {
     1024
 }
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Timeline {
@@ -283,12 +303,17 @@ impl Observer for Scripted {
         point: (i64, i64),
     ) -> Result<Hit, Fault> {
         let rows = self.rows()?;
-        let Some(row) = rows.iter().find(|row| {
-            point.0 >= row.x
-                && point.0 < row.x + row.width
-                && point.1 >= row.y
-                && point.1 < row.y + row.height
-        }) else {
+        let Some(row) = rows
+            .iter()
+            .filter(|row| row.kind.is_some())
+            .chain(rows.iter().filter(|row| row.kind.is_none()))
+            .find(|row| {
+                point.0 >= row.x
+                    && point.0 < row.x + row.width
+                    && point.1 >= row.y
+                    && point.1 < row.y + row.height
+            })
+        else {
             return Ok(Hit::Occluded);
         };
         if row.id != window.window_id || row.pid != Some(window.pid) {
@@ -369,6 +394,16 @@ impl Observer for Scripted {
                     token: row.epoch,
                     origin: (row.x, row.y),
                     minimized: row.minimized,
+                    surface: row.kind.map(|kind| Surface {
+                        kind: kind.into(),
+                        parent: row.parent,
+                        frame: Frame {
+                            x: row.x,
+                            y: row.y,
+                            width: row.width,
+                            height: row.height,
+                        },
+                    }),
                 })
             })
             .collect())
@@ -468,6 +503,7 @@ mod tests {
             token: 0,
             origin: (0, 0),
             minimized: false,
+            surface: None,
         }
     }
 

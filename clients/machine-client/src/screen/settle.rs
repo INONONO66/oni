@@ -130,6 +130,7 @@ impl Screen {
         else {
             return refusal("window_not_found");
         };
+        let surface = self.observations.surface(target);
         let (Some(notifications), Some(observer)) =
             (self.notifications.as_deref(), self.observer.as_ref())
         else {
@@ -140,13 +141,17 @@ impl Screen {
         let mut subscription =
             match notifications.subscribe(pid, window_id, started, end, Arc::clone(observer)) {
                 Ok(subscription) => subscription,
+                Err(Unsupported::WindowNotFound) if surface => {
+                    self.observations.destroy(target);
+                    return json!({"status": "destroyed"});
+                }
                 Err(Unsupported::NoObserver | Unsupported::AccessibilityNotGranted) => {
                     return self.settle_pixels(request, pid, window_id)
                 }
                 Err(Unsupported::WindowNotFound) => return refusal("window_not_found"),
             };
         let quiet = Duration::from_millis(request.quiet_ms.unwrap_or(200).unsigned_abs());
-        self.settle_subscribed(subscription.as_mut(), target, quiet, end)
+        self.settle_subscribed(subscription.as_mut(), target, quiet, end, surface)
     }
 
     fn settle_subscribed(
@@ -155,6 +160,7 @@ impl Screen {
         target: observe::Target,
         quiet: Duration,
         end: Instant,
+        surface: bool,
     ) -> Value {
         let mut state = State::new(subscription.now());
         let baseline = self.settle_sample(subscription, target, end);
@@ -165,6 +171,10 @@ impl Screen {
         match baseline {
             Ok(prepared) => {
                 self.observations.commit(prepared, None);
+            }
+            Err(observe::Refusal::WindowNotFound) if surface => {
+                self.observations.destroy(target);
+                return json!({"status": "destroyed"});
             }
             Err(error) => return sample_refusal(error),
         }
@@ -197,6 +207,10 @@ impl Screen {
             }
             let prepared = match prepared {
                 Ok(prepared) => prepared,
+                Err(observe::Refusal::WindowNotFound) if surface => {
+                    self.observations.destroy(target);
+                    return json!({"status": "destroyed"});
+                }
                 Err(error) => return sample_refusal(error),
             };
             let settled = state == before

@@ -8,7 +8,10 @@ use std::{
 
 use super::*;
 use crate::screen::{
-    ax::{ActFault, Action, Admit, AppIdentity, Bounds, Observer, Segment, Walk, WindowIdentity},
+    ax::{
+        ActFault, Action, Admit, AppIdentity, Bounds, Frame, Observer, Segment, Surface,
+        SurfaceKind, Walk, WindowIdentity,
+    },
     fixture::Fixture,
     Fault, Window,
 };
@@ -26,6 +29,8 @@ struct Model {
     budgets: Vec<Duration>,
     before_commit: Option<Notification>,
     private: bool,
+    surface: bool,
+    vanish_at_read: Option<usize>,
 }
 
 struct FakeObserver(Arc<Mutex<Model>>);
@@ -51,6 +56,12 @@ impl Observer for FakeObserver {
         if let Some(fault) = &model.fault {
             return Err(fault.clone());
         }
+        if model
+            .vanish_at_read
+            .is_some_and(|read| model.window_reads >= read)
+        {
+            return Ok(vec![]);
+        }
         let token = if model.tokens.len() > 1 {
             model.tokens.remove(0)
         } else {
@@ -68,6 +79,16 @@ impl Observer for FakeObserver {
             token,
             origin: (0, 0),
             minimized: false,
+            surface: model.surface.then_some(Surface {
+                kind: SurfaceKind::Menu,
+                parent: None,
+                frame: Frame {
+                    x: 1,
+                    y: 1,
+                    width: 10,
+                    height: 10,
+                },
+            }),
         }])
     }
     fn walk(&self, _: &WindowIdentity, bounds: &Bounds) -> Result<Walk, Fault> {
@@ -206,6 +227,49 @@ fn since(screen: &Screen, id: &str) -> Value {
         }))
         .expect("valid observe"),
     )
+}
+
+#[test]
+fn surface_disappearing_during_baseline_sample_is_destroyed() {
+    let (screen, model) = setup(
+        Model {
+            surface: true,
+            vanish_at_read: Some(2),
+            ..Model::default()
+        },
+        0,
+        vec![],
+        None,
+    );
+    let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
+    assert_eq!(listed["windows"][0]["kind"], "menu");
+    assert_eq!(
+        screen.settle(&request(50, 100)),
+        json!({"status": "destroyed"})
+    );
+    assert_eq!(model.lock().expect("model").walks, 0);
+}
+
+#[test]
+fn surface_disappearing_during_final_sample_invalidates_baseline() {
+    let (screen, model) = setup(
+        Model {
+            surface: true,
+            vanish_at_read: Some(3),
+            ..Model::default()
+        },
+        0,
+        vec![],
+        None,
+    );
+    let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
+    assert_eq!(listed["windows"][0]["kind"], "menu");
+    assert_eq!(
+        screen.settle(&request(50, 100)),
+        json!({"status": "destroyed"})
+    );
+    assert_eq!(model.lock().expect("model").walks, 1);
+    assert_eq!(since(&screen, "o1")["reason"], "window_not_found");
 }
 
 #[test]
