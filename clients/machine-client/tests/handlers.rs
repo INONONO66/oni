@@ -1040,7 +1040,7 @@ async fn held_input_is_released_on_detach_and_on_a_withdrawn_grant() {
 }
 
 #[tokio::test]
-async fn observation_methods_gate_like_screen_and_input_and_refuse_without_an_observer() {
+async fn observation_methods_gate_like_screen_and_settle_uses_capture_without_an_observer() {
     use oni_machine_client::{
         input::{recorder::Recorder, Input},
         screen::{fixture::Fixture as Frames, Screen},
@@ -1092,7 +1092,7 @@ async fn observation_methods_gate_like_screen_and_input_and_refuse_without_an_ob
             assert_eq!(answer, refusal(reason), "{method}");
         }
         let expected = if capabilities.contains(&"computer.use") {
-            json!({"status":"unsupported","blocker":"no_observer"})
+            refusal("window_not_found")
         } else {
             refusal("permission_denied")
         };
