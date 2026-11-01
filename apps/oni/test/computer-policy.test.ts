@@ -18,6 +18,45 @@ test("captured tool.pre refuses missing and expired leases before forwarding", a
   } finally { f.close(); }
 });
 
+test("clipboard grants refuse reads without read_write and deny private reads", async () => {
+  const f = computerFixture();
+  const read = { machineId: "desk", generation: 1, method: Machine.WireMethod.ClipboardRead, params: { formats: ["text" as const] } };
+  const write = { machineId: "desk", generation: 1, method: Machine.WireMethod.ClipboardWrite, params: { text: "agent" } };
+  try {
+    f.grant();
+    expect(await f.call(read)).toEqual({ status: "refused", reason: "clipboard_not_granted" });
+    expect(await f.call(write)).toEqual({ status: "refused", reason: "clipboard_not_granted" });
+    f.grant({ clipboard: "write" });
+    expect(await f.call(read)).toEqual({ status: "refused", reason: "clipboard_not_granted" });
+    expect(await f.call(write)).toEqual({ status: "ok" });
+    f.grant({ clipboard: "read_write" });
+    expect(await f.call(read)).toEqual({ status: "ok" });
+    f.policy.pause("desk", "private");
+    expect(await f.call(read)).toEqual({ status: "refused", reason: "private" });
+  } finally { f.close(); }
+});
+
+test("clipboard ledger facts retain sizes but exclude read and write contents", async () => {
+  const f = computerFixture();
+  const read = { machineId: "desk", generation: 1, method: Machine.WireMethod.ClipboardRead, params: { formats: ["text" as const] } };
+  const write = { machineId: "desk", generation: 1, method: Machine.WireMethod.ClipboardWrite, params: { text: "write-secret" } };
+  try {
+    f.grant({ clipboard: "read_write" });
+    const readAnswer = await runEffect(f.capture(read, Effect.succeed({ status: "ok", text: "read-secret", changeCount: 2 })).pipe(
+      Effect.provideService(Core.ExecutorContext, f.executor),
+    ));
+    expect(readAnswer).toEqual({ status: "ok", text: "read-secret", changeCount: 2 });
+    const writeAnswer = await runEffect(f.capture(write, Effect.succeed({
+      status: "ok", changeCount: 3, previous: { changeCount: 2, formats: ["public.utf8-plain-text"], bytes: 11 },
+    })).pipe(Effect.provideService(Core.ExecutorContext, f.executor)));
+    expect(writeAnswer.status).toBe("ok");
+    const serialized = JSON.stringify(f.actions);
+    expect(serialized).not.toContain("read-secret");
+    expect(serialized).not.toContain("write-secret");
+    expect(serialized).toContain('"bytes":11');
+  } finally { f.close(); }
+});
+
 test("the 1500th admitted input succeeds and the 1501st carries its sliding reset time", async () => {
   const f = computerFixture();
   try {

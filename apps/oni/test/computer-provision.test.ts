@@ -13,7 +13,7 @@ const context: ToolExecutionContext = {
 };
 const request = {
   op: "computer_request",
-  args: { machineId: "desk", apps: [app.bundleId], minutes: 10, foreground: { purpose: "Review output" } },
+  args: { machineId: "desk", apps: [app.bundleId], clipboard: "none", minutes: 10, foreground: { purpose: "Review output" } },
 } satisfies ComputerOperation;
 
 test("Owner approval grants ten minutes and expired foreground calls refuse on the same gate", async () => {

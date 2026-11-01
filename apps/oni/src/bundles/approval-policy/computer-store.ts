@@ -30,8 +30,8 @@ export function computerStore(rows: Core.LedgerHost["policyState"], onRevision?:
     return value;
   }
   function active(lease: Machine.ComputerLease) {
-    const { sessionId, machineId, apps, expiresAt, foreground, budget, admittedAt, revision } = lease;
-    return { sessionId, machineId, apps, expiresAt, budget, admittedAt, ...(foreground === undefined ? {} : { foreground }), revision: revision + 1 };
+    const { sessionId, machineId, apps, clipboard, expiresAt, foreground, budget, admittedAt, revision } = lease;
+    return { sessionId, machineId, apps, clipboard, expiresAt, budget, admittedAt, ...(foreground === undefined ? {} : { foreground }), revision: revision + 1 };
   }
   const ceiling = (machineId: string) => z.number().int().positive().parse(rows.get(CEILING, machineId)?.value ?? 1500);
   return {
