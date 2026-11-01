@@ -657,7 +657,167 @@ impl Stream {
 #[cfg(test)]
 mod private_tests {
     use super::*;
-    use crate::screen::{ax::fixture::Scripted, fixture::Fixture, Window};
+    use crate::screen::{
+        ax::{self, fixture::Scripted, Observer, WindowIdentity},
+        fixture::Fixture,
+        private::Focused,
+        Window,
+    };
+
+    struct FaultyObserver {
+        fixture: Scripted,
+        permission: bool,
+    }
+
+    impl Observer for FaultyObserver {
+        fn windows(&self) -> Result<Vec<WindowIdentity>, Fault> {
+            if self.permission {
+                Err(Fault::Permission)
+            } else {
+                self.fixture.windows()
+            }
+        }
+
+        fn focused(&self, window: &WindowIdentity) -> Result<Option<Focused>, Fault> {
+            if window.window_id == 9 {
+                Err(Fault::Failed("window AX read failed".into()))
+            } else {
+                self.fixture.focused(window)
+            }
+        }
+
+        fn walk(&self, window: &WindowIdentity, bounds: &ax::Bounds) -> Result<ax::Walk, Fault> {
+            self.fixture.walk(window, bounds)
+        }
+
+        fn act(
+            &self,
+            window: &WindowIdentity,
+            path: &[ax::Segment],
+            admit: ax::Admit<'_>,
+            action: &ax::Action,
+        ) -> Result<(), ax::ActFault> {
+            self.fixture.act(window, path, admit, action)
+        }
+    }
+
+    async fn prepare_faulty_display(
+        directory: &std::path::Path,
+        permission: bool,
+        secure: bool,
+    ) -> (Result<(Pump, session::Offer), Value>, Arc<Screen>) {
+        let layout = directory.join("layout.json");
+        std::fs::write(
+            &layout,
+            json!({"windows": [
+                {"id":9,"pid":7,"title":"Unreadable"},
+                {"id":10,"pid":8,"title":"Readable","elements":[{
+                    "role":"AXTextField","secure":secure,"focused":true,
+                    "frame":{"x":0,"y":0,"width":16,"height":16}
+                }]}
+            ]})
+            .to_string(),
+        )
+        .expect("layout");
+        let windows = [9, 10].map(|id| Window {
+            id,
+            display: 1,
+            title: "Window".into(),
+            owner: "fixture".into(),
+            pid: Some(id),
+            app: None,
+            x: 0,
+            y: 0,
+            width: 16,
+            height: 16,
+        });
+        let screen = Arc::new(
+            Screen::new(
+                Box::new(Fixture {
+                    windows: windows.to_vec(),
+                    ..Fixture::display(32, 16, 1.0)
+                }),
+                2,
+            )
+            .observing(Box::new(FaultyObserver {
+                fixture: Scripted {
+                    layout,
+                    recorder: directory.join("recorder.jsonl"),
+                },
+                permission,
+            }))
+            .with_secure_input(|| false),
+        );
+        let request: StreamOpenRequest = oni_protocol::decode(json!({
+            "streamId":"faulty-display","source":{"kind":"display","display":1},
+            "dataChannel":true,"lifetimeMs":60000,
+            "video":{"maxFps":30,"keyframeIntervalMs":1000,
+                "maxBitrateBps":1000000,"maxDimension":32,"maxFrameBytes":1048576}
+        }))
+        .expect("stream request");
+        let stream = Stream::new(IpAddr::V4(Ipv4Addr::LOCALHOST), "laptop".into());
+        let result = stream.prepare(&request, &screen).await;
+        (result, screen)
+    }
+
+    #[tokio::test]
+    async fn display_stream_opens_past_failed_window_ax_read() {
+        let directory = tempfile::tempdir().expect("directory");
+        let (result, screen) = prepare_faulty_display(directory.path(), false, true).await;
+        let (pump, _) = result.expect("display stream opens");
+        assert!(pump.private);
+        assert!(screen.capability(true).grants.accessibility);
+    }
+
+    #[tokio::test]
+    async fn display_stream_faulty_observer_retains_readable_window_ax_operations() {
+        let directory = tempfile::tempdir().expect("directory");
+        let _ = prepare_faulty_display(directory.path(), false, false).await;
+        let observer = FaultyObserver {
+            fixture: Scripted {
+                layout: directory.path().join("layout.json"),
+                recorder: directory.path().join("recorder.jsonl"),
+            },
+            permission: false,
+        };
+        let window = observer.windows().expect("windows").remove(1);
+        let bounds = ax::Bounds {
+            max_elements: 10,
+            max_visits: 10,
+            budget: Duration::from_secs(1),
+        };
+        assert_eq!(
+            observer.walk(&window, &bounds).expect("walk").nodes.len(),
+            1
+        );
+        assert_eq!(
+            observer.act(&window, &[], &|_| true, &ax::Action::Press),
+            Err(ax::ActFault::NotFound)
+        );
+    }
+
+    #[tokio::test]
+    async fn display_stream_refuses_global_ax_permission_failure() {
+        let directory = tempfile::tempdir().expect("directory");
+        let (result, screen) = prepare_faulty_display(directory.path(), true, false).await;
+        assert_eq!(
+            result.err(),
+            Some(json!({"status":"refused","reason":"permission_denied"}))
+        );
+        assert!(screen
+            .capability(true)
+            .blockers
+            .iter()
+            .any(|blocker| blocker.kind == "accessibility_unavailable"));
+        let capture: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target":{"kind":"window","windowId":"9"},"encoding":{"format":"png"}
+        }))
+        .expect("window capture");
+        assert_eq!(
+            screen.capture(&capture),
+            json!({"status":"refused","reason":"accessibility_unavailable"})
+        );
+    }
 
     fn row(secure: bool) -> Value {
         json!({

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createStreamProbe, StreamProbeResponse } from "../src/composition/stream-probe";
-import { parseStreamProbeArgs, runStreamProbe, type ProbeLink } from "../src/cli/stream-probe";
+import { parseStreamProbeArgs, runStreamProbe, streamProbeCommand, type ProbeLink } from "../src/cli/stream-probe";
 import { openStreamViewer, type StreamViewer } from "../src/cli/stream-viewer";
 import type { StreamListeners } from "@oni/machines";
 
@@ -60,7 +60,7 @@ test("probe refuses unauthenticated access and reports a failed reopen without i
   expect(await probe.handle(ws, request, false)).toBe(true);
   expect(frames.at(-1)).toMatchObject({ type: "stream_probe_refused", reason: "unauthenticated" });
   await probe.handle(ws, request, true);
-  expect(frames.at(-1)).toMatchObject({ type: "stream_probe_refused", reason: "machine_not_attached" });
+  expect(frames.at(-1)).toEqual({ type: "stream_probe_refused", requestId: "p", reason: "machine_not_attached", message: "gone" });
   expect(await probe.handle(ws, '{"type":"machine_list","requestId":"p"}', true)).toBe(false);
 });
 
@@ -150,6 +150,31 @@ test("probe refuses duplicate opens, invalid frames, and stream signals without 
   await send({ type: "stream_probe_report", requestId: "p" });
   expect(frames.at(-1)).toMatchObject({ stages: { captureToReceipt: { frames: 0 }, captureToDecoded: { frames: 0 } } });
   await probe.close(ws);
+});
+
+test("CLI probe prints the client's exact refusal message", async () => {
+  const refusal = StreamProbeResponse.parse({
+    type: "stream_probe_refused", requestId: "p",
+    reason: "stream_not_available", message: "AccessibilityUnavailable",
+  });
+  const errors: string[] = [];
+  const exit = await streamProbeCommand(["macbook", "1"], {
+    id: () => "p",
+    connect: async () => ({
+      send: () => undefined,
+      next: async () => refusal,
+      close: () => undefined,
+    }),
+    viewer: async () => ({
+      answer: async () => { throw new Error("unexpected answer"); },
+      candidate: async () => undefined,
+      until: async () => [],
+      close: () => undefined,
+    }),
+    wait: async () => undefined,
+  }, { stdout: () => undefined, stderr: (line) => errors.push(line) });
+  expect(exit).toBe(1);
+  expect(errors).toEqual(["stream_probe_refused: stream_not_available: AccessibilityUnavailable"]);
 });
 
 test("a disconnected stream refuses subsequent signals and reports without data", async () => {

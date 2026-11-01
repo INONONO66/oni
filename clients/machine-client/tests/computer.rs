@@ -264,7 +264,7 @@ fn overlapping_pointer_windows_are_private() {
 }
 
 #[test]
-fn lost_observer_reports_display_capture_fault_and_refuses_stream_frame() {
+fn lost_observer_does_not_stop_display_capture_or_stream_frame() {
     let directory = tempfile::tempdir().expect("tempdir");
     let mut layout: Value = serde_json::from_str(LAYOUT).expect("layout");
     layout["windows"][0]["pid"] = json!(4242);
@@ -281,13 +281,14 @@ fn lost_observer_reports_display_capture_fault_and_refuses_stream_frame() {
     .expect("request");
     let captured = screen.capture(&request);
     assert_eq!(captured["status"], "ok");
-    assert_eq!(captured["accessibilityUnavailable"], true);
+    assert!(captured.get("accessibilityUnavailable").is_none());
     let source = serde_json::from_value(json!({"kind":"display","display":1})).expect("source");
     let mut frame = Vec::new();
-    assert!(matches!(
-        screen.frame_private(&source, 320, &mut frame),
-        Err(oni_machine_client::screen::Fault::AccessibilityUnavailable)
-    ));
+    let (_, private) = screen
+        .frame_private(&source, 320, &mut frame)
+        .expect("stream frame");
+    assert!(!private);
+    assert!(frame.iter().any(|byte| *byte != 0));
 }
 
 #[test]

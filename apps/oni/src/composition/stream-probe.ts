@@ -21,7 +21,7 @@ export const StreamProbeResponse = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stream_probe_signal"), requestId: z.string(), signal: Signal }).strict(),
   z.object({ type: z.literal("stream_probe_accepted"), requestId: z.string() }).strict(),
   z.object({ type: z.literal("stream_probe_closed"), requestId: z.string() }).strict(),
-  z.object({ type: z.literal("stream_probe_refused"), requestId: z.string(), reason: z.string() }).strict(),
+  z.object({ type: z.literal("stream_probe_refused"), requestId: z.string(), reason: z.string(), message: z.string().optional() }).strict(),
   z.object({
     type: z.literal("stream_probe_report"), requestId: z.string(),
     stages: z.object({
@@ -79,7 +79,7 @@ async function openSession(
     const opened = await ports.open(input.machineId, input.display, listeners);
     if ("status" in opened) {
       if (input.reconnect) state.reconnect = "unavailable";
-      send(ws, { type: "stream_probe_refused", requestId, reason: opened.reason });
+      send(ws, { type: "stream_probe_refused", requestId, reason: opened.reason, ...(opened.message === undefined ? {} : { message: opened.message }) });
       return;
     }
     state.stream = opened;

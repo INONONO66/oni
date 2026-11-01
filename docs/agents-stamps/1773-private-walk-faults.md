@@ -1,0 +1,1 @@
+Issue #1773 on `fix/1773-private-walk` (2026-11-01, base `5354bfeab`, PR pending): display streams skip per-window AX failures but refuse global permission errors; the machine probe prints client refusal messages; receipts in `clients/machine-client/src/stream/mod.rs` and `apps/oni/test/stream-probe.test.ts`.

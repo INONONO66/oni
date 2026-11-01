@@ -862,7 +862,7 @@ fn window_capture_guard_propagates_observer_failure() {
 }
 
 #[test]
-fn display_capture_reports_observer_fault_while_stream_refuses() {
+fn display_capture_and_stream_skip_failed_window_enumeration() {
     let fake = Fake::new(tree());
     *fake.windows.lock().expect("lock") = Err(Fault::Failed("observer unavailable".into()));
     let source = crate::screen::fixture::Fixture {
@@ -880,21 +880,25 @@ fn display_capture_reports_observer_fault_while_stream_refuses() {
         }],
         ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
     };
-    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let screen = Screen::new(Box::new(source), 1)
+        .observing(Box::new(fake))
+        .with_secure_input(|| false);
     let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
         "target":{"kind":"display","display":1},"encoding":{"format":"png"}
     }))
     .expect("capture");
     let result = screen.capture(&request);
     assert_eq!(result["status"], "ok");
-    assert_eq!(result["accessibilityUnavailable"], true);
+    assert!(result.get("accessibilityUnavailable").is_none());
 
     let source = serde_json::from_value(json!({"kind":"display","display":1})).expect("source");
     let mut frame = Vec::new();
-    assert_eq!(
-        screen.frame_private(&source, 32, &mut frame),
-        Err(Fault::AccessibilityUnavailable)
-    );
+    let (_, private) = screen
+        .frame_private(&source, 32, &mut frame)
+        .expect("frame");
+    assert!(!private);
+    assert!(frame.iter().any(|byte| *byte != 0));
+    assert!(screen.capability(true).grants.accessibility);
 }
 
 #[test]
