@@ -67,6 +67,7 @@ fn optional_tmux_socket_round_trips_without_changing_default_settings() {
 fn join_options(host: &str) -> JoinOptions {
     JoinOptions {
         host: host.into(),
+        json: false,
         name: Some("Work-Mac".into()),
         tags: vec![],
         exports: vec![],

@@ -722,8 +722,15 @@ impl Input {
             Some(Event::Move { x, y, .. }) => Some((*x, *y)),
             _ => None,
         };
-        if !matches!(anchor, Anchor::Ref { .. }) && screen.input_private(point).unwrap_or(true) {
-            return Err(refuse("private"));
+        if !matches!(anchor, Anchor::Ref { .. }) {
+            match screen.input_private(point) {
+                Ok(true) => return Err(refuse("private")),
+                Err(crate::screen::Fault::AccessibilityUnavailable) => {
+                    return Err(refuse("accessibility_unavailable"));
+                }
+                Err(_) => return Err(refuse("private")),
+                Ok(false) => {}
+            }
         }
         if !driver.permitted() {
             return Err(refuse("permission_denied"));
@@ -845,5 +852,34 @@ fn track(held: &mut Vec<(Route, Event)>, route: Route, event: &Event) {
     held.retain(|(at, pressed)| *at != route || *pressed != release);
     if down {
         held.push((route, release));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::screen::fixture::Fixture;
+
+    #[test]
+    fn input_without_an_observer_refuses_before_posting() {
+        let screen = Screen::new(Box::new(Fixture::display(8, 8, 1.0)), 1);
+        let capture: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
+            "target":{"kind":"display","display":1},"encoding":{"format":"png"}
+        }))
+        .expect("capture request");
+        let id = screen.capture(&capture)["captureId"]
+            .as_str()
+            .expect("capture id")
+            .to_owned();
+        let request: InputWriteRequest = oni_protocol::decode(json!({
+            "captureId":id,"actions":[{"key":{"name":"Enter"}}]
+        }))
+        .expect("input request");
+        let recorder = recorder::Recorder::default();
+        assert_eq!(
+            Input::new(recorder.clone()).write(&screen, &request),
+            json!({"status":"refused","reason":"private"})
+        );
+        assert!(recorder.events().is_empty());
     }
 }

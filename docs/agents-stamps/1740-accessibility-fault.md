@@ -1,0 +1,1 @@
+#1740 (epic #1688) on `fix/1740-accessibility-fault` (2026-11-01, base `84aca7be4`, PR #1750): focused AX lookup faults no longer classify windows as private; display captures carry an unmasked accessibility fault, input refuses `accessibility_unavailable`, and the screen verdict carries the blocker; receipt in PR #1750 CI checks.
