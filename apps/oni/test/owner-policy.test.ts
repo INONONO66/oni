@@ -71,6 +71,7 @@ test("the shipped JSON contains the reviewed app-owned policy row and point inve
     ["message.resident.parent", "message.pre"],
     ["message.resident.reply_draft", "message.pre"],
     ["message.resident.reply_unbound", "message.pre"],
+    ["message.resident.target_ambiguous", "message.pre"],
     ["provision-automation-add-consent", "tool.pre"],
     ["provision-automation-enable-consent", "tool.pre"],
     ["provision-bundle-disable-consent", "tool.pre"],

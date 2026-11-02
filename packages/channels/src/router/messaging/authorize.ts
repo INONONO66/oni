@@ -166,7 +166,7 @@ export function authorizeSend(
   const surface = input.target.surface;
   const selected = resolveInstance(
     routes, resolution.target.channel, resolution.target.identity,
-    surface !== undefined && (routes.has(surface) || surface.startsWith("channel:")) ? surface : undefined,
+    surface !== undefined && surface !== resolution.target.channel ? surface : undefined,
   );
   if ("code" in selected) return { ok: false, ...selected };
   return { ok: true, target: { ...resolution.target, instance: selected.instance }, grant };

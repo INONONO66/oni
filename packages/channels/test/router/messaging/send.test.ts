@@ -272,6 +272,14 @@ describe("explicit target resolution (fail closed)", () => {
 });
 
 describe("fire-and-forget delivery", () => {
+  test.each(["account/removed", "channel:qa:removed"])("a revoked exact instance %s never substitutes the sole platform route", async (surface) => {
+    const result = await runEffect(messaging().send(buildSendInput({
+      target: { actorId: "actor:target", endpointId: "endpoint:target", surface },
+    })));
+    expectDenied(result, "target_stale");
+    expect(deliveries).toEqual([]);
+  });
+
   test("records one sent audit and creates NO Request", async () => {
     const audits: { operation: string; requestId?: string; grantId: string; traceId: string }[] =
       [];

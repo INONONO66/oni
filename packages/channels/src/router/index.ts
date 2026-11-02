@@ -21,11 +21,10 @@ type External = Effect.Success<ReturnType<typeof externalMessage>>;
 function ingestResult(
   result: Effect.Success<ReturnType<GatewayRouterPorts["run"]>>,
   handle: Gateway.SendMessageHandle,
-  refusal: Gateway.MessageDenialCode | undefined,
 ): Gateway.IngestResult {
   switch (result.terminal) {
     case "blocked_pre":
-      return { status: "blocked_pre", reasonCode: refusal === "target_ambiguous" ? refusal : result.reason };
+      return { status: "blocked_pre", reasonCode: result.reason };
     case "interrupted":
     case "outcome_unknown":
     case "blocked_post":
@@ -125,7 +124,8 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     const actorSendAllowed =
       send.to.kind === "origin"
         ? replyRefusal === undefined || replyRefusal === "draft"
-        : refusal === undefined || refusal === "identity_not_granted" || refusal === "approval_required";
+        : refusal === undefined || refusal === "identity_not_granted" || refusal === "approval_required" || refusal === "target_ambiguous";
+    const targetUnique = refusal !== "target_ambiguous";
     const identityGranted = refusal !== "identity_not_granted";
     const consentGranted = refusal !== "approval_required";
     const replyAutoAllowed = replyRefusal !== "draft";
@@ -136,14 +136,14 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
             eventIdUnique: prepared.message.sender === "external" && prepared.message.eventIdUnique,
           }
         : prepared.message.sender === "session"
-          ? { ...prepared.message, actorSendAllowed, identityGranted, consentGranted, replyAutoAllowed }
+          ? { ...prepared.message, actorSendAllowed, targetUnique, identityGranted, consentGranted, replyAutoAllowed }
           : undefined;
     if (message === undefined)
       throw new ChannelsFailure({
         operation: "message.project",
         cause: "session message projection missing",
       });
-    return { message, refusal };
+    return message;
   }
 
   function sendFromEnvelope(external: External | undefined,
@@ -202,7 +202,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       const prepared = yield* ports.prepare(sender, send, target, proposedId);
       const messageId = prepared.messageId ?? proposedId;
       const handle = { messageId, target: prepared.target };
-      const { message, refusal } = projectMessage(sender, send, prepared, external, startedAt);
+      const message = projectMessage(sender, send, prepared, external, startedAt);
       const progress: Parameters<typeof executeMessage>[1] = { commitMs: 0, committed: undefined };
       const result = yield* ports.run(sender, {
         kind: "message", op: "send_message", intent: { messageId, sender, ...send },
@@ -231,7 +231,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
         observe(sender, { kind: "message.committed", messageId, commitMs: progress.commitMs });
         ports.committed?.(progress.committed);
       }
-      return ingestResult(result, handle, refusal);
+      return ingestResult(result, handle);
     });
   }
 

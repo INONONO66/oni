@@ -177,7 +177,7 @@ test("a bot send whose platform has only an Owner instance is refused before tra
 
 test("a platform-only target refuses two mounted accounts with target_ambiguous", async () => {
   const router = makeRouter(["channel:slack:east", "channel:slack:west"], undefined);
-  expect(await send(router, "bot")).toEqual({ status: "blocked_pre", reasonCode: "target_ambiguous" });
+  expect(await send(router, "bot")).toEqual({ status: "blocked_pre", reasonCode: "message.resident.target_ambiguous" });
   expect(delivered).toEqual([]);
 });
 

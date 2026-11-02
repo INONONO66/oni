@@ -160,6 +160,22 @@ test("a send with no identity leaves through the bot instance whatever the turn'
   }
 });
 
+test("ambiguous account selection is refused by the shipped policy row before delivery", async () => {
+  const { fixture, delivered } = fixtureWith(["account/east", "account/west"]);
+  try {
+    const refused = await fixture.send(
+      { to: { kind: "actor", actorId: "person:friend", surface: "slack" }, type: "message", content: "ambiguous" },
+      undefined,
+      promptFrom("person:owner"),
+    );
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toContain("message.resident.target_ambiguous");
+    expect(delivered).toEqual([]);
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
 test("the model-facing tool carries `as` onto the gateway send and refuses any other identity", () => {
   const tool = createSendMessageTool(undefined, () => 0);
   expect(tool.input.safeParse({ to: { kind: "contact", id: "person:friend", as: "owner" }, message: "hi" }).success).toBe(true);

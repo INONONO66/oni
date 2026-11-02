@@ -155,7 +155,7 @@ function originBinding(
   };
 }
 
-const sessionDenial = (id: string, targetKind: "actor" | "origin", check: "actor_send" | "identity" | "reply_auto" = "actor_send") => ({
+const sessionDenial = (id: string, targetKind: "actor" | "origin", check: "actor_send" | "target" | "identity" | "reply_auto" = "actor_send") => ({
   generation: 1,
   name: id,
   kind: "message" as const,
@@ -185,6 +185,7 @@ export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): Gateway
     generation: 1,
     rows: [
       sessionDenial("message.resident.actor_grant", "actor"),
+      sessionDenial("message.resident.target_ambiguous", "actor", "target"),
       // #1569: `as: owner` needs an Owner-origin turn and an outbound-granted Owner instance.
       sessionDenial("message.resident.identity_not_granted", "actor", "identity"),
       // #1569: the reply door's preflight (binding owned, route mounted) rides the same check.

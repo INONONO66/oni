@@ -192,6 +192,7 @@ const RuleTableB = RuleBase.extend({
     z.object({ kind: z.literal("deadline"), withinParent: z.literal(true) }).strict(),
     z.object({ kind: z.literal("type") }).strict(),
     z.object({ kind: z.literal("actor_send") }).strict(),
+    z.object({ kind: z.literal("target") }).strict(),
     // #1569: the sending identity is granted — the Owner's account only on an
     // Owner-origin turn through an outbound-granted Owner instance.
     z.object({ kind: z.literal("identity") }).strict(),
