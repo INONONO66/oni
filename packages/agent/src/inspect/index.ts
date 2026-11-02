@@ -463,8 +463,19 @@ export type ToolOutputInspection =
       readonly outputId: string;
       readonly bytes: number;
       readonly mediaType?: string;
-      /** UTF-8 decode of the stored bytes — both stored media types are text. */
+      /** UTF-8 decode of the stored bytes: the text read; media bytes go through `toolOutputBytes`. */
       readonly text: string;
+    }
+  | { readonly kind: "unknown_output"; readonly outputId: string };
+
+/** One stored tool output's bytes exactly as stored, or the typed unknown. */
+export type ToolOutputBytesInspection =
+  | {
+      readonly kind: "output";
+      readonly outputId: string;
+      readonly mediaType?: string;
+      /** The bytes the identifier digests, undecoded. */
+      readonly bytes: Uint8Array;
     }
   | { readonly kind: "unknown_output"; readonly outputId: string };
 
@@ -485,6 +496,26 @@ export function toolOutput(
     bytes: stored.bytes.byteLength,
     ...(stored.mediaType === undefined ? {} : { mediaType: stored.mediaType }),
     text: new TextDecoder().decode(stored.bytes),
+  };
+}
+
+/**
+ * The raw read beside `toolOutput`: a media output (`image/png`,
+ * `audio/ogg`, ...) is bytes whose identifier digests them, and a UTF-8
+ * decode would not survive the round trip, so the bytes come back as stored
+ * with the media type they were stored under.
+ */
+export function toolOutputBytes(
+  kernel: Pick<SessionHandleStore.SessionKernel, "toolOutput">,
+  outputId: string,
+): ToolOutputBytesInspection {
+  const stored = kernel.toolOutput(outputId);
+  if (stored === undefined) return { kind: "unknown_output", outputId };
+  return {
+    kind: "output",
+    outputId,
+    ...(stored.mediaType === undefined ? {} : { mediaType: stored.mediaType }),
+    bytes: stored.bytes,
   };
 }
 

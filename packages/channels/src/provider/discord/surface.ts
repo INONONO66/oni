@@ -367,8 +367,9 @@ export class DiscordAdapter extends BotState implements Channel.Surface {
     payload: Outbound.Payload,
     idempotencyKey: string,
     conversation?: Gateway.Conversation,
+    sender?: Gateway.IngestSender,
   ): Promise<DeliveryReceipt> {
-    return deliverThroughDiscord(this.delivery(), externalId, payload, idempotencyKey, conversation);
+    return deliverThroughDiscord(this.delivery(), externalId, payload, idempotencyKey, conversation, sender);
   }
 
   /** A DM channel is created once per turn, not once per pulse. */

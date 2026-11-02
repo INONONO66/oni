@@ -11,13 +11,16 @@ import type { z } from "zod";
  * the contract restates the seam and the composition root is where the two
  * meet. Every delivery carries the required gateway idempotency key and ONE
  * `Outbound.Payload` (#1497): the surface translates its parts and actions
- * into platform calls from the capabilities it declares below.
+ * into platform calls from the capabilities it declares below. `sender` is
+ * the letter's admitted sender (#1783): the media resolver attaches that
+ * session's own stored outputs and nothing else's.
  */
 export type ProviderDeliveryRoute = (
   externalId: string,
   payload: Outbound.Payload,
   idempotencyKey: string,
   conversation?: Gateway.Conversation,
+  sender?: Gateway.IngestSender,
 ) => Promise<Outbound.Receipt>;
 
 /**

@@ -1157,7 +1157,11 @@ export async function startOni(options: StartOptions = {}) {
             random: services.entropy.random,
             telegramDataDir: options.telegramDataDir ?? join(homedir(), ".oni", "telegram", "owner"),
             run: (effect) => runAppEffect(runtime, effect),
-            media: createMediaResolver(tools.machines === undefined ? {} : { machines: tools.machines }),
+            // #1783: a letter's `sha256:` media ref reads the sender session's own stored output.
+            media: createMediaResolver({
+              outputs: plane.read,
+              ...(tools.machines === undefined ? {} : { machines: tools.machines }),
+            }),
             ...(routing.inbox === undefined ? {} : { inbox: routing.inbox }),
           },
           options.channelProviders,

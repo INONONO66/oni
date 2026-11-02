@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { LedgerAction } from "@oni/protocol";
 import { CHILD, PARENT, useForkFixture } from "./helpers/fork-fixture";
 import * as SessionHandleStore from "../../src/core/store/fence";
+import { toolOutput as inspectToolOutput, toolOutputBytes } from "../../src/inspect";
 
 const { stores, child, fixture } = useForkFixture();
 
@@ -17,6 +18,22 @@ describe("tool_outputs storage (#1305)", () => {
     expect(new TextDecoder().decode(stored?.bytes)).toBe("payload");
     expect(stored?.mediaType).toBe("text/plain");
     expect(stores.kernel.toolOutput(OTHER_ID)).toBeUndefined();
+  });
+
+  test("media bytes read back undecoded through the raw inspection, beside the text read (#1783)", () => {
+    // A PNG signature plus a byte UTF-8 cannot represent losslessly.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff]);
+    const id = `sha256:${"ef".repeat(32)}`;
+    stores.kernel.putToolOutput({ outputId: id, bytes: png, mediaType: "image/png" });
+    const raw = toolOutputBytes(stores.kernel, id);
+    expect(raw).toEqual({ kind: "output", outputId: id, mediaType: "image/png", bytes: png });
+    expect(toolOutputBytes(stores.kernel, OTHER_ID)).toEqual({ kind: "unknown_output", outputId: OTHER_ID });
+    const decoded = inspectToolOutput(stores.kernel, id);
+    if (decoded.kind !== "output") throw new Error(`inspection was ${decoded.kind}`);
+    expect(new TextEncoder().encode(decoded.text)).not.toEqual(png);
+    const untyped = `sha256:${"12".repeat(32)}`;
+    stores.kernel.putToolOutput({ outputId: untyped, bytes: bytesOf("no hint") });
+    expect(toolOutputBytes(stores.kernel, untyped)).toEqual({ kind: "output", outputId: untyped, bytes: bytesOf("no hint") });
   });
 
   test("a repeated put of the same identifier is a no-op — the digest key dedupes", () => {

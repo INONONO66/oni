@@ -51,6 +51,7 @@ export function deliverThroughDiscord(
   payload: Outbound.Payload,
   idempotencyKey: string,
   conversation?: Gateway.Conversation,
+  sender?: Gateway.IngestSender,
 ): Promise<DeliveryReceipt> {
   const { client } = delivery;
   return deliverKeyed(
@@ -93,6 +94,7 @@ export function deliverThroughDiscord(
           },
         },
         delivery.options.media,
+        sender,
       );
     },
     (error) => {

@@ -211,7 +211,7 @@ function executeReply(
   if (context.reply === undefined || binding === undefined || sender.kind !== "session")
     return Effect.fail(new SendAdmissionConflict({ message: "reply admission changed: not_bound" }));
   return context.reply
-    .send({ messageId, traceId: intent.action.id, senderId: sender.id, binding, payload, at: startedAt })
+    .send({ messageId, traceId: intent.action.id, senderId: sender.id, binding, payload, at: startedAt }, sender)
     .pipe(
       Effect.map((value): PlainValue => ({ status: "executed", handle, delivery: { kind: "actor", value } })),
     );
@@ -242,7 +242,7 @@ function executeActorSend(
       // #1569 lane 8: the Owner's approval of the invocation rides the send as a fact.
       ...(send.consented === true ? { consented: true } : {}),
       ...requestSpec(send, intent),
-    })
+    }, sender)
     .pipe(
       Effect.flatMap((receipt) =>
         receipt.kind === "denied"

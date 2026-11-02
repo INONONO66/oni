@@ -154,8 +154,9 @@ export class DiscordOwnerAdapter implements Channel.Surface {
     payload: Outbound.Payload,
     idempotencyKey: string,
     conversation?: Gateway.Conversation,
+    sender?: Gateway.IngestSender,
   ): Promise<DeliveryReceipt> {
-    return deliverThroughDiscord(this.delivery(), externalId, payload, idempotencyKey, conversation);
+    return deliverThroughDiscord(this.delivery(), externalId, payload, idempotencyKey, conversation, sender);
   }
 
   async openTyping(externalId: string, conversation?: Gateway.Conversation): Promise<Gateway.Conversation> {

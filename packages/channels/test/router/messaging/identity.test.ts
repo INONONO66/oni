@@ -23,6 +23,8 @@ interface Delivered {
 }
 
 const delivered: Delivered[] = [];
+/** The sender each route received beside the letter (#1783). */
+const senders: (Gateway.IngestSender | undefined)[] = [];
 const GRANT = {
   id: "grant:resident->owner",
   senderId: "resident",
@@ -34,8 +36,9 @@ function route(name: string): ChannelDeliveryRoute {
   return {
     platform: name.split(":")[name.startsWith("channel:") ? 1 : 0] ?? name,
     identity: name.endsWith(":owner") ? "owner" : "bot",
-    deliver: async (externalId, payload) => {
+    deliver: async (externalId, payload, _key, _conversation, sender) => {
       delivered.push({ route: name, externalId, body: Outbound.text(payload) });
+      senders.push(sender);
       return { value: "accepted" };
     },
   };
@@ -82,6 +85,7 @@ function send(router: ReturnType<typeof makeRouter>, as: "bot" | "owner" | undef
 beforeEach(() => {
   resetRouterState();
   delivered.length = 0;
+  senders.length = 0;
   ledger().stores.actors.registerIdentity({ id: "actor-owner", kind: "human", trustTier: "owner" });
   ledger().stores.actors.registerEndpoint({
     id: "ep-owner-slack",
@@ -197,4 +201,10 @@ test("an explicit Owner instance cannot be selected by a bot-identity send", asy
     { to: { kind: "actor", actorId: "actor-owner", surface: "channel:slack:owner" }, type: "message", content: "wrong account" },
   ))).toEqual({ status: "blocked_pre", reasonCode: "message.resident.identity_not_granted" });
   expect(delivered).toEqual([]);
+});
+
+test("the admitted session sender reaches the route unchanged beside the letter (#1783)", async () => {
+  const router = makeRouter(["slack:bot"], undefined);
+  expect(await send(router, undefined)).toMatchObject({ status: "executed" });
+  expect(senders).toEqual([{ kind: "session", id: "resident" }]);
 });

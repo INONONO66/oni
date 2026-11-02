@@ -40,10 +40,14 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     ((_sender: Gateway.IngestSender, observation: Gateway.MessageObservation) =>
       ports.sink(Gateway.MessageObserved, observation));
   const messagingPorts = ports.messaging;
+  // The letter's admitted sender rides along unchanged (#1783): the executor
+  // hands it to both doors beside the parsed input, and a kernel driven
+  // without the router carries none, so the route attaches no session output.
   const deliver = (message: {
     readonly target: Gateway.DeliveryTarget;
     readonly payload: Outbound.Payload;
     readonly idempotencyKey: string;
+    readonly sender?: Gateway.IngestSender;
   }) => {
     const route = messagingPorts?.deliveryRoutes.get(message.target.instance);
     if (route === undefined)
@@ -51,7 +55,13 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
         operation: "message.deliver",
         cause: `no delivery route: ${message.target.instance}`,
       });
-    return route.deliver(message.target.externalId, message.payload, message.idempotencyKey, message.target.conversation);
+    return route.deliver(
+      message.target.externalId,
+      message.payload,
+      message.idempotencyKey,
+      message.target.conversation,
+      message.sender,
+    );
   };
   const routes = () => messagingPorts?.deliveryRoutes ?? new Map();
   const messaging =

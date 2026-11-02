@@ -31,6 +31,8 @@ type OutboundMessage = Readonly<{
   payload: Outbound.Payload;
   target: DeliveryTarget;
   requestId?: string;
+  /** The letter's admitted sender, as the router handed it in (#1783). */
+  sender?: Gateway.IngestSender;
 }>;
 
 type MessagingPorts = Readonly<{
@@ -48,7 +50,8 @@ type MessagingPorts = Readonly<{
 type ExistingAgentMessaging = Readonly<{
   /** The verdict a send would get, before any transaction: the grant's, then (#1569 lane 8) the consent's. */
   preflight: (input: SendAuthorityInput & { readonly consented?: boolean }) => MessageDenialCode | undefined;
-  send: (input: SendInput) => Effect.Effect<SendReceipt, ChannelError>;
+  /** `sender` rides beside the parsed input: the router's authenticated fact, never a send-contract field. */
+  send: (input: SendInput, sender?: Gateway.IngestSender) => Effect.Effect<SendReceipt, ChannelError>;
 }>;
 
 /** Kernel records the original action suspension before the physical effect. */
@@ -79,6 +82,7 @@ function openSendRequest(
 /** Every retry reaches the physical driver's stable idempotency key. IDs are not receipts. */
 function deliverSend(
   input: SendInput,
+  sender: Gateway.IngestSender | undefined,
   target: DeliveryTarget,
   request: SessionTransition.Request | undefined,
   ports: MessagingPorts,
@@ -96,6 +100,7 @@ function deliverSend(
     payload: input.payload,
     target,
     ...(request === undefined ? {} : { requestId: request.requestId }),
+    ...(sender === undefined ? {} : { sender }),
   }), catch: decodeChannelFailure("message.deliver") });
   const value = delivery.value;
   const outcome = { value, ...(delivery.reason === undefined ? {} : { reason: delivery.reason }) };
@@ -190,7 +195,7 @@ export function createExistingAgentMessaging(ports: MessagingPorts): ExistingAge
     };
   }
 
-  function send(rawInput: SendInput): Effect.Effect<SendReceipt, ChannelError> {
+  function send(rawInput: SendInput, sender?: Gateway.IngestSender): Effect.Effect<SendReceipt, ChannelError> {
     return Effect.gen(function* () {
     const input = SendInput.parse(rawInput);
     const checked = authorizeSend(ports.stores, input, ports.grants(), ports.routes());
@@ -204,7 +209,7 @@ export function createExistingAgentMessaging(ports: MessagingPorts): ExistingAge
       return { request: yield* openSendRequest(input, target, ports) };
     }));
     if (opened.denied !== undefined) return opened.denied;
-    const request = yield* deliverSend(input, target, opened.request, ports);
+    const request = yield* deliverSend(input, sender, target, opened.request, ports);
     return recordSent(authorization, request, ports);
     });
   }

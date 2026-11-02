@@ -295,6 +295,7 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
     payload: Outbound.Payload,
     idempotencyKey: string,
     conversation?: Gateway.Conversation,
+    sender?: Gateway.IngestSender,
   ): Promise<DeliveryReceipt> {
     const chatId = conversation?.channelId ?? this.directChats.get(externalId);
     // #1600 lane R3: nothing was attempted — the sender's typed fact, not a thrown failure.
@@ -315,6 +316,7 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
             },
           },
           this.options.media,
+          sender,
         ),
       (error) => {
         const code = kakaoCode(error);

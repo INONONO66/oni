@@ -105,7 +105,7 @@ async function fetchBytes(
     ref: attachment.ref,
     name: attachment.name ?? (url.pathname.slice(url.pathname.lastIndexOf("/") + 1) || "attachment"),
     ...(attachment.mime === undefined ? {} : { mime: attachment.mime }),
-  }, bounds);
+  }, undefined, bounds);
   assertMediaSize(attachment.ref, fetched.bytes.byteLength, bounds.maxBytes);
   return fetched;
 }

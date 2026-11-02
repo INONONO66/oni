@@ -1,4 +1,4 @@
-import { Outbound } from "@oni/protocol";
+import { type Gateway, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryNotSent, MediaTooLarge } from "../errors";
 import type { MediaLimits, RenderPolicy } from "../provider/contract";
@@ -19,7 +19,9 @@ import { chunkMarkdown } from "./format/chunk";
  *   composition root both support it; otherwise its reference line stays in
  *   the text so the person still receives what was meant.
  * - Media bytes resolve before the first send: a bad reference refuses the
- *   whole payload with nothing posted, never a half-delivered letter.
+ *   whole payload with nothing posted, never a half-delivered letter. The
+ *   resolver hears who sends (#1783), so a bare output id attaches the
+ *   sender session's own bytes and no other session's.
  * - Part, caption, and letter limits refuse the whole payload before sending.
  * - A `react` payload needs `react`; a surface without one refuses it as
  *   not sent (the agent's receipt says `rejected`), never as text. With
@@ -118,6 +120,7 @@ async function plan(
         readonly captionAsText?: boolean;
       }
     | undefined,
+  sender: Gateway.IngestSender | undefined,
 ): Promise<Step[]> {
   const steps: Step[] = [];
   let pending: Outbound.Part[] = [];
@@ -131,7 +134,7 @@ async function plan(
     steps.push(...textSteps(pending, render));
     pending = [];
     // A resolver's structured size refusal keeps its typed reason; any other refusal is not-sent.
-    const bytes = await media.resolve(part)
+    const bytes = await media.resolve(part, sender)
       .catch((error: Error) => (error instanceof MediaTooLarge ? error : ResolveRefused.parse(error)));
     if (bytes instanceof DeliveryNotSent || bytes instanceof MediaTooLarge) throw bytes;
     const limit = media.limits[LIMIT_OF[part.kind]];
@@ -210,6 +213,7 @@ export async function translate(
   render: RenderPolicy,
   sends: SurfaceSends,
   resolve?: MediaResolver,
+  sender?: Gateway.IngestSender,
 ): Promise<DeliveryOutcome> {
   if (payload.kind === "react") {
     if (sends.react === undefined)
@@ -219,5 +223,5 @@ export async function translate(
   }
   const media =
     sends.media === undefined || resolve === undefined ? undefined : { ...sends.media, resolve };
-  return runSteps(await plan(payload, render, media), sends.text);
+  return runSteps(await plan(payload, render, media, sender), sends.text);
 }

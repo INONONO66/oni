@@ -167,6 +167,7 @@ export class SlackAdapter implements Channel.Surface {
     payload: Outbound.Payload,
     idempotencyKey: string,
     conversation?: Gateway.Conversation,
+    sender?: Gateway.IngestSender,
   ): Promise<DeliveryReceipt> {
     const [team, user] = externalId.split(":");
     if (!(team && user)) {
@@ -225,6 +226,7 @@ export class SlackAdapter implements Channel.Surface {
             },
           },
           this.options.media,
+          sender,
         );
       },
       (error) => classifySlackFailure(error) === "rejected",

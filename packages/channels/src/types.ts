@@ -1,4 +1,4 @@
-import type { Channel, BusEvent, Outbound } from "@oni/protocol";
+import type { Channel, BusEvent, Gateway, Outbound } from "@oni/protocol";
 import type { Effect } from "effect";
 
 /**
@@ -20,11 +20,17 @@ export interface MediaBytes {
 }
 
 /**
- * Resolves a media part's `ref` (a path on the attached machine or
- * an https URL) to its bytes at delivery time. The composition root owns
- * this: drivers never read a filesystem or fetch beyond their platform API.
+ * Resolves a media part's `ref` (a path on the attached machine, an https
+ * URL, or a bare `sha256:` output id of the sender's own session) to its
+ * bytes at delivery time. The composition root owns this: drivers never read
+ * a filesystem or fetch beyond their platform API. `sender` is the letter's
+ * admitted sender as the router delivered it; a route driven without the
+ * router carries none, and a resolver attaches no session output then.
  */
-export type MediaResolver = (part: Outbound.Part & { kind: "image" | "file" | "audio" | "video" }) => Promise<MediaBytes>;
+export type MediaResolver = (
+  part: Outbound.Part & { kind: "image" | "file" | "audio" | "video" },
+  sender?: Gateway.IngestSender,
+) => Promise<MediaBytes>;
 
 /**
  * The composition root's bounds on one authenticated download: the most
