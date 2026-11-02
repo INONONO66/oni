@@ -123,7 +123,9 @@ function harness(options: HarnessOptions = {}) {
           },
         }, { clock: () => 1, failure: (error) => { throw error; } });
         sources.set(spec.id, source);
-        return Effect.promise(() => source.ready);
+        return Effect.promise(async () => {
+          await source.ready;
+        });
       },
       close: (id) => {
         calls.push(`close:${id}`);
