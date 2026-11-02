@@ -15,7 +15,7 @@ const OriginPolicy = z.object({
   kind: z.string().optional(),
   receivedBy: z.enum(["bot", "owner"]).optional(),
   reply: ReplyPolicy.optional(),
-  rule: z.object({ reply: ReplyPolicy }).catchall(PlainValueSchema).optional(),
+  rule: z.object({ reply: ReplyPolicy.optional() }).catchall(PlainValueSchema).optional(),
 }).catchall(PlainValueSchema);
 
 /** App admissions record reply policy; immutable child receipts retain their original bytes. */
@@ -39,7 +39,7 @@ const ExternalOrigin = z
     /** The account identity that observed the prompt. */
     receivedBy: z.enum(["bot", "owner"]).optional(),
     reply: ReplyPolicy.optional(),
-    rule: z.object({ reply: z.enum(["auto", "draft", "none"]), as: z.string().optional() }).optional(),
+    rule: z.object({ reply: ReplyPolicy.optional(), as: z.string().optional() }).optional(),
     conversation: z
       .object({
         channelId: z.string().min(1),

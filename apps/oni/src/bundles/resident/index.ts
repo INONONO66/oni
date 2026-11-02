@@ -95,7 +95,7 @@ const OriginConversation = z
 const ReplyPolicy = z.enum(["auto", "draft", "none"]);
 const OriginReply = z.object({
   reply: ReplyPolicy.optional(),
-  rule: z.object({ reply: ReplyPolicy }).optional(),
+  rule: z.object({ reply: ReplyPolicy.optional() }).optional(),
 }).transform(({ rule, reply }) => rule?.reply ?? reply);
 
 function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget | undefined {
