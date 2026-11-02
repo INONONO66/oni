@@ -1,4 +1,4 @@
-import { type BusEvent, LlmCall } from "@oni/protocol";
+import { type BusEvent, LlmCall, type Model } from "@oni/protocol";
 import { generateImage } from "ai";
 import { Effect } from "effect";
 import { Auth } from "./auth/storage";
@@ -17,7 +17,7 @@ export interface ImageRequest {
   readonly prompt: string;
   /** `traceId` correlates the call's observation row; the caller mints it. */
   readonly traceId: string;
-  /** A model id on the first row that names an image model; absent uses that row's own id. */
+  /** A model id on the selected row's provider; absent uses the selected model id. */
   readonly model?: string;
   /** `{width}x{height}`; absent leaves the size to the provider. */
   readonly size?: `${number}x${number}`;
@@ -34,18 +34,29 @@ interface Selection {
   readonly modelId: string;
 }
 
-/** The first row naming an image model serves every call; a per-call `model` id stays on that row. */
-function select(rows: readonly ProviderRow[], modelId: string | undefined): Effect.Effect<Selection, ModelResolutionError> {
-  const row = rows.find((candidate) => candidate.image !== undefined);
-  return row?.image === undefined
-    ? Effect.fail(new ModelResolutionError({ message: "No provider row names an image model", provider: "", model: "", reason: "model_not_found" }))
-    : Effect.succeed({ row, modelId: modelId ?? row.image.model });
+/**
+ * Absent `model`: the first row naming an image model serves every call. Explicit `Model.Ref`: that
+ * provider's row with that id. A per-call `model` id stays on the selected row either way.
+ */
+function select(rows: readonly ProviderRow[], model: Model.Ref | undefined): Effect.Effect<Selection, ModelResolutionError> {
+  if (model === undefined) {
+    const row = rows.find((candidate) => candidate.image !== undefined);
+    return row?.image === undefined
+      ? Effect.fail(new ModelResolutionError({ message: "No provider row names an image model", provider: "", model: "", reason: "model_not_found" }))
+      : Effect.succeed({ row, modelId: row.image.model });
+  }
+  const row = rows.find((candidate) => candidate.id === model.provider);
+  return row === undefined
+    ? Effect.fail(new ModelResolutionError({ message: `No provider row named ${model.provider}`, provider: model.provider, model: model.id, reason: "provider_not_found" }))
+    : Effect.succeed({ row, modelId: model.id });
 }
 
 export function makeImage(input: {
   readonly authFilePath: string;
   readonly rows?: readonly ProviderRow[];
   readonly transport?: Transport;
+  /** Selects the provider row and model id; absent, the first row naming an image model. */
+  readonly model?: Model.Ref;
   /** Receives one row per settled provider call: `llm.image.completed` or `llm.image.failed`. */
   readonly events: BusEvent.Sink;
   readonly now: () => number;
@@ -53,7 +64,9 @@ export function makeImage(input: {
   const rows = input.rows ?? BUNDLED_ROWS;
   return {
     generate: (request) => Effect.gen(function* () {
-      const { row, modelId } = yield* select(rows, request.model);
+      const selected = yield* select(rows, input.model);
+      const { row } = selected;
+      const modelId = request.model ?? selected.modelId;
       const auth = yield* Auth.resolve(row.id, input.authFilePath);
       const sdk = getSDK(Provider.withRow({ id: modelId, providerID: row.id, name: modelId }, row), auth, input.transport);
       if (!("image" in sdk)) {

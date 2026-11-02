@@ -97,6 +97,23 @@ describe("Image", () => {
     expect(bodies).toEqual([{ model: "dall-e-3", prompt: "a red square", n: 1, response_format: "b64_json" }]);
   });
 
+  test("an explicit model picks its provider row and id over the first image row", async () => {
+    const bodies: Record<string, string | number>[] = [];
+    globalThis.fetch = mockFetch((_input, init) => {
+      bodies.push(bodyOf(init));
+      return jsonResponse({ data: [{ b64_json: b64(png) }] });
+    });
+    const gateway = ProviderRow.parse({ id: "gateway", npm: "@ai-sdk/openai" });
+    const explicit = image({ authFilePath: await authFile("gateway"), rows: [openai, gateway], model: { provider: "gateway", id: "gw-image" } });
+    expect(await runTestExit(explicit.generate(request))).toEqual(Exit.succeed([{ bytes: png, mediaType: "image/png" }]));
+    expect(bodies).toEqual([{ model: "gw-image", prompt: "a red square", n: 1, response_format: "b64_json" }]);
+  });
+
+  test("an explicit model refuses typed when its provider row is absent", async () => {
+    const absent = await runEffect(Effect.flip(image({ authFilePath: await authFile(), rows: [openai], model: { provider: "gateway", id: "gw-image" } }).generate(request)));
+    expect(absent).toMatchObject({ _tag: "ModelResolutionError", reason: "provider_not_found", provider: "gateway", model: "gw-image" });
+  });
+
   test("refuses typed when no row names an image model, or the first one lacks the image surface", async () => {
     const authFilePath = await authFile("anthropic", "gateway");
     const imageless = ProviderRow.parse({ id: "gateway", npm: "@ai-sdk/openai" });

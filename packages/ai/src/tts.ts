@@ -1,4 +1,4 @@
-import { type BusEvent, LlmCall } from "@oni/protocol";
+import { type BusEvent, LlmCall, type Model } from "@oni/protocol";
 import { generateSpeech } from "ai";
 import { Effect } from "effect";
 import { Auth } from "./auth/storage";
@@ -32,21 +32,34 @@ export interface Tts {
 
 interface Selection {
   readonly row: ProviderRow;
-  readonly speech: SpeechRow;
+  readonly modelId: string;
+  /** The row's speech defaults (voice, format), absent on a row that names none. */
+  readonly defaults: SpeechRow | undefined;
 }
 
-/** The first row naming a speech model serves every call; a per-call `model` id stays on that row. */
-function select(rows: readonly ProviderRow[]): Effect.Effect<Selection, ModelResolutionError> {
-  const row = rows.find((candidate) => candidate.speech !== undefined);
-  return row?.speech === undefined
-    ? Effect.fail(new ModelResolutionError({ message: "No provider row names a speech model", provider: "", model: "", reason: "model_not_found" }))
-    : Effect.succeed({ row, speech: row.speech });
+/**
+ * Absent `model`: the first row naming a speech model serves every call. Explicit `Model.Ref`: that
+ * provider's row with that id. A per-call `model` id stays on the selected row either way.
+ */
+function select(rows: readonly ProviderRow[], model: Model.Ref | undefined): Effect.Effect<Selection, ModelResolutionError> {
+  if (model === undefined) {
+    const row = rows.find((candidate) => candidate.speech !== undefined);
+    return row?.speech === undefined
+      ? Effect.fail(new ModelResolutionError({ message: "No provider row names a speech model", provider: "", model: "", reason: "model_not_found" }))
+      : Effect.succeed({ row, modelId: row.speech.model, defaults: row.speech });
+  }
+  const row = rows.find((candidate) => candidate.id === model.provider);
+  return row === undefined
+    ? Effect.fail(new ModelResolutionError({ message: `No provider row named ${model.provider}`, provider: model.provider, model: model.id, reason: "provider_not_found" }))
+    : Effect.succeed({ row, modelId: model.id, defaults: row.speech });
 }
 
 export function makeTts(input: {
   readonly authFilePath: string;
   readonly rows?: readonly ProviderRow[];
   readonly transport?: Transport;
+  /** Selects the provider row and model id; absent, the first row naming a speech model. */
+  readonly model?: Model.Ref;
   /** Receives one row per settled provider call: `llm.speech.completed` or `llm.speech.failed`. */
   readonly events: BusEvent.Sink;
   readonly now: () => number;
@@ -54,8 +67,9 @@ export function makeTts(input: {
   const rows = input.rows ?? BUNDLED_ROWS;
   return {
     speak: (call) => Effect.gen(function* () {
-      const { row, speech } = yield* select(rows);
-      const modelId = call.model ?? speech.model;
+      const selected = yield* select(rows, input.model);
+      const { row, defaults } = selected;
+      const modelId = call.model ?? selected.modelId;
       const auth = yield* Auth.resolve(row.id, input.authFilePath);
       const sdk = getSDK(Provider.withRow({ id: modelId, providerID: row.id, name: modelId }, row), auth, input.transport);
       if (!("speech" in sdk)) {
@@ -70,8 +84,8 @@ export function makeTts(input: {
         try: (abortSignal) => generateSpeech({
           model: sdk.speech(modelId),
           text: call.text,
-          voice: call.voice ?? speech.voice,
-          outputFormat: call.format ?? speech.format ?? "mp3",
+          ...(call.voice ?? defaults?.voice) === undefined ? {} : { voice: call.voice ?? defaults?.voice },
+          outputFormat: call.format ?? defaults?.format ?? "mp3",
           maxRetries: 0,
           abortSignal,
         }),
