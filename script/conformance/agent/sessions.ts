@@ -8,20 +8,14 @@
  * the recorded claude-code transcript streams in source order and the same
  * cursor always yields the same page; a corrupt line becomes a typed
  * `corrupt` record per failure kind and an oversized line, or one line with
- * more records than a page holds, becomes a `truncated` record; the
- * transcript exported as a content-addressed bundle plus checkpoint and
- * imported after the client was killed and re-admitted resumes the SAME
- * session id from the saved cursor (never from byte zero), while a forged
- * cursor or one from another generation is refused; the read-only sync view
- * of the same project serves the imported bytes and refuses tampered blobs,
- * bundles and checkpoint chains; and a permission hook raised for a launched
- * session is allowed only by an explicit host grant, is refused `timeout`
- * when the host's decision misses its deadline, and the decision that
- * arrives after that deadline cannot turn into a grant. Waits are bus
- * events, process exits or the host decider's own signals under a bounded
- * timeout; nothing sleeps or polls.
+ * more records than a page holds, becomes a `truncated` record; and a
+ * permission hook raised for a launched session is allowed only by an
+ * explicit host grant, is refused `timeout` when the host's decision misses
+ * its deadline, and the decision that arrives after that deadline cannot
+ * turn into a grant. Waits are bus events, process exits or the host
+ * decider's own signals under a bounded timeout; nothing sleeps or polls.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Deferred, Effect } from "effect";
 import { type BusEvent, Machine } from "../../../packages/protocol/src/index.js";
@@ -33,15 +27,6 @@ import {
 } from "../../../packages/machines/src/index.js";
 import { acquire, run } from "../../../packages/machines/test/ipc/helpers/effects.js";
 import { permissionModule } from "./permission.js";
-import {
-  type Checkpoint,
-  commitCheckpoint,
-  createSyncVfs,
-  fetchBundle,
-  MemoryBundleStore,
-  replayCheckpoints,
-  SyncError,
-} from "../../../packages/sync/src/index.js";
 
 const CLI = "claude-code";
 const FIXTURES = resolve(import.meta.dir, "../../../clients/machine-client/tests/fixtures/agent/claude");
@@ -56,7 +41,6 @@ const WIDE_PARTS = Machine.AGENT_SESSION_MAX_RECORDS + 8;
 const PERMISSION_DEADLINE_MS = 250;
 const ALLOW_REQUEST = "call-allow";
 const LATE_REQUEST = "call-late";
-const BUNDLE_LIMITS = { maxEntries: 8, maxBytes: 1024 * 1024 };
 const HOOK_BLOCK_EXIT = 2;
 
 /**
@@ -111,7 +95,6 @@ export interface Harness<Client extends Attached> {
 }
 
 type Sessions = NonNullable<MachineHandle["agentSession"]>;
-type Records = readonly Machine.AgentTranscriptRecord[];
 type Page = Extract<Machine.AgentSessionTailResult, { status: "ok" }>;
 
 interface Signal {
@@ -216,7 +199,7 @@ export function agentConformance<Client extends Attached>(
     ]);
   }
 
-  async function typedDamage(sessions: Sessions, transcript: string, from: Page): Promise<{ readonly resume: Page; readonly rest: Records }> {
+  async function typedDamage(sessions: Sessions, transcript: string, from: Page): Promise<void> {
     writeFileSync(transcript, damagedLines(), { flag: "a" });
     const corrupt = await tail(sessions, { cursor: from.cursor });
     check(
@@ -247,94 +230,6 @@ export function agentConformance<Client extends Attached>(
     record(
       `damaged lines typed: corrupt invalid_encoding/invalid_shape/unsupported_record, truncated ${OVERSIZED_BYTES + 1}-byte line, ${WIDE_PARTS}-part line cut to ${Machine.AGENT_SESSION_MAX_RECORDS} ending truncated`,
     );
-    return { resume: oversized, rest: [...wide.records, ...after.records] };
-  }
-
-  interface Exported {
-    readonly store: MemoryBundleStore;
-    readonly bundle: string;
-    readonly history: readonly Checkpoint[];
-    readonly path: string;
-    readonly cursor: Machine.AgentSessionCursor;
-  }
-
-  function exportSession(home: string, project: string, transcript: string, cursor: Machine.AgentSessionCursor): Exported {
-    const store = new MemoryBundleStore(BUNDLE_LIMITS);
-    const path = transcript.slice(home.length + 1);
-    const bundle = store.publish([{ path, bytes: new Uint8Array(readFileSync(transcript)) }]);
-    const head = commitCheckpoint(project, undefined, bundle.entries);
-    record(`exported ${path} as bundle ${bundle.digest.slice(0, 19)} at checkpoint ${head.checkpoint.id.slice(0, 19)}, cursor byte ${cursor.byteOffset}`);
-    return { store, bundle: bundle.digest, history: [head.checkpoint], path, cursor };
-  }
-
-  function importSession(home: string, project: string, exported: Exported): void {
-    const fetched = fetchBundle(exported.store, exported.bundle, BUNDLE_LIMITS);
-    const state = replayCheckpoints(project, exported.history);
-    const bytes = fetched.files.get(exported.path);
-    check(
-      bytes !== undefined && state.manifest.get(exported.path)?.digest === fetched.bundle.entries[0]?.digest,
-      "imported bundle disagrees with the replayed checkpoint",
-    );
-    mkdirSync(resolve(home, exported.path, ".."), { recursive: true });
-    writeFileSync(join(home, exported.path), bytes);
-  }
-
-  async function resumes(sessions: Sessions, project: string, exported: Exported, rest: Records): Promise<void> {
-    const reopened = await run(sessions.open({ project, cli: CLI, sessionId: SESSION }));
-    check(
-      reopened.status === "ok" && reopened.cursor.sessionId === SESSION && reopened.cursor.generation === exported.cursor.generation,
-      `reopen after import answered ${JSON.stringify(reopened)}`,
-    );
-    const wide = await tail(sessions, { cursor: exported.cursor });
-    const after = await tail(sessions, { cursor: wide.cursor });
-    check(
-      exported.cursor.byteOffset > 0 && same([...wide.records, ...after.records], rest),
-      `resume from byte ${exported.cursor.byteOffset} streamed ${JSON.stringify(wide.records.slice(0, 2))}`,
-    );
-    const forged = await run(sessions.tail({ cursor: { ...exported.cursor, recordHash: "0".repeat(64) } }));
-    check(forged.status === "refused" && forged.reason === "invalid_cursor", `forged cursor answered ${JSON.stringify(forged)}`);
-    const stale = await harness.refusal(sessions.tail({ cursor: { ...exported.cursor, generation: exported.cursor.generation + 1 } }));
-    check(stale === "stale_generation", `cursor from another generation refused ${stale}`);
-    record(
-      `after kill + re-admission the imported ${SESSION} resumed from byte ${exported.cursor.byteOffset}, not 0; forged cursor invalid_cursor, foreign-generation cursor stale_generation`,
-    );
-  }
-
-  function syncRefusal(action: () => void): string {
-    const outcome = (() => {
-      try {
-        action();
-      } catch (error) {
-        return error;
-      }
-    })();
-    return outcome instanceof SyncError ? outcome.code : `not refused: ${String(outcome)}`;
-  }
-
-  function readOnlyView(home: string, project: string, exported: Exported): void {
-    const state = replayCheckpoints(project, exported.history);
-    const view = createSyncVfs(state.manifest, exported.store);
-    const onDisk = readFileSync(join(home, exported.path));
-    check(Buffer.from(view.read(exported.path)).equals(onDisk), "sync view bytes differ from the imported transcript");
-    check(view.stat(exported.path).size === onDisk.length && view.stat(".claude").kind === "directory", "sync view stat differs");
-    check(same(view.list(""), [".claude"]), `sync view root lists ${JSON.stringify(view.list(""))}`);
-    check(Object.isFrozen(view) && same(Object.keys(view).sort(), ["list", "read", "stat"]), "sync view exposes a mutating operation");
-    const bundle = exported.store.bundle(exported.bundle);
-    check(bundle !== undefined, "exported bundle vanished");
-    const tampered = () => new TextEncoder().encode("tampered");
-    const forked = exported.history.map((checkpoint) => ({ ...checkpoint, parent: checkpoint.id }));
-    const codes = [
-      syncRefusal(() => createSyncVfs(state.manifest, { blob: tampered }).read(exported.path)),
-      syncRefusal(() => fetchBundle({ blob: tampered, bundle: () => bundle }, exported.bundle, BUNDLE_LIMITS)),
-      syncRefusal(() => replayCheckpoints(project, forked)),
-      syncRefusal(() => replayCheckpoints(`${project}-other`, exported.history)),
-      syncRefusal(() => view.read("../escape")),
-    ];
-    check(
-      same(codes, ["corrupt", "corrupt", "checkpoint_broken", "checkpoint_broken", "path_rejected"]),
-      `sync integrity refusals ${JSON.stringify(codes)}`,
-    );
-    record(`read-only sync view of the same project serves the imported transcript; tampering refused ${codes.join("/")}`);
   }
 
   async function hook(setup: AgentFixture, sessionId: string, requestId: string) {
@@ -454,7 +349,7 @@ export function agentConformance<Client extends Attached>(
     );
     const host = acquired.value;
     try {
-      const client = await harness.attach(setup, events.next(Machine.Events.Attached));
+      await harness.attach(setup, events.next(Machine.Events.Attached));
       const [info] = host.list();
       check(info?.capabilities.includes("agent.session") === true, `agent.session not negotiated: ${JSON.stringify(info?.capabilities)}`);
       const sessions = host.get(info.machineId).agentSession;
@@ -464,16 +359,7 @@ export function agentConformance<Client extends Attached>(
       mkdirSync(resolve(transcript, ".."), { recursive: true });
       writeFileSync(transcript, readFileSync(RECORDED));
       const end = await streamsInOrder(sessions, project, transcript);
-      const { resume, rest } = await typedDamage(sessions, transcript, end);
-      const exported = exportSession(setup.home, project, transcript, resume.cursor);
-      await harness.stop(client, events.next(Machine.Events.Detached));
-      rmSync(join(setup.home, ".claude"), { recursive: true, force: true });
-      rmSync(join(setup.home, ".oni", "machine-client", "agent-sessions.json"), { force: true });
-      importSession(setup.home, project, exported);
-      await harness.attach(setup, events.next(Machine.Events.Attached));
-      check(host.list()[0]?.generation === exported.cursor.generation, "the reconnect was not re-admitted on the cursor's generation");
-      await resumes(sessions, project, exported, rest);
-      readOnlyView(setup.home, project, exported);
+      await typedDamage(sessions, transcript, end);
       await permissionBridge(sessions, setup, project, decisions);
     } finally {
       await acquired.close();

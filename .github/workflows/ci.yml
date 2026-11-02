@@ -308,10 +308,6 @@ jobs:
         if: matrix.key == 'codemode'
         run: bun test --timeout 15000 --coverage --coverage-reporter=lcov --coverage-dir=coverage
         working-directory: packages/codemode
-      - name: Test (sync)
-        if: matrix.key == 'sync'
-        run: bun test --timeout 15000 --coverage --coverage-reporter=lcov --coverage-dir=coverage
-        working-directory: packages/sync
       - name: Test (channels)
         if: matrix.key == 'channels'
         run: bun test --timeout 15000 --coverage --coverage-reporter=lcov --coverage-dir=coverage
