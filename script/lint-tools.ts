@@ -37,6 +37,7 @@ import { fileBundle } from "../apps/oni/src/bundles/tools/file/index.js";
 import { bashBundle } from "../apps/oni/src/bundles/tools/bash/index.js";
 import { evalBundle } from "../apps/oni/src/bundles/tools/eval/index.js";
 import { completionBundle } from "../apps/oni/src/bundles/tools/completion/index.js";
+import { speechBundle } from "../apps/oni/src/bundles/tools/speech/index.js";
 import { provisionBundle } from "../apps/oni/src/bundles/provision/provision.js";
 import { sendMessageBundle } from "../apps/oni/src/bundles/messaging/send-message/index.js";
 import { eraseTool } from "../packages/agent/src/core/loop/tool.js";
@@ -49,9 +50,9 @@ import * as protocolExports from "../packages/protocol/src/index.js";
 // Schema inspection never executes ports; absent capabilities are explicit test doubles.
 const schemaPorts: ToolPorts = {
   messages: undefined, machines: undefined, cells: undefined,
-  llm: undefined, provisioning: undefined, clock: () => 0, id: () => "schema",
+  llm: undefined, speech: undefined, putOutput: undefined, provisioning: undefined, clock: () => 0, id: () => "schema",
 };
-// #1561: every tool is bundle-declared; the lint surface is the full 12 tools
+// #1561: every tool is bundle-declared; the lint surface is the full 13 tools
 // in the reviewed snapshot order.
 const schemaSource = () => schemaPorts;
 const definitions: readonly AnyToolDefinition[] = [
@@ -60,6 +61,7 @@ const definitions: readonly AnyToolDefinition[] = [
   ...evalBundle(schemaSource).tools,
   ...sendMessageBundle(schemaSource).tools,
   ...provisionBundle(schemaSource).tools,
+  ...speechBundle(schemaSource).tools,
   ...completionBundle(schemaSource).tools,
   eraseTool(createMonitorTool(() => undefined)),
 ];

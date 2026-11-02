@@ -300,7 +300,7 @@ test("a cell creates three child sessions through send_message", async () => {
 
   // The catalog is stable; the daemon enforces machine availability at execution.
   expect(answer).toContain(
-    "offered=[bash,edit,eval,find,grep,ls,monitor,provision,read,send_message,write]",
+    "offered=[bash,edit,eval,find,grep,ls,monitor,provision,read,send_message,speech,write]",
   );
   // Three children ran and their answers came back inside the cell. The value
   // is the cell's final expression as Python rendered it, quotes included.
@@ -446,6 +446,7 @@ test("the catalog remains available while machine execution refuses without atta
     "monitor",
     "send_message",
     "provision",
+    "speech",
   ]);
   // The raw machine endpoint reports live attachment failure.
   expect(answer).toContain("kernel_not_available");

@@ -139,7 +139,7 @@ import { inboxHandler } from "./composition/attachments";
 import { inboxStreamWriter } from "./composition/attachment-stream";
 import { type MediaInputPorts, inboxPartBytes, mediaDerive } from "./composition/media-input";
 import type { DeliveryMedia } from "./composition/delivery-media";
-import { makeRealtime, makeStt, resolveAuthFilePath } from "@oni/ai";
+import { makeRealtime, makeStt, makeTts, resolveAuthFilePath, type Tts } from "@oni/ai";
 import type { Channel } from "@oni/protocol";
 import { type WsParts, wsParts } from "./composition/ws-parts";
 import { createSessionForkExecutor } from "./composition/session-fork";
@@ -862,6 +862,8 @@ export async function startOni(options: StartOptions = {}) {
       machines: { host: machinery.host, defaultMachine: machinery.defaultMachine },
       cells,
       completion: llmPort,
+      speech: speechPort(config, transport, { events: services.observations, now: services.now }),
+      putOutput: (sessionId, write) => plane.session(sessionId).putOutput(write),
       messages,
       now: services.now,
       id: services.entropy.id,
@@ -1739,6 +1741,19 @@ function inboundMedia(
     }),
     warn,
   }));
+}
+
+function speechPort(
+  config: OniConfig,
+  transport: ReturnType<typeof modelTransport>,
+  observe: { readonly events: BusEvent.Sink; readonly now: () => number },
+): Tts {
+  return makeTts({
+    authFilePath: resolveAuthFilePath(),
+    ...(config.model.speechRows === undefined ? {} : { rows: config.model.speechRows }),
+    ...(transport === undefined ? {} : { transport }),
+    ...observe,
+  });
 }
 
 function withWsParts(parts: WsParts, { sender, facts }: Channel.InboundMessage): Channel.InboundMessage {

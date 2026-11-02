@@ -41,6 +41,7 @@ const MODEL_DOOR = [
   "monitor",
   "send_message",
   "provision",
+  "speech",
 ];
 const CELL_ONLY = ["completion"];
 const FILE_TOOLS = ["read", "write", "edit", "ls", "find", "grep", "bash"];
@@ -116,12 +117,12 @@ function assertSealedNames(catalog: readonly AnyToolDefinition[]): void {
 }
 
 describe("tool catalog", () => {
-  it("rejects a thirteenth catalog tool", () => {
+  it("rejects a fourteenth catalog tool", () => {
     const exemplar = definitions[0];
     if (exemplar === undefined) throw new Error("empty catalog");
-    expect(() => assertSealedNames([...definitions, { ...exemplar, name: "thirteenth" }])).toThrow();
+    expect(() => assertSealedNames([...definitions, { ...exemplar, name: "fourteenth" }])).toThrow();
   });
-  it("is sealed at eleven model-door tools plus the cell-only completion", () => {
+  it("is sealed at twelve model-door tools plus the cell-only completion", () => {
     assertSealedNames(definitions);
     expect(definitions.map(toolSpec).map((tool: ReturnType<typeof toolSpec>) => tool.name)).toEqual([...MODEL_DOOR, ...CELL_ONLY]);
     for (const tool of definitions) {

@@ -1260,6 +1260,38 @@
     "safe": false
   },
   {
+    "name": "speech",
+    "description": "Speak text aloud: synthesize it with the configured speech model and store the audio as one of your tool outputs. Returns the audio part to put in a send_message letter as is (its ref names the stored audio; voice marks it a voice note). Options: voice, format (mp3 default, opus, wav), model.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The text to speak."
+        },
+        "voice": {
+          "description": "A voice name on the provider; the configured voice when omitted.",
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "description": "The audio container; mp3 when omitted.",
+          "type": "string",
+          "enum": ["mp3", "opus", "wav"]
+        },
+        "model": {
+          "description": "A speech model id on the configured provider; the default model when omitted.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["text"],
+      "additionalProperties": false
+    },
+    "safe": false
+  },
+  {
     "name": "completion",
     "description": "Ask a sub-model one one-shot, stateless question and return its text. Options: model (an id on the configured provider), system, schema (a JSON Schema the answer must satisfy; the validated JSON text is returned).",
     "inputSchema": {
