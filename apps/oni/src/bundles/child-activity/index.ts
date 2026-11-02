@@ -1,17 +1,15 @@
 import { Bundle } from "@oni/agent";
-import { TranscriptRef } from "@oni/protocol";
+import { Machine } from "@oni/protocol";
 import { z } from "zod";
 
-const Location = TranscriptRef.pick({ machine: true, export: true, path: true, parser: true });
 export const ChildWatch = z.strictObject({
   id: z.string().min(1),
   sessionId: z.string().min(1),
+  contact: z.string().min(1),
   child: z.string().min(1),
   turn: z.string().min(1),
-  occupant: z.strictObject({ command: z.string().min(1), version: z.string().optional() }),
-  /** Verified locations supplied by the child's launcher or attachment. */
-  spool: Location.optional(),
-  transcript: Location.optional(),
+  machine: z.string().min(1),
+  cursor: Machine.AgentSessionCursor,
 });
 export type ChildWatch = z.infer<typeof ChildWatch>;
 export const CHILD_WATCH = "child.watch";

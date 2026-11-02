@@ -7,12 +7,12 @@
  * programs, so no clock is involved beyond the fired occurrence's own stamp.
  */
 import { expect, test } from "bun:test";
-import type { Bundle } from "@oni/agent";
+import { type Bundle, Core } from "@oni/agent";
 import { Effect } from "effect";
-import type { Core } from "@oni/agent";
 import { Gateway, Delivery, type LedgerAction, LedgerSession } from "@oni/protocol";
 import {
   ADMISSION_DEPTH_MAX,
+  armDelegationDeadline,
   catalogDelegationReads,
   DELEGATION_DEADLINE,
   DelegationRefusal,
@@ -297,6 +297,28 @@ test("deadline fire cancels the silent child through the injected door and promp
     firedAt: 5_000,
     note: "deadline expired with no reply; the child was cancelled",
   });
+});
+
+test("a cli child's deadline arms on its own chain and retires there; a session child shares the session's chain", async () => {
+  const arms: Parameters<Core.ArmVerb>[0][] = [];
+  const arm: Core.ArmVerb = (input) =>
+    Effect.sync(() => {
+      arms.push(input);
+      return { alarmId: input.alarmId ?? `minted-${arms.length}`, occurrenceId: `occurrence-${arms.length}`, armSeq: arms.length };
+    });
+  const cli = await runEffect(armDelegationDeadline(arm, { sessionId: "parent", turnId: "turn-1", child: "agent-1", contact: "cli:reviewer", at: 500 }));
+  await runEffect(cli.retire);
+  const session = await runEffect(armDelegationDeadline(arm, { sessionId: "parent", turnId: "turn-1", child: "child-1", contact: "session:child-1", at: 900 }));
+  await runEffect(session.retire);
+  expect(arms).toEqual([
+    { purpose: DELEGATION_DEADLINE, at: 500, alarmId: "parent:delegation.deadline:agent-1", payload: { child: "agent-1", contact: "cli:reviewer" }, sourceKey: "delegation:agent-1" },
+    { purpose: DELEGATION_DEADLINE, at: null, alarmId: "parent:delegation.deadline:agent-1", supersedes: "occurrence-1", payload: { child: "agent-1", contact: "cli:reviewer" }, sourceKey: "delegation:agent-1" },
+    { purpose: DELEGATION_DEADLINE, at: 900, payload: { child: "child-1", contact: "session:child-1" }, sourceKey: "delegation:child-1" },
+    { purpose: DELEGATION_DEADLINE, at: null, alarmId: "minted-3", supersedes: "occurrence-3", payload: { child: "child-1", contact: "session:child-1" }, sourceKey: "delegation:child-1" },
+  ]);
+  await expect(
+    runEffect(armDelegationDeadline(() => Effect.fail(new Core.ArmRefused({ code: "unknown_purpose" })), { sessionId: "parent", turnId: "turn-1", child: "agent-1", contact: "cli:reviewer", at: 500 })),
+  ).rejects.toEqual({ reason: "unknown_purpose" });
 });
 
 test("#1512 r1 L1: a door that finds the turn already ended makes the fire a no-op — no expiry prompt, the chain lapses exhausted", async () => {

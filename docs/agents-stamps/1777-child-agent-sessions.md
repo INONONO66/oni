@@ -1,0 +1,1 @@
+Issue #1777 (#1508) on `refactor/1777-child-cli-agent-session` (2026-11-02, base `3e0681c1a`, PR #1800): mclient agent sessions own cli contact launch, submission, stop, and transcript intake; the TypeScript dialect packs, hook spool and transcript parsers are deleted; receipts in `apps/oni/test/child-source.test.ts` and `apps/oni/test/cli-runner.test.ts`.

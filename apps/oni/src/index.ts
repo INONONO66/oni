@@ -77,7 +77,6 @@ import {
 } from "@oni/machines";
 import {
   Alarm,
-  L0Observation,
   Operational,
   Outbound,
   traceIdFromUuid,
@@ -131,7 +130,7 @@ import {
 } from "./composition/cluster-runtime";
 import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow, effectScheduler } from "./composition/platform";
-import { createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
+import { agentSessionTail, createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
 import { createMediaResolver } from "./composition/media";
 import { channelHistoryLookup } from "./composition/channel-history";
 import { inboxHandler } from "./composition/attachments";
@@ -167,8 +166,7 @@ import { admit } from "./bundles/child-activity/admit";
 import { ChildWatch } from "./bundles/child-activity/index";
 import { type ChildRow, currentState, receivedChildRows, stateReceipts } from "./bundles/child-activity/reconcile";
 import { validateCliContactSettings } from "./bundles/child-activity/contact/declaration";
-import { type CliRunner, createCliRunner } from "./bundles/child-activity/contact/runner";
-import { packs as dialectPacks } from "./bundles/child-activity/dialects/index";
+import { type CliRunner, committedOn, createCliRunner } from "./bundles/child-activity/contact/runner";
 
 /** A channel message the gateway refused pre-admission: the driver reports it to the sender. */
 class MessageAdmissionRefused extends Error {
@@ -728,7 +726,7 @@ export async function startOni(options: StartOptions = {}) {
       // #1512: `channel_add` with provider `cli` is judged by the contact's own door.
       cli: {
         declare: (settings) =>
-          validateCliContactSettings(settings, { dialects: dialectPacks.map((pack) => pack.manifest.id), machineKnown }),
+          validateCliContactSettings(settings, { machineKnown }),
       },
       // The machine port is read at access time, never captured.
       get machines() { return machineProvision; },
@@ -897,11 +895,11 @@ export async function startOni(options: StartOptions = {}) {
         retirePath: (sessionId, watchId) => runAppEffect(runtime, watchPlane.retirePath(sessionId, watchId)),
         ...(tools.machines === undefined ? {} : {
           machines: tools.machines,
-          children: {
-            machines: tools.machines,
-            rows: childRows,
-          },
         }),
+        children: {
+          machines: agentSessionTail(machinery.host, (effect) => runAppEffect(runtime, effect)),
+          rows: childRows,
+        },
       },
     );
     await acquire(Effect.succeed(watchSources), (resource) =>
@@ -931,9 +929,7 @@ export async function startOni(options: StartOptions = {}) {
     // with its retire door (r1 L1): `at: null` on that chain once the turn
     // has ended, so a late fire never interrupts an idle child.
     const armDeadline = (input: DeadlineArmInput) => armDelegationDeadline(watchPlane.arms.arm(input.sessionId, input.turnId), input);
-    // #1512: the `cli:` contact over the declared machine's pty. Nothing runs
-    // until a `channel:cli:<id>` row is declared; app stop drops every pane
-    // this Resident launched (watch, tmux session, lease).
+    // A declared `channel:cli:<id>` row launches a machine-client session.
     const cliRunner: CliRunner = createCliRunner({
       instances: plane.stores.instances,
       machineKnown,
@@ -942,13 +938,9 @@ export async function startOni(options: StartOptions = {}) {
         install: (spec) => childActivity.install(spec).pipe(Effect.mapError((refused) => ({ reason: refused.reason }))),
         close: childActivity.close,
         rows: childRowsAfter,
-        admit: (sessionId, rows) =>
-          childActivity.admit(sessionId, rows).pipe(Effect.asVoid, Effect.mapError((error) => ({ reason: String(error) }))),
       },
-      committed: (sessionId, listener) =>
-        services.observations.subscribe?.(L0Observation.ActionCommittedEvent, () => listener(), { match: { sessionId } }),
+      committed: committedOn(services.observations),
       deadline: armDeadline,
-      id: services.entropy.id,
       now: services.now,
     });
     await acquire(Effect.succeed(cliRunner), (runner) => runner.close());
