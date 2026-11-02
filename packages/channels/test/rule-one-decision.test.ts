@@ -11,7 +11,7 @@ test("an event held by the first rule cannot fire a later rule", async () => {
   });
   const first: Ingress.Rule = {
     id: "group", position: 0, enabled: true, createdBy: "owner", when: { instance: "telegram" },
-    group: { by: "thread", windowSeconds: 10 }, then: { target: "session:one", kind: "action", reply: "none" },
+    group: { by: "thread", windowSeconds: 10 }, outcome: { kind: "deliver", target: "session:one", deliveryKind: "action", reply: "none" },
   };
   const selected = await runEffect(match([first, { ...first, id: "immediate", position: 1, group: undefined }], input));
   const held = routeRule(selected, input, { now: 0, pending: [], matchedToday: () => 0 });

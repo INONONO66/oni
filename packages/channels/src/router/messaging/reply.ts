@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import {
   type BusEvent,
-  Channel,
+  type Channel,
   Gateway,
   MessagingEvents,
   type Outbound,

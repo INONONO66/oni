@@ -17,7 +17,7 @@ test.each([
 ] as const)("perimeter resolves %s addressee independently from sender standing", async (addressee: "owner" | "bot" | "ambient") => {
   ledger().stores.rules.add({
     id: "ws", position: 0, enabled: true, createdBy: "owner", when: { instance: "ws" },
-    then: { target: "conversation", kind: "prompt", reply: "auto" },
+    outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
   });
   ledger().stores.actors.registerIdentity({ id: "sender", kind: "human", trustTier: "owner" });
   ledger().stores.actors.registerEndpoint({ id: "ws:sender", actorId: "sender", channel: "ws", externalId: "owner" });

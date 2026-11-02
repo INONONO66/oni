@@ -18,7 +18,7 @@ export type AlarmIngress = (
 export function automationAlarm(router: GatewayRouter, stores: ChannelStores): AlarmIngress {
   if (stores.rules.get("seed:alarm") === undefined) stores.rules.add({
     id: "seed:alarm", position: stores.rules.list().length, enabled: true, createdBy: "owner", seed: true,
-    when: { instance: "alarm" }, then: { target: "session:main", kind: "action", reply: "none" },
+    when: { instance: "alarm" }, outcome: { kind: "deliver", target: "session:main", deliveryKind: "action", reply: "none" },
   }, true);
   // One alarm sender per session, registered on its first tick rather than on every tick.
   const registered = new Set<string>();

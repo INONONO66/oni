@@ -18,13 +18,13 @@ function add(record: Partial<Ingress.Rule> = {}) {
   ledger().stores.rules.add(Ingress.Rule.parse({
     id: "trigger", position: 0, enabled: true, createdBy: "owner",
     when: { instance: facts.surface, dm: false },
-    then: { target: "session:worker", kind: "action", reply: "none" }, ...record,
+    outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, ...record,
   }));
 }
 
 test.each(["failure", "defect"] as const)("a group dispatch %s closes once without blocking unrelated ingress or later groups", async (mode) => {
   add({ when: { instance: facts.surface, channel: facts.channelId, dm: false }, group: { by: "thread", windowSeconds: 10 } });
-  add({ id: "healthy", position: 1, then: { target: "session:healthy", kind: "action", reply: "none" }, when: { instance: facts.surface, channel: "healthy", dm: false },
+  add({ id: "healthy", position: 1, outcome: { kind: "deliver", target: "session:healthy", deliveryKind: "action", reply: "none" }, when: { instance: facts.surface, channel: "healthy", dm: false },
     group: { by: "thread", windowSeconds: 10 } });
   const clock = { now: 0 };
   let failures = 0;
@@ -79,7 +79,7 @@ test("interrupted group closure remains recoverable rather than recording a refu
 });
 
 test("clock-only closure keeps full and expired windows separate without losing members", async () => {
-  add({ then: { target: "new", kind: "action", reply: "none" }, group: { by: "thread", windowSeconds: 10 } });
+  add({ outcome: { kind: "deliver", target: "new", deliveryKind: "action", reply: "none" }, group: { by: "thread", windowSeconds: 10 } });
   const clock = { now: 0 };
   const router = makeRouter({ now: () => clock.now });
   for (let index = 0; index < 65; index++)

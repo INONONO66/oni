@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Clock, Effect } from "effect";
-import { L0Observation } from "@oni/protocol";
+import { Delivery, L0Observation } from "@oni/protocol";
+import { z } from "zod";
 import { foldAlarmChains } from "../src/bundles/alarms/index";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { Bus, newTraceId } from "./helpers/bus";
@@ -11,6 +12,7 @@ import { eventSignal } from "./helpers/event-signal";
 import { planeOf } from "./helpers/ledger";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
+import { routeAlarmToSession } from "./helpers/automation";
 
 const suite = residentSuite();
 
@@ -69,6 +71,7 @@ test("the app reconciles a lost create on TestClock cadence and retires it on mo
     expect((await installed).kind).toBe("waiting");
     const sessionId = plane.listSessions().find((row) => row.id !== "gateway-ingress")?.id;
     if (sessionId === undefined) throw new Error("missing watch session");
+    routeAlarmToSession(plane, sessionId);
     const kernel = plane.openKernel(sessionId);
     watchId = kernel.armedAlarms().find((row) => row.purpose === "monitor.hit")?.alarmId;
     if (watchId === undefined) throw new Error("missing monitor watch");
@@ -105,9 +108,10 @@ test("the app reconciles a lost create on TestClock cadence and retires it on mo
       await clock.adjust(1_000);
       await Promise.all([hit, observed]);
       expect(calls).toBe(before + 1);
-      const prompt = kernel.actionById(`${main.occurrenceId}:prompt`);
+      const prompt = kernel.actionById(main.occurrenceId);
       expect(prompt?.kind).toBe("prompt");
-      expect(prompt?.effect.value).toMatchObject({ content: [{ kind: "text", text: JSON.stringify({ path, event: "create" }) }] });
+      const text = Delivery.text(z.object({ content: Delivery.Content }).parse(prompt?.effect.value).content);
+      expect(JSON.parse(text.split("\n\n").at(-1) ?? "")).toEqual({ path, event: "create" });
       expect(cadence().map((row) => [row.occurrenceId, row.fireAt])).toEqual([[empty.occurrenceId, tick + 1_000]]);
       expect(cadenceChain()?.armCount).toBe(1);
       expect(cadenceChain()?.settled.size).toBe(0);

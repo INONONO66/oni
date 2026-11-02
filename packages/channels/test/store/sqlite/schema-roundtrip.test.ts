@@ -9,7 +9,7 @@ import { ChannelStoreInvariant } from "../../../src/store/sqlite/errors.js";
 import { testNow } from "../helpers/sqlite";
 
 const record = { id: "rule", position: 0, enabled: true, createdBy: "owner" as const,
-  when: { instance: "chat" }, then: { target: "conversation", kind: "prompt" as const, reply: "auto" as const } };
+  when: { instance: "chat" }, outcome: { kind: "deliver" as const, target: "conversation", deliveryKind: "prompt" as const, reply: "auto" as const } };
 
 function schema(db: Database) {
   return z.array(z.object({ name: z.string(), sql: z.string() })).parse(

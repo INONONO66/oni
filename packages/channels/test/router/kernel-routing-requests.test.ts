@@ -52,7 +52,7 @@ test.each([0, 10] as const)("correlated reply bypasses a %s-second action trigge
   ledger().stores.rules.add(Ingress.Rule.parse({
     id: "request-trigger", position: 0, enabled: true, createdBy: "owner",
     when: { instance: "telegram" },
-    then: { target: "session:worker", kind: "action", reply: "none" }, group: { by: "thread", windowSeconds },
+    outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, group: { by: "thread", windowSeconds },
   }));
   ledger().stores.surfaceKeys.claim(
     Channel.SurfaceKey.fromChannel({
@@ -385,7 +385,7 @@ test("awaited send resolves quorum from distinct authenticated responder endpoin
 test("a disabled inbound rule does not deny an authenticated correlated reply", async () => {
   await runEffect(await openRequest("correlated"));
   ledger().stores.rules.add({ id: "disabled", position: 0, enabled: false, createdBy: "owner",
-    when: { instance: "telegram" }, then: { target: "conversation", kind: "prompt", reply: "auto" } });
+    when: { instance: "telegram" }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } });
   expect(await runEffect(kernelRouter().ingest(sender, facts("reply")))).toMatchObject({ status: "executed" });
   expect(routingDecisions()[0]).toMatchObject({ stage: "request_correlation", outcome: "route" });
   expect(ledger().kernel.requestById("correlated")?.state).toBe("resolved");

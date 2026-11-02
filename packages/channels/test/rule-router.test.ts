@@ -1,4 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { Delivery, Ingress } from "@oni/protocol";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "./helpers/effect.js";
@@ -6,10 +7,40 @@ import { commits, createMappedOwnerSession, makeRouter, ownerFacts, ownerSender,
 
 beforeEach(resetRouterState);
 
+test.each([
+  { name: "DM", facts: ownerFacts, expected: "seed-owner-dm" },
+  { name: "mention", facts: { ...ownerFacts, dm: false, event: "mention" as const }, expected: "seed-owner-addressed" },
+  { name: "bot author", facts: { ...ownerFacts, author: { externalId: "bot", isBot: true } }, expected: "none" },
+  { name: "unaddressed reaction", facts: { ...ownerFacts, dm: false, event: "reaction" as const }, expected: "none" },
+])("router records the matched rule for $name", async ({ facts, expected }) => {
+  registerOwnerDm();
+  await runEffect(makeRouter().ingest(ownerSender, facts));
+  expect(ledger().stores.rules.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm")[0]).toMatchObject({ by: `rule/${expected}` });
+});
+
+test.each(["yes", "no", "unknown"] as const)("router judge %s records exactly the selected rule", async (verdict) => {
+  addRule("judged", { judge: "JUDGE_SENTINEL" });
+  await runEffect(makeRouter({ judge: () => Effect.succeed(verdict) }).ingest(ownerSender, ownerFacts));
+  expect(ledger().stores.rules.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm")[0])
+    .toMatchObject({ by: verdict === "yes" ? "rule/judged" : "rule/none" });
+});
+
+test.each(["drop", "record"] as const)("a %s outcome terminates matching without delivery or group holding", async (kind) => {
+  registerOwnerDm();
+  addRule("stop", { outcome: { kind }, group: { by: "thread", windowSeconds: 10 } });
+  const router = makeRouter();
+  expect(await runEffect(router.ingest(ownerSender, ownerFacts))).toEqual({ status: "blocked_pre", reasonCode: kind });
+  expect(ledger().stores.rules.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm")[0])
+    .toMatchObject({ by: "rule/stop", decision: "filtered", reason: kind });
+  expect(commits).toEqual([]);
+  expect(ledger().stores.rules.groups()).toEqual([]);
+  expect(await runEffect(router.ingest(ownerSender, ownerFacts))).toEqual({ status: "blocked_pre", reasonCode: kind });
+});
+
 function addRule(id: string, extras: Partial<Ingress.Rule> = {}) {
   ledger().stores.rules.add(Ingress.Rule.parse({
     id, position: 0, enabled: true, createdBy: "owner", when: { instance: ownerFacts.surface },
-    then: { target: "session:worker", kind: "action", reply: "none" }, ...extras,
+    outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, ...extras,
   }));
 }
 
@@ -61,7 +92,7 @@ test("position precedes a conversation seed and delivers one action", async () =
 });
 
 test("new-target actions create one new session", async () => {
-  addRule("spawn", { then: { target: "new", kind: "action", reply: "none" } });
+  addRule("spawn", { outcome: { kind: "deliver", target: "new", deliveryKind: "action", reply: "none" } });
   const result = await runEffect(makeRouter().ingest(ownerSender, ownerFacts));
   expect(result.status).toBe("executed");
   if (result.status !== "executed") throw new Error("new session was not routed");
@@ -90,7 +121,7 @@ test("bot authors are admitted only when an explicit rule permits them", async (
 
 test("a selected rule's daily limit never falls back to conversation delivery", async () => {
   registerOwnerDm();
-  addRule("limited", { then: { target: "session:worker", kind: "action", reply: "none", maxRunsPerDay: 1 } });
+  addRule("limited", { outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none", maxRunsPerDay: 1 } });
   const router = makeRouter();
   expect((await runEffect(router.ingest(ownerSender, ownerFacts))).status).toBe("executed");
   expect(await runEffect(router.ingest(ownerSender, { ...ownerFacts, eventId: "limited" }))).toEqual({ status: "blocked_pre", reasonCode: "limit" });

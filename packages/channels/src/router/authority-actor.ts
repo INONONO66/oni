@@ -5,13 +5,13 @@ type ActorRecord = Pick<Ingress.Actor, "trustTier" | "role">;
 const topLevelTrustTiers = new Set<Actor.TrustTier>(["owner", "co_owner", "manager"]);
 const evidenceOnlyTrustTiers = new Set<Actor.TrustTier>(["collaborator", "observer"]);
 
-export function getActor(event: Gateway.DeliveredEvent): ActorRecord | undefined {
+function getActor(event: Gateway.DeliveredEvent): ActorRecord | undefined {
   // event.meta.actor is the typed Ingress.Actor (declared field), so this is
   // typed field access — no untyped record narrowing.
   return event.meta?.actor;
 }
 
-export function actorTrustTier(actor: ActorRecord | undefined): Actor.TrustTier | undefined {
+function actorTrustTier(actor: ActorRecord | undefined): Actor.TrustTier | undefined {
   const parsed = Actor.TrustTier.safeParse(actor?.trustTier);
   return parsed.success ? parsed.data : undefined;
 }

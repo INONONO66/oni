@@ -41,7 +41,8 @@ function heldGroup(stores: ChannelStores, ports: GatewayRouterPorts,
   if (pending === undefined) return undefined;
   const previous = stores.rules.groups().find((group) =>
     group.pending.inputs[0]?.eventId === pending.inputs[0]?.eventId);
-  const target = stores.rules.get(pending.ruleId)?.record.then.target;
+  const outcome = stores.rules.get(pending.ruleId)?.record.outcome;
+  const target = outcome?.kind === "deliver" ? outcome.target : undefined;
   return {
     id: JSON.stringify([pending.ruleId, pending.key, pending.inputs[0]?.eventId]),
     target: previous?.target ?? (target === "new" ? `session:${ports.id()}` : target === "conversation" ? `session:${external.target}` : target ?? `session:${external.target}`),

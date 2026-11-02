@@ -926,8 +926,8 @@ test("sender restrictions require revision-bound consent and remain on both seed
   expect(await tool.execute(restricted, { ...context, domainRevisions: { [base.id]: -1 } })).toMatchObject({ action: "declared" });
   const seeds = () => port.rules.store.list().map(({ record }) => record);
   expect(seeds()).toEqual([
-    expect.objectContaining({ seed: true, createdBy: "owner", when: { instance: base.id, dm: true, isBot: false, from: ["7"] }, then: { target: "conversation", kind: "prompt", reply: "auto" } }),
-    expect.objectContaining({ seed: true, createdBy: "owner", when: { instance: base.id, addressed: true, isBot: false, from: ["7"] }, then: { target: "conversation", kind: "prompt", reply: "auto" } }),
+    expect.objectContaining({ seed: true, createdBy: "owner", when: { instance: base.id, dm: true, isBot: false, from: ["7"] }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } }),
+    expect.objectContaining({ seed: true, createdBy: "owner", when: { instance: base.id, addressed: true, isBot: false, from: ["7"] }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } }),
   ]);
   port.rules.store.disable(`seed:${base.id}:dm`);
   const redeclare = { operation: { op: "channel_add" as const, args: { id: base.id, provider: base.provider, enabled: true } } };

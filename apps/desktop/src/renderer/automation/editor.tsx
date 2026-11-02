@@ -20,11 +20,14 @@ export function AutomationEditor({ record, sessions, busy, serverIssues = [], on
     const previous = errors.get(path);
     errors.set(path, previous === undefined ? issue.message : `${previous}\n${issue.message}`);
   }
+  const delivery = draft.outcome.kind === "deliver" ? draft.outcome : undefined;
   const targets = new Map<string, string>(sessions.flatMap((session) => session.durableSessionId === undefined ? [] : [
     [`session:${session.durableSessionId}`, session.title] as const,
   ]));
-  if (draft.then.target.startsWith("session:") && !targets.has(draft.then.target)) targets.set(draft.then.target, draft.then.target.slice(8));
-  const then = (value: Partial<Ingress.Rule["then"]>) => setDraft({ ...draft, then: { ...draft.then, ...value } });
+  if (delivery?.target.startsWith("session:") && !targets.has(delivery.target)) targets.set(delivery.target, delivery.target.slice(8));
+  const updateDelivery = (value: Partial<Extract<Ingress.Rule["outcome"], { kind: "deliver" }>>) => {
+    if (delivery !== undefined) setDraft({ ...draft, outcome: { ...delivery, ...value } });
+  };
   return <form aria-label="Rule editor" className="flex min-w-0 flex-col gap-6" noValidate onSubmit={(event) => {
     event.preventDefault();
     const parsed = Ingress.Rule.safeParse(draft);
@@ -38,19 +41,25 @@ export function AutomationEditor({ record, sessions, busy, serverIssues = [], on
       <Field label="Grouping window" error={errors.get("group.windowSeconds")} hint="Messages are grouped within their thread."><Select value={draft.group?.windowSeconds ?? 0} onChange={(event) => setDraft({
         ...draft, group: { windowSeconds: Ingress.WindowSeconds.parse(Number(event.target.value)), by: "thread" },
       })}>{[0, 5, 10, 20, 30, 60].map((seconds) => <option key={seconds} value={seconds}>{seconds === 0 ? "No grouping" : `${seconds} seconds`}</option>)}</Select></Field>
-      <fieldset className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+      <Field label="Outcome" error={errors.get("outcome.kind")}><Select value={draft.outcome.kind} onChange={(event) => {
+        const kind = event.target.value;
+        setDraft({ ...draft, outcome: kind === "deliver"
+          ? { kind, target: "conversation", deliveryKind: "prompt", reply: "auto" }
+          : Ingress.Rule.shape.outcome.parse({ kind }) });
+      }}><option value="deliver">Deliver</option><option value="record">Record only</option><option value="drop">Drop</option></Select></Field>
+      {delivery !== undefined && <><fieldset className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
         <legend className="mb-2 font-medium text-title">Delivery</legend>
-        <Field label="Target" error={errors.get("then.target")}><Select value={draft.then.target} onChange={(event) => then({ target: event.target.value })}>
+        <Field label="Target" error={errors.get("outcome.target")}><Select value={delivery.target} onChange={(event) => updateDelivery({ target: event.target.value })}>
           <option value="conversation">This conversation</option><option value="new">New session</option>
           {[...targets].map(([id, title]) => <option key={id} value={id}>{title}</option>)}
         </Select></Field>
-        <Field label="Kind" error={errors.get("then.kind")}><Select value={draft.then.kind} onChange={(event) => then({ kind: Ingress.Rule.shape.then.shape.kind.parse(event.target.value) })}><option value="prompt">Prompt</option><option value="action">Action</option></Select></Field>
-        <Field label="Reply" error={errors.get("then.reply")}><Select value={draft.then.reply} onChange={(event) => then({ reply: Ingress.Rule.shape.then.shape.reply.parse(event.target.value) })}><option value="auto">Automatic</option><option value="draft">Draft</option><option value="none">None</option></Select></Field>
-        <Field label="Reply as instance" error={errors.get("then.as")}><Input value={draft.then.as ?? ""} onInput={(event) => then({ as: event.currentTarget.value || undefined })} /></Field>
-        <Field label="Agent id" error={errors.get("then.agent")}><Input value={draft.then.agent ?? ""} onInput={(event) => then({ agent: event.currentTarget.value || undefined })} /></Field>
-        <Field label="Maximum runs per day" error={errors.get("then.maxRunsPerDay")}><Input type="number" min={1} step={1} value={draft.then.maxRunsPerDay ?? ""} onInput={(event) => then({ maxRunsPerDay: event.currentTarget.value === "" ? undefined : Number(event.currentTarget.value) })} /></Field>
+        <Field label="Kind" error={errors.get("outcome.deliveryKind")}><Select value={delivery.deliveryKind} onChange={(event) => updateDelivery({ deliveryKind: Ingress.Rule.shape.outcome.options[2].shape.deliveryKind.parse(event.target.value) })}><option value="prompt">Prompt</option><option value="action">Action</option></Select></Field>
+        <Field label="Reply" error={errors.get("outcome.reply")}><Select value={delivery.reply} onChange={(event) => updateDelivery({ reply: Ingress.Rule.shape.outcome.options[2].shape.reply.parse(event.target.value) })}><option value="auto">Automatic</option><option value="draft">Draft</option><option value="none">None</option></Select></Field>
+        <Field label="Reply as instance" error={errors.get("outcome.as")}><Input value={delivery.as ?? ""} onInput={(event) => updateDelivery({ as: event.currentTarget.value || undefined })} /></Field>
+        <Field label="Agent id" error={errors.get("outcome.agent")}><Input value={delivery.agent ?? ""} onInput={(event) => updateDelivery({ agent: event.currentTarget.value || undefined })} /></Field>
+        <Field label="Maximum runs per day" error={errors.get("outcome.maxRunsPerDay")}><Input type="number" min={1} step={1} value={delivery.maxRunsPerDay ?? ""} onInput={(event) => updateDelivery({ maxRunsPerDay: event.currentTarget.value === "" ? undefined : Number(event.currentTarget.value) })} /></Field>
       </fieldset>
-      <Field label="Instructions" error={errors.get("then.instructions")} hint="Instructions for a new session."><Textarea rows={3} value={draft.then.instructions ?? ""} onInput={(event) => then({ instructions: event.currentTarget.value || undefined })} /></Field>
+      <Field label="Instructions" error={errors.get("outcome.instructions")} hint="Instructions for a new session."><Textarea rows={3} value={delivery.instructions ?? ""} onInput={(event) => updateDelivery({ instructions: event.currentTarget.value || undefined })} /></Field></> }
     </fieldset>
     {errors.size > 0 && <div role="alert" className="rounded-md bg-raised p-4 text-body"><p>Review the rule before saving.</p><ul className="list-inside list-disc">{[...errors].map(([path, message]) => <li key={path}>{message}</li>)}</ul></div>}
     <div className="flex flex-wrap gap-3">

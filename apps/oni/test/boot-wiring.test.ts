@@ -1,9 +1,9 @@
 import { composedHolder } from "./helpers/bundle-fixture";
 import { describe, expect, test } from "bun:test";
-import {
-  type ChannelDeliveryRoute,
-  type ProviderDeliveryRoute,
-  type ProviderTypingRoute,
+import type {
+  ChannelDeliveryRoute,
+  ProviderDeliveryRoute,
+  ProviderTypingRoute,
 } from "@oni/channels";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";

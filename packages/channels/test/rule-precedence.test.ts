@@ -9,7 +9,7 @@ beforeEach(resetRouterState);
 function rule(judge?: string) {
   ledger().stores.rules.add({
     id: "notify", position: 0, enabled: true, createdBy: "owner", when: { instance: ownerFacts.surface },
-    then: { target: "session:worker", kind: "action", reply: "none" }, judge,
+    outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, judge,
   });
 }
 

@@ -29,13 +29,13 @@ function AutomationPreview() {
         <ActionButton onClick={() => setLedger(true)}>Ingress ledger</ActionButton>
         <ActionButton onClick={() => {
           const record = [...fixture.records.values()].at(-1);
-          if (record === undefined || !record.enabled) return;
+          if (record === undefined || !record.enabled || record.outcome.kind !== "deliver") return;
           rows.unshift({
             traceId: "preview", inboundId: `fixture-${record.id}`, time: 900, surface: "fixture",
             mode: "internal", stage: "automation", outcome: "record", decision: "matched",
-            by: `rule/${record.id}`, factsDigest: "sha256:fixture", factsUsed: [`kind:${record.then.kind}`],
-            reason: `Fixture ${record.then.kind} delivered`, actionSeq: 4,
-            target: record.then.target === "new" || record.then.target === "conversation" ? `session:created-${record.id}` : record.then.target,
+            by: `rule/${record.id}`, factsDigest: "sha256:fixture", factsUsed: [`kind:${record.outcome.deliveryKind}`],
+            reason: `Fixture ${record.outcome.deliveryKind} delivered`, actionSeq: 4,
+            target: record.outcome.target === "new" || record.outcome.target === "conversation" ? `session:created-${record.id}` : record.outcome.target,
           });
           void client.invalidateQueries();
           setLedger(true);

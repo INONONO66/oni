@@ -15,7 +15,7 @@ function trigger(extras: Partial<Ingress.Rule> = {}) {
   ledger().stores.rules.add(Ingress.Rule.parse({
     id: "admission", position: 0, enabled: true, createdBy: "owner",
     when: { instance: "discord" },
-    then: { target: "session:worker", kind: "action", reply: "none" }, ...extras,
+    outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, ...extras,
   }));
 }
 const facts = { ...ownerFacts, dm: false, reply: { chain: [], threadId: "root" } };
@@ -36,7 +36,7 @@ test.each(["matched", "filtered", "refused", "grouped"] as const)(
   "%s replay preserves original facts and records delivered duplicates", async (decision) => {
     registerOwnerDm();
     trigger(decision === "filtered" ? { when: { instance: "other" } }
-      : decision === "refused" ? { then: { target: "session:worker", kind: "action", reply: "none", maxRunsPerDay: 1 } }
+      : decision === "refused" ? { outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none", maxRunsPerDay: 1 } }
       : decision === "grouped" ? { group: { by: "thread", windowSeconds: 10 } } : {});
     if (decision === "refused") {
       ledger().stores.rules.record(Ingress.Events.RoutingDecision.schema.parse({
@@ -73,7 +73,7 @@ test.each(["matched", "filtered", "refused", "grouped"] as const)(
 
 test.each(["action", "prompt"] as const)("a restored %s group uses gated dispatch and aggregated content", async (kind) => {
   registerOwnerDm();
-  trigger({ then: { target: "session:worker", kind, reply: "none" }, group: { by: "thread", windowSeconds: 10 } });
+  trigger({ outcome: { kind: "deliver", target: "session:worker", deliveryKind: kind, reply: "none" }, group: { by: "thread", windowSeconds: 10 } });
   const router = makeRouter({ now: () => 0 });
   await runEffect(router.ingest(ownerSender, facts));
   await runEffect(router.ingest(ownerSender, { ...facts, eventId: "second", render: "second body" }));
@@ -137,7 +137,7 @@ test("a grouped new target and all members survive closing and reopening SQLite"
   resetLedger(paths);
   try {
     registerOwnerDm();
-    trigger({ then: { target: "new", kind: "action", reply: "none" }, group: { by: "thread", windowSeconds: 10 } });
+    trigger({ outcome: { kind: "deliver", target: "new", deliveryKind: "action", reply: "none" }, group: { by: "thread", windowSeconds: 10 } });
     const router = makeRouter({ now: () => 0 });
     await runEffect(router.ingest(ownerSender, facts));
     const target = ledger().stores.rules.groups()[0]?.target;
@@ -171,7 +171,7 @@ test.each(["disabled", "removed", "limited"] as const)("a %s group closes withou
   if (state === "disabled") store.disable("admission");
   else if (state === "removed") store.remove("admission");
   else {
-    trigger({ group: { by: "thread", windowSeconds: 10 }, then: { target: "session:worker", kind: "action", reply: "none", maxRunsPerDay: 1 } });
+    trigger({ group: { by: "thread", windowSeconds: 10 }, outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none", maxRunsPerDay: 1 } });
     store.record(Ingress.Events.RoutingDecision.schema.parse({
       traceId: "seed", time: 0, inboundId: "seed", surface: "discord", mode: "direct",
       stage: "automation", outcome: "record", decision: "matched", by: "rule/admission",

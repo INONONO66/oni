@@ -59,7 +59,7 @@ test("server invalid_record issues use the same field locations and retain unbou
   const issues = [
     { path: ["when", "instance"], message: "Surface unavailable", code: "custom" },
     { path: ["when", "from", 0], message: "Channel unavailable", code: "custom" },
-    { path: ["args", "record", "then", "maxRunsPerDay"], message: "Limit refused", code: "custom" },
+    { path: ["args", "record", "outcome", "maxRunsPerDay"], message: "Limit refused", code: "custom" },
     { path: [], message: "Record refused", code: "custom" },
   ];
   const fixture = createAutomationFixture([automationRecord], [], (request) => request.type === "rule_add"
@@ -161,7 +161,7 @@ test.each([
     await ui.field("Target", target);
     await ui.field("Kind", kind);
     await ui.submit();
-    expect(fixture.records.get("new-record")).toMatchObject({ then: { target, kind } });
+    expect(fixture.records.get("new-record")).toMatchObject({ outcome: { kind: "deliver", target, deliveryKind: kind } });
     expect(fixture.requests.map((request) => request.type)).toEqual(["rule_list", "rule_add", "rule_list"]);
   } finally { await ui.close(); }
 });
@@ -191,7 +191,7 @@ test("disable, enable, edit, and confirmed removal all reread the server record"
 });
 
 test("rule fields round-trip through the editor and optional values can be cleared", async () => {
-  const fixture = createAutomationFixture([{ ...automationRecord, then: { ...automationRecord.then, target: "session:unlisted" } }]);
+  const fixture = createAutomationFixture([{ ...automationRecord, outcome: { ...automationRecord.outcome, target: "session:unlisted" } }]);
   const ui = automationRenderer();
   try {
     await ui.render(createElement(AutomationView, { transport: fixture.transport, sessions: [], id: () => "new" }));
@@ -214,21 +214,22 @@ test("rule fields round-trip through the editor and optional values can be clear
       position: 1,
       when: { channel: "room", from: ["first", "second"], event: "reaction", isBot: false, dm: true, addressed: false },
       judge: "JUDGE_SENTINEL",
-      then: { target: "session:unlisted", instructions: "INSTRUCTIONS_SENTINEL", maxRunsPerDay: 4, reply: "draft", as: "owner-instance", agent: "agent" },
+      outcome: { kind: "deliver", target: "session:unlisted", instructions: "INSTRUCTIONS_SENTINEL", maxRunsPerDay: 4, reply: "draft", as: "owner-instance", agent: "agent" },
     });
     await ui.click("Edit");
     for (const label of ["Channel", "From", "Event", "Judge", "Instructions", "Maximum runs per day", "Bot author", "Reply as instance", "Agent id"]) await ui.field(label, "");
     await ui.submit();
     const saved = fixture.records.get("alerts");
+    if (saved?.outcome.kind !== "deliver") throw new Error("delivery outcome missing");
     expect(saved?.judge).toBeUndefined();
     expect(saved?.when.channel).toBeUndefined();
     expect(saved?.when.from).toBeUndefined();
     expect(saved?.when.event).toBeUndefined();
     expect(saved?.when.isBot).toBeUndefined();
-    expect(saved?.then.instructions).toBeUndefined();
-    expect(saved?.then.maxRunsPerDay).toBeUndefined();
-    expect(saved?.then.as).toBeUndefined();
-    expect(saved?.then.agent).toBeUndefined();
+    expect(saved?.outcome.instructions).toBeUndefined();
+    expect(saved?.outcome.maxRunsPerDay).toBeUndefined();
+    expect(saved?.outcome.as).toBeUndefined();
+    expect(saved?.outcome.agent).toBeUndefined();
   } finally { await ui.close(); }
 });
 
@@ -240,6 +241,18 @@ test("seed rows can be disabled but never removed from the editor", async () => 
     expect([...ui.host.querySelectorAll("button")].find((button) => button.textContent === "Remove")?.disabled).toBe(true);
     await ui.click("Disable");
     expect(fixture.records.get("alerts")).toMatchObject({ seed: true, enabled: false });
+  } finally { await ui.close(); }
+});
+
+test.each(["drop", "record"] as const)("the editor saves a %s outcome without stale delivery fields", async (kind) => {
+  const fixture = createAutomationFixture();
+  const ui = automationRenderer();
+  try {
+    await ui.render(createElement(AutomationView, { transport: fixture.transport, sessions: [], id: () => "new" }));
+    await ui.click("Edit");
+    await ui.field("Outcome", kind);
+    await ui.submit();
+    expect(fixture.records.get("alerts")?.outcome).toEqual({ kind });
   } finally { await ui.close(); }
 });
 

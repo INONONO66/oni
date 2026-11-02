@@ -1,11 +1,11 @@
 import { Ingress } from "@oni/protocol";
 import { createGatewayChatTransport } from "../../src/renderer/chat/gateway-transport";
 
-export const automationRecord: Ingress.Rule = {
+export const automationRecord = {
   id: "alerts", position: 0, enabled: true, createdBy: "owner",
   when: { instance: "channel:discord:main", addressed: true },
-  then: { target: "new", kind: "action", reply: "auto" },
-};
+  outcome: { kind: "deliver", target: "new", deliveryKind: "action", reply: "auto" },
+} satisfies Ingress.Rule;
 
 export const ledgerRows: Ingress.RoutingDecisionPayload[] = [
   ...(["matched", "filtered", "refused", "deduped", "grouped", "superseded"] as const).map((decision, index) => ({
@@ -28,7 +28,7 @@ export const ledgerRows: Ingress.RoutingDecisionPayload[] = [
 ];
 
 export function createAutomationFixture(
-  initial = [automationRecord],
+  initial: readonly Ingress.Rule[] = [automationRecord],
   rows = ledgerRows,
   intercept?: (request: Ingress.RuleRequest) => Ingress.RuleResponse | "close" | "hold" | undefined,
 ) {

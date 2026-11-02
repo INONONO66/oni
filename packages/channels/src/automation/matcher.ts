@@ -10,7 +10,7 @@ export const PendingGroup = z.object({
 });
 export type PendingGroup = z.infer<typeof PendingGroup>;
 
-const RouteFields = Ingress.Rule.shape.then.omit({ kind: true }).extend({
+const RouteFields = Ingress.Rule.shape.outcome.options[2].omit({ kind: true, deliveryKind: true }).extend({
   ruleId: z.string(), target: z.string(), newSession: z.boolean(), conversation: z.boolean(),
 });
 export const Route = z.discriminatedUnion("kind", [
@@ -61,9 +61,11 @@ function ledger(input: Ingress.Input, now: number, id: string,
   });
 }
 
-function route(record: Ingress.Rule, inputs: readonly Ingress.Input[]): Route {
-  const fields = { ...record.then, ruleId: record.id, newSession: record.then.target === "new", conversation: record.then.target === "conversation" };
-  return record.then.kind === "prompt"
+function route(record: Ingress.Rule, inputs: readonly Ingress.Input[]): Route | undefined {
+  if (record.outcome.kind !== "deliver") return undefined;
+  const { deliveryKind, kind: _kind, ...outcome } = record.outcome;
+  const fields = { ...outcome, ruleId: record.id, newSession: outcome.target === "new", conversation: outcome.target === "conversation" };
+  return deliveryKind === "prompt"
     ? Route.parse({ ...fields, kind: "prompt", origin: { ...inputs.at(-1), body: inputs.map((input) => input.body).join("\n\n") } })
     : { ...fields, kind: "action", source: "ingress", handlerRef: `rule/${record.id}`, body: context(record, inputs) };
 }
@@ -74,7 +76,9 @@ export function routeRule(record: Ingress.Rule | undefined, input: Ingress.Input
   if (record === undefined)
     return { pending, rows: [ledger(input, ports.now, "none", "filtered", "none")] };
   const verdict = record.judge === undefined ? undefined : "yes";
-  const limit = record.then.maxRunsPerDay;
+  if (record.outcome.kind !== "deliver")
+    return { pending, rows: [ledger(input, ports.now, record.id, "filtered", record.outcome.kind, record.when, verdict)] };
+  const limit = record.outcome.maxRunsPerDay;
   if (limit !== undefined && ports.matchedToday(record.id) >= limit)
     return { pending, rows: [ledger(input, ports.now, record.id, "refused", "limit", record.when, verdict)] };
   const group = record.group;
@@ -106,8 +110,8 @@ export function advanceGroups(records: readonly Ingress.Rule[], pending: readonl
     const record = records.find((item) => item.id === group.ruleId);
     const latest = group.inputs.at(-1);
     if (latest === undefined) continue;
-    const active = record?.enabled === true;
-    const inactiveReason = record === undefined ? "removed" : "disabled";
+    const active = record?.enabled === true && record.outcome.kind === "deliver";
+    const inactiveReason = record === undefined ? "removed" : !record.enabled ? "disabled" : record.outcome.kind;
     const rows = group.inputs.slice(0, -1).map((member) =>
       ledger(member, now, group.ruleId, active ? "grouped" : "filtered",
         active ? `firing:${latest.eventId}` : inactiveReason, group.when,

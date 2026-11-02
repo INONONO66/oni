@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Vault } from "@oni/channels";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { testPlane } from "./helpers/ledger";
-import { type Provisioning } from "@oni/protocol";
+import type { Provisioning } from "@oni/protocol";
 import { declaredChannelProfile, validateProviderCredential } from "../src/channels";
 import {
   desiredChannels,

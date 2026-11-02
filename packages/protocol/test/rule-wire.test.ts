@@ -7,7 +7,7 @@ const record: Ingress.Rule = {
   enabled: true,
   createdBy: "owner",
   when: { instance: "chat" },
-  then: { target: "new", kind: "action", reply: "none" },
+  outcome: { kind: "deliver", target: "new", deliveryKind: "action", reply: "none" },
 };
 
 describe("automation gateway wire", () => {

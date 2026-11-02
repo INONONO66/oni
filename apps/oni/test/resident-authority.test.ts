@@ -63,7 +63,7 @@ for (const scenario of [
     }).pipe(Effect.provide(resident.services)));
     createRuleStore(resident.plane.channel).add({
       id: "authority", position: 0, enabled: true, createdBy: "owner", when: { instance: "ws" },
-      then: { target: "conversation", kind: "prompt", reply: "auto" },
+      outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
     });
     createSurfaceKeyStore(resident.plane.channel).claim("ws:dm:owner", "authority-session");
     const admission = await runEffect(gateway.ingest(

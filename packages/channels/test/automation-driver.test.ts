@@ -10,11 +10,7 @@ import { injectedOptions } from "./helpers/injected.js";
 import { ledger } from "./helpers/ledger.js";
 import { commits, makeRouter, resetRouterState, routingDecisions } from "./router/_router-fixture.js";
 
-// Both deliveries pass through the real signed driver and the real GatewayRouter.ingest.
-// On the pre-#1457 matcher the drivers emit `event: "message"` and the trigger selector
-// compares `channelId`, so no automation matches: the identified sender is blocked at
-// `message.external.grant_tier` with no `matched` row and no commit (the negative branch
-// below is what the positive branch looked like before the fix).
+// Signed drivers and the real router share the same instance rule contract.
 
 const webhookBody = '{ "kind": "ping" }';
 const githubBody = JSON.stringify({
@@ -34,8 +30,6 @@ const scenarios = [
     name: "webhook",
     channelId: "hook-1",
     sender: { surface: "webhook", externalId: "secret:hook-1", workspace: undefined },
-    trigger: { type: "webhook", secretRef: "secret:hook-1" },
-    otherTrigger: { type: "webhook", secretRef: "hook-1" },
     adapter: () => new WebhookAdapter(
       { id: "hook-1", secretRef: "secret:hook-1" },
       {},
@@ -56,8 +50,6 @@ const scenarios = [
     name: "github",
     channelId: "owner/repo#123",
     sender: { surface: "github", externalId: "maintainer", workspace: "owner/repo" },
-    trigger: { type: "github", event: "pull_request.opened" },
-    otherTrigger: { type: "github", event: "pull_request.closed" },
     adapter: () => new GitHubAdapter("secret", {}, () => undefined, injectedOptions()),
     request: () => signedWebhook(githubBody, "secret", "delivery-pr-123", "pull_request"),
   },
@@ -67,11 +59,12 @@ type Scenario = (typeof scenarios)[number];
 
 beforeEach(resetRouterState);
 
-function addAutomations(scenario: Scenario): void {
-  for (const [id, trigger] of [["other", scenario.otherTrigger], ["selected", scenario.trigger]] as const) {
-    ledger().stores.automations.add(Ingress.Automation.parse({
-      id, name: id, enabled: true, createdBy: "owner", triggers: [trigger],
-      conditions: { channels: [scenario.channelId] }, target: "session:worker",
+function addRules(scenario: Scenario): void {
+  for (const [position, id] of ["other", "selected"].entries()) {
+    ledger().stores.rules.add(Ingress.Rule.parse({
+      id, position, enabled: true, createdBy: "owner",
+      when: { instance: id === "selected" ? "channel:test:main" : "other", channel: scenario.channelId, from: [scenario.sender.externalId] },
+      outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" },
     }));
   }
 }
@@ -106,10 +99,10 @@ async function deliver(scenario: Scenario) {
 }
 
 test.each([...scenarios])(
-  "$name signed delivery from an identified sender matches its trigger through the router",
+  "$name signed delivery from an identified sender matches its instance rule through the router",
   async (scenario) => {
     identifySender(scenario);
-    addAutomations(scenario);
+    addRules(scenario);
 
     const { facts, result, inboundId } = await deliver(scenario);
 
@@ -117,29 +110,30 @@ test.each([...scenarios])(
     expect(result).toMatchObject({ status: "executed", handle: { target: "worker" } });
     expect(commits).toHaveLength(1);
     expect(commits[0]).toMatchObject({ sessionId: "worker", kind: "action" });
-    expect(commits[0]?.origin.value).toMatchObject({ source: "ingress", handlerRef: "automation/selected" });
+    expect(commits[0]?.origin.value).toMatchObject({ source: "ingress", handlerRef: "rule/selected" });
     expect(routingDecisions()).toContainEqual(expect.objectContaining({
       outcome: "route", stage: "surface_default", actorId: "observer",
-      factsUsed: expect.arrayContaining(["automation:selected"]),
+      factsUsed: expect.arrayContaining(["rule:selected"]),
     }));
-    expect(ledger().stores.automations.decisions(inboundId)).toEqual([
-      expect.objectContaining({ stage: "automation", decision: "matched", by: "automation/selected" }),
+    expect(ledger().stores.rules.decisions(inboundId)).toEqual([
+      expect.objectContaining({ stage: "automation", decision: "matched", by: "rule/selected" }),
     ]);
   },
 );
 
 test.each([...scenarios])(
-  "$name signed delivery from an unidentified sender stays blocked at the channel ceiling",
+  "$name signed delivery records only when its rule does not match",
   async (scenario) => {
-    addAutomations(scenario);
+    addRules(scenario);
+    ledger().stores.rules.disable("selected");
 
     const { result, inboundId } = await deliver(scenario);
 
-    expect(result).toMatchObject({ status: "blocked_pre", reasonCode: "message.external.grant_tier" });
+    expect(result).toMatchObject({ status: "blocked_pre", reasonCode: "none" });
     expect(commits).toHaveLength(0);
     expect(routingDecisions()).toContainEqual(expect.objectContaining({
-      outcome: "block", stage: "channel_ceiling",
+      outcome: "record", stage: "automation", by: "rule/none",
     }));
-    expect(ledger().stores.automations.decisions(inboundId)).toEqual([]);
+    expect(ledger().stores.rules.decisions(inboundId)).toEqual([expect.objectContaining({ by: "rule/none" })]);
   },
 );

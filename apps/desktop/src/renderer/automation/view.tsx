@@ -51,7 +51,7 @@ export function AutomationView({ transport, sessions, id }: {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div><Text as="h1" level="display">Automations</Text><p className="mt-2 text-body text-fg-muted">Decide what arrives, when it runs, and where it goes.</p></div>
         {editing === null && <ActionButton variant="primary" disabled={transport === null || busy} onClick={() => begin({
-          id: id(), position: records.data?.length ?? 0, enabled: true, createdBy: "owner", when: { instance: "" }, then: { target: "conversation", kind: "prompt", reply: "auto" },
+          id: id(), position: records.data?.length ?? 0, enabled: true, createdBy: "owner", when: { instance: "" }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
         })}>New automation</ActionButton>}
       </header>
       {transport === null ? <p role="status">Connect the gateway to manage automations.</p> : (
@@ -98,7 +98,7 @@ function RecordRow({ record, busy, onEdit, onChange }: {
       <h2 className="min-w-0 break-words font-medium text-title">{record.id}</h2>
       <RecordStatus record={record} />
     </div>
-    <p className="break-words text-body text-fg-muted">{record.position} · {record.when.instance} · {record.then.target === "new" ? "New session" : record.then.target} · {record.then.kind}</p>
+    <p className="break-words text-body text-fg-muted">{record.position} · {record.when.instance} · {record.outcome.kind === "deliver" ? `${record.outcome.target === "new" ? "New session" : record.outcome.target} · ${record.outcome.deliveryKind}` : record.outcome.kind}</p>
     {approval && <p role="status" className="text-body">Proposed by {record.createdBy}. Approval is required before it can run.</p>}
     {removing ? <div className="flex flex-wrap items-center gap-3">
       <p className="text-body">Remove this automation?</p>

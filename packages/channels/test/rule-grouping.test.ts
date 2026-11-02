@@ -5,7 +5,7 @@ import { advanceGroups, routeRule } from "../src/automation/matcher.js";
 const record = Ingress.Rule.parse({
   id: "digest", position: 0, enabled: true, createdBy: "owner",
   when: { instance: "telegram" },
-  then: { target: "session:one", kind: "action", reply: "none" }, group: { by: "thread", windowSeconds: 10 },
+  outcome: { kind: "deliver", target: "session:one", deliveryKind: "action", reply: "none" }, group: { by: "thread", windowSeconds: 10 },
 });
 const input = Ingress.Input.parse({
   eventId: "one", instance: "telegram", surface: "telegram", event: "message", channelId: "room",

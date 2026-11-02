@@ -45,7 +45,7 @@ function testResident(run: ResidentRun) {
     plane: resident.plane,
     async ingest(content: string) {
       createRuleStore(resident.plane.channel).add({ id: "ws", position: 0, enabled: true, createdBy: "owner",
-        when: { instance: "ws" }, then: { target: "conversation", kind: "prompt", reply: "auto" } });
+        when: { instance: "ws" }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } });
       const result = await runEffect(gateway.ingest(
         { kind: "external", surface: "ws", externalId: "observer" },
         {

@@ -27,6 +27,7 @@ import { nextFrame } from "./helpers/ws";
 import { approvalPolicy } from "./helpers/approval-policy";
 import { declarePerson } from "./helpers/declared-channel";
 import { materializeResident } from "./helpers/resident-materialize";
+import { routeAlarmToSession } from "./helpers/automation";
 
 const suite = residentSuite();
 
@@ -627,6 +628,7 @@ test("boot rescan wakes armed idle sessions and skips ghost catalog rows and nat
 async function seedArmedSession(plane: Awaited<ReturnType<typeof planeOf>>, sessionId: string) {
   const kernel = plane.openKernel(sessionId);
   await materializeResident(plane, sessionId, kernel.currentPolicyGeneration());
+  routeAlarmToSession(plane, sessionId);
   const fence = await runEffect(adoptTestFence(kernel, sessionId, "fault-seeder"));
   const due = Core.armAction({
     parentId: `${sessionId}:materialize`,
@@ -747,7 +749,7 @@ test("an activation's armed monitor.hit resend reinstalls the native source acro
   const kernel2 = plane2.openKernel(sessionId);
   // The hit delivered under the seeded occurrence and prompted its content.
   expect(kernel2.actionById(`${hit.occurrenceId}:delivered`)?.kind).toBe("alarm");
-  const prompt = kernel2.actionById(`${hit.occurrenceId}:prompt`);
+  const prompt = kernel2.actionById(hit.occurrenceId);
   if (prompt?.kind !== "prompt") throw new Error("missing wake prompt");
   // The companion timeout chain was scheduled, not retired: still armed on
   // the original occurrence, untouched by the hit path.

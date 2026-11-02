@@ -34,6 +34,7 @@ import { planeOf } from "./helpers/ledger";
 import { residentSuite, fakeProviderModel } from "./helpers/resident-suite";
 import { nextFrame } from "./helpers/ws";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
+import { routeAlarmToSession } from "./helpers/automation";
 
 const suite = residentSuite();
 const TOKEN = "bundle-test";
@@ -58,7 +59,7 @@ function lastTurnTerminal(plane: AppLedgerPlane, sessionId: string): string | un
 function alarmPrompts(plane: AppLedgerPlane, sessionId: string) {
   return sessionTree(sessionId, plane.sessionStore(sessionId).actions).filter((action) => {
     if (action.kind !== "prompt") return false;
-    return (action.intent.value as { kind?: string }).kind === "alarm";
+    return (action.intent.value as { surface?: string }).surface === "alarm";
   });
 }
 
@@ -109,6 +110,7 @@ test("a cron armed through the monitor tool survives restart; a past-due boot fi
   const sessionId = residentSessionId(plane1);
   if (sessionId === undefined) throw new Error("no resident session");
   const kernel1 = plane1.openKernel(sessionId);
+  routeAlarmToSession(plane1, sessionId);
   const chains1 = [...foldAlarmChains(kernel1, sessionId).entries()];
   expect(chains1).toHaveLength(1);
   const [watchId, chain1] = chains1[0] ?? ["", undefined];
@@ -161,7 +163,7 @@ test("a cron armed through the monitor tool survives restart; a past-due boot fi
   // One prompt{origin: alarm} in history.
   const prompts = alarmPrompts(plane2, sessionId);
   expect(prompts).toHaveLength(1);
-  expect((prompts[0]?.intent.value as { alarmId?: string }).alarmId).toBe(watchId);
+  expect(prompts[0]?.id).toBe(chain1.latest.occurrenceId);
   // No spurious rotation: the recomposed manifest hashes identically, so the
   // session kept its adopted generation across the restart (#1255 P3).
   const generationAfter = kernel2.latestGenerationFor(sessionId);
@@ -396,6 +398,7 @@ test("bundle_disable cron: a due tick folds fired{stale} with no prompt; bundle_
   const sessionId = residentSessionId(plane);
   if (sessionId === undefined) throw new Error("no resident session");
   const kernel = plane.openKernel(sessionId);
+  routeAlarmToSession(plane, sessionId);
   const [firstId, firstChain] = [...foldAlarmChains(kernel, sessionId).entries()][0] ?? ["", undefined];
   if (firstChain === undefined) throw new Error("no armed chain");
   expect(watchStateOf(firstChain, sessionId)).toMatchObject({ kind: "cron", status: "armed", fireAt: FIRST_FIRE });

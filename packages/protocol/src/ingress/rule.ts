@@ -12,7 +12,7 @@ export const WindowSeconds = z.union([
 ]);
 export type WindowSeconds = z.infer<typeof WindowSeconds>;
 
-export const When = z.object({
+const When = z.object({
   instance: Id,
   channel: Id.optional(),
   dm: z.boolean().optional(),
@@ -31,15 +31,20 @@ export const Rule = z.object({
   when: When,
   judge: z.string().optional(),
   group: z.object({ windowSeconds: WindowSeconds, by: z.literal("thread") }).strict().optional(),
-  then: z.object({
-    target: z.union([z.literal("conversation"), z.literal("new"), SessionRef]),
-    agent: Id.optional(),
-    kind: z.enum(["prompt", "action"]),
-    instructions: z.string().optional(),
-    reply: z.enum(["auto", "draft", "none"]),
-    as: Id.optional(),
-    maxRunsPerDay: z.number().int().positive().optional(),
-  }).strict(),
+  outcome: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("drop") }).strict(),
+    z.object({ kind: z.literal("record") }).strict(),
+    z.object({
+      kind: z.literal("deliver"),
+      target: z.union([z.literal("conversation"), z.literal("new"), SessionRef]),
+      agent: Id.optional(),
+      deliveryKind: z.enum(["prompt", "action"]),
+      instructions: z.string().optional(),
+      reply: z.enum(["auto", "draft", "none"]),
+      as: Id.optional(),
+      maxRunsPerDay: z.number().int().positive().optional(),
+    }).strict(),
+  ]),
 }).strict();
 export type Rule = z.infer<typeof Rule>;
 

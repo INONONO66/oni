@@ -24,7 +24,7 @@ function mount(requireAddressed: boolean): void {
   ledger().stores.rules.add({
     id: "addressed", position: 0, enabled: true, createdBy: "owner",
     when: { instance: "slack", ...(requireAddressed ? { addressed: true } : {}) },
-    then: { target: "conversation", kind: "prompt", reply: "auto" },
+    outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
   });
 }
 

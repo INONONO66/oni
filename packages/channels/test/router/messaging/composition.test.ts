@@ -272,7 +272,7 @@ test("a rule-routed action is answered by the session the ledger routed it to, w
       enabled: true,
       createdBy: "owner",
       when: { instance: ownerFacts.surface, dm: true },
-      then: { target: "session:worker", kind: "action", reply: "auto" },
+      outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "auto" },
     }),
   );
   const routed = await runEffect(router.ingest(ownerSender, ownerFacts));
@@ -391,7 +391,7 @@ test("an Owner-account rule freezes draft replies until a new inbound matches au
   } };
   const routes = new Map([["discord:owner", ownerRoute]]);
   registerRule({ id: "owner", position: 1, when: { instance: "discord:owner" },
-    then: { target: "conversation", kind: "prompt", reply: "draft", as: "discord:owner" } });
+    outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "draft", as: "discord:owner" } });
   const drafting = makeFixtureRouter({ messaging: { deliveryRoutes: routes, grants: () => [] } });
   const inbound = await runEffect(drafting.ingest(sender, { ...facts, receivedBy: "owner", instance: "discord:owner" }));
   if (inbound.status !== "executed") throw new Error("Owner contact was not admitted");
@@ -403,7 +403,7 @@ test("an Owner-account rule freezes draft replies until a new inbound matches au
   expect(ownerDelivered).toEqual([]);
   // A later rule edit applies to new inbounds, not an already recorded draft.
   registerRule({ id: "owner", position: 1, when: { instance: "discord:owner" },
-    then: { target: "conversation", kind: "prompt", reply: "auto", as: "discord:owner" } });
+    outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto", as: "discord:owner" } });
   const answering = makeFixtureRouter({
     messaging: { deliveryRoutes: routes, grants: () => [] },
   });
@@ -433,7 +433,7 @@ test("a DM the Owner's account received is answered through the Owner's instance
   const routes = new Map([["discord:bot", capturing], ["discord:owner", ownerRoute]]);
   registerOwnerDm();
   registerRule({ id: "owner", position: 3, when: { instance: "discord:owner", dm: true },
-    then: { target: "conversation", kind: "prompt", reply: "draft", as: "discord:owner" } });
+    outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "draft", as: "discord:owner" } });
   const drafting = makeFixtureRouter({ messaging: { deliveryRoutes: routes, grants: () => [] } });
   const dm = await runEffect(drafting.ingest(ownerSender, { ...ownerFacts, instance: "discord:owner", receivedBy: "owner" }));
   if (dm.status !== "executed") throw new Error(`dm was ${dm.status}`);
@@ -451,7 +451,7 @@ test("a DM the Owner's account received is answered through the Owner's instance
   });
   expect(delivered).toEqual([]);
   registerRule({ id: "owner", position: 3, when: { instance: "discord:owner", dm: true },
-    then: { target: "conversation", kind: "prompt", reply: "auto", as: "discord:owner" } });
+    outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto", as: "discord:owner" } });
   const answering = makeFixtureRouter({
     messaging: { deliveryRoutes: routes, grants: () => [] },
   });

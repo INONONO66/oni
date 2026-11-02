@@ -29,8 +29,8 @@ export function advanceAutomationGroups(stores: ChannelStores, now: number,
       const decision = closed.decisions[0];
       if (decision === undefined) continue;
       const route = decision.route;
-      const limited = record?.then.maxRunsPerDay !== undefined &&
-        stores.rules.matchedToday(record.id, now) >= record.then.maxRunsPerDay;
+      const limited = record?.outcome.kind === "deliver" && record.outcome.maxRunsPerDay !== undefined &&
+        stores.rules.matchedToday(record.id, now) >= record.outcome.maxRunsPerDay;
       const result: Gateway.IngestResult | undefined = limited
         ? { status: "blocked_pre", reasonCode: "limit" }
         : route === undefined ? undefined : yield* Effect.suspend(() => dispatch(group, route)).pipe(

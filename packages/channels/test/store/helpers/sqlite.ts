@@ -7,7 +7,7 @@ import { Core } from "@oni/agent";
 import { openChannelStore, type ChannelStore } from "../../../src/store/sqlite/index.js";
 
 /** Fixed injected clock (#1245): store tests assert exact timestamps. */
-export const TEST_NOW = 1_700_000_000_000;
+const TEST_NOW = 1_700_000_000_000;
 export const testNow = (): number => TEST_NOW;
 
 export interface OpenedChannelStore {

@@ -10,7 +10,7 @@ import { StoredGroup } from "../src/store/rule/group.js";
 const record = Ingress.Rule.parse({
   id: "daily", position: 0, enabled: false, createdBy: "session:x",
   when: { instance: "telegram" },
-  then: { target: "session:x", kind: "action", reply: "none", maxRunsPerDay: 2 },
+  outcome: { kind: "deliver", target: "session:x", deliveryKind: "action", reply: "none", maxRunsPerDay: 2 },
 });
 
 function fixture() {

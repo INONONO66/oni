@@ -360,7 +360,7 @@ export function registerOwnerDm(): void {
     ledger().stores.rules.add({
       id: `seed-owner-${field}`, position, enabled: true, createdBy: "owner",
       when: { instance: ownerFacts.surface, [field]: true, isBot: false },
-      then: { target: "conversation", kind: "prompt", reply: "auto" },
+      outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
     });
   }
 }

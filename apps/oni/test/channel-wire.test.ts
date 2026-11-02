@@ -98,12 +98,12 @@ test("the Owner's socket declares a channel, seals its credential, and reads bac
     createdBy: "owner",
   });
   expect(f.stores.rules.list().filter(({ record }) => record.when.instance === "channel:slack:owner").map(({ record }) => ({
-    when: record.when, then: record.then,
+    when: record.when, outcome: record.outcome,
   }))).toEqual([
     { when: { instance: "channel:slack:owner", dm: true, isBot: false, from: ["T1:U-friend"] },
-      then: { target: "conversation", kind: "prompt", reply: "draft", as: "channel:slack:owner" } },
+      outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "draft", as: "channel:slack:owner" } },
     { when: { instance: "channel:slack:owner", addressed: true, isBot: false, from: ["T1:U-friend"] },
-      then: { target: "conversation", kind: "prompt", reply: "draft", as: "channel:slack:owner" } },
+      outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "draft", as: "channel:slack:owner" } },
   ]);
   if (instance?.credentialRef === undefined) throw new Error("the declared credential was not sealed");
   expect(f.plane.stores.secrets.get(instance.credentialRef)).toBeDefined();
