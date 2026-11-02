@@ -41,6 +41,7 @@ export function materializationSeed(
     readonly actionId: string;
     readonly at: number;
     readonly settings?: ConsumptionSettings;
+    readonly forkedFrom?: SessionGeneration.ForkAncestry;
   },
   snapshot: SessionGeneration.Snapshot,
 ): LedgerSession.Materialize {
@@ -62,7 +63,8 @@ export function materializationSeed(
       id: input.actionId,
       sessionId: input.id,
       parentId: null,
-      operation: "create",
+      operation: input.forkedFrom === undefined ? "create" : "fork",
+      ...(input.forkedFrom === undefined ? {} : { forkedFrom: input.forkedFrom }),
       ...(input.agent === undefined ? {} : { agent: input.agent }),
       snapshot,
       ...(input.settings === undefined ? {} : { settings: input.settings }),
