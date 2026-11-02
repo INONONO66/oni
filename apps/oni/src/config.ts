@@ -99,6 +99,10 @@ export interface OniConfig {
      * model; absent leaves speech-to-text on the bundled rows.
      */
     readonly transcriptionRows?: readonly ProviderRow[];
+    /** The rows when at least one names a `speech` model; absent leaves text-to-speech on the bundled rows. */
+    readonly speechRows?: readonly ProviderRow[];
+    /** The rows when at least one names an `image` model; absent leaves image generation on the bundled rows. */
+    readonly imageRows?: readonly ProviderRow[];
     /** Configured realtime providers; absent selects the bundled provider. */
     readonly realtimeRows?: readonly ProviderRow[];
   };
@@ -740,6 +744,8 @@ function modelFromEnv(env: Record<string, string | undefined>): OniConfig["model
     ...(headers === undefined ? {} : { headers }),
     ...(fallbacks === undefined ? {} : { fallbacks }),
     ...(rows.some((candidate) => candidate.transcription !== undefined) ? { transcriptionRows: rows } : {}),
+    ...(rows.some((candidate) => candidate.speech !== undefined) ? { speechRows: rows } : {}),
+    ...(rows.some((candidate) => candidate.image !== undefined) ? { imageRows: rows } : {}),
     ...(rows.some((candidate) => candidate.realtime !== undefined) ? { realtimeRows: rows } : {}),
   };
 }
