@@ -24,7 +24,7 @@ export interface LiveSession {
   readonly output: (part: Message.Part) => Promise<void>;
 }
 
-type Dispatcher = Effect.Effect.Success<ReturnType<typeof Bundle.createTurnDispatcher>>;
+type Dispatcher = Effect.Success<ReturnType<typeof Bundle.createTurnDispatcher>>;
 
 /** One captured turn: the dispatcher plus the utterance under construction, which exists only between its start and end events. */
 interface LiveTurn {
