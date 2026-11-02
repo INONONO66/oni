@@ -2,7 +2,6 @@ import "../src/bundles/prompt/roles";
 import { afterEach, expect, test } from "bun:test";
 import { Core } from "@oni/agent";
 import { Message, type LedgerAction } from "@oni/protocol";
-import { Effect } from "effect";
 import { z } from "zod";
 import { compiledPolicy } from "../../../packages/agent/test/helpers/compiled-policy";
 import { toolTurnWorld } from "../../../packages/agent/test/helpers/tool-turn";
@@ -32,10 +31,10 @@ function fixture(steps: Parameters<typeof scriptedLive>[0], denyMessage = false)
     render: (_input, output) => JSON.stringify(output),
   });
   const world = acquireSyncEffect(toolTurnWorld({
-    definitions: [probe],
+    definitions: [probe, { ...probe, name: "denied_probe" }],
     policy: compiledPolicy([{
       name: "deny-live", kind: denyMessage ? "message" : "tool", phase: "pre",
-      match: { encodingVersion: 1, value: denyMessage ? { op: "assistant" } : { op: "probe", value: { n: 2 } } },
+      match: { encodingVersion: 1, value: { op: denyMessage ? "assistant" : "denied_probe" } },
       verdict: { encodingVersion: 1, value: { type: "deny", reason: "fixture_denied" } },
       priority: 1, generation: 1,
     }]),
@@ -61,7 +60,7 @@ test("C002 commits one utterance and continues after the same dispatcher denial 
     { type: "audio_out", part: { kind: "audio", ref: "sha256:audio-fixture", mime: "audio/pcm" } },
     () => { revisions.push(f.rows().length); },
     { type: "tool_call", call: { id: "allowed", tool: "probe", input: { n: 1 } } },
-    { type: "tool_call", call: { id: "denied", tool: "probe", input: { n: 2 } } },
+    { type: "tool_call", call: { id: "denied", tool: "denied_probe", input: { n: 2 } } },
     { type: "utterance_delta", text: "Still speaking." },
     () => { expect(snapshots(f.rows())).toHaveLength(0); },
     { type: "utterance_end" },
@@ -72,7 +71,7 @@ test("C002 commits one utterance and continues after the same dispatcher denial 
   expect(f.bodies).toEqual([1]);
   expect(f.stream.sent).toMatchObject([
     { type: "tool", callID: "allowed", state: { status: "completed", output: '{"n":1}' } },
-    { type: "tool", callID: "denied", state: { status: "error", error: "probe refused: fixture_denied" } },
+    { type: "tool", callID: "denied", state: { status: "error", error: "denied_probe refused: fixture_denied" } },
   ]);
   expect(f.stream.output).toMatchObject([{ type: "file", kind: "audio", ref: "sha256:audio-fixture" }]);
   expect(snapshots(f.rows())).toMatchObject([{
@@ -103,6 +102,7 @@ test.each([
   ["overlapping utterance", [{ type: "utterance_start" }, { type: "utterance_start" }]],
   ["event outside utterance", [{ type: "utterance_end" }]],
   ["unfinished utterance", [{ type: "utterance_start" }, { type: "utterance_delta", text: "partial" }]],
+  ["invalid live event", [{ type: "audio_out", part: { kind: "audio", ref: "" } }]],
 ] satisfies readonly (readonly [string, readonly LiveEvent[]])[])("refuses %s without committing partial speech", async (cause, steps) => {
   const f = fixture(steps);
   await f.run();
