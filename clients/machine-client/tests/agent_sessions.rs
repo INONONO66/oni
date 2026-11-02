@@ -365,6 +365,14 @@ async fn launch_argv_and_hooks_stay_in_dialect_data() {
     );
     assert_eq!(claude.args[2..], ["--session-id", "chosen"]);
     assert_eq!(claude.requires, None);
+    // Without an id the settings pair is the whole argv; `assigns_id` is what
+    // keeps the launcher from handing claude-code this shape.
+    let unassigned = LaunchContext {
+        session_id: None,
+        hook: &hook,
+        resume: None,
+    };
+    assert_eq!(dialect("claude-code").command(&unassigned).args.len(), 2);
 
     let codex = dialect("codex").command(&context);
     assert_eq!((codex.executable.as_str(), codex.args.len()), ("codex", 0));
