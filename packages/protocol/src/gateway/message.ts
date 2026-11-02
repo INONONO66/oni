@@ -23,6 +23,7 @@ const NewSessionTarget = z
   .object({
     kind: z.literal("new_session"),
     role: LedgerSession.Role,
+    agent: Id.optional(),
     runner: Id,
     // The authenticated caller supplies the parent identity, not the model.
     parent: z.literal("me"),

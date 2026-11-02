@@ -5,6 +5,29 @@ import { NamedError } from "../error/index.js";
 import { PlainValueSchema } from "../json.js";
 import { EpochMs } from "../time.js";
 
+/** App-owned persona declaration; lineage and session authority are separate facts. */
+export const Agent = z.object({
+  id: z.string().min(1),
+  prompt: z.object({
+    identity: z.string().min(1),
+    mandate: z.string().min(1),
+    policies: z.string().optional(),
+    style: z.string().optional(),
+  }).strict(),
+  tools: z.array(z.string().min(1)),
+  /** Provider/model reference; the first slash separates the provider. */
+  model: z.string().regex(/^[^/\s]+\/\S+$/).optional(),
+  enabled: z.boolean().default(true),
+}).strict();
+export type Agent = z.infer<typeof Agent>;
+
+export const AgentError = NamedError.create("AgentProfileError", z.object({
+  code: z.enum(["not_found", "disabled", "duplicate", "seed_protected"]),
+  id: z.string(),
+  message: z.string(),
+}));
+export type AgentError = InstanceType<typeof AgentError>;
+
 /**
  * Provisioning vocabulary (docs/provisioning-and-providers.md §3): the
  * Owner's standing declarations — who people are (Person), which channels

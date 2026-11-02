@@ -4,6 +4,7 @@ type SessionRunner = Core.SessionRunner;
 type ObservationPublishFailure = Core.ObservationPublishFailure;
 import { type ChannelStore, createActorRegistry, createChannelGrantStore, createChannelInstanceStore, createMachineEnrollmentStore, createPersonStore, createSecretStore, openChannelStore } from "@oni/channels";
 import { Context, Deferred, Effect, Exit, Layer, type Scope } from "effect";
+import { createAgentStore, type AgentStore } from "../agents";
 
 /**
  * Cluster plane composition (W5.2 #1197 plan §1): the core host (`Core.openLedger`)
@@ -27,6 +28,7 @@ export function reportObservationPublishFailure(failure: ObservationPublishFailu
 
 /** Catalog-backed durable stores the app composes tools and boot over. */
 interface AppCatalogStores {
+  readonly agents: AgentStore;
   readonly actors: ReturnType<typeof createActorRegistry>;
   readonly persons: ReturnType<typeof createPersonStore>;
   readonly instances: ReturnType<typeof createChannelInstanceStore>;
@@ -54,9 +56,10 @@ export interface AppLedgerPlane extends Pick<Core.LedgerHost,
  * without adopting the ledger's lifecycle (closing the plane closes the file).
  */
 export function withChannelStores(ledger: Core.LedgerHost, now: () => number): AppLedgerPlane {
-  const { channel, machineEnrollments } = ledger.attach((database) => ({
+  const { channel, machineEnrollments, agents } = ledger.attach((database) => ({
     channel: openChannelStore(database, now),
     machineEnrollments: createMachineEnrollmentStore(database),
+    agents: createAgentStore(database),
   }));
   return {
     read: ledger.read,
@@ -68,6 +71,7 @@ export function withChannelStores(ledger: Core.LedgerHost, now: () => number): A
     close: ledger.close,
     channel,
     stores: {
+      agents,
       actors: createActorRegistry(channel),
       persons: createPersonStore(channel),
       instances: createChannelInstanceStore(channel),

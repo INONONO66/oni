@@ -8,6 +8,11 @@ import * as Wire from "./wire.js";
  * the channels store plane's provisioning band (`packages/channels/src/store/`).
  */
 export namespace Provisioning {
+  export const Agent = Schema.Agent;
+  export type Agent = Schema.Agent;
+  export const AgentError = Schema.AgentError;
+  export type AgentError = Schema.AgentError;
+
   export const Person = Schema.Person;
   export type Person = Schema.Person;
 

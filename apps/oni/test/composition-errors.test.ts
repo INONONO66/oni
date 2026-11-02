@@ -3,6 +3,8 @@ import { testToolPorts } from "./helpers/tool-ports";
 import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";
 import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { createAgentStore } from "../src/agents";
 import { newTraceId } from "./helpers/bus";
 import { Bus } from "./helpers/bus";
 import { Component } from "@oni/protocol";
@@ -45,7 +47,9 @@ test("component failure observation preserves an unprintable rejection", async (
 });
 
 test("resident genesis refuses unregistered runners before storage", () => {
+  using database = new Database(":memory:");
   const resident = createResident({
+    agents: createAgentStore(database),
     model: { provider: "fixture", id: "fixture" },
     apiKey: "fixture",
     tools: { ...testToolPorts,},

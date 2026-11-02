@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { createAgentStore } from "../src/agents";
 import { SessionGeneration, type LedgerSession } from "@oni/protocol";
 import type { PromptCatalog } from "../src/bundles/prompt/data";
 import { APPROVAL_POLICY } from "../src/composition/policy";
@@ -16,6 +18,7 @@ function systemPrompt(
 }
 
 test("a configured skill is present in resident and child system prompts", () => {
+  using database = new Database(":memory:");
   const prompts: PromptCatalog = {
     skills: [
       {
@@ -27,6 +30,7 @@ test("a configured skill is present in resident and child system prompts", () =>
     templates: [],
   };
   const resident = createResident({
+    agents: createAgentStore(database),
     model: { provider: "fixture", id: "fixture" },
     apiKey: "fixture",
     prompts,
@@ -43,10 +47,12 @@ test("a configured skill is present in resident and child system prompts", () =>
 });
 
 test("computer guidance follows the composed tool pack for both roles", () => {
+  using database = new Database(":memory:");
   const base = toolComposition(testToolPorts);
   const toolBundle = base.manifest.bundles.find((bundle) => bundle.name === "eval");
   if (toolBundle === undefined) throw new Error("tool fixture must include eval");
   const options = {
+    agents: createAgentStore(database),
     model: { provider: "fixture", id: "fixture" },
     apiKey: "fixture",
     tools: testToolPorts,

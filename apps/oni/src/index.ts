@@ -972,6 +972,7 @@ export async function startOni(options: StartOptions = {}) {
     // the resident's typing pulse reads it.
     const autoReplies = new Set<string>();
     const resident = createResident({
+      agents: plane.stores.agents,
       // A turn pulses only the receiving instance, subject to its auto-reply posture.
       typingRoute: typingRouteFor(typingRoutes, autoReplies, deliveryRoutes),
       // #1600 lane R2: a drafted answer goes to the Owner through the bot on a
@@ -1221,7 +1222,7 @@ export async function startOni(options: StartOptions = {}) {
     };
     const deliveryDeps = { plane, client: entityClient, clock: services.now };
     const commitDelivery = createAutomationDelivery(
-      deliveryDeps, channelStores.automations,
+      deliveryDeps, channelStores.automations, resident.genesis,
     );
     const commitProcessDelivery = commitDeliverPayload(deliveryDeps);
     // Deadline-carrying requests arm one persisted DeliverAt alarm occurrence

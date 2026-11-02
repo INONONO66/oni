@@ -134,6 +134,7 @@ export function materializeDeliveryTarget(
         policyGeneration: snapshot.policyGeneration,
         ...(snapshot.manifestHash === undefined ? {} : { manifestHash: snapshot.manifestHash }),
         ...(settings === undefined ? {} : { settings }),
+        ...(create.row.agent === undefined ? {} : { agent: create.row.agent }),
         actionId: create.initialAction.id,
         at: clock(),
       },
@@ -238,6 +239,7 @@ export function messageMaterialization(
   readonly id: string;
   readonly parentId: string | null;
   readonly role: LedgerSession.Role;
+  readonly agent?: string;
   readonly tools: readonly SessionGeneration.Tool[];
   readonly bundles?: readonly string[];
   /** The composed generation's hash (#1255 P3): stamped so an unchanged manifest appends no adoption row. */
@@ -254,6 +256,7 @@ export function messageMaterialization(
       parentId: input.parentId,
       role: input.role,
       genesis: {
+        ...(input.agent === undefined ? {} : { agent: input.agent }),
         tools: [...input.tools],
         bundles: input.bundles ?? [],
         ...(input.manifestHash === undefined ? {} : { manifestHash: input.manifestHash }),
@@ -306,6 +309,7 @@ function prepareExternal(
     parentId: string | null,
     role: LedgerSession.Role,
     runner: string,
+    agent?: string,
   ) => LedgerSession.Materialize,
   send: Parameters<Ports["prepare"]>[1],
   target: string,
@@ -433,6 +437,7 @@ function childCreation(
     parentId: string | null,
     role: LedgerSession.Role,
     runner: string,
+    agent?: string,
   ) => LedgerSession.Materialize,
   target: string,
 ): Effect.Effect<
@@ -446,7 +451,7 @@ function childCreation(
   if (fanout.length === 0 || depths.length === 0)
     return Effect.fail(new SendAdmissionConflict({ message: "child admission bounds missing from pinned policy" }));
   return Effect.succeed({
-    createSession: genesis(target, source.id, send.to.role, send.to.runner),
+    createSession: genesis(target, source.id, send.to.role, send.to.runner, send.to.agent ?? "child"),
     limits: { fanout: Math.min(...fanout), depth: Math.min(...depths) },
   });
 }
@@ -458,6 +463,7 @@ export function prepareMessage(
     parentId: string | null,
     role: LedgerSession.Role,
     runner: string,
+    agent?: string,
   ) => LedgerSession.Materialize,
 ): Ports["prepare"] {
   return (sender, send, target, messageId) =>

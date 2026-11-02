@@ -28,7 +28,7 @@ afterEach(async () => {
 });
 
 export function residentRunner(
-  options: Omit<ResidentOptions, "sessionRuntime" | "tools" | "policyGeneration"> & {
+  options: Omit<ResidentOptions, "sessionRuntime" | "tools" | "policyGeneration" | "agents"> & {
     tools: Partial<ResidentOptions["tools"]>;
     llm?: Partial<FixtureLlm>;
     plane?: AppLedgerPlane;
@@ -60,6 +60,7 @@ export function residentRunner(
   const composed = composedHolderOf(toolComposition(tools), alarmPortsSlot());
   const resident = createResident({
     ...options,
+    agents: plane.stores.agents,
     composed,
     tools,
     sessionRuntime: runtime,

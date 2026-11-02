@@ -7,9 +7,10 @@ import {
   createMessageDeliveryCommit, deliverPayload, materializeDeliveryTarget, pendingDeliveryRow, type MessageDeliveryDeps,
 } from "./message-session";
 import { AutomationWake } from "./automation-alarm";
+import type { createResident } from "./resident";
 
 const AutomationOrigin = z.object({
-  automation: z.object({ id: z.string(), newSession: z.boolean(), instructions: z.string().optional() }),
+  automation: z.object({ id: z.string(), newSession: z.boolean(), instructions: z.string().optional(), agent: z.string().min(1).optional() }),
 });
 
 /** A new session's instructions open its prompt: merged into a leading text part, or set before leading media. */
@@ -24,6 +25,7 @@ function withInstructions(instructions: string, content: Delivery.Content): Deli
 export function createAutomationDelivery(
   deps: MessageDeliveryDeps,
   store: ReturnType<typeof createAutomationStore>,
+  genesis: ReturnType<typeof createResident>["genesis"],
 ) {
   const commit = createMessageDeliveryCommit(deps);
   const deliver = (input: Delivery.Commit) => Effect.gen(function* () {
@@ -42,7 +44,8 @@ export function createAutomationDelivery(
       const parsed = AutomationOrigin.safeParse(input.origin.value);
       if (!parsed.success) return yield* deliver(input);
       const { automation } = parsed.data;
-      if (!automation.newSession && !deps.plane.read.sessions.list().some((row) => row.id === input.sessionId)) {
+      const exists = deps.plane.read.sessions.list().some((row) => row.id === input.sessionId);
+      if (!automation.newSession && !exists) {
         // The app records the refusal through the channels store; channels never learns why.
         yield* Effect.try({
           try: () => store.refused(input.id, "target_not_found"),
@@ -50,16 +53,22 @@ export function createAutomationDelivery(
         });
         return yield* new Core.AgentFailure({ operation: "automation.deliver", cause: "target_not_found" });
       }
-      yield* materializeDeliveryTarget(deps.plane, input, deps.clock);
+      const target = exists
+        ? input
+        : {
+            ...input,
+            createSession: genesis(input.sessionId, null, "resident", "resident", automation.agent),
+          };
+      yield* materializeDeliveryTarget(deps.plane, target, deps.clock);
       const instructions = automation.newSession ? automation.instructions : undefined;
       if (instructions !== undefined && input.kind === "action") {
         yield* deliver({
-          ...input, id: `${input.id}:instructions`, kind: "prompt",
+          ...target, id: `${input.id}:instructions`, kind: "prompt",
           content: [{ kind: "text", text: instructions }],
         });
       }
       const row = yield* deliver(instructions !== undefined && input.kind === "prompt"
-        ? { ...input, content: withInstructions(instructions, input.content) } : input);
+        ? { ...target, content: withInstructions(instructions, input.content) } : target);
       yield* Effect.try({
         try: () => store.delivered(input.id, row.sessionId, row.ordinal),
         catch: (error) => new Core.AgentFailure({ operation: "automation.receipt", cause: String(error) }),

@@ -18,6 +18,7 @@ import { wallClockLayer } from "../../src/composition/platform";
 import { testClock, testEntropy } from "./test-entropy";
 import type { ToolPorts } from "../../src/composition/catalog";
 import { toolComposition } from "./tool-ports";
+import { seedAgents } from "../../src/composition/resident";
 
 const EMPTY_MANIFEST = Bundle.Manifest.define({ capabilities: [], bundles: [], off: [] });
 const composedEmpty: ComposedContext = { manifest: EMPTY_MANIFEST, generation: Bundle.composeSync(EMPTY_MANIFEST) };
@@ -47,10 +48,12 @@ export function generationServices(options: {
           (owned) => Effect.sync(() => owned.close()),
         ).pipe(Scope.provide(scope))
       : options.plane;
+    const composed = options.composed?.current() ?? (options.tools === undefined ? composedEmpty : toolComposition(options.tools));
+    seedAgents(plane.stores.agents, composed.manifest.bundles.flatMap((bundle) => bundle.tools ?? []));
     const process = Layer.mergeAll(
       AgentProcessLive(options.observations ?? Bus, testEntropy(options.entropy)),
       Layer.succeed(ComposedGeneration, composedHolderOf(
-        options.composed?.current() ?? (options.tools === undefined ? composedEmpty : toolComposition(options.tools)),
+        composed,
         alarmPortsSlot(),
       )),
       Layer.succeed(AppLedger, plane),

@@ -156,14 +156,15 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
     return Effect.gen(function* () {
       if (definitions === undefined) return yield* new AgentFailure({ operation: "generation.initialize", cause: "not_initialized" });
       const generation = composed.current().generation;
-      const role = plane.read.session(sessionId).row(sessionId).role;
-      const offered = new Set(snapshot.tools.map((tool) => tool.name));
+      const row = plane.read.session(sessionId).row(sessionId);
+      const allowed = row.agent === undefined ? undefined : new Set(plane.stores.agents.get(row.agent).tools);
+      const offered = new Set(snapshot.tools.filter((tool) => allowed === undefined || allowed.has(tool.name)).map((tool) => tool.name));
       // #1561: every tool is bundle-owned. Compose already refused two bundles
       // declaring one name (typed `duplicate`), so the generation's tool table
       // is the whole catalog; the snapshot's journaled faces pick this session's.
       const source = definitions;
       const catalog = Layer.sync(ToolCatalog, () => ({
-        definitions: Core.filterLoadout(generation.tools, offered, role),
+        definitions: Core.filterLoadout(generation.tools, offered, row.role),
       }));
       let active = false;
       // One PubSub bus per generation (#1249): built in the generation Layer's
