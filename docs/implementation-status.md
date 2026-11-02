@@ -1,5 +1,24 @@
 # Implementation Status
 
+## #1785 speech tool
+
+Shipped on `feat/1785-speech` (PR #1821). `packages/ai/src/tts.ts` is the
+speech port: `makeTts({authFilePath, rows?, transport?, events, now})` returns
+`speak(call)`, which serves every call from the first provider row naming a
+`speech` model (a per-call `model` id stays on that row; no provider
+selection), uses `call.format ?? row.format ?? "mp3"` as the container, and
+publishes one `llm.speech.completed` or `llm.speech.failed` row per settled
+call (`inputChars`, `outputBytes`, `durationMs`). The `speech` bundle
+(`apps/oni/src/bundles/tools/speech/index.ts`) is on the model door and in
+cells for the resident and its children: it calls the port, refuses typed
+above the per-call byte cap and while the port or output store is not
+composed, stores the bytes under `sha256:<digest>` through the session's
+`putOutput`, and returns `{kind:"audio", ref, mime, voice:true}`, which its
+test parses through `Outbound.Part` so `send_message` reads it as a letter
+part rather than a copy of its shape. `script/lint-tools.ts` composes the
+bundle into the lint surface and the tool schema snapshot carries its spec.
+Live token-hub speech lanes stay [ino] #1782.
+
 ## #1787 google provider row
 
 Shipped on `feat/1787-google` (PR #1820). `@ai-sdk/google@4.0.64` is the
