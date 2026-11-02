@@ -28,7 +28,9 @@ Declared providers mount under their `channel_instance.id`
 as route metadata. Delivery, typing, voice and history routes have independent
 instance keys. The WebSocket surface and shared A2A door keep their own ids.
 Provider construction stamps `Gateway.IngressFacts.instance` before shared
-intake; dedupe, attachment storage keys and conversation bindings retain it.
+intake; ledger ids, attachment storage keys and conversation bindings retain it.
+The shared intake dedupe key remains platform/workspace/channel/event so a bot
+and Owner account observing the same physical message cause only one admission.
 Replies and typing return through that receiving instance, never a sibling.
 An Owner instance still needs its outbound grant and auto-reply declaration.
 
