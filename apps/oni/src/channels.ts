@@ -44,7 +44,7 @@ export interface BuiltChannel {
   readonly surface: Channel.Surface;
   /** #1569 lane 7: an Owner instance whose declaration lets the reply door answer through the account. */
   readonly autoReply?: boolean;
-  /** Outbound seam, keyed by `surface.id`: present only for channels the Resident can message into. */
+  /** Outbound seam, keyed by the channel_instance row id (`surface.id`). */
   readonly deliveryRoute?: ProviderDeliveryRoute;
   readonly typingRoute?: ProviderTypingRoute;
   readonly voiceRoute?: ProviderVoiceRoute;
@@ -59,7 +59,7 @@ export interface BuiltChannel {
 
 export interface ChannelComponent {
   readonly id: keyof typeof ChannelProviders;
-  /** The account this instance speaks as (#1569); the surface mounts under `<id>:<identity>`. */
+  /** The account this instance speaks as; distinct from its channel_instance row id. */
   readonly identity: Channel.Identity;
   /**
    * Whether this instance reads inbound (#1569 lane 6): every bot instance
@@ -86,7 +86,7 @@ function providerRow(
   identity: Channel.Identity,
   listens: boolean,
   create: RuntimeFactory,
-  deps: ChannelRuntimeDeps,
+  deps: ChannelRuntimeDeps & { readonly instance: string },
   /** #1569: an Owner instance without a declared outbound grant mounts no delivery route. */
   outbound = true,
   /** #1569 lane 7: an Owner instance whose posture lets the reply door answer through the account. */
@@ -100,6 +100,7 @@ function providerRow(
     listens,
     build(handler) {
       const runtime = create({
+        instance: deps.instance,
         now: deps.now,
         id: deps.id,
         random: deps.random,
@@ -155,7 +156,7 @@ export type CredentialReader = (
 function credentialRow<TCredentials, TId extends keyof typeof ChannelProviders>(
   provider: Pick<ChannelProvider<TCredentials, TId>, "id" | "credentials" | "create">,
   plaintext: Uint8Array,
-  deps: ChannelRuntimeDeps,
+  deps: ChannelRuntimeDeps & { readonly instance: string },
 ): ChannelComponent | { readonly invalid: string } {
   const decoded = Result.try({
     try: (): PlainValue => JSON.parse(new TextDecoder().decode(plaintext)),
@@ -177,7 +178,7 @@ function credentialRow<TCredentials, TId extends keyof typeof ChannelProviders>(
 
 /**
  * The Owner-identity row (#1569): the provider's `owner` arm validates the
- * account session and builds the `<platform>:owner` surface under the
+ * account session and builds the declared instance surface under the
  * declaration's intake posture (`settings.intake`, lane 6); the delivery
  * route mounts only when the declaration's `grant.outbound` says so, and
  * the instance reads inbound only when the arm listens under a posture.
@@ -186,7 +187,7 @@ function ownerRow(
   provider: (typeof ChannelProviders)[keyof typeof ChannelProviders],
   plaintext: Uint8Array,
   settings: Provisioning.ChannelInstance["settings"],
-  deps: ChannelRuntimeDeps,
+  deps: ChannelRuntimeDeps & { readonly instance: string },
   outbound: boolean,
 ): ChannelComponent | { readonly invalid: string } | { readonly unsupported: string } {
   // Each platform's arm carries its own credential type; the arm's schema is
@@ -268,7 +269,7 @@ function a2aDoor(roster: A2ARoster, deps: ChannelRuntimeDeps): ChannelComponent 
     true,
     // The provider contract hands a credential in; the door reads the roster, never this one.
     (options) => provider.create({ token: "roster" }, {}, deps.publish, options),
-    deps,
+    { ...deps, instance: "a2a" },
   );
 }
 
@@ -280,21 +281,22 @@ function declaredRow(
   readCredential: CredentialReader,
 ): ChannelComponent | { readonly invalid: string } | { readonly unsupported: string } {
   const key = instance.provider;
+  const runtime = { ...deps, instance: instance.id };
   if (instance.identity === "owner") {
-    return ownerRow(providers[key], plaintext, instance.settings, deps, instance.grant?.outbound === true);
+    return ownerRow(providers[key], plaintext, instance.settings, runtime, instance.grant?.outbound === true);
   }
   // #1569 lane 7 (and 9b for Linear, whose key is a person's): an Owner-only platform has no bot account to declare.
   if (key === "instagram" || key === "kakaotalk" || key === "linear") {
     return { unsupported: `${key} has no bot account; declare the instance with identity: owner` };
   }
   if (key === "telegram") {
-    return credentialRow(providers.telegram, plaintext, deps);
+    return credentialRow(providers.telegram, plaintext, runtime);
   }
   if (key === "discord") {
-    return credentialRow(providers.discord, plaintext, deps);
+    return credentialRow(providers.discord, plaintext, runtime);
   }
   if (key === "slack") {
-    return credentialRow(providers.slack, plaintext, deps);
+    return credentialRow(providers.slack, plaintext, runtime);
   }
   if (key === "webhook") {
     // Webhook has no static secret in the row's own credential payload: the
@@ -305,13 +307,13 @@ function declaredRow(
       const secret = readCredential(ref);
       return secret.kind === "ok" ? new TextDecoder().decode(secret.plaintext) : undefined;
     };
-    return credentialRow(createWebhookProvider(resolveSecret), plaintext, deps);
+    return credentialRow(createWebhookProvider(resolveSecret), plaintext, runtime);
   }
   if (key === "a2a") {
     // A peer declaration is admitted under the door's schema; the row it yields is discarded for the one door.
-    return credentialRow(providers.a2a, plaintext, deps);
+    return credentialRow(providers.a2a, plaintext, runtime);
   }
-  return credentialRow(providers.github, plaintext, deps);
+  return credentialRow(providers.github, plaintext, runtime);
 }
 
 export function isRegisteredProvider(provider: string): provider is keyof typeof ChannelProviders {

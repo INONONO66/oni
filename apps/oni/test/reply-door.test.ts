@@ -50,10 +50,10 @@ function slackRoute(delivered: Delivered[]) {
   return new Map([
     [
       "slack",
-      async (externalId: string, payload: Outbound.Payload, _idempotencyKey: string, conversation?: Gateway.Conversation) => {
+      { platform: "slack", identity: "bot" as const, deliver: async (externalId: string, payload: Outbound.Payload, _idempotencyKey: string, conversation?: Gateway.Conversation) => {
         delivered.push({ externalId, body: Outbound.text(payload), conversation });
         return { value: "accepted" as const };
-      },
+      } },
     ],
   ]);
 }

@@ -474,7 +474,9 @@ export namespace Gateway {
     endpointId: string;
     channel: string;
     externalId: string;
-    /** #1569: the instance the delivery leaves through, `<channel>:<identity>`. */
+    /** The mounted channel instance selected at admission. */
+    instance: string;
+    /** The account identity the delivery leaves through. */
     identity: Channel.Identity;
     conversation?: Conversation;
   }>;

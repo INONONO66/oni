@@ -28,10 +28,10 @@ export function ungrantedActor(role: "resident" | "child") {
     deliveryRoutes: new Map([
       [
         "ws",
-        async () => {
+        { platform: "ws", identity: "bot", deliver: async () => {
           calls += 1;
           return { value: "accepted" as const };
-        },
+        } },
       ],
     ]),
     grants: () => [],

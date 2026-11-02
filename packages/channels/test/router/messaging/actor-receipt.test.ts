@@ -26,6 +26,7 @@ for (const input of [buildSendInput(), buildAwaitedSendInput()]) {
       stores: ledger().stores,
       transaction: channelTransaction,
       grants: () => [buildGrant("grant:sender->target")],
+      routes: () => new Map([["qa", { platform: "qa", identity: "bot" }]]),
       publish: () => undefined,
       deliver: () => ({ value: "rejected", reason: "media_too_large audio 60>50" }),
     });
@@ -43,7 +44,7 @@ for (const input of [buildSendInput(), buildAwaitedSendInput()]) {
       messaging: {
         grants: () => [buildGrant("grant:sender->target")],
         deliveryRoutes: new Map<string, ChannelDeliveryRoute>([
-          ["qa", async () => ({ value: "rejected", reason: "media_too_large audio 60>50" })],
+          ["qa", { platform: "qa", identity: "bot", deliver: async () => ({ value: "rejected", reason: "media_too_large audio 60>50" }) }],
         ]),
       },
     });
@@ -73,6 +74,7 @@ for (const value of ["accepted", "rejected", "unknown"] as const) {
       stores: ledger().stores,
     transaction: channelTransaction,
       grants: () => [buildGrant("grant:sender->target")],
+      routes: () => new Map([["qa", { platform: "qa", identity: "bot" }]]),
       publish: () => undefined,
       deliver: async (message: Parameters<Parameters<typeof createExistingAgentMessaging>[0]["deliver"]>[0]) => {
         keys.push(message.idempotencyKey);

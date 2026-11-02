@@ -53,10 +53,10 @@ for (const mode of ["ancestor", "nearer", "ambiguous"] as const) {
       deliveryRoutes: new Map([
         [
           "ws",
-          async () => ({
+          { platform: "ws", identity: "bot", deliver: async () => ({
             value: "accepted" as const,
             externalMessageId: `platform-${mode === "ambiguous" ? 1 : ++sequence}`,
-          }),
+          }) },
         ],
       ]),
       ...actorPolicy("peer", 20),
@@ -106,7 +106,7 @@ for (const refuse of [false, true]) {
       deliveryRoutes: new Map([
         [
           "ws",
-          async () => {
+          { platform: "ws", identity: "bot", deliver: async () => {
             deliveries += 1;
             // W5.2: the admission facts live in two session files; both must be
             // durable before any physical delivery runs.
@@ -127,7 +127,7 @@ for (const refuse of [false, true]) {
                 .get()?.n,
             ).toBe(1);
             return { value: "accepted" as const };
-          },
+          } },
         ],
       ]),
       ...actorPolicy("peer", 10),

@@ -3,21 +3,22 @@ import { type Channel, Operational } from "@oni/protocol";
 import type { PublishPort } from "../../types";
 import type { SecretRefPort, WebhookCredentials, WebhookRefusal } from "./types";
 import { verifyWebhook } from "./verify";
+import { instanceHandler } from "../../support/handler-frame";
 
 export class WebhookAdapter implements Channel.Surface {
-  readonly id = "webhook";
+  get id(): string { return this.options.instance; }
   private handler: Channel.MessageHandler | null = null;
 
   constructor(
     private readonly credentials: WebhookCredentials,
     readonly config: Channel.Config,
     private readonly publish: PublishPort,
-    private readonly options: { readonly now: () => number; readonly id: () => string },
+    private readonly options: { readonly instance: string; readonly now: () => number; readonly id: () => string },
     private readonly resolveSecret: SecretRefPort,
   ) {}
 
   onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    this.handler = instanceHandler(this.id, handler);
   }
   async start(_traceId: string): Promise<void> {
     // HTTP calls enter through the webhook handler.

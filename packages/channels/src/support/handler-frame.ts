@@ -1,6 +1,11 @@
 import type { Channel } from "@oni/protocol";
 import { ChannelsFailure } from "../errors";
 
+/** Bind trusted construction identity after platform normalization, before any shared intake. */
+export function instanceHandler(instance: string, handler: Channel.MessageHandler): Channel.MessageHandler {
+  return (message) => handler({ ...message, facts: { ...message.facts, instance } });
+}
+
 export function requireHandler(
   handler: Channel.MessageHandler | null,
   surfaceId: string,

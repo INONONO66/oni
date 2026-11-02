@@ -329,6 +329,7 @@ test("awaited send resolves quorum from distinct authenticated responder endpoin
   registerResponder("r2", "responder-2");
   registerResponder("target", "target");
   const messaging = createExistingAgentMessaging({
+    routes: () => new Map([["telegram", { platform: "telegram", identity: "bot" }]]),
     requests: channelRequests(seededRequests()),
     stores: ledger().stores,
     transaction: channelTransaction,

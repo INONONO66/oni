@@ -38,6 +38,7 @@ async function prepareScenario() {
   const baseline = ledger().kernel.listRows().length;
   const deliveries: OutboundMessage[] = [];
   const messaging = createExistingAgentMessaging({
+    routes: () => new Map([["qa", { platform: "qa", identity: "bot" }]]),
     stores: ledger().stores,
     transaction: channelTransaction,
     requests: channelRequests(requestPort(() => 10)),

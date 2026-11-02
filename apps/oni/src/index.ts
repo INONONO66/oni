@@ -951,8 +951,11 @@ export async function startOni(options: StartOptions = {}) {
     const typingRoutes = new Map<string, ProviderTypingRoute>();
     const voiceRoutes = new Map<string, ProviderVoiceRoute>();
     const historyRoutes = new Map<string, ProviderHistoryRoute>();
+    // Channel components register and revoke their instance routes; the readers keep this live map.
+    const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
     const liveVoice = createLiveVoice({
       routes: voiceRoutes,
+      instances: deliveryRoutes,
       realtime: makeRealtime({
         authFilePath: resolveAuthFilePath(),
         ...(config.model.realtimeRows === undefined ? {} : { rows: config.model.realtimeRows }),
@@ -964,17 +967,13 @@ export async function startOni(options: StartOptions = {}) {
       run: (effect, signal) => runAppEffect(runtime, effect, signal),
       incident,
     });
-    // Live table: channel components register and revoke their own outbound
-    // routes (declared beside the typing routes; the resident's draft arm reads it).
-    const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
     // The Owner instances whose declaration lets the reply door answer through
     // the account (#1569 lane 7); the supervisor keeps it with the routes, and
     // the resident's typing pulse reads it.
     const autoReplies = new Set<string>();
     const resident = createResident({
-      // The turn's pulse rides the bot instance of the platform (#1569), an
-      // identity-less surface its platform key, an auto-replying Owner account its own (#1600 lane R3).
-      typingRoute: typingRouteFor(typingRoutes, autoReplies),
+      // A turn pulses only the receiving instance, subject to its auto-reply posture.
+      typingRoute: typingRouteFor(typingRoutes, autoReplies, deliveryRoutes),
       // #1600 lane R2: a drafted answer goes to the Owner through the bot on a
       // platform the Owner Person has an endpoint on, ws last (it needs a live socket).
       ownerContact: () => ownerContactFor(plane.stores.persons.list(), deliveryRoutes),
@@ -1122,7 +1121,7 @@ export async function startOni(options: StartOptions = {}) {
     };
     // Live table: channel components register and revoke their own outbound
     // routes while the gateway keeps reading it per delivery.
-    deliveryRoutes.set("ws", wsRoute);
+    deliveryRoutes.set("ws", { platform: "ws", identity: "bot", deliver: wsRoute });
     // One runtime owner for external channels (provisioning §5): boot
     // reconcile and every tool-driven mutation run the SAME diff over
     // declared ChannelInstances, the only source of external channel config.

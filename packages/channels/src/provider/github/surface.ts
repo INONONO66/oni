@@ -3,7 +3,7 @@ import { newTraceId } from "../../support/trace";
 import { type Channel, Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { Dedupe } from "../../support/dedupe";
-import { requireHandler } from "../../support/handler-frame";
+import { instanceHandler, requireHandler } from "../../support/handler-frame";
 import { GitHubClient } from "./client";
 import { GitHubWebhookPayloadSchemas } from "./types";
 import type { EffectRunner, PublishPort } from "../../types";
@@ -101,7 +101,7 @@ type PreparedWebhook = Readonly<{
 type WebhookPreparation = PreparedWebhook | Readonly<{ response: Response }>;
 
 export class GitHubAdapter implements Channel.Surface {
-  readonly id = "github";
+  get id(): string { return this.options.instance; }
   private readonly client: GitHubClient;
   private readonly dedupe: Dedupe;
   private readonly outbound = new DeliveryReconciliation();
@@ -112,6 +112,7 @@ export class GitHubAdapter implements Channel.Surface {
     readonly config: Channel.Config,
     private readonly publish: PublishPort,
     private readonly options: {
+      readonly instance: string;
       readonly now: () => number;
       readonly id: () => string;
       readonly run: EffectRunner;
@@ -162,7 +163,7 @@ export class GitHubAdapter implements Channel.Surface {
   }
 
   onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    this.handler = instanceHandler(this.id, handler);
   }
   async start(traceId: string): Promise<void> {
     requireHandler(this.handler, "github");

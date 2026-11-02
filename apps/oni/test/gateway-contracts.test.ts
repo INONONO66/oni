@@ -285,10 +285,10 @@ test("cold egress without a budget is the Owner's to approve: the compiled conse
     deliveryRoutes: new Map([
       [
         "ws",
-        async (_externalId, body) => {
+        { platform: "ws", identity: "bot", deliver: async (_externalId, body) => {
           deliveries.push(body);
           return { value: "accepted" as const };
-        },
+        } },
       ],
     ]),
     grants: () => [

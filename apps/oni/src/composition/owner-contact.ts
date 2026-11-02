@@ -28,7 +28,8 @@ export function ownerContactFor(
   const reachable = owner.endpoints.filter(
     (endpoint) =>
       held.get(endpoint.channel) === 1 &&
-      (routes.has(`${endpoint.channel}:bot`) || (endpoint.channel === "ws" && routes.has("ws"))),
+      ["slack", "telegram", "discord", "ws"].includes(endpoint.channel) &&
+      [...routes.values()].filter((route) => route.platform === endpoint.channel && route.identity === "bot").length === 1,
   );
   const endpoint = reachable.find((candidate) => candidate.channel !== "ws") ?? reachable[0];
   return endpoint === undefined ? undefined : { actorId: owner.id, surface: endpoint.channel };

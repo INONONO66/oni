@@ -193,7 +193,7 @@ describe("channel supervisor", () => {
 
     expect(statuses.map((status) => status.state)).toEqual(["mounted", "mounted"]);
     expect(calls).toEqual(["start:telegram", "start:github"]);
-    expect(deliveryRoutes.get("telegram")).toBe(route);
+    expect(deliveryRoutes.get("telegram")?.deliver).toBe(route);
     expect(typingRoutes.get("telegram")).toBe(typing);
     // Ingress-only channels register no outbound route; webhook channels land
     // in the live webhook table the HTTP surface reads per request.

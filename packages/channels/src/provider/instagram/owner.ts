@@ -5,7 +5,7 @@ import { type Channel, type Gateway, Operational, type Outbound } from "@oni/pro
 import { ChannelsFailure } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
-import { requireHandler } from "../../support/handler-frame";
+import { instanceHandler, requireHandler } from "../../support/handler-frame";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { type ListenerCustody, listenerCustody, RECONNECT_ATTEMPT_BOUND } from "../../support/sdk-listener";
 import { newTraceId } from "../../support/trace";
@@ -45,7 +45,7 @@ function instagramCode(error: Error): string | undefined {
 }
 
 /**
- * Instagram as the Owner's own account (#1569 lane 7): the `instagram:owner`
+ * Instagram as the Owner's own account (#1569 lane 7): the declared
  * instance — the platform has no bot account. Intake is the account's inbox
  * through the SDK's hybrid listener (realtime, polling fallback: a realtime
  * failure at boot hands over to polling, whose `connected` settles the
@@ -63,7 +63,7 @@ function instagramCode(error: Error): string | undefined {
  * reactions, no typing.
  */
 export class InstagramOwnerAdapter implements Channel.Surface {
-  readonly id = "instagram:owner";
+  get id(): string { return this.options.instance; }
   /** The surface contract's config: an Owner instance carries its posture instead. */
   readonly config: Channel.Config = {};
 
@@ -90,7 +90,7 @@ export class InstagramOwnerAdapter implements Channel.Surface {
   }
 
   onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    this.handler = instanceHandler(this.id, handler);
   }
 
   /**
@@ -207,7 +207,7 @@ export class InstagramOwnerAdapter implements Channel.Surface {
       errorMessage: "instagram owner message handling failed",
       rethrowFailure: false,
       handle: async () => {
-        await requireHandler(this.handler, "instagram:owner")({
+        await requireHandler(this.handler, this.id)({
           sender: { kind: "external", surface: "instagram", externalId: message.from },
           facts: {
             eventId: message.id,

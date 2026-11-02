@@ -18,8 +18,11 @@ const person = (
   updatedAt: 0,
 });
 
-const route: ChannelDeliveryRoute = async () => ({ value: "accepted" });
-const routes = (...keys: readonly string[]) => new Map(keys.map((key) => [key, route] as const));
+const routes = (...keys: readonly string[]) => new Map(keys.map((key) => [key, {
+  platform: key.split(":")[0] ?? key,
+  identity: key.endsWith(":owner") ? "owner" : "bot",
+  deliver: async () => ({ value: "accepted" }),
+} satisfies ChannelDeliveryRoute] as const));
 
 test("#1600 lane R2: a drafted answer goes to the owner-tier Person on a platform whose bot writes a person cold, a live platform before ws", () => {
   const owner = person("person:owner", "owner", [

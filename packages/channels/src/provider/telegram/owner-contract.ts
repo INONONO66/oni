@@ -15,7 +15,6 @@ export type TelegramOwnerCredentials = z.infer<typeof TelegramOwnerCredentials>;
 
 /** The implementation in owner.ts owns lifecycle, not an alternative router. */
 export interface TelegramOwnerSurface extends Channel.Surface {
-  readonly id: "telegram:owner";
   readonly deliver: ProviderDeliveryRoute;
   readonly download: AttachmentFetchWithStream;
   readonly history: ProviderHistoryRoute;

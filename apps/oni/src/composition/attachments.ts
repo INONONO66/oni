@@ -122,7 +122,7 @@ async function fetchStream(
 
 function storageKey(facts: Gateway.IngressFacts, index: number, ref: string): string {
   return createHash("sha256").update(JSON.stringify([
-    facts.surface, facts.receivedBy ?? "bot", facts.workspaceId ?? null,
+    facts.instance ?? facts.surface, facts.receivedBy ?? "bot", facts.workspaceId ?? null,
     facts.channelId, facts.eventId, index, ref,
   ])).digest("hex");
 }

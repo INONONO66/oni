@@ -48,16 +48,16 @@ export namespace Channel {
 
   /**
    * The identity a mounted instance speaks as (#1569): the bot account, or the
-   * Owner's own account. A surface's id is `<platform>:<identity>` for the
-   * messenger instances; identity-less surfaces (ws, github, webhook) keep
-   * their platform id and are reached as the bot.
+   * Owner's own account. A declared surface's id is its channel_instance row
+   * id; identity and platform describe that instance, never derive its id.
    */
   export const Identity = z.enum(["bot", "owner"]);
   export type Identity = z.infer<typeof Identity>;
 
-  /** The surface id one `(platform, identity)` instance mounts under. */
-  export function instanceId(platform: string, identity: Identity): string {
-    return `${platform}:${identity}`;
+  /** Addressing metadata of one mounted instance. */
+  export interface Instance {
+    readonly platform: string;
+    readonly identity: Identity;
   }
 
   export interface InboundMessage {

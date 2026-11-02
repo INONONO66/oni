@@ -23,7 +23,7 @@ interface SlackOwnerCredentials {
 
 /**
  * The Owner-identity arm (#1569 lanes 5 and 6): delivery as the Owner's
- * account through the user SDK, mounted as `slack:owner` (a delivery route
+ * account through the user SDK, mounted by declaration id (a delivery route
  * only when the declaration grants outbound), and the account's RTM listener
  * under the declared intake posture. No media upload through the account.
  */

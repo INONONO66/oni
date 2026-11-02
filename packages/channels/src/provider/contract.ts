@@ -169,7 +169,7 @@ export interface ProviderRuntime {
  * The Owner-identity arm of a provider (#1569): the same platform spoken as
  * the Owner's own account. Its credential is the account session the QR (or
  * remote-auth) login produced, never the bot's; its runtime mounts under
- * `<platform>:owner`. Only the capabilities an account can carry are
+ * its channel_instance row id. Only the capabilities an account can carry are
  * declared — there is no webhook arm, and typing is the platform's own.
  */
 export interface OwnerArm<TCredentials> {
@@ -257,6 +257,8 @@ export interface ChannelProvider<TCredentials, TId extends string = string, TOwn
 
 /** The injected sources every driver constructs from. */
 export interface ProviderOptions {
+  /** The channel_instance row this runtime is built from. */
+  readonly instance: string;
   /** App-resolved host directory; credentials still come only from the vault. */
   readonly telegramDataDir?: string;
   readonly now: () => number;

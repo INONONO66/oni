@@ -2,17 +2,19 @@ import type { Effect } from "effect";
 import type { ChannelError } from "../errors";
 import type { PolicyEvaluationInput } from "@oni/agent";
 import type {
-  BusEvent, Gateway, Ingress, Delivery, LedgerAction, Outbound, PlainValue, SessionTransition,
+  BusEvent, Channel, Gateway, Ingress, Delivery, LedgerAction, Outbound, PlainValue, SessionTransition,
 } from "@oni/protocol";
 import type { KernelDeliveryReceipt } from "../support/deliver";
 import type { ConversationBinding } from "./messaging/reply";
 
-export type ChannelDeliveryRoute = (
-  externalId: string,
-  payload: Outbound.Payload,
-  idempotencyKey: string,
-  conversation?: Gateway.Conversation,
-) => Promise<KernelDeliveryReceipt>;
+export interface ChannelDeliveryRoute extends Channel.Instance {
+  readonly deliver: (
+    externalId: string,
+    payload: Outbound.Payload,
+    idempotencyKey: string,
+    conversation?: Gateway.Conversation,
+  ) => Promise<KernelDeliveryReceipt>;
+}
 
 interface MessageExecution {
   readonly kind: "message";
@@ -95,7 +97,7 @@ export interface GatewayRouterPorts {
   readonly id: () => string;
   readonly messaging?: MessagingGrantSources & {
     readonly deliveryRoutes: ReadonlyMap<string, ChannelDeliveryRoute>;
-    /** The `<platform>:owner` surfaces whose declaration lets the reply door answer through the account (#1569 lane 7). */
+    /** Owner instances whose declaration lets the reply door answer through the account. */
     readonly autoReplies?: () => ReadonlySet<string>;
   };
 }

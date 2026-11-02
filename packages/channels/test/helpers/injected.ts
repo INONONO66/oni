@@ -17,10 +17,11 @@ export function sequentialIds(): () => string {
 }
 
 export function injectedOptions(run: EffectRunner = testRun): {
+  readonly instance: string;
   readonly now: () => number;
   readonly id: () => string;
   readonly random: () => number;
   readonly run: EffectRunner;
 } {
-  return { now: () => FIXED_NOW, id: sequentialIds(), random: () => 0, run };
+  return { instance: "channel:test:main", now: () => FIXED_NOW, id: sequentialIds(), random: () => 0, run };
 }

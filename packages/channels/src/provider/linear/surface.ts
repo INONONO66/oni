@@ -3,7 +3,7 @@ import { type Channel, Operational, Outbound } from "@oni/protocol";
 import { ChannelsFailure, RateLimited } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, isNotSent } from "../../support/deliver";
-import { requireHandler } from "../../support/handler-frame";
+import { instanceHandler, requireHandler } from "../../support/handler-frame";
 import { newTraceId } from "../../support/trace";
 import type { EffectRunner, PublishPort } from "../../types";
 import type { OwnerPosture } from "../contract";
@@ -98,7 +98,7 @@ type PreparedWebhook = Readonly<{
 type WebhookPreparation = PreparedWebhook | Readonly<{ response: Response }>;
 
 /**
- * Linear as the Owner's own account (#1569 lane 9b): the `linear:owner`
+ * Linear as the Owner's own account (#1569 lane 9b): the declared
  * instance — a personal API key is a person's, so there is no bot account
  * to declare. Ingress is the workspace webhook for new issues and comments
  * (signed, within Linear's own minute of replay window, deduplicated by
@@ -114,7 +114,7 @@ type WebhookPreparation = PreparedWebhook | Readonly<{ response: Response }>;
  * names, under the reply door's Owner path.
  */
 export class LinearAdapter implements Channel.Surface {
-  readonly id = "linear:owner";
+  get id(): string { return this.options.instance; }
   /** The surface contract's config: an Owner instance carries its posture instead. */
   readonly config: Channel.Config = {};
   private readonly client: LinearClient;
@@ -128,7 +128,7 @@ export class LinearAdapter implements Channel.Surface {
     private readonly credentials: LinearOwnerCredentials,
     readonly posture: OwnerPosture,
     private readonly publish: PublishPort,
-    private readonly options: { readonly now: () => number; readonly id: () => string; readonly run: EffectRunner },
+    private readonly options: { readonly instance: string; readonly now: () => number; readonly id: () => string; readonly run: EffectRunner },
   ) {
     this.dedupe = new Dedupe(options.now);
     this.client = new LinearClient(publish, options.now, options.run, credentials.token);
@@ -162,12 +162,12 @@ export class LinearAdapter implements Channel.Surface {
   }
 
   onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    this.handler = instanceHandler(this.id, handler);
   }
 
   /** The key's own user is what tells the Owner's actions apart; a key that cannot say fails the start. */
   async start(traceId: string): Promise<void> {
-    requireHandler(this.handler, "linear:owner");
+    requireHandler(this.handler, this.id);
     if (this.credentials.token !== undefined) {
       const me = await this.client.viewer(traceId);
       if (me === undefined)

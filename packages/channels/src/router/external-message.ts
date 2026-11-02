@@ -292,7 +292,7 @@ function promptContent(facts: Gateway.IngressFacts, freshSession: boolean, from:
   const quoted = facts.context?.quoted;
   const threadId = facts.reply?.threadId;
   const header = from === undefined ? [] : [
-    `[from ${from} on ${facts.surface} · channel ${facts.channelId} · message ${facts.eventId}${threadId === undefined ? "" : ` · thread ${threadId}`}]`,
+    `[from ${from} on ${facts.instance ?? facts.surface} · channel ${facts.channelId} · message ${facts.eventId}${threadId === undefined ? "" : ` · thread ${threadId}`}]`,
   ];
   const attached = (facts.attachments ?? []).map(attachedLine);
   return [

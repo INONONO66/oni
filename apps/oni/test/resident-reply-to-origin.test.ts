@@ -70,6 +70,7 @@ function replyingLlm(reply: string, toolCall?: ModelSend, onToolResult?: (result
 
 interface ExternalOrigin {
   readonly surface: string;
+  readonly instance?: string;
   readonly externalId: string;
   readonly actorId: string;
   readonly messageId: string;
@@ -374,7 +375,7 @@ test.each([
     model: { provider: "fake", id: "resident-test" },
     apiKey: "test-key",
     tools: { messages: capturingPort(ingested, () => { events.push("reply"); return true; }) },
-    typingRoute: (surface) => surface === "telegram"
+    typingRoute: (surface) => surface === "channel:telegram:west"
       ? {
           everyMs: 4_000,
           open: async (externalId, conversation) => {
@@ -401,6 +402,7 @@ test.each([
   });
   const turn = deliverExternal(resident, `reply-origin-typing-${outcome}`, {
     ...telegramOwner,
+    instance: "channel:telegram:west",
     conversation: { channelId: "C1", messageId: "m-1", dm: false },
   }, "ping");
   await started.promise;

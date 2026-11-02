@@ -11,7 +11,7 @@ import { bounded } from "./helpers/bounded";
 import { testClockRuntime } from "./helpers/effect";
 
 const credential = { token: "xoxc-owner", cookie: "owner-cookie" };
-const address = { surface: "slack:owner", channelId: "C1", speakerExternalId: "T1:U-owner" };
+const address = { surface: "channel:slack:hq", channelId: "C1", speakerExternalId: "T1:U-owner" };
 const posture = { intake: "all" as const, autoReply: false };
 
 function fixture(intake: "all" | "mentions_and_dms" | "none" = "all", run = injectedOptions().run) {
@@ -20,7 +20,7 @@ function fixture(intake: "all" | "mentions_and_dms" | "none" = "all", run = inje
   const adapter = new SlackOwnerAdapter(credential, { ...posture, intake }, (event, data) => {
     if (event.name === Operational.Events.Warn.name)
       warning.resolve(z.object({ msg: z.string() }).parse(data).msg);
-  }, injectedOptions(run), fake.sdk);
+  }, { ...injectedOptions(run), instance: address.surface }, fake.sdk);
   const queue = inboundQueue(adapter);
   const changed = (ts: string, room = "R1", user = "U-owner", team = "T1") => {
     fake.listener.emit("user_huddle_changed", {
@@ -249,7 +249,7 @@ test("voice refuses admission before the RTM hello", async () => {
   const entered = Promise.withResolvers<void>();
   const listener = new FakeSlackOwnerListener(() => entered.resolve());
   const fake = fakeSlackOwnerSdk({}, listener);
-  const adapter = new SlackOwnerAdapter(credential, posture, () => undefined, injectedOptions(), fake.sdk);
+  const adapter = new SlackOwnerAdapter(credential, posture, () => undefined, { ...injectedOptions(), instance: address.surface }, fake.sdk);
   adapter.onMessage(() => Promise.resolve());
   fake.setJoin(async () => fakeHuddle().handle);
   const starting = adapter.start("start");

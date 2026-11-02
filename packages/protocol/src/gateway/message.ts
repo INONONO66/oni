@@ -99,6 +99,8 @@ const IngressFacts = z
   .object({
     eventId: Id,
     surface: Id,
+    /** Declared channel instance; non-channel sources keep their own surface id. */
+    instance: Id.optional(),
     event: Input.shape.event.optional(),
     secretRef: Input.shape.secretRef,
     githubEvent: Input.shape.githubEvent,
@@ -108,7 +110,7 @@ const IngressFacts = z
     addressees: z.array(z.object({ externalId: Id }).strict()),
     dm: z.boolean(),
     /**
-     * #1569: the instance of the platform that observed this message —
+     * #1569: the account identity that observed this message —
      * `Channel.Identity`; absent means the bot. Through the Owner's own
      * account a mention of the Owner addresses the Resident.
      */

@@ -20,6 +20,16 @@ function message(eventId: string, receivedBy: "bot" | "owner", channelId = "C1")
 }
 
 describe("inboundOnce: one physical message reaches routing once across instances (#1569 lane 6)", () => {
+  test("equal event ids from separate instances are independent, but redelivery on one instance is deduplicated", async () => {
+    const seen: string[] = [];
+    const once = inboundOnce(async (inbound) => { seen.push(inbound.facts.instance ?? "missing"); });
+    for (const instance of ["channel:slack:east", "channel:slack:west", "channel:slack:west"]) {
+      const inbound = message("same-event", "bot");
+      await once({ ...inbound, facts: { ...inbound.facts, instance } });
+    }
+    expect(seen).toEqual(["channel:slack:east", "channel:slack:west"]);
+  });
+
   test("the second instance's copy of an admitted message is dropped; a different message or channel is not", async () => {
     const seen: string[] = [];
     const once = inboundOnce(async (inbound) => {

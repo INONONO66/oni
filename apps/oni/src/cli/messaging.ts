@@ -160,7 +160,7 @@ export function messagingReadiness(facts: MessagingFacts): MessagingReport {
     const ownerInstance = rows.find((row) => row.identity === "owner");
     lines.push(...readLines(platform, bot, ownerInstance), ...writeLines(platform, bot, ownerInstance), ownerLine(platform, owner, bot, ownerInstance));
     if (platform === "telegram" && ownerInstance !== undefined)
-      lines.push("  HISTORY Owner-authenticated oni channel history telegram:owner reads live account pages; sealed credentials do not prove connection",
+      lines.push(`  HISTORY Owner-authenticated oni channel history ${ownerInstance.id} reads live account pages; sealed credentials do not prove connection`,
         "  STORAGE account DB and retained files are under the service HOME/.oni/telegram/owner; outbound media remains bounded");
   }
   const reachable = facts.persons.filter((person) => person.reach === true || person.trustTier === "owner");

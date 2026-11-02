@@ -63,7 +63,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
   it("logs in with the account session, pins the inner client to one attempt, and verifies the identity before it counts as started", async () => {
     const { infos, publish } = infoCollector();
     const { adapter, client, listener } = await started({}, publish);
-    expect(adapter.id).toBe("slack:owner");
+    expect(adapter.id).toBe("channel:test:main");
     // #1600: the account is the Owner's Slack endpoint, TEAM:USER in workspace TEAM.
     expect(adapter.account()).toEqual({ externalId: "T1:U-owner", workspace: "T1" });
     expect(client.calls.map((call) => call.method)).toEqual(["login", "testAuth"]);
@@ -437,7 +437,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     ).toBe(false);
     expect(provider.owner?.credentials.safeParse({ ...CREDENTIALS, extra: 1 }).success).toBe(false);
     const runtime = provider.owner?.create(CREDENTIALS, SEND_ONLY, noopPublish, injectedOptions());
-    expect(runtime?.surface.id).toBe("slack:owner");
+    expect(runtime?.surface.id).toBe("channel:test:main");
     expect(runtime?.deliveryRoute).toBeDefined();
     expect(runtime?.voiceRoute).toBeDefined();
     expect(runtime?.webhookHandler).toBeUndefined();

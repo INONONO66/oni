@@ -1,6 +1,6 @@
 import { Effect, Semaphore } from "effect";
 import { ChannelsFailure, DeliveryNotSent } from "../errors";
-import { Channel, Gateway, Outbound } from "@oni/protocol";
+import { Gateway, Outbound } from "@oni/protocol";
 import { advanceAutomationGroups } from "./automation/groups.js";
 import { ingressInput } from "./automation/input.js";
 import { inboundIdOf } from "./inbound-id.js";
@@ -21,10 +21,11 @@ type External = Effect.Success<ReturnType<typeof externalMessage>>;
 function ingestResult(
   result: Effect.Success<ReturnType<GatewayRouterPorts["run"]>>,
   handle: Gateway.SendMessageHandle,
+  refusal: Gateway.MessageDenialCode | undefined,
 ): Gateway.IngestResult {
   switch (result.terminal) {
     case "blocked_pre":
-      return { status: "blocked_pre", reasonCode: result.reason };
+      return { status: "blocked_pre", reasonCode: refusal === "target_ambiguous" ? refusal : result.reason };
     case "interrupted":
     case "outcome_unknown":
     case "blocked_post":
@@ -42,26 +43,20 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     ((_sender: Gateway.IngestSender, observation: Gateway.MessageObservation) =>
       ports.sink(Gateway.MessageObserved, observation));
   const messagingPorts = ports.messaging;
-  // A delivery leaves through one instance, `<channel>:<identity>` (#1569);
-  // an identity-less surface (ws, github, webhook) is keyed by its platform
-  // id alone and is reached as the bot.
-  const routeFor = (channel: string, identity: Channel.Identity) =>
-    messagingPorts?.deliveryRoutes.get(Channel.instanceId(channel, identity)) ??
-    (identity === "bot" ? messagingPorts?.deliveryRoutes.get(channel) : undefined);
   const deliver = (message: {
     readonly target: Gateway.DeliveryTarget;
     readonly payload: Outbound.Payload;
     readonly idempotencyKey: string;
   }) => {
-    const route = routeFor(message.target.channel, message.target.identity);
+    const route = messagingPorts?.deliveryRoutes.get(message.target.instance);
     if (route === undefined)
       throw new DeliveryNotSent({
         operation: "message.deliver",
-        cause: `no delivery route: ${Channel.instanceId(message.target.channel, message.target.identity)}`,
+        cause: `no delivery route: ${message.target.instance}`,
       });
-    return route(message.target.externalId, message.payload, message.idempotencyKey, message.target.conversation);
+    return route.deliver(message.target.externalId, message.payload, message.idempotencyKey, message.target.conversation);
   };
-  const routes = () => new Set(messagingPorts?.deliveryRoutes.keys() ?? []);
+  const routes = () => messagingPorts?.deliveryRoutes ?? new Map();
   const messaging =
     messagingPorts === undefined
       ? undefined
@@ -148,7 +143,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
         operation: "message.project",
         cause: "session message projection missing",
       });
-    return message;
+    return { message, refusal };
   }
 
   function sendFromEnvelope(external: External | undefined,
@@ -207,7 +202,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       const prepared = yield* ports.prepare(sender, send, target, proposedId);
       const messageId = prepared.messageId ?? proposedId;
       const handle = { messageId, target: prepared.target };
-      const message = projectMessage(sender, send, prepared, external, startedAt);
+      const { message, refusal } = projectMessage(sender, send, prepared, external, startedAt);
       const progress: Parameters<typeof executeMessage>[1] = { commitMs: 0, committed: undefined };
       const result = yield* ports.run(sender, {
         kind: "message", op: "send_message", intent: { messageId, sender, ...send },
@@ -236,7 +231,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
         observe(sender, { kind: "message.committed", messageId, commitMs: progress.commitMs });
         ports.committed?.(progress.committed);
       }
-      return ingestResult(result, handle);
+      return ingestResult(result, handle, refusal);
     });
   }
 

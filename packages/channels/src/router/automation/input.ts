@@ -6,7 +6,7 @@ import { inboundIdOf } from "../inbound-id.js";
 /** The surface label an inbound keys on: a DM, a channel, or one thread of it. */
 export function ingressSurfaceKey(facts: Gateway.IngressFacts): string {
   return Channel.SurfaceKey.fromChannel({
-    surface: facts.surface, namespace: facts.workspaceId ?? facts.surface,
+    surface: facts.surface, namespace: facts.instance ?? facts.workspaceId ?? facts.surface,
     kind: facts.dm ? "dm" : "channel", id: facts.channelId,
     ...(facts.reply?.threadId === undefined ? {} : { threadId: facts.reply.threadId }),
   });

@@ -91,7 +91,7 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
     const api = linearApi();
     try {
       const { runtime, received } = await started();
-      expect(runtime.surface.id).toBe("linear:owner");
+      expect(runtime.surface.id).toBe("channel:test:main");
       expect(api.requests[0]?.query).toContain("viewer");
       expect((await runtime.webhookHandler?.(signed(JSON.stringify(envelope()))))?.status).toBe(200);
       expect(received).toHaveLength(1);
@@ -300,7 +300,7 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
     expect(arm().credentials.safeParse({ token: "t" }).success).toBe(false);
     expect(arm().credentials.safeParse({ secret: "s", extra: 1 }).success).toBe(false);
     const runtime = arm().create({ secret: SECRET }, DEFAULT_INTAKE, () => undefined, injectedOptions());
-    expect(runtime.surface.id).toBe("linear:owner");
+    expect(runtime.surface.id).toBe("channel:test:main");
     expect(runtime.deliveryRoute).toBeDefined();
     expect(runtime.webhookHandler).toBeDefined();
     expect(runtime.typingRoute).toBeUndefined();

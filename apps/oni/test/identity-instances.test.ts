@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { type ChannelDeliveryRoute, type ProviderTypingRoute, resolveChannelGrant } from "@oni/channels";
+import { ChannelProviders, type ChannelDeliveryRoute, type ProviderTypingRoute, resolveChannelGrant } from "@oni/channels";
 import type { Provisioning } from "@oni/protocol";
 import { createMountedChannelGrantRegistrar, MOUNTED_CHANNEL_DEFAULT_TIER, registerTrustedChannelGrant } from "../src/gateway";
 import { bindOwnerAccount, ownerAccountBinder } from "../src/bundles/provision/declared";
@@ -54,13 +54,13 @@ describe("declared Owner instances", () => {
     expect(granted.statuses).toEqual([{ id: "channel:slack:owner", provider: "slack", state: "ready" }]);
     expect(granted.rows[0]?.component.identity).toBe("owner");
     const outbound = granted.rows[0]?.component.build(() => Promise.resolve());
-    expect(outbound?.surface.id).toBe("slack:owner");
+    expect(outbound?.surface.id).toBe("channel:slack:owner");
     expect(outbound?.deliveryRoute).toBeDefined();
     expect(outbound?.webhookHandler).toBeUndefined();
 
     const held = declaredChannelProfile([instance({})], reader(OWNER_SESSION), testChannelDeps());
     const readOnly = held.rows[0]?.component.build(() => Promise.resolve());
-    expect(readOnly?.surface.id).toBe("slack:owner");
+    expect(readOnly?.surface.id).toBe("channel:slack:owner");
     // The Owner's account posts only with a declared outbound grant.
     expect(readOnly?.deliveryRoute).toBeUndefined();
   });
@@ -148,6 +148,52 @@ describe("declared Owner instances", () => {
     ]);
     expect(validateProviderCredential("github", { secret: "s" }, "owner")).toBe("github has no Owner-account arm");
   });
+});
+
+test("two Slack bot declarations mount and deliver through independent instance routes", async () => {
+  const sent: string[] = [];
+  const profile = declaredChannelProfile(
+    ["east", "west"].map((slug) => instance({
+      id: `channel:slack:${slug}`, identity: "bot", credentialRef: `secret:${slug}`,
+    })),
+    reader('{"botToken":"xoxb-test","appToken":"xapp-test"}'),
+    testChannelDeps(),
+    {
+      ...ChannelProviders,
+      slack: {
+        ...ChannelProviders.slack,
+        create: (_credentials, config, _publish, options) => ({
+          surface: {
+            id: options.instance, config,
+            start: async () => undefined, stop: () => undefined, onMessage: () => undefined,
+          },
+          deliveryRoute: async () => { sent.push(options.instance); return { value: "accepted" }; },
+        }),
+      },
+    },
+  );
+  const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
+  const supervisor = createChannelSupervisor({
+    desired: () => ({
+      source: "declared", statuses: [],
+      rows: profile.rows.map((row) => ({ ...row, key: "0", defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER })),
+    }),
+    build: (component) => component.build(async () => undefined),
+    grant: () => () => undefined,
+    deliveryRoutes, typingRoutes: new Map(), webhookHandlers: new Map(), traceId: () => "mount-two",
+  });
+  try {
+    expect(await supervisor.reconcile()).toEqual([
+      { id: "channel:slack:east", surface: "channel:slack:east", state: "mounted" },
+      { id: "channel:slack:west", surface: "channel:slack:west", state: "mounted" },
+    ]);
+    expect([...deliveryRoutes.keys()]).toEqual(["channel:slack:east", "channel:slack:west"]);
+    for (const route of deliveryRoutes.values()) await route.deliver("T:U", { kind: "message", parts: [] }, "send");
+    expect(sent).toEqual(["channel:slack:east", "channel:slack:west"]);
+  } finally {
+    await supervisor.stopAll();
+  }
+  expect(deliveryRoutes.size).toBe(0);
 });
 
 describe("the supervisor with an Owner instance", () => {

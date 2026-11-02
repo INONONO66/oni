@@ -46,6 +46,7 @@ function inspectDebitCount(): number {
 
 function messagingPorts() {
   return {
+    routes: () => new Map(["qa", "slack"].map((platform) => [platform, { platform, identity: "bot" as const }])),
     stores: ledger().stores,
     transaction: channelTransaction,
     requests: channelRequests(seededRequests()),
@@ -261,6 +262,7 @@ describe("explicit target resolution (fail closed)", () => {
       endpointId: "endpoint:target-slack",
       channel: "slack",
       identity: "bot",
+      instance: "slack",
       externalId: "T1:U1",
       conversation,
     });
@@ -301,6 +303,7 @@ describe("fire-and-forget delivery", () => {
       endpointId: "endpoint:target",
       channel: "qa",
       identity: "bot",
+      instance: "qa",
       externalId: "target-1",
     });
     expect(ledger().kernel.requestRows()).toHaveLength(0);
@@ -381,6 +384,7 @@ describe("awaited delivery", () => {
 describe("delivery receipt", () => {
   test("a platform message id from the owner re-keys the request correlation to it", async () => {
     const withReceipt = createExistingAgentMessaging({
+      routes: messagingPorts().routes,
     stores: ledger().stores,
     transaction: channelTransaction,
       requests: channelRequests(seededRequests()),
@@ -421,6 +425,7 @@ describe("delivery receipt", () => {
 
   test("a fire-and-forget receipt records nothing — there is no request to re-key", async () => {
     const withReceipt = createExistingAgentMessaging({
+      routes: messagingPorts().routes,
     stores: ledger().stores,
     transaction: channelTransaction,
       requests: channelRequests(seededRequests()),
@@ -456,7 +461,7 @@ describe("durable send admission faults", () => {
     expect(deliveries).toEqual([]);
   });
 
-  test("a plain-text send admitted before payloads existed replays as the same admission, not a conflict", async () => {
+  test("an admission without an instance cannot replay onto a newly selected account", async () => {
     const input = buildAwaitedSendInput({ messageId: "message:legacy-admitted" });
     const facts = ledger().sessions.decisionFacts;
     if (facts === undefined) throw new Error("decision fact sub-adapter missing");
@@ -478,14 +483,14 @@ describe("durable send admission faults", () => {
     expect(recorded.kind).toBe("recorded");
 
     const receipt = await runEffect(messaging().send(input));
-    expect(receipt.kind).toBe("sent");
-    expect(deliveries).toHaveLength(1);
+    expectDenied(receipt, "request_duplicate");
+    expect(deliveries).toHaveLength(0);
 
     const parts = await runEffect(
       messaging().send(buildAwaitedSendInput({ messageId: "message:legacy-admitted", payload: { kind: "message", parts: [{ kind: "code", text: "x" }] } })),
     );
     expectDenied(parts, "request_duplicate");
-    expect(deliveries).toHaveLength(1);
+    expect(deliveries).toHaveLength(0);
   });
 
   test("a spec message is retained in the admission signature as a payload", async () => {
@@ -590,6 +595,7 @@ describe("durable send admission faults", () => {
 
   test("propagates an unexpected request-store failure before delivery", async () => {
     const service = createExistingAgentMessaging({
+      routes: messagingPorts().routes,
     stores: ledger().stores,
     transaction: channelTransaction,
       requests: {
@@ -661,6 +667,7 @@ async function probe(point: FaultPoint): Promise<Probe> {
   let failAfterReceipt = point === "after_receipt_cas";
 
   const messaging = createExistingAgentMessaging({
+    routes: messagingPorts().routes,
     stores: ledger().stores,
     transaction: channelTransaction,
     requests: channelRequests(seededRequests()),

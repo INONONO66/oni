@@ -49,7 +49,7 @@ describe("provider owner arms", () => {
     const arm = ChannelProviders.slack.owner;
     if (arm === undefined) throw new Error("slack owner arm missing");
     const runtime = arm.create({ token: "xoxc-1", cookie: "d" }, { intake: "none", autoReply: false }, noopPublish, injectedOptions());
-    expect(runtime.surface.id).toBe("slack:owner");
+    expect(runtime.surface.id).toBe("channel:test:main");
     expect(runtime.deliveryRoute !== undefined).toBe(arm.capabilities.deliver);
     expect(runtime.typingRoute !== undefined).toBe(arm.capabilities.typing);
     expect(runtime.webhookHandler).toBeUndefined();

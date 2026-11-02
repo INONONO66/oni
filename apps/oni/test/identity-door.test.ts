@@ -26,10 +26,11 @@ function fixtureWith(routes: readonly string[]) {
     deliveryRoutes: new Map(
       routes.map((route) => [
         route,
-        async (externalId: string, payload: Outbound.Payload) => {
+        { platform: "slack", identity: route.endsWith(":owner") ? "owner" as const : "bot" as const,
+        deliver: async (externalId: string, payload: Outbound.Payload) => {
           delivered.push({ route, externalId, body: Outbound.text(payload) });
           return { value: "accepted" as const };
-        },
+        } },
       ]),
     ),
     grants: () => [

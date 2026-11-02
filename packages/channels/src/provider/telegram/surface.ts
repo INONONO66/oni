@@ -44,7 +44,7 @@ import { attachmentDownload } from "../../support/attachment-download";
  * tap).
  */
 export class TelegramAdapter extends BotState implements Channel.Surface {
-  readonly id = "telegram:bot";
+  get id(): string { return this.options.instance; }
 
   async download(fileId: string, bounds: AttachmentBounds): Promise<MediaBytes> {
     await this.ready;

@@ -5,7 +5,7 @@ import { ChannelsFailure, DeliveryNotSent } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
 import { handoffInbound } from "../../support/inbound-handoff";
-import { requireHandler } from "../../support/handler-frame";
+import { instanceHandler, requireHandler } from "../../support/handler-frame";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
@@ -82,7 +82,7 @@ function kakaoCode(error: Error): string | undefined {
 
 /**
  * KakaoTalk as the Owner's own account (#1569 lane 7): the
- * `kakaotalk:owner` instance — the platform has no bot account for a
+ * declared instance — the platform has no bot account for a
  * person's chats. Intake is the account's LOCO push listener under the
  * declared posture: a direct chat is a DM to the Owner, a group message is
  * intake only when it names the Owner's nickname (`@nickname`) under
@@ -102,7 +102,7 @@ function kakaoCode(error: Error): string | undefined {
  * text message after it; no reactions.
  */
 export class KakaoTalkOwnerAdapter implements Channel.Surface {
-  readonly id = "kakaotalk:owner";
+  get id(): string { return this.options.instance; }
   /** The surface contract's config: an Owner instance carries its posture instead. */
   readonly config: Channel.Config = {};
 
@@ -136,7 +136,7 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
   }
 
   onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    this.handler = instanceHandler(this.id, handler);
   }
 
   /**
@@ -259,7 +259,7 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
         const mentioned = this.nickname !== null && message.message.includes(`@${this.nickname}`);
         const attachments = kakaoAttachments(message);
         if (this.posture.intake !== "all" && !(dm || mentioned)) return;
-        await requireHandler(this.handler, "kakaotalk:owner")({
+        await requireHandler(this.handler, this.id)({
           sender: { kind: "external", surface: "kakaotalk", externalId: authorId },
           facts: {
             eventId: message.log_id,

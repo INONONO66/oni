@@ -2,7 +2,7 @@ import { type Channel, type Gateway, Operational, Outbound } from "@oni/protocol
 import { AttachmentRefused } from "../../errors.js";
 import { Dedupe } from "../../support/dedupe.js";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed, kernelDeliveryReceipt } from "../../support/deliver.js";
-import { requireHandler } from "../../support/handler-frame.js";
+import { instanceHandler, requireHandler } from "../../support/handler-frame.js";
 import { handoffInbound } from "../../support/inbound-handoff.js";
 import { newTraceId } from "../../support/trace.js";
 import { translate } from "../../support/translate.js";
@@ -63,7 +63,7 @@ function historyRefusal(error: Error): Extract<ProviderHistoryResult, { status: 
 }
 
 export class TelegramOwnerAdapter implements TelegramOwnerSurface {
-  readonly id = "telegram:owner";
+  get id(): string { return this.options.instance; }
   readonly config: Channel.Config = {};
   private client: TelegramOwnerClient | undefined;
   private identity: string | undefined;
@@ -124,7 +124,7 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
   }
 
   onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    this.handler = instanceHandler(this.id, handler);
   }
 
   accountIdentity(): AccountIdentity | undefined {
