@@ -30,11 +30,13 @@ receipts are recorded on PR #1814.
 The app persists explicit reply policy at its delivery boundary: rule-backed
 channel messages (including A2A, webhook and scheduled alarms) retain the
 rule mode; unruled external messages draft for Owner accounts and reply
-automatically for bot accounts. Session and terminal child mail, atomic
+automatically for bot accounts. Session mail, atomic
 child admission, contact replies, deadline/control signals, late hooks,
 child activity and permission notices record `none`. A recorded external
 origin without policy reads as `draft`, and typing requires recorded `auto`;
-neither reader grants an implicit Owner-account send.
+neither reader grants an implicit Owner-account send. Immutable child-settlement
+receipts retain their exact original bytes without reply metadata; they are
+non-channel mail and cannot produce an Owner reply or typing.
 
 ## #1793 ordered inbound rule table (PR #1805, epic #1791)
 

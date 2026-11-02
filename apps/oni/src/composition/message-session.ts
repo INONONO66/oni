@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { Core } from "@oni/agent";
 const AgentFailure = Core.AgentFailure;
 type AgentFailure = Core.AgentFailure;
-import { Delivery, Gateway, PlainValueSchema, Provisioning, SessionGeneration, type ConsumptionSettings, type LedgerSession } from "@oni/protocol";
+import { Delivery, Gateway, PlainValueSchema, Provisioning, SessionGeneration, SessionTransition, type ConsumptionSettings, type LedgerSession } from "@oni/protocol";
 import { type ConversationBinding, SendAdmissionConflict, type createGatewayRouter } from "@oni/channels";
 import { z } from "zod";
 import type { AppLedgerPlane } from "./cluster-runtime";
@@ -18,8 +18,9 @@ const OriginPolicy = z.object({
   rule: z.object({ reply: ReplyPolicy }).catchall(PlainValueSchema).optional(),
 }).catchall(PlainValueSchema);
 
-/** Every app admission records its reply decision, including non-channel mail. */
+/** App admissions record reply policy; immutable child receipts retain their original bytes. */
 export function deliveryOrigin(origin: Delivery.Origin): Delivery.Origin {
+  if (SessionTransition.OutboundMessage.safeParse(origin.value).success) return origin;
   const value = OriginPolicy.parse(origin.value);
   const fallback = value.kind === "external"
     ? value.receivedBy === "owner" ? "draft" : "auto"

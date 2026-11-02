@@ -202,7 +202,7 @@ test("the model-facing send_message tool cannot compose an origin target", () =>
  * outside any tool body, so this is the receipt that it runs under the
  * turn's executor the gateway's session `run` port requires.
  */
-test.each(["auto", "missing-owner"] as const)("the resident reply and typing honor the recorded policy: %s", async (policy) => {
+test.each(["auto", "missing-owner", "child-settlement"] as const)("the resident reply and typing honor the recorded policy: %s", async (policy) => {
   const delivered: Delivered[] = [];
   const typing: string[] = [];
   const refusals: string[] = [];
@@ -249,7 +249,7 @@ test.each(["auto", "missing-owner"] as const)("the resident reply and typing hon
       prepare: prepareMessage(resident.plane, resident.genesis),
       ...(yield* residentGatewayPorts(resident.plane, () => 10)),
     }, { deliveryRoutes: new Map([...slackRoute(delivered)].map(([id, route]) => [
-      id, { ...route, identity: policy === "missing-owner" ? "owner" as const : "bot" as const },
+      id, { ...route, identity: policy === "auto" ? "bot" as const : "owner" as const },
     ])), grants: () => [] });
   }).pipe(Effect.provide(resident.services)));
   createSurfaceKeyStore(resident.plane.channel).claim(SLACK_KEY, sessionId);
@@ -258,16 +258,20 @@ test.each(["auto", "missing-owner"] as const)("the resident reply and typing hon
     sessionId,
     kind: "prompt",
     content: [{ kind: "text", text: "ping" }],
-    origin: slackOrigin(CHANNEL, policy === "missing-owner" ? "owner" : "bot"),
+    origin: policy === "child-settlement" ? { encodingVersion: 1, value: {
+      messageId: PROMPT_ID, sourceSessionId: "child", sourceActionId: "terminal",
+      destinationSessionId: sessionId, requestId: "request", replyTo: "request",
+      terminal: "completed", content: "ping", digest: "digest",
+    } } : slackOrigin(CHANNEL, policy === "missing-owner" ? "owner" : "bot"),
     createdAt: 10,
     parentActionId: null,
     createSession: resident.genesis(sessionId, null, "resident", "resident"),
   }));
   const result = await resident.drain(sessionId);
   expect(result?.kind).toBe("result");
-  expect(delivered).toEqual(policy === "missing-owner" ? [] : [
+  expect(delivered).toEqual(policy === "auto" ? [
     { externalId: "T1:U1", body: "pong", conversation: { channelId: "C1", threadId: "1710.0002", replyToMessageId: "1710.0002" } },
-  ]);
+  ] : []);
   expect(refusals).toEqual(policy === "missing-owner" ? ["message.resident.reply_draft"] : []);
-  expect(typing).toEqual(policy === "missing-owner" ? [] : ["open", "pulse"]);
+  expect(typing).toEqual(policy === "auto" ? ["open", "pulse"] : []);
 });

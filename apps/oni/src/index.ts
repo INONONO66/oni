@@ -652,11 +652,8 @@ export async function startOni(options: StartOptions = {}) {
     // durable boundary). Process runners keep direct commit + doorbell.
     const requests: typeof bootRequests = {
       ...bootRequests,
-      answer: (input) =>
+      answer: (answer) =>
         Effect.suspend(() => {
-          const answer = input.outbound === undefined ? input : {
-            ...input, outbound: { ...input.outbound, reply: "none" as const },
-          };
           if (
             liveTurns.get(answer.sessionId) !== undefined ||
             sessionRunner(answer.sessionId) === "process"

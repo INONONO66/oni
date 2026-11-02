@@ -267,7 +267,8 @@ test("entity delivery accepts the exact one-text-part outbound letter", async ()
     ),
   );
   expect(payload.idempotencyKey).toBe(message.messageId);
-  expect(JSON.parse(payload.source)).toEqual({ ...message, reply: "none" });
+  expect(JSON.parse(payload.source)).toEqual(message);
+  expect(pendingDeliveryRow(input, 1).origin).toEqual(input.origin);
   expect(JSON.parse(payload.body)).toEqual({
     content: input.content,
   });
