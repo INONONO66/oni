@@ -46,8 +46,8 @@ describe("the image tool", () => {
     ]);
     const result = await dispatchModelTool(IMAGE_TOOL_NAME, { image: port }, RESIDENT)({ prompt: "a red circle" });
     const expected = [
-      { kind: "image", ref: digest(PNG) },
-      { kind: "image", ref: digest(JPEG) },
+      { kind: "image" as const, ref: digest(PNG) },
+      { kind: "image" as const, ref: digest(JPEG) },
     ];
     expect(result.isError).toBeUndefined();
     expect(result.structuredContent).toEqual(expected);
