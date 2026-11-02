@@ -9,8 +9,8 @@ import {
 import { SessionTransition } from "../ledger/session-transition.js";
 import * as RouteRecord from "./route-record.js";
 import { Input as InputSchema } from "./input.js";
-import * as AutomationSchemas from "./automation.js";
-import * as AutomationWire from "./automation-wire.js";
+import * as RuleSchemas from "./rule.js";
+import * as RuleWire from "./rule-wire.js";
 
 /**
  * #500 A6: every production-written actor key is declared (`runId` and
@@ -93,8 +93,6 @@ const MetaSchemaImpl = z
     actor: ActorSchemaImpl.optional(),
     target: TargetSchemaImpl.optional(),
     inboundTreatment: Actor.InboundTreatment.optional(),
-    channelGrantId: z.string().optional(),
-    channelGrantKind: Actor.ChannelGrantKind.optional(),
     surfaceKey: z.string().optional(),
     kind: z.string().optional(),
     sender: SenderMetaSchema.optional(),
@@ -109,26 +107,22 @@ export namespace Ingress {
   export const Input = InputSchema;
   export type Input = z.infer<typeof Input>;
 
-  export const WindowSeconds = AutomationSchemas.WindowSeconds;
+  export const WindowSeconds = RuleSchemas.WindowSeconds;
   export type WindowSeconds = z.infer<typeof WindowSeconds>;
-  export const Trigger = AutomationSchemas.Trigger;
-  export type Trigger = z.infer<typeof Trigger>;
-  export const Conditions = AutomationSchemas.Conditions;
-  export type Conditions = z.infer<typeof Conditions>;
-  export const Automation = AutomationSchemas.Automation;
-  export type Automation = z.infer<typeof Automation>;
-  export const AutomationRequest = AutomationWire.Request;
-  export type AutomationRequest = AutomationWire.Request;
-  export const AutomationResponse = AutomationWire.Response;
-  export type AutomationResponse = AutomationWire.Response;
-  export const AutomationRefused = AutomationWire.Refused;
-  export type AutomationRefused = AutomationWire.Refused;
-  export const AutomationRefusalReason = AutomationWire.RefusalReason;
-  export type AutomationRefusalReason = AutomationWire.RefusalReason;
-  export const AutomationLedgerFilter = AutomationWire.LedgerFilter;
-  export type AutomationLedgerFilter = AutomationWire.LedgerFilter;
-  export const TriggerContext = AutomationSchemas.TriggerContext;
-  export type TriggerContext = z.infer<typeof TriggerContext>;
+  export const Rule = RuleSchemas.Rule;
+  export type Rule = z.infer<typeof Rule>;
+  export const RuleRequest = RuleWire.Request;
+  export type RuleRequest = RuleWire.Request;
+  export const RuleResponse = RuleWire.Response;
+  export type RuleResponse = RuleWire.Response;
+  export const RuleRefused = RuleWire.Refused;
+  export type RuleRefused = RuleWire.Refused;
+  export const RuleRefusalReason = RuleWire.RefusalReason;
+  export type RuleRefusalReason = RuleWire.RefusalReason;
+  export const RuleLedgerFilter = RuleWire.LedgerFilter;
+  export type RuleLedgerFilter = RuleWire.LedgerFilter;
+  export const MatchContext = RuleSchemas.MatchContext;
+  export type MatchContext = z.infer<typeof MatchContext>;
 
   export const ActorSchema = ActorSchemaImpl;
   export type Actor = z.infer<typeof ActorSchema>;

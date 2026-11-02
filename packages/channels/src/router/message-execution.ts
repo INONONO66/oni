@@ -9,6 +9,7 @@ import {
   type Gateway,
   type LedgerAction,
   type PlainValue,
+  type PlainObject,
 } from "@oni/protocol";
 import type { createExistingAgentMessaging } from "./messaging/send";
 import type { ReplyMessaging } from "./messaging/reply";
@@ -94,7 +95,7 @@ function originConversation(
       messageId: facts.postback?.messageRef ?? facts.eventId,
       dm: facts.dm,
       ...(facts.workspaceId === undefined ? {} : { workspaceId: facts.workspaceId }),
-      ...(facts.reply?.threadId === undefined ? {} : { threadId: facts.reply.threadId }),
+      ...(facts.dm ? {} : { threadId: facts.reply?.threadId ?? facts.eventId }),
     },
   };
 }
@@ -114,6 +115,16 @@ export function actorTarget(
 /** Delivered content: the rendered text (when any) followed by the inbound media parts. */
 function deliveredContent(text: string, parts: Delivery.Content | undefined): Delivery.Content {
   return [...(text.length === 0 ? [] : [{ kind: "text" as const, text }]), ...(parts ?? [])];
+}
+
+function ruleOrigin(automation: NonNullable<MessageContext["external"]>["automation"]): PlainObject {
+  if (automation === undefined) return {};
+  return { rule: {
+    id: automation.ruleId, reply: automation.reply, newSession: automation.newSession,
+    ...(automation.as === undefined ? {} : { as: automation.as }),
+    ...(automation.agent === undefined ? {} : { agent: automation.agent }),
+    ...(automation.instructions === undefined ? {} : { instructions: automation.instructions }),
+  } };
 }
 
 function deliveryAdmission(
@@ -157,14 +168,7 @@ function deliveryAdmission(
         ...(external === undefined ? {} : { inboundTreatment: external.route.decision.inboundTreatment ?? "full_access" }),
         ...(external?.automation?.kind === "action"
           ? { source: external.automation.source, handlerRef: external.automation.handlerRef } : {}),
-        ...(external?.automation?.automationId === undefined ||
-          external.automation.automationId.startsWith("granted-direct:") ? {} : {
-          automation: {
-            id: external.automation.automationId,
-            newSession: external.automation.newSession ?? false,
-            ...(external.automation.instructions === undefined ? {} : { instructions: external.automation.instructions }),
-          },
-        }),
+        ...ruleOrigin(external?.automation),
       },
     },
   };
@@ -186,8 +190,7 @@ function admitExternal(context: MessageContext, content: string) {
     const decision = requireRoutedDecision(external.route.decision);
     yield* executeRequestRoute(context.stores, external.route, decision,
       context.ports.requests, content, context.clock());
-    if (external.automation?.automationId === undefined ||
-        external.automation.automationId.startsWith("granted-direct:"))
+    if (external.automation?.conversation === true)
       context.stores.surfaceKeys.claim(external.surfaceKey, context.prepared.target);
     return external.route.requestExecution.kind === "request";
   });

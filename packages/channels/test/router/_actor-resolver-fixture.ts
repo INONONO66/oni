@@ -8,24 +8,7 @@ export const actorFixtureSchema = Ingress.ActorSchema.catchall(z.json());
 import { resetStores } from "./_router-fixture";
 
 export function setupIngressActorResolverTest(): void {
-  beforeEach(() => {
-    resetStores();
-    for (const [surface, workspace] of [
-      ["discord", "guild"],
-      ["discord", "guild-b"],
-      ["telegram", "guild"],
-    ] as const) {
-      ledger().stores.channelGrants.put({
-        id: `grant-${surface}-${workspace}`,
-        surface,
-        workspace,
-        channel: "dev",
-        kind: "trusted_channel",
-        defaultTier: "owner",
-        createdBy: "act_owner",
-      });
-    }
-  });
+  beforeEach(resetStores);
 }
 
 export function makeEvent(

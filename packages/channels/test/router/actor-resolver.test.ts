@@ -23,7 +23,6 @@ describe("internal ingress actor projection", () => {
           trusted: true,
           isTrustedManager: true,
         }),
-        1,
       ).meta?.actor,
     );
     expect(actor).toMatchObject({
@@ -49,7 +48,6 @@ describe("internal ingress actor projection", () => {
           actorId: "spoofed",
           trustTier: "owner",
         }),
-        1,
       ).meta?.actor,
     );
     expect(actor).toEqual({ id: "user-1", role: "user" });
@@ -66,7 +64,6 @@ describe("internal ingress actor projection", () => {
           actorId: "spoofed",
           trustTier: "owner",
         }),
-        1,
       ).meta?.actor,
     );
     expect(actor).toMatchObject({ id: "user-1", role: "user", actorId: "act_owner", trustTier: "owner" });
@@ -75,7 +72,7 @@ describe("internal ingress actor projection", () => {
   test("workspace match resolves the canonical endpoint", () => {
     registerOwnerEndpoint("guild");
     expect(
-      actorFixtureSchema.parse(resolveIngressActor(ledger().stores, makeEvent("user-1"), 1).meta?.actor),
+      actorFixtureSchema.parse(resolveIngressActor(ledger().stores, makeEvent("user-1")).meta?.actor),
     ).toMatchObject({
       actorId: "act_owner",
       endpointId: "ep_discord_user_1",

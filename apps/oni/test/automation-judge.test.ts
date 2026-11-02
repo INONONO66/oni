@@ -9,7 +9,7 @@ import { runEffect } from "./helpers/effect";
 import { observationService } from "../../../packages/agent/test/helpers/service-layers";
 
 const event = Ingress.Input.parse({
-  eventId: "event", surface: "discord", event: "message", author: { externalId: "user", isBot: false },
+  eventId: "event", instance: "discord", surface: "discord", event: "message", author: { externalId: "user", isBot: false },
   dm: false, mentionsBot: false, body: "EVIDENCE", receivedAt: 100,
 });
 function judgeWith(run: Context.Service.Shape<typeof Core.Llm>["run"]) {

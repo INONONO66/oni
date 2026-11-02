@@ -20,6 +20,7 @@ const ExternalOrigin = z
     actorId: z.string(),
     /** The account identity that observed the prompt. */
     receivedBy: z.enum(["bot", "owner"]).optional(),
+    rule: z.object({ reply: z.enum(["auto", "draft", "none"]), as: z.string().optional() }).optional(),
     conversation: z
       .object({
         channelId: z.string().min(1),
@@ -45,9 +46,10 @@ function originBinding(
   if (send.to.kind !== "origin") return undefined;
   const origin = ExternalOrigin.safeParse(kernel.actionById(send.to.inReplyTo)?.intent.value);
   if (!origin.success || origin.data.surface === "ws") return undefined;
-  const { surface, instance, externalId, actorId, conversation, receivedBy } = origin.data;
+  const { surface, instance, externalId, actorId, conversation, receivedBy, rule } = origin.data;
   return {
     surface,
+    ...(rule === undefined ? {} : { reply: rule.reply, ...(rule.as === undefined ? {} : { as: rule.as }) }),
     ...(instance === undefined ? {} : { instance }),
     externalId,
     actorId,

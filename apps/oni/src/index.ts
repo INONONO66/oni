@@ -4,7 +4,7 @@ import { AppInvariantError } from "./invariant";
 import { retryableOnce } from "./retryable-once";
 import { bootResource } from "./composition/boot";
 import { automationClock } from "./composition/automation-clock";
-import { automationWire } from "./composition/automation-wire";
+import { ruleWire } from "./composition/rule-wire";
 import { channelWire } from "./composition/channel-wire";
 import { a2aContacts } from "./composition/a2a-contacts";
 import { ownerContactFor } from "./composition/owner-contact";
@@ -152,7 +152,6 @@ import {
   channelRequests,
   channelStoreSource,
   createMonitorPorts,
-  createMountedChannelGrantRegistrar,
   createResidentGateway,
   gatewayRuntime,
   runAppBoot,
@@ -507,7 +506,7 @@ export async function startOni(options: StartOptions = {}) {
     ) => runAppBoot(runtime, bootResource(resource, release));
     const plane = services.plane;
     const channelStores = createChannelStores(channelStoreSource(plane, services.now));
-    const automations = { store: channelStores.automations, id: services.entropy.id };
+    const rules = { store: channelStores.rules, id: services.entropy.id };
     const enrollments = plane.stores.machineEnrollments;
     const mclientBin = config.mclientBin ?? resolveMclientBin();
     const computerScheduler = await acquire(
@@ -566,7 +565,6 @@ export async function startOni(options: StartOptions = {}) {
     const domainRevisions = createRequestDomainRevisions({
       computer,
       machineEnrollments: enrollments,
-      automations,
       actors: plane.stores.actors,
       persons: plane.stores.persons,
       instances: plane.stores.instances,
@@ -738,7 +736,7 @@ export async function startOni(options: StartOptions = {}) {
       // The machine port is read at access time, never captured.
       get machines() { return machineProvision; },
       get permissions() { return agentPermission; },
-      automations,
+      rules,
       persons: plane.stores.persons,
       instances: plane.stores.instances,
       secrets: plane.stores.secrets,
@@ -1169,13 +1167,6 @@ export async function startOni(options: StartOptions = {}) {
           options.channelProviders,
         ),
       build: (component) => component.build(routing.handler),
-      // The tier is the row's, never this call site's: mounting a named
-      // surface materializes no owner authority (#931).
-      grant: createMountedChannelGrantRegistrar(
-        plane.stores.channelGrants,
-        config.channelAllowedSenders,
-        config.channelMentionOnly,
-      ),
       deliveryRoutes,
       typingRoutes,
       voiceRoutes,
@@ -1246,7 +1237,7 @@ export async function startOni(options: StartOptions = {}) {
     };
     const deliveryDeps = { plane, client: entityClient, clock: services.now };
     const commitDelivery = createAutomationDelivery(
-      deliveryDeps, channelStores.automations, resident.genesis,
+      deliveryDeps, channelStores.rules, resident.genesis,
     );
     const commitProcessDelivery = commitDeliverPayload(deliveryDeps);
     // Deadline-carrying requests arm one persisted DeliverAt alarm occurrence
@@ -1500,7 +1491,7 @@ export async function startOni(options: StartOptions = {}) {
       createSessionForkExecutor(plane, {
         now: services.now,
         id: services.entropy.id,
-      }), { respond: automationWire(provisioningPort.automations), stores: channelStores }, host,
+      }), { respond: ruleWire(provisioningPort.rules), stores: channelStores }, host,
       { respond: channelWire(provisioningPort, services.now) }, wsMedia,
       channelHistoryLookup(historyRoutes, supervisor), services.now,
       (id) => plane.read.index(id) === undefined ? undefined : childRows(id));

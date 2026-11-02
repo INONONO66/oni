@@ -10,7 +10,7 @@ import "../src/renderer/styles.css";
 const rows = [...ledgerRows];
 const fixture = createAutomationFixture([
   automationRecord,
-  { ...automationRecord, id: "pending", name: "Triage support mentions", enabled: false, createdBy: "session:resident" },
+  { ...automationRecord, id: "pending", position: 1, enabled: false, createdBy: "session:resident" },
 ], rows);
 const client = new QueryClient();
 const sessions = [{
@@ -29,13 +29,13 @@ function AutomationPreview() {
         <ActionButton onClick={() => setLedger(true)}>Ingress ledger</ActionButton>
         <ActionButton onClick={() => {
           const record = [...fixture.records.values()].at(-1);
-          if (record === undefined || !record.enabled) return;
+          if (record === undefined || !record.enabled || record.outcome.kind !== "deliver") return;
           rows.unshift({
             traceId: "preview", inboundId: `fixture-${record.id}`, time: 900, surface: "fixture",
             mode: "internal", stage: "automation", outcome: "record", decision: "matched",
-            by: `automation/${record.id}`, factsDigest: "sha256:fixture", factsUsed: [`kind:${record.kind}`],
-            reason: `Fixture ${record.kind} delivered`, actionSeq: 4,
-            target: record.target === "new" ? `session:created-${record.id}` : record.target,
+            by: `rule/${record.id}`, factsDigest: "sha256:fixture", factsUsed: [`kind:${record.outcome.deliveryKind}`],
+            reason: `Fixture ${record.outcome.deliveryKind} delivered`, actionSeq: 4,
+            target: record.outcome.target === "new" || record.outcome.target === "conversation" ? `session:created-${record.id}` : record.outcome.target,
           });
           void client.invalidateQueries();
           setLedger(true);

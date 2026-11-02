@@ -33,13 +33,13 @@ export class VoiceJoinRefused extends Data.TaggedError("VoiceJoinRefused")<{
   readonly detail: string;
 }> {}
 
-export class AutomationEnableRefused extends Data.TaggedError("AutomationEnableRefused")<{
-  readonly reason: "approval_required" | "not_found";
+export class RuleEnableRefused extends Data.TaggedError("RuleEnableRefused")<{
+  readonly reason: "approval_required" | "not_found" | "seed_protected" | "invalid_position";
   readonly id: string;
 }> {}
 
-export class AutomationConfigurationError extends Data.TaggedError("AutomationConfigurationError")<{
-  readonly reason: "store_unconfigured" | "invalid_regex";
+export class RuleConfigurationError extends Data.TaggedError("RuleConfigurationError")<{
+  readonly reason: "store_unconfigured";
 }> {}
 
 const InvalidInboundFields = z.object({
@@ -112,8 +112,8 @@ export class RateLimited extends Data.TaggedError("RateLimited")<z.infer<typeof 
 
 export type ChannelError =
   | ChannelsFailure
-  | AutomationConfigurationError
-  | AutomationEnableRefused
+  | RuleConfigurationError
+  | RuleEnableRefused
   | DeliveryNotSent
   | AttachmentRefused
   | MediaTooLarge

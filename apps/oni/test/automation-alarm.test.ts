@@ -33,8 +33,9 @@ test.each(["action", "prompt"] as const)("cron tick routes %s to the same entity
   const target = await f.target();
   f.time.now = FIXTURE_BASE;
   const kernel = f.plane.openKernel(target);
-  f.stores.automations.add(automationRecord({
-    triggers: [{ type: "schedule", cron: cron.expr, tz: "UTC" }], target: `session:${target}`, kind,
+  f.stores.rules.add(automationRecord({
+    when: { instance: "alarm", channel: `cron:${cron.expr}` },
+    outcome: { kind: "deliver", target: `session:${target}`, deliveryKind: kind, reply: "none" },
   }));
   const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
     purpose: CRON_TICK, at: 0, alarmId: "watch", sourceKey: source, payload: cron, ts: f.time.now,
@@ -43,25 +44,28 @@ test.each(["action", "prompt"] as const)("cron tick routes %s to the same entity
   expect(result.outcome).toBe("delivered");
   expect(kernel.actionById(armed.occurrenceId)?.kind).toBe(kind);
   expect(kernel.actionById(`${armed.occurrenceId}:prompt`)).toBeUndefined();
-  expect(f.stores.automations.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({
+  expect(f.stores.rules.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({
     decision: "matched", surface: "alarm", inboundId: armed.occurrenceId,
     time: f.time.now, target: `session:${target}`,
   })]);
 });
 
-test("a monitor tick matches no schedule record, even one whose cron is the alarm id", async () => {
+test("a monitor tick falls through a channel-restricted cron rule to the seeded self-wake", async () => {
   const f = await automationFixture(suite);
   const target = await f.target();
   f.time.now = FIXTURE_BASE;
   const kernel = f.plane.openKernel(target);
-  f.stores.automations.add(automationRecord({
-    triggers: [{ type: "schedule", cron: "watch", tz: "UTC" }], target: `session:${target}`,
+  f.stores.rules.add(automationRecord({
+    when: { instance: "alarm", channel: "cron:watch" },
+    outcome: { kind: "deliver", target: `session:${target}`, deliveryKind: "action", reply: "none" },
   }));
   const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
     purpose: Bundle.MONITOR_HIT, at: 0, alarmId: "watch", sourceKey: "monitor", payload: monitor, ts: f.time.now,
   });
   await fireAlarm(f, target, armed, Bundle.MONITOR_HIT, "monitor", monitor);
-  expect(f.stores.automations.decisions(armed.occurrenceId)).toEqual([]);
+  expect(f.stores.rules.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({ by: "rule/seed:alarm", target: `session:${target}`, decision: "matched" })]);
+  expect(kernel.actionById(armed.occurrenceId)?.kind).toBe("prompt");
+  expect(f.plane.read.sessions.list().some((row) => row.id === "main")).toBe(false);
 });
 
 test("a filtered schedule tick writes no local prompt shortcut", async () => {
@@ -69,10 +73,11 @@ test("a filtered schedule tick writes no local prompt shortcut", async () => {
   const target = await f.target();
   f.time.now = FIXTURE_BASE;
   const kernel = f.plane.openKernel(target);
-  f.stores.automations.add(automationRecord({
-    triggers: [{ type: "schedule", cron: cron.expr, tz: "UTC" }],
-    target: `session:${target}`, conditions: { contains: ["ABSENT"] },
+  f.stores.rules.add(automationRecord({
+    when: { instance: "alarm", from: ["ABSENT"] },
+    outcome: { kind: "deliver", target: `session:${target}`, deliveryKind: "action", reply: "none" },
   }));
+  f.stores.rules.disable("seed:alarm");
   const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
     purpose: CRON_TICK, at: 0, alarmId: "filtered", sourceKey: "cron", payload: cron, ts: f.time.now,
   });
@@ -84,7 +89,7 @@ test("a filtered schedule tick writes no local prompt shortcut", async () => {
   })));
   expect(kernel.actionById(armed.occurrenceId)).toBeUndefined();
   expect(kernel.actionById(`${armed.occurrenceId}:prompt`)).toBeUndefined();
-  expect(f.stores.automations.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({ decision: "filtered" })]);
+  expect(f.stores.rules.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({ decision: "filtered" })]);
 });
 
 function wakeInput(sessionId: string, payload: string, occurrenceId: string) {
@@ -92,17 +97,20 @@ function wakeInput(sessionId: string, payload: string, occurrenceId: string) {
     occurrenceId, purpose: CRON_TICK, alarmId: "direct", armSeq: 1, sourceKey: "cron", payload, fireAt: 0,
   };
   const prompts: string[] = [];
+  const delivered: string[] = [];
   const ctx: Core.AlarmWakeContext = {
     sessionId, now: FIXTURE_BASE,
     reads: { latestArm: () => undefined, settled: () => false },
     arm: () => Effect.die(new Error("unused arm")),
+    deliver: (input) => Effect.sync(() => ({ seq: delivered.push(input.kind), existed: false })),
     prompt: (input) => Effect.sync(() => ({ seq: prompts.push(input.content) })),
   };
-  return { fired, ctx, prompts };
+  return { fired, ctx, prompts, delivered };
 }
 
-test("the alarm sender is registered on the first tick only", async () => {
+test("the alarm sender is registered and bound to its session on the first tick only", async () => {
   const f = await automationFixture(suite);
+  const target = await f.target();
   const registrations: string[] = [];
   const actors = {
     ...f.stores.actors,
@@ -113,19 +121,22 @@ test("the alarm sender is registered on the first tick only", async () => {
   };
   const ingress = automationAlarm(f.app.gateway, { ...f.stores, actors });
   for (const occurrenceId of ["direct:fire:1", "direct:fire:2"]) {
-    const { fired, ctx, prompts } = wakeInput("ticking", JSON.stringify(cron), occurrenceId);
+    const { fired, ctx, prompts, delivered } = wakeInput(target, JSON.stringify(cron), occurrenceId);
     await runAppEffect(f.app.runtime, ingress(fired, ctx, { content: "TICK_SENTINEL" }));
-    expect(prompts).toEqual(["TICK_SENTINEL"]);
+    expect(prompts).toEqual([]);
+    expect(delivered).toEqual(["prompt"]);
+    expect(f.stores.rules.decisions(occurrenceId)).toEqual([expect.objectContaining({ by: "rule/seed:alarm", target: `session:${target}` })]);
   }
-  expect(registrations).toEqual(["alarm:ticking"]);
+  expect(registrations).toEqual([`alarm:${target}`]);
+  expect(f.stores.surfaceKeys.lookup(`alarm:dm:session:${target}`)).toBe(target);
 });
 
 test.each([
-  ["an unparseable payload", "{not json", "ticking"],
+  ["an unparseable payload", "{not json", "direct:malformed"],
   ["an input outside the ingress schema", JSON.stringify(cron), ""],
-])("%s is a typed wake failure, not a defect", async (_label, payload, sessionId) => {
+])("%s is a typed wake failure, not a defect", async (_label, payload, occurrenceId) => {
   const f = await automationFixture(suite);
-  const { fired, ctx, prompts } = wakeInput(sessionId, payload, "direct:malformed");
+  const { fired, ctx, prompts } = wakeInput("ticking", payload, occurrenceId);
   const error = await runAppEffect(f.app.runtime,
     Effect.flip(automationAlarm(f.app.gateway, f.stores)(fired, ctx, { content: "UNUSED" })));
   expect(error).toBeInstanceOf(Bundle.AlarmWakeError);

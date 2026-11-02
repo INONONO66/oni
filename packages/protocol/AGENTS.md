@@ -15,7 +15,7 @@ Protocol defines schemas plus pure folds — no effects, storage, or I/O. It may
 ```
 src/
 ├── index.ts              # Package barrel: all public domains
-├── actor/                # Actor.Identity / Endpoint, TrustTier, blacklist schemas
+├── actor/                # Actor.Identity / Endpoint, TrustTier schemas
 ├── bus/                  # BusEvent.define() + injected BusEvent.Sink contract
 ├── channel/              # Channel surfaces, messages, config, and surface-key codec
 ├── cron/                 # Cron job schemas
@@ -66,7 +66,7 @@ Allowed here:
 
 Not allowed here:
 
-- Actor trust, channel grant, or blacklist evaluation.
+- Actor trust or rule evaluation.
 - Session or target resolution.
 - Dispatch/ingress handler routing.
 - Provider behavior, process supervision, storage implementation, or agent-loop execution.

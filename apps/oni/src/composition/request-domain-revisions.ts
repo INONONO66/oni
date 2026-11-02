@@ -3,8 +3,6 @@ import type { ActorRegistry, ChannelInstanceStore, PersonStore } from "@oni/chan
 import type { PlainValue, SessionTransition } from "@oni/protocol";
 import { ContactOperation, contactDomainRevisions } from "../bundles/provision/contact-mutations";
 import { secretRotateDomainRevisions } from "../bundles/provision/channels";
-import { AutomationOperation } from "../bundles/provision/automation-schema";
-import { automationDomainRevisions, automationId, type AutomationPort } from "../bundles/provision/automation";
 import { MachineOperation } from "../bundles/provision/machine-schema";
 import { machineDomainRevisions, type MachinePort } from "../bundles/provision/machines";
 import { ComputerOperation } from "../bundles/provision/computer-schema";
@@ -14,7 +12,6 @@ import type { ComputerPort } from "../bundles/seams";
 export interface RequestDomainDeps {
   readonly computer?: ComputerPort;
   readonly machineEnrollments?: MachinePort["enrollments"];
-  readonly automations?: AutomationPort;
   readonly actors: ActorRegistry;
   readonly persons: Pick<PersonStore, "get">;
   /** #1600 lane R1: the channel declarations a secret rotation is consented against. */
@@ -77,9 +74,6 @@ export function createRequestDomainRevisions(deps: RequestDomainDeps) {
       const machine = MachineOperation.safeParse(input.operation);
       if (machine.success && (machine.data.op === "machine_add" || machine.data.op === "machine_grant" || machine.data.op === "machine_deny"))
         return machineDomainRevisions(deps.machineEnrollments, machine.data.args.machineId);
-      const automation = AutomationOperation.safeParse(input.operation);
-      if (automation.success)
-        return automationDomainRevisions(deps.automations, automationId(automation.data, request));
       const revisions = operationDomainRevisions(deps, input.operation, request.sessionId);
       if (revisions !== undefined) return revisions;
       // #1569 lane 8: a send_message consent is bound to the Person the letter goes to.

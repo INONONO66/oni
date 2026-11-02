@@ -82,8 +82,8 @@ function onResult(plane: Plane, sessionId: string, message: string, timeout: num
 function alarmPrompts(plane: Plane, sessionId: string, watchId: string) {
   return sessionTree(sessionId, plane.sessionStore(sessionId).actions).filter((action) => {
     if (action.kind !== "prompt") return false;
-    const intent = action.intent.value as { kind?: string; alarmId?: string };
-    return intent.kind === "alarm" && intent.alarmId === watchId;
+    const intent = action.intent.value as { surface?: string; conversation?: { channelId: string }; rule?: { id: string } };
+    return intent.surface === "alarm" && intent.rule?.id === "seed:alarm" && intent.conversation?.channelId === `monitor:${watchId}`;
   });
 }
 
@@ -138,7 +138,7 @@ test("app monitor source escapes the creating tool wave and wakes the session on
   expect(calls).toBe(2);
   const prompts = alarmPrompts(plane, arm.sessionId, arm.watchId);
   expect(prompts).toHaveLength(1);
-  expect(Delivery.text(z.object({ content: Delivery.Content }).parse(prompts[0]?.effect.value).content)).toBe("WAKE");
+  expect(Delivery.text(z.object({ content: Delivery.Content }).parse(prompts[0]?.effect.value).content).split("\n\n").at(-1)).toBe("WAKE");
   const delivered = () => sessionTree(arm.sessionId, plane.sessionStore(arm.sessionId).actions)
     .filter((action) => action.kind === "alarm" && action.id.endsWith(":delivered")).length;
   expect(delivered()).toBe(1);
@@ -163,7 +163,7 @@ test("app monitor source escapes the creating tool wave and wakes the session on
   expect(calls).toBe(3);
   const prompts2 = alarmPrompts(plane, arm.sessionId, arm.watchId);
   expect(prompts2).toHaveLength(2);
-  const occurrenceIds = prompts2.map((action) => (action.intent.value as { occurrenceId?: string }).occurrenceId);
+  const occurrenceIds = prompts2.map((action) => action.id);
   expect(new Set(occurrenceIds).size).toBe(2);
   const chain2 = foldAlarmChains(kernel, arm.sessionId).get(arm.watchId);
   if (chain2 === undefined) throw new Error("chain lost after the second hit");

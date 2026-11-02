@@ -12,8 +12,8 @@ export type WebSocketMessageHandler = (
 ) => Effect.Effect<void, ChannelError> | Effect.Effect<Gateway.IngestResult, ChannelError>;
 
 export type WebSocketFrameOutcome =
-  | Ingress.AutomationRequest
-  | Ingress.AutomationRefused
+  | Ingress.RuleRequest
+  | Ingress.RuleRefused
   | Provisioning.ChannelDeclareRequest
   | Provisioning.ChannelDeclareRefused
   | z.infer<typeof SessionRead.Receipt>
@@ -328,8 +328,8 @@ export class WebSocketHandler {
 
 function decodeFrame(raw: string): Effect.Effect<
   | z.infer<typeof WebSocketFrame>
-  | Ingress.AutomationRequest
-  | Ingress.AutomationRefused
+  | Ingress.RuleRequest
+  | Ingress.RuleRefused
   | Provisioning.ChannelDeclareRequest
   | Provisioning.ChannelDeclareRefused,
   InvalidInbound
@@ -345,12 +345,12 @@ function decodeFrame(raw: string): Effect.Effect<
       return yield* new InvalidInbound({ operation: "websocket.frame", reason: "invalid_frame" });
     }
     if (document.data.type === "channel_add") return yield* decodeChannelDeclare(document.data);
-    if (Ingress.AutomationRequest.options.some((schema) => schema.shape.type.value === document.data.type)) {
-      const request = Ingress.AutomationRequest.safeParse(document.data);
+    if (Ingress.RuleRequest.options.some((schema) => schema.shape.type.value === document.data.type)) {
+      const request = Ingress.RuleRequest.safeParse(document.data);
       if (request.success) return request.data;
-      const refused = Ingress.AutomationRefused.safeParse({
+      const refused = Ingress.RuleRefused.safeParse({
         type: `${document.data.type}_refused`, requestId: document.data.requestId,
-        reason: "invalid_record", detail: "Invalid automation request",
+        reason: "invalid_record", detail: "Invalid rule request",
         issues: request.error.issues.map((issue) => ({
           path: issue.path.map(String), message: issue.message, code: issue.code,
         })),

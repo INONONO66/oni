@@ -5,6 +5,7 @@ import { expect, test } from "bun:test";
 import { ownerStart } from "./helpers/owner-start";
 import { Bus, newTraceId } from "./helpers/bus";
 import { Core } from "@oni/agent";
+import { createRuleStore } from "@oni/channels";
 import { Gateway, L0Observation, SessionTransition } from "@oni/protocol";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { planeOf } from "./helpers/ledger";
@@ -24,12 +25,10 @@ test("startOni reports pre-denied socket admission as an error, not accepted", a
     },
   });
   const plane = await planeOf(app.runtime);
-  plane.stores.channelGrants.put({
-    id: "oni-resident-ws",
-    surface: "ws",
-    kind: "blocked_channel",
-    createdBy: "owner",
-  });
+  const rules = createRuleStore(plane.channel);
+  for (const { record } of rules.list()) {
+    if (record.when.instance === "ws") rules.disable(record.id);
+  }
   const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "token"]);
   const response = nextFrame(socket, (frame) => frame.type === "receipt" || frame.type === "error");
   socket.send(JSON.stringify({ eventId: newTraceId(), text: "DENIED_INPUT" }));

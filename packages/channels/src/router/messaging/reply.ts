@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import {
   type BusEvent,
-  Channel,
+  type Channel,
   Gateway,
   MessagingEvents,
   type Outbound,
@@ -12,6 +12,7 @@ import type { ChannelStores } from "../stores.js";
 import type { GatewayRouterPorts } from "../message-ports";
 import { admitReply } from "./admission";
 import { resolveInstance } from "./route";
+import { ingressSurfaceKey } from "../automation/input.js";
 
 /**
  * The reply door (#1569): a turn answers the conversation that prompted it.
@@ -37,6 +38,8 @@ export interface ConversationBinding {
   readonly threadId?: string;
   /** The account identity that observed the prompt; Owner replies require the declaration's auto-reply grant. */
   readonly receivedBy?: Channel.Identity;
+  readonly reply?: "auto" | "draft" | "none";
+  readonly as?: string;
 }
 
 /**
@@ -48,13 +51,10 @@ type ReplyRefusal = "not_bound" | "no_route" | "draft";
 
 /** The ingress surface key the inbound claimed for its session: the same fold as `automation/input.ts`. */
 function bindingSurfaceKey(binding: ConversationBinding): string {
-  return Channel.SurfaceKey.fromChannel({
-    surface: binding.surface,
-    namespace: binding.instance ?? binding.workspaceId ?? binding.surface,
-    kind: binding.dm ? "dm" : "channel",
-    id: binding.channelId,
-    ...(binding.threadId === undefined ? {} : { threadId: binding.threadId }),
-  });
+  return ingressSurfaceKey({
+    surface: binding.surface, instance: binding.instance, channelId: binding.channelId,
+    dm: binding.dm, eventId: binding.messageId, reply: { chain: [], threadId: binding.threadId },
+  }, binding.externalId);
 }
 
 /** Where the answer lands: the thread or channel the person wrote in; a DM keeps its chat, unthreaded and unquoted. */
@@ -150,13 +150,15 @@ function deliveryTarget(
  */
 function replyInstance(
   ports: Pick<ReplyPorts, "routes" | "autoReplies">,
-  binding: Pick<ConversationBinding, "surface" | "instance" | "receivedBy">,
+  binding: Pick<ConversationBinding, "surface" | "instance" | "receivedBy" | "reply" | "as">,
 ): { readonly instance: string; readonly identity: Channel.Identity } | "draft" | "no_route" {
+  if (binding.reply === "none") return "no_route";
+  if (binding.reply === "draft") return "draft";
   const routes = ports.routes();
-  const identity = binding.receivedBy ?? "bot";
-  const selected = resolveInstance(routes, binding.surface, identity, binding.instance);
+  const identity = binding.as === undefined ? binding.receivedBy ?? "bot" : routes.get(binding.as)?.identity ?? "bot";
+  const selected = resolveInstance(routes, binding.surface, identity, binding.as ?? binding.instance);
   if ("code" in selected) return identity === "owner" ? "draft" : "no_route";
-  if (identity === "owner" && !ports.autoReplies().has(selected.instance)) return "draft";
+  if (identity === "owner" && binding.reply !== "auto" && !ports.autoReplies().has(selected.instance)) return "draft";
   return { instance: selected.instance, identity };
 }
 
@@ -168,7 +170,7 @@ function replyInstance(
  * reply door reads the routed target here instead.
  */
 function automationTarget(stores: ChannelStores, inboundId: string): string | undefined {
-  const decision = stores.automations.decisions(inboundId)[0];
+  const decision = stores.rules.decisions(inboundId)[0];
   const target = decision !== undefined && "target" in decision ? decision.target : undefined;
   return typeof target === "string" && target.startsWith("session:")
     ? target.slice("session:".length)

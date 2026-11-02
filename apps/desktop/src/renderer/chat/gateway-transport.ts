@@ -36,10 +36,10 @@ interface GatewayChatTransportOptions {
 
 const serverFrameSchema = z.union([
   Machine.Response,
-  Ingress.AutomationResponse,
+  Ingress.RuleResponse,
   // A correlated but malformed reply must reject its waiter, not disappear or reach chat.
   z.object({ requestId: z.string() }).transform(({ requestId }) => ({
-    type: "invalid_automation_response" as const, requestId,
+    type: "invalid_rule_response" as const, requestId,
   })),
   SessionRead.Response,
   SessionRead.Receipt,
@@ -121,12 +121,12 @@ export class SessionReadSupersessionError extends Error {
 
 export interface GatewayChatTransport extends ChatTransport<UIMessage> {
   machineList(): Promise<Extract<Machine.Response, { type: "machine_listed" }>>;
-  automationList(): Promise<AutomationReply<"automation_listed">>;
-  automationAdd(record: Extract<z.input<typeof Ingress.AutomationRequest>, { type: "automation_add" }>["record"]): Promise<AutomationReply<"automation_added">>;
-  automationRemove(id: string): Promise<AutomationReply<"automation_removed">>;
-  automationEnable(id: string): Promise<AutomationReply<"automation_enabled">>;
-  automationDisable(id: string): Promise<AutomationReply<"automation_disabled">>;
-  automationLedger(filter?: Partial<Ingress.AutomationLedgerFilter>): Promise<AutomationReply<"automation_ledger_read">>;
+  automationList(): Promise<AutomationReply<"rule_listed">>;
+  automationAdd(record: Extract<z.input<typeof Ingress.RuleRequest>, { type: "rule_add" }>["record"]): Promise<AutomationReply<"rule_added">>;
+  automationRemove(id: string): Promise<AutomationReply<"rule_removed">>;
+  automationEnable(id: string): Promise<AutomationReply<"rule_enabled">>;
+  automationDisable(id: string): Promise<AutomationReply<"rule_disabled">>;
+  automationLedger(filter?: Partial<Ingress.RuleLedgerFilter>): Promise<AutomationReply<"rule_ledger_read">>;
   readSession(sessionId: string, cursor?: SessionRead.Cursor): Promise<SessionRead.Page>;
   subscribeSession(listener: (page: SessionRead.Page) => void): () => void;
   /**
@@ -142,12 +142,12 @@ export interface GatewayChatTransport extends ChatTransport<UIMessage> {
 
 type HostDrainState = Extract<Gateway.HostDrain, { type: "draining" }> | undefined;
 
-type ManagedResponse = Ingress.AutomationResponse | Machine.Response;
+type ManagedResponse = Ingress.RuleResponse | Machine.Response;
 type AutomationReply<Type extends ManagedResponse["type"]> =
   Extract<ManagedResponse, { type: Type }>;
 type AutomationInput = {
-  [Type in Ingress.AutomationRequest["type"]]: Omit<Extract<z.input<typeof Ingress.AutomationRequest>, { type: Type }>, "requestId">;
-}[Ingress.AutomationRequest["type"]];
+  [Type in Ingress.RuleRequest["type"]]: Omit<Extract<z.input<typeof Ingress.RuleRequest>, { type: Type }>, "requestId">;
+}[Ingress.RuleRequest["type"]];
 
 function isAutomationReply<Type extends ManagedResponse["type"]>(
   frame: ManagedResponse,
@@ -251,7 +251,7 @@ export function createGatewayChatTransport(
     const entry = automations.get(frame.requestId);
     if (entry?.socket !== source) return;
     automations.delete(frame.requestId);
-    if (frame.type === "invalid_automation_response") {
+    if (frame.type === "invalid_rule_response") {
       rejectWaiters(entry.waiters, new GatewayUnavailableError("Invalid automation response"));
     } else {
       for (const waiter of entry.waiters) waiter.resolve(frame);
@@ -387,7 +387,7 @@ export function createGatewayChatTransport(
     input: AutomationInput | Omit<Machine.Request, "requestId">,
     responseType: Type,
   ): Promise<AutomationReply<Type>> {
-    const request = (input.type === "machine_list" ? Machine.Request : Ingress.AutomationRequest)
+    const request = (input.type === "machine_list" ? Machine.Request : Ingress.RuleRequest)
       .parse({ ...input, requestId: options.id() });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_, reject) => {
@@ -417,12 +417,12 @@ export function createGatewayChatTransport(
 
   return {
     machineList: () => automation({ type: "machine_list" }, "machine_listed"),
-    automationList: () => automation({ type: "automation_list" }, "automation_listed"),
-    automationAdd: (record) => automation({ type: "automation_add", record }, "automation_added"),
-    automationRemove: (id) => automation({ type: "automation_remove", id }, "automation_removed"),
-    automationEnable: (id) => automation({ type: "automation_enable", id }, "automation_enabled"),
-    automationDisable: (id) => automation({ type: "automation_disable", id }, "automation_disabled"),
-    automationLedger: (filter = {}) => automation({ ...filter, type: "automation_ledger" }, "automation_ledger_read"),
+    automationList: () => automation({ type: "rule_list" }, "rule_listed"),
+    automationAdd: (record) => automation({ type: "rule_add", record }, "rule_added"),
+    automationRemove: (id) => automation({ type: "rule_remove", id }, "rule_removed"),
+    automationEnable: (id) => automation({ type: "rule_enable", id }, "rule_enabled"),
+    automationDisable: (id) => automation({ type: "rule_disable", id }, "rule_disabled"),
+    automationLedger: (filter = {}) => automation({ ...filter, type: "rule_ledger" }, "rule_ledger_read"),
     async readSession(sessionId, cursor) {
       const live = await connectUntilAborted(undefined);
       if (live === undefined) throw new GatewayUnavailableError("gateway socket unavailable");

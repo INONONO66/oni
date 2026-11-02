@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Actor } from "../actor/index.js";
 import { BusEvent } from "../bus/index.js";
-import { RunWhen } from "../ingress/automation.js";
+import { Verdict } from "../ingress/rule.js";
 import { PlainObjectSchema } from "../json.js";
 import { EpochMs } from "../time.js";
 
@@ -26,20 +26,16 @@ const RoutingDecisionBase = Base.extend({
 const LedgerDecisionBase = RoutingDecisionBase.extend({
   stage: z.literal("automation"),
   outcome: z.literal("record"),
-  by: z.string().regex(/^(automation|rule|blacklist)\/.+/),
+  by: z.string().regex(/^rule\/.+/),
   factsDigest: z.string().min(1),
   // The session the matched action landed in; `new` targets resolve to a minted id before the row is written.
   target: z.string().regex(/^session:.+/).optional(),
-  runWhen: RunWhen.optional(),
+  verdict: Verdict.optional(),
   actionSeq: z.number().int().nonnegative().optional(),
 });
 
 function routingDecisionUnion(candidateId: z.ZodType<string, string>) {
   return z.union([
-    RoutingDecisionBase.extend({
-      stage: z.literal("blacklist"),
-      outcome: z.literal("drop"),
-    }).strict(),
     RoutingDecisionBase.extend({
       stage: z.literal("request_correlation"),
       outcome: z.literal("route"),

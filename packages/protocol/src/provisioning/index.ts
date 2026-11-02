@@ -22,10 +22,6 @@ export namespace Provisioning {
   export const Secret = Schema.Secret;
   export type Secret = Schema.Secret;
 
-  // #1600: the grant block a channel declaration writes (tier, allowlist, mention-only).
-  export const ChannelGrantDeclaration = Schema.ChannelGrantDeclaration;
-  export type ChannelGrantDeclaration = Schema.ChannelGrantDeclaration;
-
   export const StoreError = Schema.StoreError;
   export type StoreError = InstanceType<typeof Schema.StoreError>;
 

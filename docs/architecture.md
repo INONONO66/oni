@@ -70,7 +70,7 @@ Band rules:
 `packages/channels` owns:
 
 - platform normalization and delivery;
-- blacklist/channel/actor admission;
+- ordered rule admission (`Ingress.Rule`, #1793) and actor resolution;
 - Wait correlation and lifecycle;
 - surface-to-session mapping;
 - record-before-delivery route decisions;

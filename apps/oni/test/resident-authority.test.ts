@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { Core } from "@oni/agent";
 type SessionRunner = Core.SessionRunner;
-import { createSurfaceKeyStore, decodeChannelFailure } from "@oni/channels";
+import { createRuleStore, createSurfaceKeyStore, decodeChannelFailure } from "@oni/channels";
 type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;
 import { Delivery, type Tool } from "@oni/protocol";
@@ -51,18 +51,21 @@ for (const scenario of [
         now: Date.now,
         id: testIds("authority-gateway"),
         delivery: { commit: (input) =>
-          localDelivery(resident.plane, "authority-gateway", Date.now)(input).pipe(
+          localDelivery(resident.plane, "authority-gateway", Date.now)({
+            ...input,
+            origin: { encodingVersion: 1, value: { kind: "external", inboundTreatment: scenario.authority === "evidence_only" ? "evidence_only" : "full_access" } },
+          }).pipe(
             Effect.mapError(decodeChannelFailure("delivery.commit")),
           ) },
         prepare: prepareMessage(resident.plane, resident.genesis),
         ...(yield* residentGatewayPorts(resident.plane, Date.now)),
       }, undefined);
     }).pipe(Effect.provide(resident.services)));
-    resident.plane.stores.channelGrants.put({
-      id: "oni-resident-ws", surface: "ws", defaultTier: "owner", createdBy: "owner",
-      kind: scenario.authority === "evidence_only" ? "broadcast_channel" : "trusted_channel",
+    createRuleStore(resident.plane.channel).add({
+      id: "authority", position: 0, enabled: true, createdBy: "owner", when: { instance: "ws" },
+      outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
     });
-    createSurfaceKeyStore(resident.plane.channel).claim("ws:ws:dm:authority", "authority-session");
+    createSurfaceKeyStore(resident.plane.channel).claim("ws:dm:owner", "authority-session");
     const admission = await runEffect(gateway.ingest(
       { kind: "external", surface: "ws", externalId: "owner" },
       { eventId: "input", surface: "ws", channelId: "authority", addressees: [], dm: true,

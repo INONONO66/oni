@@ -9,7 +9,7 @@ import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import type { Core } from "@oni/agent";
 type Sink = Core.LlmSink;
-import { createSurfaceKeyStore } from "@oni/channels";
+import { createRuleStore, createSurfaceKeyStore } from "@oni/channels";
 import { loadConfig, type OniConfig } from "../src/config";
 import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import { planeOf } from "./helpers/ledger";
@@ -403,6 +403,10 @@ describe("Oni Resident WebSocket", () => {
     // The peer's tier is the Owner's contact, never the door's: planner is a named agent, scout is not.
     declarePerson(statePath(declared.catalogPath), { id: "person:planner", displayName: "Planner", kind: "ai_agent", trustTier: "manager", endpoints: [{ channel: "a2a", externalId: "planner" }] });
     const app = await bootWithConfig({ ...declared, kek });
+    createRuleStore((await planeOf(app.runtime)).channel).add({
+      id: "planner", position: 0, enabled: true, createdBy: "owner", when: { instance: "a2a", from: ["planner"] },
+      outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
+    });
 
     const card = await fetch(`http://127.0.0.1:${app.port}/.well-known/agent-card.json`);
     expect(card.status).toBe(200);

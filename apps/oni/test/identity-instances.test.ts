@@ -1,7 +1,6 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { ChannelProviders, type ChannelDeliveryRoute, type ProviderTypingRoute, resolveChannelGrant } from "@oni/channels";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { ChannelProviders, type ChannelDeliveryRoute, type ProviderTypingRoute } from "@oni/channels";
 import type { Provisioning } from "@oni/protocol";
-import { createMountedChannelGrantRegistrar, MOUNTED_CHANNEL_DEFAULT_TIER, registerTrustedChannelGrant } from "../src/gateway";
 import { bindOwnerAccount, ownerAccountBinder } from "../src/bundles/provision/declared";
 import {
   type ChannelComponent,
@@ -17,11 +16,10 @@ import { testChannelDeps } from "./helpers/test-entropy";
  * Owner instances in the channel profile and the supervisor (#1569 lane 5):
  * an `identity: owner` declaration builds through the provider's owner arm
  * (or reports `identity_unsupported`), mounts a delivery route only when its
- * `grant.outbound` says so, and never registers an ingress grant; routes key
- * by instance surface id while grants and webhook paths key by platform.
+ * `grant.outbound` says so; routes key by instance surface id.
  */
 
-const { plane, channelStores } = planeFixture();
+const { plane } = planeFixture();
 
 function instance(overrides: Partial<Provisioning.ChannelInstance>): Provisioning.ChannelInstance {
   return {
@@ -176,10 +174,9 @@ test("two Slack bot declarations mount and deliver through independent instance 
   const supervisor = createChannelSupervisor({
     desired: () => ({
       source: "declared", statuses: [],
-      rows: profile.rows.map((row) => ({ ...row, key: "0", defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER })),
+      rows: profile.rows.map((row) => ({ ...row, key: "0" })),
     }),
     build: (component) => component.build(async () => undefined),
-    grant: () => () => undefined,
     deliveryRoutes, typingRoutes: new Map(), webhookHandlers: new Map(), traceId: () => "mount-two",
   });
   try {
@@ -239,27 +236,19 @@ describe("the supervisor with an Owner instance", () => {
     typingRoutes.clear();
     webhookHandlers.clear();
   });
-  afterEach(async () => {
-    for (const grant of plane().stores.channelGrants.list()) plane().stores.channelGrants.remove(grant.id);
-  });
 
-  test("routes key by instance; only the bot instance registers the platform's ingress grant", async () => {
+  test("routes key by instance and each mounted account stops independently", async () => {
     const desired: DesiredChannels = {
       source: "declared",
       rows: [
-        { instanceId: "channel:slack:main", key: "0:0", component: component("slack", "bot", true), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER },
-        { instanceId: "channel:slack:owner", key: "0:0", component: component("slack", "owner", true), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER },
+        { instanceId: "channel:slack:main", key: "0:0", component: component("slack", "bot", true) },
+        { instanceId: "channel:slack:owner", key: "0:0", component: component("slack", "owner", true) },
       ],
       statuses: [],
     };
-    const grants: string[] = [];
     const supervisor = createChannelSupervisor({
       desired: () => desired,
       build: (row) => row.build(async () => undefined),
-      grant: (surface, defaultTier) => {
-        grants.push(surface);
-        return registerTrustedChannelGrant(plane().stores.channelGrants, { surface, defaultTier });
-      },
       deliveryRoutes,
       typingRoutes,
       webhookHandlers,
@@ -271,92 +260,9 @@ describe("the supervisor with an Owner instance", () => {
       ["channel:slack:owner", "slack:owner", "mounted"],
     ]);
     expect([...deliveryRoutes.keys()].sort()).toEqual(["slack:bot", "slack:owner"]);
-    // One ingress grant, for the platform, from the bot instance alone: this Owner row does not read.
-    expect(grants).toEqual(["slack"]);
-    expect(resolveChannelGrant(channelStores(),{ surface: "slack" })?.grant.kind).toBe("trusted_channel");
-    expect(resolveChannelGrant(channelStores(),{ surface: "slack:owner" })).toBeUndefined();
     await supervisor.stopAll();
     expect(deliveryRoutes.size).toBe(0);
-    expect(resolveChannelGrant(channelStores(),{ surface: "slack" })).toBeUndefined();
     expect(calls).toEqual(["start:slack:bot", "start:slack:owner", "stop:slack:owner", "stop:slack:bot"]);
-  });
-
-  test("the platform's ingress grant is held by every reading instance and revoked with the last (#1569 lane 6)", async () => {
-    const bot = { instanceId: "channel:slack:main", key: "0:0", component: component("slack", "bot", true), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER };
-    const owner = { instanceId: "channel:slack:owner", key: "0:0", component: component("slack", "owner", true, true), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER };
-    let rows = [bot, owner];
-    const grants: string[] = [];
-    const supervisor = createChannelSupervisor({
-      desired: () => ({ source: "declared", rows, statuses: [] }),
-      build: (row) => row.build(async () => undefined),
-      grant: (surface, defaultTier, ownerIntake) => {
-        grants.push(`grant:${surface}`);
-        const revoke = registerTrustedChannelGrant(plane().stores.channelGrants, {
-          surface,
-          defaultTier,
-          ...(ownerIntake === true ? { ownerIntake } : {}),
-        });
-        return () => {
-          grants.push(`revoke:${surface}`);
-          revoke();
-        };
-      },
-      deliveryRoutes,
-      typingRoutes,
-      webhookHandlers,
-      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
-    });
-    await supervisor.reconcile();
-    // Both read: the one row is re-registered once the Owner reader joins it (it now names the Owner reader).
-    expect(grants).toEqual(["grant:slack", "revoke:slack", "grant:slack"]);
-    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant).toMatchObject({ kind: "trusted_channel", ownerIntake: true });
-    // The bot leaves; the Owner instance still reads at the same tier, so the row stays as it is.
-    rows = [owner];
-    await supervisor.reconcile();
-    expect(grants).toEqual(["grant:slack", "revoke:slack", "grant:slack"]);
-    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant.kind).toBe("trusted_channel");
-    // The last reader leaves; the grant goes with it.
-    rows = [];
-    await supervisor.reconcile();
-    expect(grants).toEqual(["grant:slack", "revoke:slack", "grant:slack", "revoke:slack"]);
-    expect(resolveChannelGrant(channelStores(), { surface: "slack" })).toBeUndefined();
-  });
-
-  test("the one grant row follows its readers: the least declared tier wins and a bounced reader's new tier lands while the other reader holds it", async () => {
-    const bot = (tier: "manager" | "observer", key: string) => ({
-      instanceId: "channel:slack:main", key, component: component("slack", "bot", true), defaultTier: tier,
-    });
-    const owner = { instanceId: "channel:slack:owner", key: "0:0", component: component("slack", "owner", true, true), defaultTier: "collaborator" as const };
-    let rows = [bot("manager", "0:0"), owner];
-    const registered: string[] = [];
-    const supervisor = createChannelSupervisor({
-      desired: () => ({ source: "declared", rows, statuses: [] }),
-      build: (row) => row.build(async () => undefined),
-      grant: (surface, defaultTier, ownerIntake) => {
-        registered.push(`${surface}:${defaultTier}:${ownerIntake === true}`);
-        return registerTrustedChannelGrant(plane().stores.channelGrants, { surface, defaultTier, ...(ownerIntake === true ? { ownerIntake } : {}) });
-      },
-      deliveryRoutes,
-      typingRoutes,
-      webhookHandlers,
-      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
-    });
-    await supervisor.reconcile();
-    // The bot mounted first at manager; the Owner reader joined at collaborator: the row is the lesser tier and names the Owner reader.
-    expect(registered).toEqual(["slack:manager:false", "slack:collaborator:true"]);
-    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant).toMatchObject({ defaultTier: "collaborator", ownerIntake: true });
-    // The bot row's tier changes to observer: its bounce lands the new least tier on the row.
-    rows = [bot("observer", "1:0"), owner];
-    await supervisor.reconcile();
-    expect(registered.at(-1)).toBe("slack:observer:true");
-    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant).toMatchObject({ defaultTier: "observer", ownerIntake: true });
-    // The Owner reader leaves: the row no longer names it and keeps the bot's tier.
-    rows = [bot("observer", "1:0")];
-    await supervisor.reconcile();
-    expect(registered.at(-1)).toBe("slack:observer:false");
-    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant.ownerIntake).toBeUndefined();
-    await supervisor.stopAll();
-    expect(resolveChannelGrant(channelStores(), { surface: "slack" })).toBeUndefined();
   });
 
   test("the supervisor keeps the auto-replying Owner instances with the routes, from mount to unwind (#1569 lane 7)", async () => {
@@ -376,12 +282,11 @@ describe("the supervisor with an Owner instance", () => {
         autoReply: true,
       }),
     };
-    let rows = [{ instanceId: "channel:slack:owner", key: "0:0", component: answering, defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER }];
+    let rows = [{ instanceId: "channel:slack:owner", key: "0:0", component: answering }];
     const autoReplies = new Set<string>();
     const supervisor = createChannelSupervisor({
       desired: () => ({ source: "declared", rows, statuses: [] }),
       build: (row) => row.build(async () => undefined),
-      grant: (surface, defaultTier) => registerTrustedChannelGrant(plane().stores.channelGrants, { surface, defaultTier }),
       deliveryRoutes,
       typingRoutes,
       webhookHandlers,
@@ -395,39 +300,12 @@ describe("the supervisor with an Owner instance", () => {
     expect(autoReplies.size).toBe(0);
   });
 
-  test("an Owner instance that reads alone registers the platform's grant itself", async () => {
-    const grants: string[] = [];
-    const supervisor = createChannelSupervisor({
-      desired: () => ({
-        source: "declared",
-        rows: [{ instanceId: "channel:slack:owner", key: "0:0", component: component("slack", "owner", false, true), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER }],
-        statuses: [],
-      }),
-      build: (row) => row.build(async () => undefined),
-      grant: (surface, defaultTier) => {
-        grants.push(surface);
-        return registerTrustedChannelGrant(plane().stores.channelGrants, { surface, defaultTier });
-      },
-      deliveryRoutes,
-      typingRoutes,
-      webhookHandlers,
-      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
-    });
-    await supervisor.reconcile();
-    expect(grants).toEqual(["slack"]);
-    expect(deliveryRoutes.size).toBe(0);
-    await supervisor.stopAll();
-    expect(resolveChannelGrant(channelStores(), { surface: "slack" })).toBeUndefined();
-  });
 });
 
-describe("#1600: the declaration's grant policy and the Owner account", () => {
+describe("the declared Owner account binding", () => {
   const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
   const typingRoutes = new Map<string, ProviderTypingRoute>();
   const webhookHandlers = new Map<string, (request: Request) => Promise<Response>>();
-  afterEach(async () => {
-    for (const grant of plane().stores.channelGrants.list()) plane().stores.channelGrants.remove(grant.id);
-  });
   const component = (identity: "bot" | "owner", account?: { readonly externalId: string; readonly workspace?: string }): ChannelComponent => ({
     id: "slack",
     identity,
@@ -436,47 +314,6 @@ describe("#1600: the declaration's grant policy and the Owner account", () => {
       surface: { id: `slack:${identity}`, config: {}, async start() { /* nothing to open */ }, stop() { /* nothing to close */ }, onMessage() { /* bound at build time */ } },
       ...(account === undefined ? {} : { account: () => account }),
     }),
-  });
-
-  test("the bot instance's declared allowlist and posture are the platform grant's; an Owner instance's speak only where the platform has no bot reader; the env lists stand only where no declaration speaks", async () => {
-    const rows: DesiredChannels["rows"] = [
-      { instanceId: "channel:slack:main", key: "0:0", component: component("bot"), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER, allowedSenders: ["T1:U1"], mentionOnly: true },
-      { instanceId: "channel:slack:owner", key: "0:0", component: component("owner"), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER, allowedSenders: ["T1:U2"] },
-    ];
-    const supervisor = createChannelSupervisor({
-      desired: () => ({ source: "declared", rows, statuses: [] }),
-      build: (row) => row.build(async () => undefined),
-      grant: createMountedChannelGrantRegistrar(plane().stores.channelGrants, { slack: ["T1:env"], telegram: ["env-only"] }, ["telegram"]),
-      deliveryRoutes,
-      typingRoutes,
-      webhookHandlers,
-      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
-    });
-    await supervisor.reconcile();
-    expect(resolveChannelGrant(channelStores(), { surface: "slack", sender: "T1:U1" })?.grant).toMatchObject({ allowedSenders: ["T1:U1"], mentionOnly: true, ownerIntake: true });
-    expect(resolveChannelGrant(channelStores(), { surface: "slack", sender: "T1:U2" })).toBeUndefined();
-    expect(resolveChannelGrant(channelStores(), { surface: "slack", sender: "T1:env" })).toBeUndefined();
-    await supervisor.stopAll();
-    // An Owner-only platform: the Owner reader's block is the platform's.
-    const ownerOnly = createChannelSupervisor({
-      desired: () => ({
-        source: "declared",
-        rows: [{ instanceId: "channel:slack:owner", key: "0:0", component: component("owner"), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER, allowedSenders: ["T1:U2"], mentionOnly: false }],
-        statuses: [],
-      }),
-      build: (row) => row.build(async () => undefined),
-      grant: createMountedChannelGrantRegistrar(plane().stores.channelGrants, undefined, ["slack"]),
-      deliveryRoutes,
-      typingRoutes,
-      webhookHandlers,
-      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
-    });
-    await ownerOnly.reconcile();
-    const ownerGrant = resolveChannelGrant(channelStores(), { surface: "slack", sender: "T1:U2" })?.grant;
-    expect(ownerGrant).toMatchObject({ allowedSenders: ["T1:U2"] });
-    // An explicit mentionOnly: false in the declaration is not overridden by the env list.
-    expect(ownerGrant?.mentionOnly).toBeUndefined();
-    await ownerOnly.stopAll();
   });
 
   test("a binding that throws unwinds the started Owner surface like a failed start", async () => {
@@ -491,9 +328,8 @@ describe("#1600: the declaration's grant policy and the Owner account", () => {
       }),
     };
     const supervisor = createChannelSupervisor({
-      desired: () => ({ source: "declared", rows: [{ instanceId: "channel:slack:owner", key: "0:0", component: failing, defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER }], statuses: [] }),
+      desired: () => ({ source: "declared", rows: [{ instanceId: "channel:slack:owner", key: "0:0", component: failing }], statuses: [] }),
       build: (row) => row.build(async () => undefined),
-      grant: () => () => undefined,
       bindAccount: () => {
         throw new Error("the address is held");
       },
@@ -514,11 +350,10 @@ describe("#1600: the declaration's grant policy and the Owner account", () => {
     const supervisor = createChannelSupervisor({
       desired: () => ({
         source: "declared",
-        rows: [{ instanceId: "channel:slack:owner", key: "0:0", component: component("owner", { externalId: "T1:U-owner", workspace: "T1" }), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER }],
+        rows: [{ instanceId: "channel:slack:owner", key: "0:0", component: component("owner", { externalId: "T1:U-owner", workspace: "T1" }) }],
         statuses: [],
       }),
       build: (row) => row.build(async () => undefined),
-      grant: () => () => undefined,
       bindAccount: (platform, account) => {
         bound.push([platform, account]);
       },

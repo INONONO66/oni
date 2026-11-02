@@ -6,8 +6,8 @@ test("channels barrel exposes only its runtime public surface", () => {
     "A2AClient",
     "A2ACredentials",
     "AttachmentRefused",
-    "AutomationConfigurationError",
-    "AutomationEnableRefused",
+    "RuleConfigurationError",
+    "RuleEnableRefused",
     "ChannelProviders",
     "ChannelsFailure",
     "MediaTooLarge",
@@ -24,9 +24,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "activeBudgetFor",
     "createA2AProvider",
     "createActorRegistry",
-    "createAutomationStore",
-    "createBlacklistStore",
-    "createChannelGrantStore",
+    "createRuleStore",
     "createChannelInstanceStore",
     "createChannelStores",
     "createEgressBudgetStore",
@@ -39,15 +37,14 @@ test("channels barrel exposes only its runtime public surface", () => {
     "createWebhookSender",
     "decodeChannelFailure",
     "inboundOnce",
+    "ingressSurfaceKey",
     "openChannelStore",
-    "resolveChannelGrant",
     "scheduleTickChannel",
     "signWebhookBody",
     "textOfA2A",
     "typingPulse",
     "unconfiguredChannelStores",
-    "webSocketSenderTier",
-  ]);
+  ].sort());
   expect("WebSocketFrames" in barrel).toBe(false);
   expect("InvalidInbound" in barrel).toBe(false);
 });

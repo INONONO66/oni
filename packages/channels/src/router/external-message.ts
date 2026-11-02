@@ -1,274 +1,115 @@
 import { Effect } from "effect";
-import { createHash } from "node:crypto";
 import type { ChannelStores } from "./stores.js";
 import type { PolicyEvaluationInput } from "@oni/agent";
-import { type Gateway, Ingress, resolveTarget as eventTarget, targetKey } from "@oni/protocol";
-import { judgeAndMatch } from "../automation/judge.js";
-import type { MatchDecision, PendingGroup } from "../automation/matcher.js";
+import { type Gateway, Ingress } from "@oni/protocol";
+import { routeRule, type MatchDecision, type PendingGroup } from "../automation/matcher.js";
 import { type ingressInput, ingressSurfaceKey } from "./automation/input.js";
+import { match } from "./automation/match.js";
+import { inboundIdOf as inboundEventId } from "./inbound-id.js";
 import { newTraceId } from "../support/trace";
-import { webSocketSenderTier } from "./channel-grant";
 import { resolveIngressActor } from "./actor-resolver";
-import { isAuthorizedTopLevelActor } from "./authority-actor";
 import { recordKernelRoute, resolveKernelRoute } from "./routing-resolution";
 import { recordAutomationDuplicate } from "./automation/ledger.js";
 import type { GatewayRouterPorts } from "./message-ports";
 import { evaluateSocialBudget } from "./messaging/social-budget";
 
-function admitWebSocketOwner(
-  stores: ChannelStores,
-  sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-): void {
-  if (
-    sender.surface !== "ws" ||
-    stores.actors.resolveEndpoint("ws", sender.externalId) !== undefined ||
-    webSocketSenderTier(stores, sender.externalId) !== "owner"
-  )
-    return;
-  const actorId = `ws:owner:${sender.externalId}`;
-  stores.actors.registerIdentity({ id: actorId, kind: "human", trustTier: "owner" });
-  stores.actors.registerEndpoint({ id: `ws:${sender.externalId}`, actorId,
-    channel: "ws", externalId: sender.externalId });
-}
-
-function resolveIngress(
-  stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-  facts: Gateway.IngressFacts, ports: GatewayRouterPorts, at: number,
-  ingress: ReturnType<typeof ingressInput>,
-) {
-  const surfaceKey = ingressSurfaceKey(facts);
+function resolveIngress(stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
+  facts: Gateway.IngressFacts, ports: GatewayRouterPorts, at: number) {
+  const surfaceKey = ingressSurfaceKey(facts, sender.externalId);
   const existing = stores.surfaceKeys.lookup(surfaceKey);
   const reply = facts.reply ?? { chain: [] };
-  admitWebSocketOwner(stores, sender);
   const event = resolveIngressActor(stores, {
-    id: ingress.input.eventId,
-    traceId: newTraceId(ports.id), surface: facts.surface,
+    id: inboundEventId(facts), traceId: newTraceId(ports.id), surface: facts.surface,
     ...(facts.workspaceId === undefined ? {} : { workspace: facts.workspaceId }),
     channel: facts.channelId, userId: sender.externalId, payload: facts.payload,
-    mode: "direct", meta: {
-      surfaceKey, correlation: {
-        ...reply,
-        endpointId: stores.actors.resolveEndpoint(sender.surface, sender.externalId, facts.workspaceId)
-          ?.endpoint.id ?? `${sender.surface}:${sender.externalId}`,
-        channelId: facts.channelId,
-        externalConversationId: reply.externalConversationId ?? surfaceKey,
-      },
-    },
-  }, at);
-  const route = resolveKernelRoute(stores, event, surfaceKey, event.traceId, ports.requests, at, ports.id,
-    ingress.channel);
-  return { surfaceKey, existing, event: route.event, route, ...ingress };
+    mode: "direct", meta: { surfaceKey, correlation: {
+      ...reply, endpointId: stores.actors.resolveEndpoint(sender.surface, sender.externalId, facts.workspaceId)?.endpoint.id ?? `${sender.surface}:${sender.externalId}`,
+      channelId: facts.channelId, externalConversationId: reply.externalConversationId ?? surfaceKey,
+    } },
+  });
+  return { surfaceKey, existing, event, route: resolveKernelRoute(event, ports.requests, at) };
 }
 
-function automationActor(route: ReturnType<typeof resolveKernelRoute>) {
-  const actor = route.event.meta?.actor;
-  return route.decision.outcome === "block" && route.decision.stage === "channel_ceiling" &&
-    route.decision.factsUsed.includes("channel:missing") &&
-    actor?.actorId !== undefined && actor.trustTier !== undefined ? actor : undefined;
-}
-
-function grantAutomation(route: ReturnType<typeof resolveKernelRoute>, automationId?: string) {
-  const actor = automationActor(route);
-  if (actor === undefined || automationId === undefined) return route;
-  return { ...route, decision: Ingress.Events.RoutingDecision.schema.parse({
-    ...route.decision, outcome: "route", stage: "surface_default",
-    target: targetKey(eventTarget(route.event)), actorId: actor.actorId, trustTier: actor.trustTier,
-    reason: "Matched automation grants the identified inbound",
-    factsUsed: [...route.decision.factsUsed, `actor:${actor.actorId}`, `automation:${automationId}`],
-  }) };
-}
-
-function matchIngress(
-  stores: ChannelStores, ports: GatewayRouterPorts, at: number,
-  pending: readonly PendingGroup[], resolved: ReturnType<typeof resolveIngress>,
+/** The first rule alone controls delivery; no match records the inbound without preparing a session. */
+export function externalMessage(
+  stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
+  facts: Gateway.IngressFacts, ports: GatewayRouterPorts, at: number,
+  budgets: readonly Gateway.SocialBudget[], pending: readonly PendingGroup[],
+  ingress: ReturnType<typeof ingressInput>, closingRoute?: NonNullable<MatchDecision["route"]>,
 ) {
   return Effect.gen(function* () {
-    const { route, addressed, existing, input, surfaceKey } = resolved;
-    if ((route.decision.outcome !== "route" && automationActor(route) === undefined) ||
-        route.requestExecution.kind === "request")
-      return { rows: [], pending } satisfies MatchDecision;
-    const record = route.decision.outcome === "route" && route.decision.stage === "surface_default"
-      ? stores.automations.get(`granted-direct:${surfaceKey}`)?.record : undefined;
-    const records = stores.automations.list()
-      .filter((entry) => entry.approved || entry.record.createdBy === "owner")
-      .map((entry) => entry.record);
-    const userRecords = records.filter((candidate) => candidate.id !== record?.id &&
-      !candidate.id.startsWith("granted-direct:"));
-    const options = {
-      now: at, pending,
-      ...(addressed && isAuthorizedTopLevelActor(route.event) &&
-        !route.decision.factsUsed.includes("channel:missing")
-        ? { conversation: `session:${existing ?? route.decision.sessionId}` } : {}),
-      matchedToday: (automationId: string) => stores.automations.matchedToday(automationId, at),
+    const resolved = resolveIngress(stores, sender, facts, ports, at);
+    const { event, surfaceKey, existing } = resolved;
+    const request = resolved.route.decision.stage === "request_correlation";
+    const outcome = yield* selectRule(stores, ports, ingress, at, pending, request, closingRoute);
+    const selected = outcome.route;
+    const target = request ? resolved.route.decision.sessionId ?? ports.id()
+      : destination(selected, existing, ports.id);
+    const automation = selectedAutomation(selected, existing);
+    const admitted = request || automation !== undefined;
+    const granted = request ? resolved.route : resolveKernelRoute(event, ports.requests, at, automation, target);
+    const route = closingRoute === undefined ? recordKernelRoute(stores, granted, ports.sink, at, granted.decision.stage !== "automation") : granted;
+    const egressBudget = request || budgetAllows(stores, budgets, event, target, at);
+    const message = policyMessage(ingress, route.decision, admitted, egressBudget);
+    return { route, event, target, surfaceKey, message, facts, automation,
+      content: matchedContent(automation, facts, existing === undefined,
+        request || facts.surface === "ws" ? undefined : event.meta?.actor?.actorId ?? sender.externalId),
+      ...(facts.attachments === undefined ? {} : { parts: facts.attachments.map(({ bytes: _bytes, ...part }) => part) }),
+      pending: outcome.pending, decision: outcome.rows[0],
+      disposition: admitted ? undefined : outcome.rows[0]?.reason ?? "none",
     };
-    let outcome = yield* judgeAndMatch(addressed && record !== undefined
-      ? [...userRecords, record] : userRecords, input, options, ports.judge);
-    if (outcome.route === undefined &&
-        !outcome.pending.some((group) => group.inputs.some((member) => member.eventId === input.eventId)) &&
-        record !== undefined) {
-      const fallback = yield* judgeAndMatch([record], input, options, ports.judge);
-      outcome = { ...fallback, rows: outcome.rows.length === 0 ? fallback.rows : outcome.rows };
-    }
-    return outcome;
   });
 }
 
-function projectDisposition(
-  route: ReturnType<typeof resolveIngress>["route"],
-  outcome: Effect.Success<ReturnType<typeof matchIngress>>,
-  eventId: string,
-  event: Gateway.IngressFacts["event"],
-) {
-  if (route.requestExecution.kind === "request") return undefined;
-  if (outcome.route !== undefined) return undefined;
-  if (outcome.pending.some((group) => group.inputs.some((member) => member.eventId === eventId)))
-    return "grouped";
-  return event === "call" ? "call_unrouted" : undefined;
+/** A conversation-targeted rule opens a session only when the thread has none bound yet. */
+function selectedAutomation(selected: MatchDecision["route"], existing: string | undefined) {
+  if (selected === undefined) return undefined;
+  return { ...selected, newSession: selected.newSession || (selected.conversation && existing === undefined) };
 }
 
-function dispositionDecision(
-  disposition: string | undefined, row: Ingress.RoutingDecisionPayload | undefined,
-  event: ReturnType<typeof resolveIngress>["event"], facts: Gateway.IngressFacts,
-  at: number, input: ReturnType<typeof ingressInput>["input"],
-): Ingress.RoutingDecisionPayload | undefined {
-  if (disposition !== "call_unrouted") return row;
-  return Ingress.Events.RoutingDecision.schema.parse({
-    traceId: event.traceId, time: at, inboundId: event.id,
-    surface: facts.surface, mode: "direct", stage: "automation",
-    outcome: "record", decision: "filtered", by: "rule/call-unrouted",
-    reason: "call_unrouted", factsUsed: ["event"],
-    factsDigest: createHash("sha256").update(JSON.stringify(input)).digest("hex"),
+/** A closing route is frozen; a request answer matches no rule; otherwise the first admitted rule decides. */
+function selectRule(stores: ChannelStores, ports: GatewayRouterPorts, ingress: ReturnType<typeof ingressInput>,
+  at: number, pending: readonly PendingGroup[], request: boolean, closingRoute: MatchDecision["route"],
+): Effect.Effect<MatchDecision, import("../errors.js").ChannelError> {
+  return Effect.gen(function* () {
+    if (closingRoute !== undefined) return { route: closingRoute, rows: [], pending };
+    if (request) return { rows: [], pending };
+    const records = stores.rules.list().filter((entry) => entry.approved || entry.record.createdBy === "owner").map((entry) => entry.record);
+    return routeRule(yield* match(records, ingress.input, ports.judge), ingress.input,
+      { now: at, pending, matchedToday: (id) => stores.rules.matchedToday(id, at) });
   });
 }
 
-function resolveTarget(
-  route: ReturnType<typeof resolveIngress>["route"],
-  outcome: Effect.Success<ReturnType<typeof matchIngress>>,
-  fallback: string,
-  id: () => string,
-) {
-  if (route.decision.outcome === "route" && route.requestExecution.kind === "request")
-    return route.decision.sessionId ?? fallback;
-  if (outcome.route?.target === "new") return id();
-  if (outcome.route?.target.startsWith("session:")) return outcome.route.target.slice("session:".length);
-  return route.decision.outcome === "route" ? route.decision.sessionId ?? fallback : fallback;
+function destination(selected: MatchDecision["route"], existing: string | undefined, fresh: () => string) {
+  if (selected?.target === "conversation") return existing ?? fresh();
+  if (selected?.target.startsWith("session:")) return selected.target.slice("session:".length);
+  return fresh();
 }
 
-function resolveEgressBudget(
-  route: ReturnType<typeof resolveIngress>["route"],
-  budgets: readonly Gateway.SocialBudget[],
-  stores: ChannelStores,
-  actorId: string | undefined,
-  target: string,
-  at: number,
-): boolean {
-  if (route.requestExecution.kind === "request") return true;
-  const budget = budgets.find((candidate) => candidate.targetActorId === actorId);
-  if (budget === undefined) return true;
-  return evaluateSocialBudget(budget,
-    stores.egressBudgets.read(target, budget.targetActorId, at - budget.windowMs),
-    { class: "converse", at }) === "allow";
+function budgetAllows(stores: ChannelStores, budgets: readonly Gateway.SocialBudget[],
+  event: Gateway.DeliveredEvent, target: string, at: number) {
+  const budget = budgets.find((candidate) => candidate.targetActorId === event.meta?.actor?.actorId);
+  return budget === undefined || evaluateSocialBudget(budget,
+    stores.egressBudgets.read(target, budget.targetActorId, at - budget.windowMs), { class: "converse", at }) === "allow";
 }
 
-function buildMessage(
-  route: ReturnType<typeof resolveIngress>["route"],
-  identities: ReturnType<typeof resolveIngress>["identities"],
-  addressed: boolean,
-  egressBudget: boolean,
-): Extract<NonNullable<PolicyEvaluationInput["message"]>, { sender: "external" }> {
-  const addressee = addressed ? "bot"
-    : identities.some((identity) => identity.trustTier === "owner") ? "owner" : "ambient";
+function policyMessage(ingress: ReturnType<typeof ingressInput>, decision: Ingress.RoutingDecisionPayload,
+  admitted: boolean, egressBudget: boolean): Extract<NonNullable<PolicyEvaluationInput["message"]>, { sender: "external" }> {
+  const addressee = ingress.addressed ? "bot"
+    : ingress.identities.some((identity) => identity.trustTier === "owner") ? "owner" : "ambient";
   return {
-    sender: "external",
-    ...(route.decision.trustTier === undefined ? {} : { senderTier: route.decision.trustTier }),
-    addressee, identity: route.decision.outcome === "route" || automationActor(route) !== undefined,
-    grantTier: route.decision.outcome === "route" &&
-      (route.requestExecution.kind === "request" ||
-        (!route.decision.factsUsed.includes("channel:missing") && isAuthorizedTopLevelActor(route.event))),
-    egressBudget, eventIdUnique: true,
-    replyCorrelation: route.decision.outcome !== "ambiguous",
+    sender: "external", addressee,
+    ...(decision.trustTier === undefined ? {} : { senderTier: decision.trustTier }),
+    identity: admitted, grantTier: decision.outcome === "route",
+    egressBudget, eventIdUnique: true, replyCorrelation: decision.outcome !== "ambiguous",
   };
 }
 
-/** Project raw facts and the stored record decision before any session delivery. */
-export function externalMessage(
-  stores: ChannelStores,
-  sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-  facts: Gateway.IngressFacts,
-  ports: GatewayRouterPorts,
-  at: number,
-  budgets: readonly Gateway.SocialBudget[],
-  pending: readonly PendingGroup[],
-  ingress: ReturnType<typeof ingressInput>,
-  closingRoute?: NonNullable<MatchDecision["route"]>,
-) {
-  return Effect.gen(function* () {
-    const resolved = resolveIngress(stores, sender, facts, ports, at, ingress);
-    const { event, identities, addressed, surfaceKey } = resolved;
-    const outcome: MatchDecision = closingRoute === undefined
-      ? yield* matchIngress(stores, ports, at, pending, resolved)
-      : { route: closingRoute, rows: [], pending };
-    const granted = grantAutomation(resolved.route, outcome.route?.automationId);
-    const route = closingRoute === undefined
-      ? recordKernelRoute(stores, granted, ports.sink, at) : granted;
-    const disposition = projectDisposition(route, outcome, event.id, facts.event);
-    const target = resolveTarget(route, outcome, resolved.existing ?? ports.id(), ports.id);
-    const egressBudget = resolveEgressBudget(route, budgets, stores, event.meta?.actor?.actorId, target, at);
-    const message = buildMessage(route, identities, addressed, egressBudget);
-    const automation = route.decision.outcome === "route" && route.requestExecution.kind !== "request"
-      ? outcome.route : undefined;
-    const automationGrant = automation?.automationId !== undefined &&
-      !automation.automationId.startsWith("granted-direct:");
-    return { route, event, target, surfaceKey,
-      message: { ...message, grantTier: message.grantTier || automationGrant }, facts,
-      content: routedContent(automation, automationGrant, () =>
-        promptContent(facts, resolved.existing === undefined, promptSender(route, facts, event, sender))),
-      ...(facts.attachments === undefined ? {} : { parts: facts.attachments.map(
-        ({ kind, ref, mime, name, durationMs, voice }) => ({
-          kind, ref,
-          ...(mime === undefined ? {} : { mime }),
-          ...(name === undefined ? {} : { name }),
-          ...(durationMs === undefined ? {} : { durationMs }),
-          ...(voice === undefined ? {} : { voice }),
-        }),
-      ) }),
-      pending: outcome.pending,
-      disposition: disposition ?? (automation === undefined && !message.grantTier &&
-        outcome.rows[0]?.stage === "automation" ? outcome.rows[0].decision : undefined),
-      decision: dispositionDecision(disposition, outcome.rows[0], event, facts, at, ingress.input), automation };
-  });
-}
-
-/** An automation delivers its trigger body (an action as JSON); a direct route delivers the person's prompt. */
-function routedContent(
-  automation: MatchDecision["route"] | undefined,
-  automationGrant: boolean,
-  prompt: () => string,
-): string {
+function matchedContent(automation: MatchDecision["route"], facts: Gateway.IngressFacts, fresh: boolean, from: string | undefined) {
   if (automation?.kind === "action") return JSON.stringify(automation.body);
-  if (automation !== undefined && automationGrant) return automation.origin.body;
-  return prompt();
+  return promptContent({ ...facts, render: automation?.kind === "prompt" ? automation.origin.body : facts.render }, fresh, from);
 }
 
-/** Who the prompt names as its sender: nobody for a request answer or the WebSocket owner (#1497). */
-function promptSender(
-  route: ReturnType<typeof resolveIngress>["route"],
-  facts: Gateway.IngressFacts,
-  event: ReturnType<typeof resolveIngress>["event"],
-  sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-): string | undefined {
-  if (route.requestExecution.kind === "request" || facts.surface === "ws") return undefined;
-  return event.meta?.actor?.actorId ?? sender.externalId;
-}
-
-/**
- * The prompt a person's message becomes when it reaches the resident directly
- * (an automation keeps its trigger body): a `[from …]` line naming the
- * contact, channel and message id a reply or reaction is addressed to (#1497;
- * none for a request answer, which the kernel reads as the answer itself, or
- * for the WebSocket owner, who reads the turn stream), the thread's earlier
- * messages once, when the thread's session starts, and a quoted message every time.
- */
 /** A sender-controlled field stays on its own bracket line: no line breaks, no closing bracket. */
 function oneLine(value: string): string {
   return value.replace(/\s+/g, " ").replaceAll("]", "").trim();
@@ -305,23 +146,29 @@ function promptContent(facts: Gateway.IngressFacts, freshSession: boolean, from:
   ].join("\n\n");
 }
 
-/** Replays retain the frozen route; completed deliveries append only a dedupe observation. */
+/** Replays use the frozen route, never current rule order or a new judge answer. */
 export function replayExternal(stores: ChannelStores,
   sender: Extract<Gateway.IngestSender, { kind: "external" }>, facts: Gateway.IngressFacts,
   ports: GatewayRouterPorts, at: number, budgets: readonly Gateway.SocialBudget[],
   input: ReturnType<typeof ingressInput>) {
   return Effect.gen(function* () {
-    const record = stores.automations.decisions(input.input.eventId)[0];
-    if (record?.stage === "automation" && record.by.startsWith("automation/")) {
-      const resolved = resolveIngress(stores, sender, facts, ports, at, input);
-      const fact = stores.decisionFacts.port()?.head(Ingress.routeStreamId(resolved.event));
-      const original = fact === undefined ? undefined : Ingress.recordedRoutingDecision(fact.data);
-      const grant = original?.factsUsed.find((value) => value.startsWith("automation:"));
-      recordKernelRoute(stores, grantAutomation(resolved.route, grant?.slice("automation:".length)),
-        ports.sink, at, false);
+    const resolved = resolveIngress(stores, sender, facts, ports, at);
+    const fact = stores.decisionFacts.port()?.head(Ingress.routeStreamId(resolved.event));
+    const original = fact === undefined ? undefined : Ingress.recordedRoutingDecision(fact.data);
+    if (original?.outcome === "route" && original.stage === "surface_default") {
+      const actor = resolved.event.meta?.actor;
+      const { actorId: _actorId, trustTier: _trustTier, inboundTreatment: _treatment, ...recorded } = original;
+      const treatment = resolved.event.meta?.inboundTreatment;
+      recordKernelRoute(stores, { ...resolved.route, decision: { ...recorded,
+        ...(actor?.actorId === undefined ? {} : { actorId: actor.actorId }),
+        ...(actor?.trustTier === undefined ? {} : { trustTier: actor.trustTier }),
+        ...(treatment === undefined ? {} : { inboundTreatment: treatment }),
+        factsUsed: original.factsUsed.filter((entry) => entry.startsWith("rule:")),
+      } }, ports.sink, at, false);
     }
-    const retry = stores.automations.pendingDelivery(input.input.eventId);
+    const retry = stores.rules.pendingDelivery(input.input.eventId);
     if (retry === undefined) {
+      const record = stores.rules.decisions(input.input.eventId)[0];
       if (record !== undefined) recordAutomationDuplicate(stores, ports.sink, { ...record, time: at });
       return undefined;
     }

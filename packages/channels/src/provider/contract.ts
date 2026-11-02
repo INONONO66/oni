@@ -165,7 +165,7 @@ export interface ProviderRuntime {
  * registering it — composition code never grows a platform-specific branch.
  *
  * Providers stay in the driver sub-band: protocol types, their own transport,
- * and the injected `PublishPort` only. Authority (grants, blacklist, tiers,
+ * and the injected `PublishPort` only. Authority (rule matching,
  * admission) remains router-side.
  */
 /**

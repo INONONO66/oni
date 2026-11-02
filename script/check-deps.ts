@@ -501,8 +501,7 @@ const BUNDLE_APP_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["apps/oni/src/bundles/provision/status.ts", new Set(["../../channels"])],
   ["apps/oni/src/bundles/provision/channels.ts", new Set(["../../channels"])],
   ["apps/oni/src/bundles/provision/supervisor.ts", new Set(["../../thrown", "../../channels"])],
-  ["apps/oni/src/bundles/provision/automation.ts", new Set(["../../thrown"])],
-  ["apps/oni/src/bundles/provision/declared.ts", new Set(["../../channels", "../../gateway"])],
+  ["apps/oni/src/bundles/provision/declared.ts", new Set(["../../channels"])],
 ]);
 
 type BundlePinCode = "BUNDLE_CROSS_NAMESPACE" | "BUNDLE_APP_IMPORT";

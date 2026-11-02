@@ -2,7 +2,7 @@ import { Bundle, Core } from "@oni/agent";
 type SessionHandle = Core.SessionHandle;
 type SessionRunner = Core.SessionRunner;
 type ObservationPublishFailure = Core.ObservationPublishFailure;
-import { type ChannelStore, createActorRegistry, createChannelGrantStore, createChannelInstanceStore, createMachineEnrollmentStore, createPersonStore, createSecretStore, openChannelStore } from "@oni/channels";
+import { type ChannelStore, createActorRegistry, createChannelInstanceStore, createMachineEnrollmentStore, createPersonStore, createSecretStore, openChannelStore } from "@oni/channels";
 import { Context, Deferred, Effect, Exit, Layer, type Scope } from "effect";
 import { createAgentStore, type AgentStore } from "../agents";
 
@@ -34,7 +34,6 @@ interface AppCatalogStores {
   readonly instances: ReturnType<typeof createChannelInstanceStore>;
   readonly machineEnrollments: ReturnType<typeof createMachineEnrollmentStore>;
   readonly secrets: ReturnType<typeof createSecretStore>;
-  readonly channelGrants: ReturnType<typeof createChannelGrantStore>;
 }
 
 /**
@@ -77,7 +76,6 @@ export function withChannelStores(ledger: Core.LedgerHost, now: () => number): A
       instances: createChannelInstanceStore(channel),
       machineEnrollments,
       secrets: createSecretStore(channel),
-      channelGrants: createChannelGrantStore(channel),
     },
   };
 }

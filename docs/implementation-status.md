@@ -1,5 +1,48 @@
 # Implementation Status
 
+## #1793 ordered inbound rule table (PR #1805, epic #1791)
+
+`Ingress.Rule` is the sole inbound policy record. The channels store orders
+rows by unique integer `position`; `match()` selects the first enabled row
+whose supplied `when` fields match and whose optional `judge` answers yes.
+No match records the inbound without creating a session. The clause is named
+`outcome`, with strict `drop`, `record` and `deliver` variants. Only
+`deliver` carries `target`, `deliveryKind: prompt | action`, instructions,
+reply policy, optional sending instance and daily limit. Non-delivering
+matches terminate evaluation; they retain a decision receipt, not a delivery.
+
+The `rule` and `rule_*` tables replace the former automation tables;
+channel grants, blacklist matching, environment posture readers and synthesized
+direct records are removed. Channels schema version 2 refuses older stores
+without migration. Add, move, enable, disable and remove are store operations;
+seed deletion is refused, and a wire `rule_add` record cannot declare itself a
+seed (`invalid_record`). A rule admits a message, never a sender's authority:
+an admitted sender the actor registry does not hold is delivered
+`evidence_only`; a registered sender keeps its tier. The correlated `rule_*`
+WebSocket API includes ledger reads; a failing store answers `store_failed`;
+no provision rule tool exists. The desktop editor uses the same contract and
+supports all three outcomes.
+
+On `channel_add`, the app persists non-bot DM and addressed-message seeds.
+Both target the conversation as prompts: bot replies are automatic; Owner
+account replies are drafts with `as` pinned to the instance. Optional `from`
+restricts both seeds. Re-declaration preserves order and disabled state.
+The alarm seed is the last row: instance `alarm` delivers to the conversation
+as a prompt with no reply, and the arming session claims its own
+`alarm:dm:session:<id>` conversation key on the first tick, so a fired alarm
+wakes the session that armed it. Agent selection remains opaque to channels
+and uses the app-owned #1796 profile resolver when a new session is created.
+
+Conversation keys are `<instance>:channel:<channelId>:thread:<root>`, with
+top-level messages as their own roots, or `<instance>:dm:<peerId>`. The first
+claim owns the binding. Physical request correlation remains independent.
+Replay retains the recorded choice, including reply policy; grouped windows
+and delivery receipts survive reopening. Owner provider intake branches remain
+for #1794; moving ledger writes out of channels remains #1795.
+
+This section supersedes older inbound grant, blacklist, environment posture
+and automation policy descriptions below. Verification receipts are in PR #1805.
+
 ## #1779 attach and import hand-run CLI sessions
 
 A `cli:` contact declared with `attach: "existing"` and the `sessionId` of a
@@ -125,9 +168,9 @@ refuse with `target_ambiguous`, projected by the app's policy row as
 Any surface name other than the endpoint's platform is an exact instance id;
 revoked instances never fall through to sibling accounts. Draft delivery to the
 Owner reads the provider's declared `capabilities.direct`, not a platform list.
-`Channel.instanceId(platform, identity)` is removed. Platform-based ingress
-grants and translation remain unchanged; rule-table and Message consolidation
-are separate work.
+`Channel.instanceId(platform, identity)` is removed. #1793 replaces the
+platform-based ingress policy with instance-scoped rule rows; Message
+consolidation remains #1794.
 
 ## #1720 leased clipboard access
 

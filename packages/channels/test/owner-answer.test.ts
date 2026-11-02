@@ -384,15 +384,11 @@ test("Owner authentication finishing at the deadline cannot approve into the pas
   expect(ledger().kernel.requestById(request.requestId)?.state).toBe("expired");
 });
 
-test("an authenticated Owner answer cannot bypass the absolute blacklist", async () => {
+test("authenticated Owner answers do not require an inbound rule", async () => {
   const request = await approval();
-  ledger().stores.blacklist.put({ id: "blocked-surface", kind: "channel", value: "ws", createdBy: "owner" });
-  const before = sessionTree(request.sessionId, ledger().sessions.actions);
-  expect(await runEffect(router().ingest(sender, envelope(request)))).toMatchObject({
-    status: "blocked_pre",
-    reasonCode: "request_answer.blacklisted",
-  });
-  expect(sessionTree(request.sessionId, ledger().sessions.actions)).toEqual(before);
+  expect(ledger().stores.rules.list()).toEqual([]);
+  expect(await runEffect(router().ingest(sender, envelope(request)))).toMatchObject({ status: "executed" });
+  expect(ledger().kernel.requestById(request.requestId)?.state).toBe("resolved");
 });
 
 test("plain text preserves stable driver event ID and cannot enter Owner authentication", async () => {

@@ -49,10 +49,10 @@ beforeEach(() => {
 
 test.each([0, 10] as const)("correlated reply bypasses a %s-second action trigger and commits only to its owner", async (windowSeconds) => {
   await runEffect(await openRequest("request-session-owner"));
-  ledger().stores.automations.add(Ingress.Automation.parse({
-    id: "request-trigger", name: "Request trigger", enabled: true, createdBy: "owner",
-    triggers: [{ type: "message", surface: "telegram", event: "message" }],
-    target: "session:worker", grouping: { by: "channel", windowSeconds },
+  ledger().stores.rules.add(Ingress.Rule.parse({
+    id: "request-trigger", position: 0, enabled: true, createdBy: "owner",
+    when: { instance: "telegram" },
+    outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, group: { by: "thread", windowSeconds },
   }));
   ledger().stores.surfaceKeys.claim(
     Channel.SurfaceKey.fromChannel({
@@ -79,8 +79,8 @@ test.each([0, 10] as const)("correlated reply bypasses a %s-second action trigge
   expect(commits[0]?.sessionId).toBe("request-owner");
   await runEffect(kernelRouter().advance(10_001));
   expect(commits).toHaveLength(1);
-  expect(ledger().stores.automations.decisions(scope("reply").id)).toEqual([]);
-  expect(ledger().stores.automations.groups()).toEqual([]);
+  expect(ledger().stores.rules.decisions(scope("reply").id)).toEqual([]);
+  expect(ledger().stores.rules.groups()).toEqual([]);
   expect(ledger().kernel.requestById("request-session-owner")).toMatchObject({
     state: "resolved",
 
@@ -382,21 +382,12 @@ test("awaited send resolves quorum from distinct authenticated responder endpoin
   expect(commits).toHaveLength(2);
 });
 
-test("blacklist takes precedence over reply correlation", async () => {
-  await runEffect(await openRequest("blacklisted"));
-  ledger().stores.blacklist.put({
-    id: "blocked",
-    kind: "endpoint",
-    value: "telegram:seller-1",
-    createdBy: "owner",
-  });
-  expect(await runEffect(kernelRouter().ingest(sender, facts("reply")))).toMatchObject({
-    status: "blocked_pre",
-  });
-  expect(routingDecisions()[0]).toMatchObject({ stage: "blacklist", outcome: "drop" });
-  expect(ledger().kernel.requestById("blacklisted")).toMatchObject({
-    state: "open",
-    replies: [],
-  });
-  expect(commits).toEqual([]);
+test("a disabled inbound rule does not deny an authenticated correlated reply", async () => {
+  await runEffect(await openRequest("correlated"));
+  ledger().stores.rules.add({ id: "disabled", position: 0, enabled: false, createdBy: "owner",
+    when: { instance: "telegram" }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } });
+  expect(await runEffect(kernelRouter().ingest(sender, facts("reply")))).toMatchObject({ status: "executed" });
+  expect(routingDecisions()[0]).toMatchObject({ stage: "request_correlation", outcome: "route" });
+  expect(ledger().kernel.requestById("correlated")?.state).toBe("resolved");
+  expect(commits).toHaveLength(1);
 });

@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { Effect } from "effect";
 import type { Core } from "@oni/agent";
 import { createSurfaceKeyStore, decodeChannelFailure, type GatewayRouter } from "@oni/channels";
-import { Channel, type Gateway, Outbound } from "@oni/protocol";
+import { type Gateway, Outbound } from "@oni/protocol";
 import { commitReceivedMessage } from "../../../packages/agent/test/helpers/ingress";
 import { createSendMessageTool } from "../src/bundles/messaging/send-message/index";
 import { prepareMessage } from "../src/composition/message-session";
@@ -24,12 +24,7 @@ import { testIds } from "./helpers/test-entropy";
  * else, and the delivery lands in the channel the person wrote in.
  */
 
-const SLACK_KEY = Channel.SurfaceKey.fromChannel({
-  surface: "slack",
-  namespace: "T1",
-  kind: "channel",
-  id: "C1",
-});
+const SLACK_KEY = "slack:channel:C1:thread:1710.0002";
 const PROMPT_ID = "slack::T1:U1:1";
 const REPLY: Gateway.SendMessage = {
   to: { kind: "origin", inReplyTo: PROMPT_ID },
@@ -44,7 +39,7 @@ interface Delivered {
 }
 
 type Conversation = { channelId: string; messageId: string; dm: boolean; workspaceId?: string; threadId?: string };
-const CHANNEL: Conversation = { channelId: "C1", messageId: "1710.0002", dm: false, workspaceId: "T1" };
+const CHANNEL: Conversation = { channelId: "C1", messageId: "1710.0002", dm: false, workspaceId: "T1", threadId: "1710.0002" };
 
 function slackRoute(delivered: Delivered[]) {
   return new Map([
@@ -111,7 +106,7 @@ test("the reply door answers the conversation the prompt came from, bound by the
     expect(answered.isError).not.toBe(true);
     expect(answered.content).toContain('"status":"executed"');
     expect(delivered).toEqual([
-      { externalId: "T1:U1", body: "pong", conversation: { channelId: "C1", replyToMessageId: "1710.0002" } },
+      { externalId: "T1:U1", body: "pong", conversation: { channelId: "C1", threadId: "1710.0002", replyToMessageId: "1710.0002" } },
     ]);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
@@ -129,13 +124,7 @@ test.each<[string, Conversation, "dm" | "channel", Gateway.Conversation]>([
 ])("%s: the binding folds the key the inbound claimed", async (_name, conversation, kind, expected) => {
   const { fixture, delivered } = fixtureWithSlack();
   try {
-    const key = Channel.SurfaceKey.fromChannel({
-      surface: "slack",
-      namespace: "T1",
-      kind,
-      id: conversation.channelId,
-      ...(conversation.threadId === undefined ? {} : { threadId: conversation.threadId }),
-    });
+    const key = kind === "dm" ? "slack:dm:T1:U1" : `slack:channel:${conversation.channelId}:thread:${conversation.threadId ?? conversation.messageId}`;
     createSurfaceKeyStore(fixture.plane.channel).claim(key, fixture.sessionId);
     const answered = await fixture.send(REPLY, promptFromSlack(fixture, conversation));
     expect(answered.isError).not.toBe(true);
@@ -150,7 +139,7 @@ test("#1600 lane R2: a DM the Owner's account received is the Owner's to answer 
   try {
     const dm: Conversation = { channelId: "D1", messageId: "1710.0003", dm: true, workspaceId: "T1" };
     createSurfaceKeyStore(fixture.plane.channel).claim(
-      Channel.SurfaceKey.fromChannel({ surface: "slack", namespace: "T1", kind: "dm", id: "D1" }),
+      "slack:dm:T1:U1",
       fixture.sessionId,
     );
     const drafted = await fixture.send(REPLY, promptFromSlack(fixture, dm, "owner"));
@@ -265,6 +254,6 @@ test("the resident's reply reaches the channel through the real gateway, under t
   const result = await resident.drain(sessionId);
   expect(result?.kind).toBe("result");
   expect(delivered).toEqual([
-    { externalId: "T1:U1", body: "pong", conversation: { channelId: "C1", replyToMessageId: "1710.0002" } },
+    { externalId: "T1:U1", body: "pong", conversation: { channelId: "C1", threadId: "1710.0002", replyToMessageId: "1710.0002" } },
   ]);
 });

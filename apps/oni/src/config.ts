@@ -194,21 +194,6 @@ export interface OniConfig {
    * Present only when either directory is configured.
    */
   readonly prompts?: PromptCatalog;
-  /**
-   * Per-surface sender allowlists for the trusted-channel grant (external
-   * ids on that surface, e.g. Telegram user ids). A surface listed here
-   * serves only the listed senders; everyone else finds no grant and the
-   * perimeter blocks fail-closed. A surface absent from the map keeps the
-   * open posture — acceptable only for loopback-bound surfaces like ws.
-   */
-  readonly channelAllowedSenders?: Readonly<Record<string, readonly string[]>>;
-  /**
-   * Surfaces whose channel (non-DM) messages reach a session only when they
-   * address the Resident: a mention, a reply to its message, or a thread it
-   * already answers in. DMs always route. Absent = every admitted message on
-   * the surface routes and the model decides whether to answer.
-   */
-  readonly channelMentionOnly?: readonly string[];
   /** External channel reaction used to show a turn's pending and terminal state. */
   readonly ackReaction?: {
     readonly pending: string;
@@ -666,22 +651,6 @@ function parseEnvJson<T>(
   return parsed.data;
 }
 
-const ChannelAllowedSenders = z.record(z.string(), z.array(z.string().min(1)).min(1));
-
-function channelAllowedSendersFromEnv(
-  env: Record<string, string | undefined>,
-): OniConfig["channelAllowedSenders"] {
-  return parseEnvJson("ONI_CHANNEL_ALLOWED_SENDERS", ChannelAllowedSenders, env);
-}
-
-const ChannelMentionOnly = z.array(z.string().min(1)).min(1);
-
-function channelMentionOnlyFromEnv(
-  env: Record<string, string | undefined>,
-): OniConfig["channelMentionOnly"] {
-  return parseEnvJson("ONI_CHANNEL_MENTION_ONLY", ChannelMentionOnly, env);
-}
-
 const AckReaction = z.object({
   pending: z.string().min(1),
   ok: z.string().min(1),
@@ -900,8 +869,6 @@ export function loadConfig(
   const alarmSweep = alarmSweepFromEnv(env);
   const forkCopyByteCap = forkCopyByteCapFromEnv(env);
   const toolOutputBudgetBytes = toolOutputBudgetBytesFromEnv(env);
-  const channelAllowedSenders = channelAllowedSendersFromEnv(env);
-  const channelMentionOnly = channelMentionOnlyFromEnv(env);
   const ackReaction = ackReactionFromEnv(env);
   const off = offFromEnv(env);
   const hooksPath = env.ONI_HOOKS_PATH?.trim() || undefined;
@@ -932,8 +899,6 @@ export function loadConfig(
     mclientBin: resolveMclientBin(env),
     mclientRelease: resolveMclientRelease(env),
     ...(socialBudgets === undefined ? {} : { socialBudgets }),
-    ...(channelAllowedSenders === undefined ? {} : { channelAllowedSenders }),
-    ...(channelMentionOnly === undefined ? {} : { channelMentionOnly }),
     ...(ackReaction === undefined ? {} : { ackReaction }),
     ...(off === undefined ? {} : { off }),
     ...(hooksPath === undefined ? {} : { hooksPath }),

@@ -1,17 +1,13 @@
 import { createDecisionFactPort } from "@oni/agent";
 import { createSurfaceKeyStore } from "../store/surface-key/index.js";
 import { createActorRegistry } from "../store/actor/index.js";
-import { createAutomationStore, type AutomationAdapter } from "../store/automation/index.js";
-import { createBlacklistStore } from "../store/blacklist/index.js";
-import { createChannelGrantStore } from "../store/channel-grant/index.js";
+import { createRuleStore, type RuleAdapter } from "../store/rule/index.js";
 import { createEgressBudgetStore } from "../store/egress/index.js";
 import type { Storage as ProtocolStorage } from "@oni/protocol";
 
 export interface ChannelStoreSource {
   readonly actorRegistry?: ProtocolStorage.ActorRegistrySubAdapter;
-  readonly automation?: AutomationAdapter;
-  readonly blacklist?: ProtocolStorage.BlacklistSubAdapter;
-  readonly channelGrant?: ProtocolStorage.ChannelGrantSubAdapter;
+  readonly rule?: RuleAdapter;
   readonly egressBudget?: ProtocolStorage.EgressBudgetSubAdapter;
   readonly surfaceKey?: ProtocolStorage.SurfaceKeySubAdapter;
   readonly decisionFacts?: ProtocolStorage.DecisionFactSubAdapter;
@@ -22,9 +18,7 @@ export interface ChannelStoreSource {
 export function createChannelStores(source: ChannelStoreSource) {
   return {
     actors: createActorRegistry(source),
-    automations: createAutomationStore(source),
-    blacklist: createBlacklistStore(source),
-    channelGrants: createChannelGrantStore(source),
+    rules: createRuleStore(source),
     egressBudgets: createEgressBudgetStore(source),
     surfaceKeys: createSurfaceKeyStore(source),
     decisionFacts: createDecisionFactPort(source),

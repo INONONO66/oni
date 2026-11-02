@@ -27,7 +27,7 @@ boot (`apps/oni/src/config.ts`):
 Consequences:
 
 1. **The DB already stores the *consequences* of these decisions** (actor rows,
-   channel grants, blacklist) but not the decisions themselves. A restart with
+   rule rows) but not the decisions themselves. A restart with
    a mutated env silently rewrites authority with no record of what changed or
    why. This violates the record-before-act spirit: the Owner's provisioning
    act is the one act the ledger cannot see.
@@ -150,14 +150,18 @@ ChannelInstance {
   Owner (the ws bootstrap grant; `assertWsExposure` confines such a boot to
   loopback) and answers a request with an empty credential; with a token
   configured the token is required.
-- A declaration's grant block (#1600 lane R1) is written by `channel_add`:
-  `grant.defaultTier` is the tier every sender on the surface gets who is
-  not a declared Person, `allowedSenders` the platform ids it admits alone,
-  `mentionOnly` the posture. The block is the Owner's: any declaration
-  carrying one takes Owner consent bound to the row, a consented block
-  replaces the stored one (a field left out is cleared), and a declaration
-  without one keeps it. The bot instance's block is the platform's posture;
-  an Owner instance's speaks only where the platform has no bot. An Owner
+- A declaration's seed rules (#1793, replacing the #1600 lane R1 grant
+  block) are written by `channel_add`: two `Ingress.Rule` rows per instance,
+  a non-bot DM row and a non-bot addressed-message row, both `event:
+  message`, both delivering to the conversation as prompts — a bot instance
+  replies automatically, an Owner instance drafts with `as` pinned to the
+  instance. The optional `from` list restricts both seeds to the named
+  platform sender ids and is the Owner's: a declaration carrying one takes
+  Owner consent bound to the row, a consented list replaces the stored one,
+  and a declaration without one keeps it. Re-declaration preserves the
+  rows' order and disabled state; seeds can be disabled, never deleted. A
+  sender a seed admits that the actor registry does not hold is delivered
+  as evidence, never with a tier. An Owner
   instance's account becomes an endpoint of the owner-tier Person when the
   instance mounts (`person:owner` is created when none exists; an address
   another Person holds is never re-homed), so the Owner is owner-tier on
@@ -186,7 +190,7 @@ ChannelInstance {
   payload for a declaration through the Resident's provision tool instead,
   which records it in the session journal.
 - `identity` (#1569) names the account: a `bot` instance mounts as
-  `<provider>:bot` and reads inbound under the surface's ingress grant; an
+  `<provider>:bot` and reads inbound through its seeded rules; an
   `owner` instance is the Owner's own account, builds through the provider's
   `owner` arm (its credential is the account session, e.g. Slack's
   `{token xoxc, cookie d}` from the QR login) and mounts as
@@ -200,12 +204,11 @@ ChannelInstance {
   a DM to the Owner or a mention of the Owner reaches the Resident,
   `receivedBy: owner`; reactions are not intake), `all` (everything the
   account sees), or `none` (send-only). A re-declaration that omits
-  `settings` keeps the stored posture. A reading owner instance holds the
-  platform's one ingress grant together with the bot instance: the row is
-  re-registered at the least tier any current reader declares, carries
-  `ownerIntake` while an Owner instance reads (a mention of the registered
-  Owner is then addressed to the Resident whichever instance observed it),
-  and is revoked with the last reader. Both instances seeing one message
+  `settings` keeps the stored posture. A reading Owner instance's inbound
+  enters the rule table under its own instance id with its own seeds; no
+  shared platform grant row exists (#1793), and a mention of the registered
+  Owner is addressed to the Resident whichever instance observed it (the
+  Owner intake branches themselves are #1794). Both instances seeing one message
   hand it to routing once (`inboundOnce`). Without `grant.outbound` an owner
   instance mounts neither a delivery nor a typing route. `autoReply` (lane
   7, default false) lets the reply door answer a conversation through this
@@ -263,7 +266,7 @@ Secret {
 
 ### 3.4 What stays out
 
-- **Blacklist, approvals, delegations** — already DB-native, unchanged.
+- **Rule rows, approvals, delegations** — already DB-native, unchanged.
 - **Machine enrollments and social budgets** — same disease, same cure, but
   deferred to keep the first slices reviewable; they migrate onto the same
   declaration pattern in a later phase (§9).
@@ -364,7 +367,7 @@ Runner operations (adopted from the same survey):
   via `capabilities.render`, removing the surface-id switch that selects them
   today.
 - **The band contract is unchanged:** providers stay protocol-only (no ledger,
-  no policy); whitelist/blacklist/tier/mint decisions remain router-side. The
+  no policy); rule admission and tier decisions remain router-side. The
   provider registry is data the *app* consumes to build stages —
   `apps/oni/src/channels.ts` shrinks from one hand-written block per
   channel to one loop over ChannelInstance rows.

@@ -747,7 +747,7 @@ test("an activation's armed monitor.hit resend reinstalls the native source acro
   const kernel2 = plane2.openKernel(sessionId);
   // The hit delivered under the seeded occurrence and prompted its content.
   expect(kernel2.actionById(`${hit.occurrenceId}:delivered`)?.kind).toBe("alarm");
-  const prompt = kernel2.actionById(`${hit.occurrenceId}:prompt`);
+  const prompt = kernel2.actionById(hit.occurrenceId);
   if (prompt?.kind !== "prompt") throw new Error("missing wake prompt");
   // The companion timeout chain was scheduled, not retired: still armed on
   // the original occurrence, untouched by the hit path.

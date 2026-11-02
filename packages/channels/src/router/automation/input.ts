@@ -1,15 +1,15 @@
-import { Channel, type Gateway, Ingress } from "@oni/protocol";
+import { type Gateway, Ingress } from "@oni/protocol";
 import type { ChannelStores } from "../stores.js";
-import { resolveChannelGrant } from "../channel-grant.js";
 import { inboundIdOf } from "../inbound-id.js";
 
-/** The surface label an inbound keys on: a DM, a channel, or one thread of it. */
-export function ingressSurfaceKey(facts: Gateway.IngressFacts): string {
-  return Channel.SurfaceKey.fromChannel({
-    surface: facts.surface, namespace: facts.instance ?? facts.workspaceId ?? facts.surface,
-    kind: facts.dm ? "dm" : "channel", id: facts.channelId,
-    ...(facts.reply?.threadId === undefined ? {} : { threadId: facts.reply.threadId }),
-  });
+/** Each top-level channel message starts its own thread; a DM stays with its peer. */
+export function ingressSurfaceKey(
+  facts: Pick<Gateway.IngressFacts, "surface" | "instance" | "dm" | "channelId" | "eventId" | "reply">,
+  peerId = facts.channelId,
+): string {
+  const instance = facts.instance ?? facts.surface;
+  return facts.dm ? `${instance}:dm:${peerId}`
+    : `${instance}:channel:${facts.channelId}:thread:${facts.reply?.threadId ?? facts.eventId}`;
 }
 
 export function ingressInput(stores: ChannelStores,
@@ -19,32 +19,19 @@ export function ingressInput(stores: ChannelStores,
     const resolved = stores.actors.resolveEndpoint(facts.surface, addressee.externalId, facts.workspaceId);
     return resolved === undefined ? [] : [resolved.identity];
   });
-  // The surface grant is read once per inbound: the perimeter posture and the
-  // kernel route both consume this resolution.
-  const channel = resolveChannelGrant(stores, {
-    surface: facts.surface,
-    ...(facts.workspaceId === undefined ? {} : { workspace: facts.workspaceId }),
-    channel: facts.channelId,
-    sender: sender.externalId,
-  });
-  // Where an Owner instance reads the platform (#1569 lane 6, the grant's
-  // `ownerIntake`), a mention of the Owner addresses the Resident the way a
-  // mention of the bot does — a fact of the message, whichever instance
-  // observed it, so the two copies of one message carry one verdict.
-  // The surface's own classification counts (#1600): a driver that saw the
-  // bot mentioned says `event: mention`, whether or not the bot's account is
-  // a registered identity here.
-  const addressed =
-    facts.dm ||
-    facts.event === "mention" ||
-    identities.some((identity) => identity.kind === "resident") ||
-    (channel?.grant.ownerIntake === true && identities.some((identity) => identity.trustTier === "owner"));
+  const addressed = facts.dm || facts.event === "mention" ||
+    facts.context?.quoted?.author === "assistant" ||
+    (facts.reply?.threadId !== undefined && stores.surfaceKeys.lookup(ingressSurfaceKey(facts)) !== undefined) ||
+    identities.some((identity) => identity.kind === "resident" ||
+      (facts.receivedBy === "owner" && identity.trustTier === "owner"));
   const input = Ingress.Input.parse({
-    eventId: inboundIdOf(facts), surface: facts.surface, event: facts.event ?? "message",
+    eventId: inboundIdOf(facts), instance: facts.instance ?? facts.surface,
+    surface: facts.surface, event: facts.event ?? "message",
     secretRef: facts.secretRef, githubEvent: facts.githubEvent,
-    channelId: facts.channelId, threadId: facts.reply?.threadId, workspaceId: facts.workspaceId,
+    channelId: facts.channelId, threadId: facts.dm ? undefined : facts.reply?.threadId ?? facts.eventId,
+    workspaceId: facts.workspaceId,
     author: facts.author ?? { externalId: sender.externalId, isBot: false },
     dm: facts.dm, mentionsBot: addressed, body: facts.render, receivedAt: at,
   });
-  return { input, identities, addressed, channel };
+  return { input, identities, addressed };
 }

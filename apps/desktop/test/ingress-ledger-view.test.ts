@@ -52,8 +52,8 @@ test("filters through wire queries rather than evaluating records locally", asyn
     await ui.field("Record ID", "alerts");
     await ui.field("Decision", "filtered");
     await ui.submit();
-    expect(fixture.requests.at(-2)).toMatchObject({ type: "automation_ledger", surface: "discord", recordId: "alerts", decision: "filtered" });
-    expect(fixture.requests.at(-1)).toMatchObject({ type: "automation_ledger", surface: "discord" });
+    expect(fixture.requests.at(-2)).toMatchObject({ type: "rule_ledger", surface: "discord", recordId: "alerts", decision: "filtered" });
+    expect(fixture.requests.at(-1)).toMatchObject({ type: "rule_ledger", surface: "discord" });
     expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(1);
     await ui.click("Clear");
     expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(6);

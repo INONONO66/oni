@@ -1,6 +1,6 @@
-import type { ActorRegistry, ChannelInstanceStore, PersonStore, SecretStore } from "@oni/channels";
+import type { ActorRegistry, ChannelInstanceStore, PersonStore, SecretStore, createRuleStore } from "@oni/channels";
 import { Vault } from "@oni/channels";
-import { type Channel, canonicalDigest, Provisioning } from "@oni/protocol";
+import { type Channel, canonicalDigest, type Provisioning } from "@oni/protocol";
 import { z } from "zod";
 import { CONTACT_ONLY_PROVIDERS, validateProviderCredential, validateProviderSettings } from "../../channels";
 import type { ChannelSupervisor } from "./supervisor";
@@ -8,7 +8,6 @@ import type { KekResolution } from "./vault-key";
 import { refusal, storeRefusal } from "./contacts";
 import type { BundlePort } from "./bundles";
 import { Statuses } from "./status";
-import type { AutomationPort } from "./automation";
 import type { MachinePort } from "./machines";
 import type { ComputerPort, PermissionPort } from "../seams";
 
@@ -26,9 +25,7 @@ export const CHANNEL_DECLARE_INPUT = z
       .boolean()
       .optional()
       .describe("Owner instances only: whether the Resident may send from the Owner's account on explicit instruction."),
-    grant: Provisioning.ChannelGrantDeclaration.optional().describe(
-      "Who this surface admits — the Owner's decision, so any grant block takes Owner consent: defaultTier is the tier every sender on it gets who is not a declared Person (absent, only Persons at manager or above are admitted); allowedSenders admits those platform ids alone; mentionOnly routes channel messages only when they address the Resident. A block replaces the stored one (a field left out is cleared); a declaration without a block keeps it.",
-    ),
+    from: z.array(z.string().min(1)).min(1).optional().describe("Platform sender ids allowed by the instance's seeded rules."),
     enabled: z.boolean().default(true),
     settings: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
@@ -92,8 +89,8 @@ export const ChannelResult = z.discriminatedUnion("op", [
 export interface ProvisionPort {
   readonly computer?: ComputerPort;
   readonly machines?: MachinePort;
+  readonly rules: { readonly store: ReturnType<typeof createRuleStore>; readonly id: () => string };
   readonly permissions?: PermissionPort;
-  readonly automations?: AutomationPort;
   readonly persons: Pick<PersonStore, "put" | "get" | "list" | "remove">;
   readonly instances: Pick<ChannelInstanceStore, "put" | "get" | "list">;
   readonly secrets: Pick<SecretStore, "put" | "get">;
@@ -152,14 +149,13 @@ export function channelConsentRequired(
   declaration?: {
     readonly provider: string;
     readonly credential?: Readonly<Record<string, string>>;
-    /** #1600: the grant block — tier, allowlist, posture — is the Owner's perimeter decision, whichever field it carries. */
-    readonly grant?: Provisioning.ChannelGrantDeclaration;
+    readonly from?: readonly string[];
   },
 ): boolean {
   return (
     identity === "owner" ||
     outbound !== undefined ||
-    declaration?.grant !== undefined ||
+    declaration?.from !== undefined ||
     (declaration !== undefined && CONTACT_ONLY_PROVIDERS.has(declaration.provider)) ||
     (declaration !== undefined && URL_IS_A_DESTINATION.has(declaration.provider) && declaration.credential?.url !== undefined)
   );
@@ -231,7 +227,7 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
       if (domainRevisions === undefined)
         return refusal(
           "channel_add",
-          `${input.id}: an Owner instance, its outbound grant, a grant block, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent`,
+          `${input.id}: an Owner instance, its outbound grant, sender restrictions, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent`,
         );
       if (canonicalDigest({ ...domainRevisions }) !== canonicalDigest(channelDomainRevisions(port.instances, input.id)))
         return refusal("channel_add", "domain revision changed");
@@ -253,34 +249,17 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
       port.secrets.put(sealed);
       credentialRef = secretId;
     }
-    await Promise.resolve()
-      .then(() =>
-        port.instances.put({
-          id: input.id,
-          provider: input.provider,
-          identity,
-          enabled: input.enabled,
-          settings,
-          ...(credentialRef === undefined ? {} : { credentialRef }),
-          // The declared perimeter block survives a re-declaration without one; a block
-          // given replaces the stored three fields, and `outbound` is its own field —
-          // every one of them the Owner's call (#1569, #1600).
-          ...(existing?.grant === undefined && input.outbound === undefined && input.grant === undefined
-            ? {}
-            : {
-                grant: {
-                  ...(input.grant === undefined
-                    ? existing?.grant
-                    : { ...(existing?.grant?.outbound === undefined ? {} : { outbound: existing.grant.outbound }), ...input.grant }),
-                  ...(input.outbound === undefined ? {} : { outbound: input.outbound }),
-                },
-              }),
-          revision: (existing?.revision ?? -1) + 1,
-          createdBy,
-          updatedAt: now(),
+    await Promise.resolve().then(() => port.transaction(() => {
+      port.instances.put({
+        id: input.id, provider: input.provider, identity, enabled: input.enabled, settings,
+        ...(credentialRef === undefined ? {} : { credentialRef }),
+        ...(existing?.grant === undefined && input.outbound === undefined ? {} : {
+          grant: { ...existing?.grant, ...(input.outbound === undefined ? {} : { outbound: input.outbound }) },
         }),
-      )
-      .catch((error: Error) => storeRefusal("channel_add", error));
+        revision: (existing?.revision ?? -1) + 1, createdBy, updatedAt: now(),
+      });
+      seedChannelRules(port.rules.store, input.id, identity, input.from);
+    })).catch((error: Error) => storeRefusal("channel_add", error));
     return { id: input.id, action: "declared" as const, statuses: await port.supervisor.reconcile() };
   };
 }
@@ -369,4 +348,21 @@ export function executeSecretRotate(port: ProvisionPort, now: () => number) {
     port.secrets.put(sealed);
     return { id: existing.id, kekId: sealed.kekId, statuses: await port.supervisor.reconcile() };
   };
+}
+
+/** Policy defaults belong to app-owned rows; re-declaration preserves disabled seeds and their order. */
+export function seedChannelRules(store: ProvisionPort["rules"]["store"], instance: string, identity: Channel.Identity,
+  from?: readonly string[]): void {
+  for (const selector of ["dm", "addressed"] as const) {
+    const id = `seed:${instance}:${selector}`;
+    const previous = store.get(id)?.record;
+    const senders = from ?? previous?.when.from;
+    store.add({
+      id, position: previous?.position ?? store.list().length,
+      enabled: previous?.enabled ?? true, createdBy: "owner", seed: true,
+      when: { instance, [selector]: true, event: "message", isBot: false, ...(senders === undefined ? {} : { from: [...senders] }) },
+      outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: identity === "owner" ? "draft" : "auto",
+        ...(identity === "owner" ? { as: instance } : {}) },
+    }, true);
+  }
 }

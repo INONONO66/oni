@@ -1,13 +1,10 @@
 import { Effect, Result } from "effect";
 import { decodeChannelFailure, type ChannelError } from "../../errors";
 import { canonicalDigest, Gateway, SessionTransition } from "@oni/protocol";
-import type { ChannelStores } from "../stores.js";
-import { matchBlacklist } from "../blacklist";
 import type { GatewayRouterPorts } from "../message-ports";
 
 /** Authenticate and normalize only. The injected kernel owns every transition. */
 export function answerOwnerRequest(
-  stores: ChannelStores,
   ports: GatewayRouterPorts,
   sender: Gateway.IngestSender,
   envelope: Gateway.RequestAnswer,
@@ -36,21 +33,6 @@ export function answerOwnerRequest(
     return { status: "blocked_pre", reasonCode: "request_answer.unauthenticated" };
   const principal = authenticated.success;
   const authenticatedAt = Math.max(receivedAt, ports.now());
-  const endpoint = stores.actors.resolveEndpoint(sender.surface, sender.externalId);
-  if (
-    matchBlacklist(
-      stores,
-      {
-        actorId: endpoint?.identity.id ?? principal.principalId,
-        endpointId: endpoint?.endpoint.id,
-        channel: sender.surface,
-        candidates: [sender.surface, sender.externalId],
-      },
-      authenticatedAt,
-    ) !== undefined
-  ) {
-    return { status: "blocked_pre", reasonCode: "request_answer.blacklisted" };
-  }
   const resolution = yield* ports.requests.answer({
     inputId,
     requestId: request.requestId,

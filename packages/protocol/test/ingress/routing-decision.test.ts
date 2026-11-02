@@ -19,7 +19,6 @@ const baseDecision = {
 };
 
 const terminalCases: RoutingDecisionInput[] = [
-  { ...baseDecision, stage: "blacklist", outcome: "drop" },
   {
     ...baseDecision,
     stage: "request_correlation",
@@ -62,9 +61,6 @@ const terminalCases: RoutingDecisionInput[] = [
 ];
 
 const invalidTerminalPairs = [
-  ["blacklist", "route"],
-  ["blacklist", "block"],
-  ["blacklist", "ambiguous"],
   ["request_correlation", "drop"],
   ["channel_ceiling", "route"],
   ["channel_ceiling", "drop"],
@@ -104,7 +100,7 @@ describe("Ingress.Events.RoutingDecision", () => {
       ...baseDecision,
       stage: "surface_default",
       outcome: "route",
-      factsUsed: ["blacklist.clear", "channel.full_access", "surface.session-2"],
+      factsUsed: ["rule:allow", "instance:chat", "surface.session-2"],
     };
 
     // When
@@ -281,7 +277,7 @@ describe("Ingress.recordedRoutingDecision (upcast-on-read)", () => {
     // Non-plain bytes (an array, a non-finite number) are outside the persisted profile.
     expect(Ingress.recordedRoutingDecision([])).toBeUndefined();
     expect(Ingress.recordedRoutingDecision({ ...baseDecision, time: Number.NaN })).toBeUndefined();
-    expect(Ingress.recordedRoutingDecision({ stage: "blacklist" })).toBeUndefined();
+    expect(Ingress.recordedRoutingDecision({ stage: "unknown" })).toBeUndefined();
     expect(
       Ingress.recordedRoutingDecision({
         ...baseDecision,

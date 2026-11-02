@@ -24,7 +24,7 @@ export class RendererInvariantError extends Error {
 
 export class AutomationRefusedError extends Error {
   override readonly name = "AutomationRefusedError";
-  constructor(readonly refusal: Ingress.AutomationRefused) {
+  constructor(readonly refusal: Ingress.RuleRefused) {
     super([
       `${refusal.reason}: ${refusal.detail}`,
       ...(refusal.issues ?? []).map((issue) => `${issue.path.join(".")}: ${issue.message}`),

@@ -1,6 +1,6 @@
 import { runEffect } from "../../helpers/effect";
 import { beforeEach, expect, test } from "bun:test";
-import { registerChannelGrant } from "../../helpers/channel-grant";
+import { registerRule } from "../../helpers/rule";
 import {
   commits,
   kernelRouter,
@@ -12,7 +12,7 @@ import {
 beforeEach(resetRouterState);
 
 test("unauthorized external sender cannot reach delivery commit", async () => {
-  registerChannelGrant();
+  registerRule({ when: { instance: ownerFacts.surface, from: ["allowed-sender"] } });
   expect(await runEffect(kernelRouter().ingest(ownerSender, ownerFacts))).toMatchObject({
     status: "blocked_pre",
   });

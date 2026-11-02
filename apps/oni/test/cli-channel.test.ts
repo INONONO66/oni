@@ -34,19 +34,19 @@ function declaring(declared: Provisioning.ChannelDeclareRequest[], state = "moun
 describe("oni channel add (#1600 lane R4)", () => {
   test("parses the platform and its flags; the Owner-account flags belong to Linear alone; anything else names the usage", () => {
     expect(parseChannelAddArgs(["slack"])).toEqual({
-      provider: "slack", instanceId: "channel:slack:main", identity: "bot", mentionOnly: false, outbound: false, autoReply: false, print: false,
+      provider: "slack", instanceId: "channel:slack:main", identity: "bot", outbound: false, autoReply: false, print: false,
     });
-    expect(parseChannelAddArgs(["slack", "--id", "channel:slack:work", "--tier", "manager", "--allow", "T1:U1, T1:U2", "--mention-only", "--print"])).toEqual({
-      provider: "slack", instanceId: "channel:slack:work", identity: "bot", tier: "manager", allow: ["T1:U1", "T1:U2"], mentionOnly: true, outbound: false, autoReply: false, print: true,
+    expect(parseChannelAddArgs(["slack", "--id", "channel:slack:work", "--from", "T1:U1, T1:U2", "--print"])).toEqual({
+      provider: "slack", instanceId: "channel:slack:work", identity: "bot", from: ["T1:U1", "T1:U2"], outbound: false, autoReply: false, print: true,
     });
     expect(parseChannelAddArgs(["linear", "--intake", "all", "--outbound", "--auto-reply"])).toEqual({
-      provider: "linear", instanceId: "channel:linear:owner", identity: "owner", intake: "all", mentionOnly: false, outbound: true, autoReply: true, print: false,
+      provider: "linear", instanceId: "channel:linear:owner", identity: "owner", intake: "all", outbound: true, autoReply: true, print: false,
     });
-    for (const args of [[], ["matrix"], ["slack", "--tier", "god"], ["slack", "--allow", " , "], ["slack", "--id"], ["slack", "--bogus"], ["slack", "--outbound"], ["slack", "--intake", "all"], ["linear", "--auto-reply"], ["linear", "--intake", "loud"], ["a2a", "--tier", "manager"], ["a2a", "--allow", "x"], ["a2a", "--mention-only"]]) {
+    for (const args of [[], ["matrix"], ["slack", "--tier", "god"], ["slack", "--from", " , "], ["slack", "--id"], ["slack", "--bogus"], ["slack", "--outbound"], ["slack", "--intake", "all"], ["linear", "--auto-reply"], ["linear", "--intake", "loud"], ["a2a", "--tier", "manager"], ["a2a", "--allow", "x"], ["a2a", "--mention-only"]]) {
       expect(() => parseChannelAddArgs(args)).toThrow(CliError);
     }
     expect(() => parseChannelAddArgs(["matrix"])).toThrow(CHANNEL_ADD_USAGE);
-    expect(() => parseChannelAddArgs(["a2a", "--tier", "manager"])).toThrow("a peer row takes no grant block");
+    expect(() => parseChannelAddArgs(["a2a", "--tier", "manager"])).toThrow(CliError);
     expect(parseChannelAddArgs(["a2a", "--id", "channel:a2a:scout"])).toMatchObject({ provider: "a2a", instanceId: "channel:a2a:scout", identity: "bot" });
   });
 
@@ -59,12 +59,12 @@ describe("oni channel add (#1600 lane R4)", () => {
     expect(await askCredential("nowhere", asking({}))).toEqual({});
   });
 
-  test("the declaration carries the grant block only when a field was given, and Linear's Owner posture", () => {
+  test("the declaration carries sender restrictions only when supplied, and Linear's Owner posture", () => {
     expect(channelDeclaration(parseChannelAddArgs(["telegram"]), { token: "t" }, "r-1")).toEqual({
       type: "channel_add", requestId: "r-1", id: "channel:telegram:main", provider: "telegram", identity: "bot", credential: { token: "t" },
     });
-    expect(channelDeclaration(parseChannelAddArgs(["discord", "--tier", "collaborator", "--mention-only"]), { token: "t" }, "r-2")).toMatchObject({
-      grant: { defaultTier: "collaborator", mentionOnly: true },
+    expect(channelDeclaration(parseChannelAddArgs(["discord", "--from", "user"]), { token: "t" }, "r-2")).toMatchObject({
+      from: ["user"],
     });
     expect(channelDeclaration(parseChannelAddArgs(["linear", "--outbound"]), { secret: "s", token: "lin" }, "r-3")).toEqual({
       type: "channel_add", requestId: "r-3", id: "channel:linear:owner", provider: "linear", identity: "owner", settings: { intake: "mentions_and_dms", autoReply: false }, outbound: true, credential: { secret: "s", token: "lin" },
@@ -74,10 +74,10 @@ describe("oni channel add (#1600 lane R4)", () => {
   test("declares over the Owner's socket and reports the row's own status; --print shows the declaration instead; a refusal and a bad command line exit 1", async () => {
     const declared: Provisioning.ChannelDeclareRequest[] = [];
     const mounted = io({ botToken: "xoxb-1", appToken: "xapp-1" });
-    expect(await channelAdd(["slack", "--tier", "manager", "--allow", "T1:U1"], declaring(declared), mounted.io)).toBe(0);
+    expect(await channelAdd(["slack", "--from", "T1:U1"], declaring(declared), mounted.io)).toBe(0);
     expect(declared).toEqual([{
       type: "channel_add", requestId: "request-1", id: "channel:slack:main", provider: "slack", identity: "bot",
-      grant: { defaultTier: "manager", allowedSenders: ["T1:U1"] }, credential: { botToken: "xoxb-1", appToken: "xapp-1" },
+      from: ["T1:U1"], credential: { botToken: "xoxb-1", appToken: "xapp-1" },
     }]);
     expect(mounted.out).toEqual(["channel:slack:main [slack:bot] → mounted"]);
     expect(mounted.asked).toEqual(["slack botToken [secret]", "slack appToken [secret]"]);

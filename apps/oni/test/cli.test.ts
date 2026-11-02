@@ -686,7 +686,6 @@ describe("oni messaging (#1600 lane R4)", () => {
         enabled: true,
         settings: {},
         credentialRef: "secret:telegram-main",
-        grant: { defaultTier: "manager" },
         revision: 0,
         createdBy: "owner",
         updatedAt: 1,
@@ -703,8 +702,6 @@ describe("oni messaging (#1600 lane R4)", () => {
     // No vault row was sealed for the credential ref: the report says so and exits 1.
     expect([...facts.sealed]).toEqual([]);
     expect(await runCli(["messaging"], cli)).toBe(1);
-    expect(out).toContain("  channel:telegram:main [bot] enabled, credential secret:telegram-main MISSING from the vault, tier manager");
-    expect(out).toContain("  READ  every sender on telegram reaches the Resident at tier manager");
   });
 
   test("channel add dispatches through the command table: the verb alone is the usage, --print shows the declaration the prompts built", async () => {
@@ -714,8 +711,8 @@ describe("oni messaging (#1600 lane R4)", () => {
     const cli: CliDeps = { ...createCliDeps(home), stdout: (line) => out.push(line), stderr: (line) => err.push(line), ask: () => Promise.resolve("tg-token") };
     expect(await runCli(["channel"], cli)).toBe(1);
     expect(err).toEqual(["usage: oni channel add <platform> [flags] | oni channel history <instance-id> <chat-id> [--before <cursor>] [--limit <1..100>]"]);
-    expect(await runCli(["channel", "add", "telegram", "--tier", "manager", "--print"], cli)).toBe(0);
-    expect(out).toEqual([JSON.stringify({ id: "channel:telegram:main", provider: "telegram", identity: "bot", grant: { defaultTier: "manager" }, credential: { token: "tg-token" } })]);
+    expect(await runCli(["channel", "add", "telegram", "--from", "sender", "--print"], cli)).toBe(0);
+    expect(out).toEqual([JSON.stringify({ id: "channel:telegram:main", provider: "telegram", identity: "bot", from: ["sender"], credential: { token: "tg-token" } })]);
     expect(await runCli(["channel", "add"], cli)).toBe(1);
     expect(err.at(-1)).toContain("usage: oni channel add");
     // Through the dispatch, the login deps' socket is the one that declares; no daemon is reported as such.

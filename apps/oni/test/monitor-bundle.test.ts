@@ -58,7 +58,7 @@ function lastTurnTerminal(plane: AppLedgerPlane, sessionId: string): string | un
 function alarmPrompts(plane: AppLedgerPlane, sessionId: string) {
   return sessionTree(sessionId, plane.sessionStore(sessionId).actions).filter((action) => {
     if (action.kind !== "prompt") return false;
-    return (action.intent.value as { kind?: string }).kind === "alarm";
+    return (action.intent.value as { surface?: string }).surface === "alarm";
   });
 }
 
@@ -161,7 +161,7 @@ test("a cron armed through the monitor tool survives restart; a past-due boot fi
   // One prompt{origin: alarm} in history.
   const prompts = alarmPrompts(plane2, sessionId);
   expect(prompts).toHaveLength(1);
-  expect((prompts[0]?.intent.value as { alarmId?: string }).alarmId).toBe(watchId);
+  expect(prompts[0]?.id).toBe(chain1.latest.occurrenceId);
   // No spurious rotation: the recomposed manifest hashes identically, so the
   // session kept its adopted generation across the restart (#1255 P3).
   const generationAfter = kernel2.latestGenerationFor(sessionId);

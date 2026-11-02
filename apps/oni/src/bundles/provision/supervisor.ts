@@ -1,6 +1,5 @@
 import type { AccountIdentity, ChannelDeliveryRoute, OwnerWithdrawal, ProviderHistoryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
 import { ThrownError } from "../../thrown";
-import { Actor } from "@oni/protocol";
 import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../../channels";
 
 /**
@@ -11,7 +10,7 @@ import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../.
  * A stage that keeps failing to start trips a per-instance circuit breaker
  * into `paused_by_breaker`; only a manual `resume` (channel_enable) re-arms
  * it (§5). The supervisor mounts fail-closed: a row whose start throws is
- * fully unwound — grant, route, and webhook — never left half-wired.
+ * fully unwound — route and webhook — never left half-wired.
  */
 
 // Promise band (#1423): the channels driver `surface.start` Promise contract forces this file
@@ -24,22 +23,6 @@ export interface DesiredChannelRow {
   /** Bounce key: revision + rotation epoch — any difference restarts the stage. */
   readonly key: string;
   readonly component: ChannelComponent;
-  /**
-   * The tier this row's trusted-channel grant materializes (#931): the
-   * declaration's `grant.defaultTier` when the Owner named one, otherwise the
-   * mount tier. Mounting never synthesizes authority on its own.
-   */
-  readonly defaultTier: Actor.TrustTier;
-  /** #1600: the declaration's allowlist — the surface admits these platform ids alone. */
-  readonly allowedSenders?: readonly string[];
-  /** #1600: channel messages route only when they address the Resident. */
-  readonly mentionOnly?: boolean;
-}
-
-/** #1600: the part of a surface's grant its readers declare beyond the tier. */
-interface GrantPolicyFacts {
-  readonly allowedSenders?: readonly string[];
-  readonly mentionOnly?: boolean;
 }
 
 export interface DesiredChannels {
@@ -66,17 +49,6 @@ export interface ChannelRuntimeStatus {
 export interface SupervisorDeps {
   readonly desired: () => DesiredChannels;
   readonly build: (component: ChannelComponent) => BuiltChannel;
-  /**
-   * Registers the platform's trusted grant at a tier, naming whether an
-   * Owner instance reads under it (#1569 lane 6); returns its revoker.
-   */
-  readonly grant: (
-    surfaceId: string,
-    defaultTier: Actor.TrustTier,
-    ownerIntake?: boolean,
-    /** #1600: the allowlist and mention-only posture the declarations carry. */
-    policy?: { readonly allowedSenders?: readonly string[]; readonly mentionOnly?: boolean },
-  ) => () => void;
   /** #1600: an Owner instance named its account; the app binds it to the Owner Person. */
   readonly bindAccount?: (platform: string, account: AccountIdentity) => void;
   readonly deliveryRoutes: Map<string, ChannelDeliveryRoute>;
@@ -104,19 +76,6 @@ function mountedStatus(instanceId: string, row: MountedRow): ChannelRuntimeStatu
   return withdrawn === undefined
     ? { id: instanceId, surface: row.surfaceId, state: "mounted" }
     : { id: instanceId, surface: row.surfaceId, state: "withdrawn", detail: withdrawn };
-}
-
-/** The one grant row of a platform and the reading instances holding it. */
-interface PlatformGrant {
-  readonly readers: Map<string, { readonly tier: Actor.TrustTier; readonly owner: boolean; readonly policy: GrantPolicyFacts }>;
-  /** `<tier>:<ownerIntake>` the row is registered at; re-registered when it changes. */
-  registered: string | undefined;
-  revoke: () => void;
-}
-
-/** The tier enum runs from the most trusted down; a larger rank is a lesser tier. */
-function tierRank(tier: Actor.TrustTier): number {
-  return Actor.TrustTier.options.indexOf(tier);
 }
 
 function registerRoute<T>(
@@ -163,53 +122,6 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
   let reconciles: Promise<void> = Promise.resolve();
   let stopping: Promise<void> | undefined;
   const failures = new Map<string, number>();
-  // The platform's ingress grant is one row (#1569 lane 6): the bot and the
-  // Owner instance of one platform both read under it. The row is held while
-  // any reading instance is mounted and revoked with the last; it is
-  // re-registered whenever the readers change, at the least tier any current
-  // reader declares (fail-closed, the grant store's own order) and naming
-  // whether an Owner instance is among them.
-  const grants = new Map<string, PlatformGrant>();
-  const holdGrant = (platform: string, row: DesiredChannelRow): (() => void) => {
-    const held = grants.get(platform) ?? { readers: new Map(), registered: undefined, revoke: () => undefined };
-    held.readers.set(row.instanceId, {
-      tier: row.defaultTier,
-      owner: row.component.identity === "owner",
-      policy: {
-        ...(row.allowedSenders === undefined ? {} : { allowedSenders: row.allowedSenders }),
-        ...(row.mentionOnly === undefined ? {} : { mentionOnly: row.mentionOnly }),
-      },
-    });
-    grants.set(platform, held);
-    settleGrant(platform, held);
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      held.readers.delete(row.instanceId);
-      if (held.readers.size > 0) {
-        settleGrant(platform, held);
-        return;
-      }
-      grants.delete(platform);
-      held.revoke();
-    };
-  };
-  function settleGrant(platform: string, held: PlatformGrant): void {
-    const readers = [...held.readers.values()];
-    // Fail closed: the least trusted tier any reader declares is the platform's.
-    const tier = readers.map((reader) => reader.tier).sort((a, b) => tierRank(b) - tierRank(a))[0];
-    if (tier === undefined) return;
-    const ownerIntake = readers.some((reader) => reader.owner);
-    // #1600: the bot instance's declaration is the platform's posture; an Owner
-    // instance's grant block speaks only where the platform has no bot reader.
-    const policy = (readers.find((reader) => !reader.owner) ?? readers.find((reader) => reader.owner))?.policy ?? {};
-    const wanted = `${tier}:${ownerIntake}:${JSON.stringify(policy)}`;
-    if (held.registered === wanted) return;
-    held.revoke();
-    held.registered = wanted;
-    held.revoke = deps.grant(platform, tier, ownerIntake, policy);
-  }
   let lastStatuses: ChannelRuntimeStatus[] = [];
   let lastSource: DesiredChannels["source"] = "declared";
   // R09: a withdrawal revokes the ready-only history registration and is reported, never left mounted.
@@ -239,15 +151,13 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
 
   async function mountRow(row: DesiredChannelRow, epoch: number): Promise<void> {
     const built = deps.build(row.component);
-    // Routes key by the channel_instance row id. Bot and Owner readers
-    // still share the grant for the inbound facts' platform.
+    // Routes key by the channel_instance row id.
     const surfaceId = built.surface.id;
     if (surfaces.has(surfaceId)) throw new ChannelSurfaceBusy();
     surfaces.add(surfaceId);
     const platform = row.component.id;
     // #1600 lane R3: a webhook declaration's handler is keyed by the instance, never shared with the platform's others.
     const webhookKey = row.component.webhookKey ?? platform;
-    const revokeGrant = row.component.listens ? holdGrant(platform, row) : () => undefined;
     const history = holdHistory(row.instanceId, surfaceId, built);
     const revokers: (() => void)[] = [];
     let closing: Promise<void> | undefined;
@@ -255,7 +165,6 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     const unwind = async (stopSurface: boolean) => {
       history.close();
       for (const revoke of revokers) revoke();
-      revokeGrant();
       if (stopSurface) await stop();
       surfaces.delete(surfaceId);
     };
