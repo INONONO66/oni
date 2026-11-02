@@ -47,7 +47,6 @@ test("#1569 lane 9c: every a2a peer is a roster entry of the one door — mounte
       builds.push(component.id);
       return component.build(async () => undefined);
     },
-    grant: () => () => undefined,
     deliveryRoutes,
     typingRoutes,
     webhookHandlers,

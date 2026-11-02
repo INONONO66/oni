@@ -9,23 +9,23 @@ const suite = residentSuite();
 test("a matched call fact delivers one action without joining a voice route", async () => {
   const f = await automationFixture(suite);
   const target = await f.target();
-  f.stores.automations.add(automationRecord({
-    triggers: [{ type: "call", surface: "discord" }],
-    target: `session:${target}`, kind: "action",
+  f.stores.rules.add(automationRecord({
+    when: { instance: "discord" },
+    then: { target: `session:${target}`, kind: "action", reply: "none" },
   }));
   const result = await f.ingest({ ...automationFacts, event: "call" });
   expect(result.status).toBe("executed");
   if (result.status !== "executed") throw new Error("call automation refused");
   const actions = f.plane.openKernel(target).historyPage(target, { afterRevision: 0 }).actions;
   expect(actions.filter((row) => row.kind === "action" && row.id === result.handle.messageId)).toHaveLength(1);
-  expect(f.stores.automations.decisions(result.handle.messageId)).toContainEqual(expect.objectContaining({
+  expect(f.stores.rules.decisions(result.handle.messageId)).toContainEqual(expect.objectContaining({
     decision: "matched", target: `session:${target}`,
   }));
 });
 
 test("a media-only prompt into a new session leads with the instructions text part", async () => {
   const f = await automationFixture(suite);
-  f.stores.automations.add(automationRecord({ target: "new", kind: "prompt", instructions: "INSTRUCTIONS_SENTINEL" }));
+  f.stores.rules.add(automationRecord({ then: { target: "new", kind: "prompt", reply: "none", instructions: "INSTRUCTIONS_SENTINEL" } }));
   const result = await f.ingest({
     ...automationFacts, render: "",
     attachments: [{ kind: "image", ref: "self:/photo.png", mime: "image/png" }],
@@ -34,7 +34,7 @@ test("a media-only prompt into a new session leads with the instructions text pa
   if (result.status !== "executed") throw new Error("automation refused");
   const received = f.plane.openKernel(result.handle.target).actionById(result.handle.messageId);
   expect(received?.effect.value).toMatchObject({ content: [
-    { kind: "text", text: "INSTRUCTIONS_SENTINEL" },
+    { kind: "text", text: expect.stringMatching(/^INSTRUCTIONS_SENTINEL\n\n/) },
     { kind: "image", ref: "self:/photo.png", mime: "image/png" },
   ] });
 });
@@ -44,9 +44,9 @@ for (const target of ["new", "session"] as const) {
     test(`${target}/${kind} reaches the real entity once with the record's instructions and receipt`, async () => {
       const f = await automationFixture(suite);
       const existing = target === "session" ? await f.target() : undefined;
-      f.stores.automations.add(automationRecord({
-        target: existing === undefined ? "new" : `session:${existing}`, kind,
-        instructions: "INSTRUCTIONS_SENTINEL",
+      f.stores.rules.add(automationRecord({
+        then: { target: existing === undefined ? "new" : `session:${existing}`, kind,
+          reply: "none", instructions: "INSTRUCTIONS_SENTINEL" },
       }));
       const result = await f.ingest();
       expect(result.status).toBe("executed");
@@ -62,21 +62,21 @@ for (const target of ["new", "session"] as const) {
         if (content === null || typeof content !== "object" || Array.isArray(content)) throw new Error("missing action content");
         const parts = Delivery.Content.parse(content.content);
         if (parts[0]?.kind !== "text") throw new Error("missing action text");
-        expect(Ingress.TriggerContext.parse(JSON.parse(parts[0].text)).automationId).toBe("build");
+        expect(Ingress.MatchContext.parse(JSON.parse(parts[0].text)).ruleId).toBe("build");
         if (target === "new")
           expect(kernel.actionById(`${result.handle.messageId}:instructions`)?.effect.value)
             .toMatchObject({ content: [{ kind: "text", text: "INSTRUCTIONS_SENTINEL" }] });
       } else if (target === "new") {
         expect(received?.effect.value).toMatchObject({ content: [
-          { kind: "text", text: "INSTRUCTIONS_SENTINEL\n\nBUILD_SENTINEL" },
+          { kind: "text", text: expect.stringMatching(/^INSTRUCTIONS_SENTINEL\n\n[\s\S]*BUILD_SENTINEL$/) },
         ] });
       }
-      expect(f.stores.automations.decisions(result.handle.messageId)).toContainEqual(expect.objectContaining({
+      expect(f.stores.rules.decisions(result.handle.messageId)).toContainEqual(expect.objectContaining({
         decision: "matched", target: `session:${result.handle.target}`, actionSeq: received?.ordinal,
       }));
       expect(await f.ingest()).toMatchObject({ status: "blocked_pre", reasonCode: "message.external.event_id_dedupe" });
       expect(kernel.actionById(result.handle.messageId)?.ordinal).toBe(received?.ordinal);
-      expect(f.stores.automations.decisions(result.handle.messageId).at(-1)).toMatchObject({
+      expect(f.stores.rules.decisions(result.handle.messageId).at(-1)).toMatchObject({
         decision: "deduped", inboundId: result.handle.messageId,
       });
     });
@@ -85,26 +85,26 @@ for (const target of ["new", "session"] as const) {
 
 test("an unknown judge verdict filters without a session or daily run debit", async () => {
   const f = await automationFixture(suite, "garbage");
-  f.stores.automations.add(automationRecord({ runWhen: "Is the build ready?", limits: { maxRunsPerDay: 1 } }));
+  f.stores.rules.add(automationRecord({ judge: "Is the build ready?", then: { target: "new", kind: "action", reply: "none", maxRunsPerDay: 1 } }));
   const before = f.plane.listSessions().map((row) => row.id);
-  expect(await f.ingest()).toMatchObject({ status: "blocked_pre", reasonCode: "filtered" });
+  expect(await f.ingest()).toMatchObject({ status: "blocked_pre", reasonCode: "none" });
   expect(f.plane.listSessions().map((row) => row.id)).toEqual(before);
-  expect(f.stores.automations.decisions("discord::room:event")).toEqual([expect.objectContaining({
-    decision: "filtered", runWhen: { verdict: "unknown", reason: "judge_unknown" },
+  expect(f.stores.rules.decisions("discord::room:event")).toEqual([expect.objectContaining({
+    decision: "filtered", by: "rule/none",
   })]);
-  expect(f.stores.automations.matchedToday("build", f.time.now)).toBe(0);
+  expect(f.stores.rules.matchedToday("build", f.time.now)).toBe(0);
 });
 
 test("a grouped firing uses the injected clock and backfills the delivered action sequence", async () => {
   const f = await automationFixture(suite);
-  f.stores.automations.add(automationRecord({ grouping: { by: "channel", windowSeconds: 5 } }));
-  expect(await f.ingest()).toMatchObject({ reasonCode: "grouped" });
+  f.stores.rules.add(automationRecord({ group: { by: "thread", windowSeconds: 5 } }));
+  expect(await f.ingest({ ...automationFacts, reply: { chain: [], threadId: "root" } })).toMatchObject({ reasonCode: "grouped" });
   f.time.now += 2000;
-  expect(await f.ingest({ ...automationFacts, eventId: "second", render: "SECOND_SENTINEL" }))
+  expect(await f.ingest({ ...automationFacts, eventId: "second", render: "SECOND_SENTINEL", reply: { chain: [], threadId: "root" } }))
     .toMatchObject({ reasonCode: "grouped" });
   f.time.now += 3000;
   await runAppEffect(f.app.runtime, f.app.gateway.advance(f.time.now));
-  const rows = f.stores.automations.ledger({ limit: 200 });
+  const rows = f.stores.rules.ledger({ limit: 200 });
   const fired = rows.find((row) => row.stage === "automation" && row.decision === "matched");
   expect(fired).toMatchObject({ inboundId: "discord::room:second", decision: "matched" });
   if (fired?.stage !== "automation" || fired.sessionId === undefined) throw new Error("missing firing receipt");
@@ -115,61 +115,56 @@ test("a grouped firing uses the injected clock and backfills the delivered actio
   }));
 });
 
-test("ordinary granted ambient traffic can materialize its first session", async () => {
+test("an explicit conversation rule can materialize its first session", async () => {
   const f = await automationFixture(suite);
   f.stores.actors.registerIdentity({ id: "source", kind: "human", trustTier: "owner" });
-  f.stores.channelGrants.put({
-    id: "grant", surface: "discord", channel: "room", kind: "trusted_channel", createdBy: "owner",
-  });
+  f.stores.rules.add(automationRecord({ then: { target: "conversation", kind: "prompt", reply: "auto" } }));
   const result = await f.ingest();
   expect(result.status).toBe("executed");
   if (result.status !== "executed") throw new Error("granted delivery refused");
   expect(f.plane.openKernel(result.handle.target).actionById(result.handle.messageId)?.kind).toBe("prompt");
 });
 
-test("a generated direct record never promotes an observer grant", async () => {
+test("a disabled conversation rule leaves the message recorded only", async () => {
   const f = await automationFixture(suite);
-  f.stores.channelGrants.put({
-    id: "grant", surface: "discord", channel: "room", kind: "trusted_channel", createdBy: "owner",
-  });
+  f.stores.rules.add(automationRecord({ enabled: false, then: { target: "conversation", kind: "prompt", reply: "auto" } }));
   const before = f.plane.listSessions().map((row) => row.id);
   expect(await f.ingest()).toMatchObject({
-    status: "blocked_pre", reasonCode: "message.external.grant_tier",
+    status: "blocked_pre", reasonCode: "none",
   });
   expect(f.plane.listSessions().map((row) => row.id)).toEqual(before);
 });
 
-test.each(["identity", "blacklist"] as const)("a matched record never bypasses the %s denial", async (denial) => {
+test("a sender restriction refuses an unknown sender before session creation", async () => {
   const f = await automationFixture(suite);
-  f.stores.automations.add(automationRecord());
-  if (denial === "identity") f.stores.actors.removeIdentity("source");
-  else f.stores.blacklist.put({ id: "deny", kind: "actor", value: "source", createdBy: "owner" });
+  f.stores.rules.add(automationRecord({ when: { instance: "discord", from: ["someone-else"] } }));
+  f.stores.actors.removeIdentity("source");
   const before = f.plane.listSessions().map((row) => row.id);
   expect(await f.ingest()).toMatchObject({ status: "blocked_pre" });
   expect(f.plane.listSessions().map((row) => row.id)).toEqual(before);
 });
 
-test("an Owner DM wins over an automation and delivers one prompt", async () => {
+test("the earlier rule wins over a seeded Owner DM and delivers one action", async () => {
   const f = await automationFixture(suite);
-  f.stores.automations.add(automationRecord({
-    triggers: [{ type: "message", surface: "ws", event: "message" }],
+  f.stores.rules.add(automationRecord({
+    when: { instance: "ws" },
   }));
   const target = await f.target();
   const rows = f.plane.openKernel(target).historyPage(target, { afterRevision: 0 }).actions;
   expect(rows.filter((row) => row.id === "ws::room:seed")).toHaveLength(1);
-  expect(rows.filter((row) => row.kind === "action")).toEqual([]);
-  expect(f.stores.automations.ledger({ limit: 200 })).toContainEqual(expect.objectContaining({
-    decision: "superseded", by: "automation/build",
+  expect(rows.filter((row) => row.kind === "action" && row.id === "ws::room:seed")).toHaveLength(1);
+  expect(f.stores.rules.ledger({ limit: 200 })).toContainEqual(expect.objectContaining({
+    decision: "matched", by: "rule/build",
   }));
 });
 
 test("a missing session target records a refused ledger row instead of a dangling match", async () => {
   const f = await automationFixture(suite);
-  f.stores.automations.add(automationRecord({ target: "session:missing" }));
+  f.stores.rules.add(automationRecord({ then: { target: "session:missing", kind: "action", reply: "none" } }));
   const before = f.plane.listSessions().map((row) => row.id);
   await f.ingest().then(() => undefined, () => undefined);
   expect(f.plane.listSessions().map((row) => row.id)).toEqual(before);
-  expect(f.stores.automations.decisions("discord::room:event")).toEqual([expect.objectContaining({
+  expect(f.stores.rules.decisions("discord::room:event")).toEqual([expect.objectContaining({
     decision: "refused", reason: "target_not_found",
   })]);
 });

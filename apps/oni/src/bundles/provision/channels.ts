@@ -1,14 +1,13 @@
-import type { ActorRegistry, ChannelInstanceStore, PersonStore, SecretStore } from "@oni/channels";
+import type { ActorRegistry, ChannelInstanceStore, PersonStore, SecretStore, createRuleStore } from "@oni/channels";
 import { Vault } from "@oni/channels";
-import { type Channel, canonicalDigest, Provisioning } from "@oni/protocol";
+import { type Channel, canonicalDigest, type Provisioning } from "@oni/protocol";
 import { z } from "zod";
 import { CONTACT_ONLY_PROVIDERS, validateProviderCredential, validateProviderSettings } from "../../channels";
 import type { ChannelSupervisor } from "./supervisor";
 import type { KekResolution } from "./vault-key";
-import { refusal } from "./contacts";
+import { refusal, storeRefusal } from "./contacts";
 import type { BundlePort } from "./bundles";
 import { Statuses } from "./status";
-import type { RulePort } from "../../composition/rule-wire";
 import type { MachinePort } from "./machines";
 import type { ComputerPort } from "../seams";
 
@@ -90,7 +89,7 @@ export const ChannelResult = z.discriminatedUnion("op", [
 export interface ProvisionPort {
   readonly computer?: ComputerPort;
   readonly machines?: MachinePort;
-  readonly rules: RulePort;
+  readonly rules: { readonly store: ReturnType<typeof createRuleStore>; readonly id: () => string };
   readonly persons: Pick<PersonStore, "put" | "get" | "list" | "remove">;
   readonly instances: Pick<ChannelInstanceStore, "put" | "get" | "list">;
   readonly secrets: Pick<SecretStore, "put" | "get">;
@@ -249,7 +248,8 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
       port.secrets.put(sealed);
       credentialRef = secretId;
     }
-    port.transaction(() => {
+    try {
+      port.transaction(() => {
       port.instances.put({
         id: input.id, provider: input.provider, identity, enabled: input.enabled, settings,
         ...(credentialRef === undefined ? {} : { credentialRef }),
@@ -259,7 +259,11 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
         revision: (existing?.revision ?? -1) + 1, createdBy, updatedAt: now(),
       });
       seedChannelRules(port.rules.store, input.id, identity, input.from);
-    });
+      });
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      return storeRefusal("channel_add", error);
+    }
     return { id: input.id, action: "declared" as const, statuses: await port.supervisor.reconcile() };
   };
 }
@@ -351,7 +355,7 @@ export function executeSecretRotate(port: ProvisionPort, now: () => number) {
 }
 
 /** Policy defaults belong to app-owned rows; re-declaration preserves disabled seeds and their order. */
-export function seedChannelRules(store: RulePort["store"], instance: string, identity: Channel.Identity,
+export function seedChannelRules(store: ProvisionPort["rules"]["store"], instance: string, identity: Channel.Identity,
   from?: readonly string[]): void {
   for (const selector of ["dm", "addressed"] as const) {
     const id = `seed:${instance}:${selector}`;

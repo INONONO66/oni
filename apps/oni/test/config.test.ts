@@ -58,8 +58,6 @@ const ENV_KEYS = [
   "ONI_MACHINES_TCP_PORT",
   "ONI_MACHINES_TLS_CERT",
   "ONI_MACHINES_TLS_KEY",
-  "ONI_CHANNEL_ALLOWED_SENDERS",
-  "ONI_CHANNEL_MENTION_ONLY",
   "ONI_ACK_REACTION",
   "ONI_BUNDLES_OFF",
 ] as const;
@@ -715,22 +713,6 @@ describe("ws exposure enforcement", () => {
         cooldownMs: 0,
       },
     ]);
-  });
-
-  it("reads per-surface sender allowlists, absent by default", () => {
-    expect(loadConfig().channelAllowedSenders).toBeUndefined();
-    process.env.ONI_CHANNEL_ALLOWED_SENDERS = JSON.stringify({ telegram: ["111"] });
-    expect(loadConfig().channelAllowedSenders).toEqual({ telegram: ["111"] });
-    process.env.ONI_CHANNEL_ALLOWED_SENDERS = "not-json";
-    expect(() => loadConfig()).toThrow("ONI_CHANNEL_ALLOWED_SENDERS is invalid JSON");
-  });
-
-  it("reads the mention-only surface list, absent by default", () => {
-    expect(loadConfig().channelMentionOnly).toBeUndefined();
-    process.env.ONI_CHANNEL_MENTION_ONLY = JSON.stringify(["slack"]);
-    expect(loadConfig().channelMentionOnly).toEqual(["slack"]);
-    process.env.ONI_CHANNEL_MENTION_ONLY = "[]";
-    expect(() => loadConfig()).toThrow("ONI_CHANNEL_MENTION_ONLY");
   });
 
   it("reads the acknowledgement reaction set; absent, blank and off mean none", () => {

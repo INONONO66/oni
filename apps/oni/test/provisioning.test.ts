@@ -6,9 +6,8 @@ import { join } from "node:path";
 import { Vault } from "@oni/channels";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { testPlane } from "./helpers/ledger";
-import { Actor, type Provisioning } from "@oni/protocol";
+import { type Provisioning } from "@oni/protocol";
 import { declaredChannelProfile, validateProviderCredential } from "../src/channels";
-import { MOUNTED_CHANNEL_DEFAULT_TIER } from "../src/gateway";
 import {
   desiredChannels,
   materializePersons,
@@ -210,32 +209,6 @@ describe("boot profile selection (§8.1, §8.4)", () => {
     expect(selection.source).toBe("declared");
     expect(selection.rows).toEqual([]);
     expect(selection.statuses).toEqual([]);
-  });
-
-  // #931: the ChannelInstance grant block is the Owner's tier decision; a
-  // declaration without one mounts at the mount tier, never owner.
-  test("a declared row carries its grant tier, and an undeclared grant mounts at the mount tier", () => {
-    putChannelCredential(
-      plane().stores.secrets,
-      "secret:channel-telegram-main",
-      '{"token":"tg"}',
-      new Uint8Array(32).fill(7),
-      NOW,
-    );
-
-    // Every declared tier threads through exactly: a remap of any single tier
-    // (e.g. observer -> owner) fails here rather than surviving on one literal.
-    for (const tier of Actor.TrustTier.options) {
-      plane().stores.instances.put(instance({ grant: { defaultTier: tier } }));
-      const declaredTier = desiredChannels(provisionStores(), resolveKek({ ONI_VAULT_KEY: KEY_B64 }, state.home), testChannelDeps());
-      expect(declaredTier.rows[0]?.defaultTier).toBe(tier);
-    }
-
-    plane().stores.instances.put(instance({ grant: { allowedSenders: ["tg:1"], mentionOnly: true } }));
-    const noTier = desiredChannels(provisionStores(), resolveKek({ ONI_VAULT_KEY: KEY_B64 }, state.home), testChannelDeps());
-    expect(noTier.rows[0]?.defaultTier).toBe(MOUNTED_CHANNEL_DEFAULT_TIER);
-    // #1600: the allowlist and the mention-only posture ride the row to the grant.
-    expect(noTier.rows[0]).toMatchObject({ allowedSenders: ["tg:1"], mentionOnly: true });
   });
 
   test("a disabled declaration stays unmounted", () => {

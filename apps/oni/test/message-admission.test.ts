@@ -2,6 +2,7 @@ import { sessionTree } from "../../../packages/agent/test/store/helpers/session-
 import { runEffect } from "./helpers/effect";
 import { expect, test } from "bun:test";
 import { Gateway } from "@oni/protocol";
+import { createRuleStore } from "@oni/channels";
 import { messageFixture } from "./helpers/message-fixture";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 
@@ -83,16 +84,9 @@ test("ungranted app actor send is a compiled pre-denial, never an executed deliv
   expect(senderTree().some((action) => action.kind === "policy.decision")).toBe(true);
 });
 
-test("app ingress applies the channel default tier as policy facts, not top-level authority", async () => {
+test("app ingress records an unmatched sender without preparing a session", async () => {
   const fixture = messageFixture();
   directories.push(fixture.directory);
-  fixture.plane.stores.channelGrants.put({
-    id: "observer",
-    surface: "discord",
-    kind: "trusted_channel",
-    defaultTier: "observer",
-    createdBy: "owner",
-  });
   expect(
     await runEffect(fixture.gateway.ingest(
       { kind: "external", surface: "discord", externalId: "guest" },
@@ -106,7 +100,7 @@ test("app ingress applies the channel default tier as policy facts, not top-leve
         render: "instruction",
       },
     )),
-  ).toEqual({ status: "blocked_pre", reasonCode: "message.external.grant_tier" });
+  ).toEqual({ status: "blocked_pre", reasonCode: "none" });
   expect(
     fixture.plane
       .listSessions()
@@ -118,15 +112,12 @@ test("app ingress applies the channel default tier as policy facts, not top-leve
   ).toEqual([]);
 });
 
-test("#1600: a surface's declared default tier admits a stranger at that tier â€” the grant_tier row passes manager", async () => {
+test("an explicit rule admits a stranger without assigning canonical trust", async () => {
   const fixture = messageFixture();
   directories.push(fixture.directory);
-  fixture.plane.stores.channelGrants.put({
-    id: "manager",
-    surface: "discord",
-    kind: "trusted_channel",
-    defaultTier: "manager",
-    createdBy: "owner",
+  createRuleStore(fixture.plane.channel).add({
+    id: "guest", position: 0, enabled: true, createdBy: "owner",
+    when: { instance: "discord" }, then: { target: "conversation", kind: "prompt", reply: "auto" },
   });
   expect(
     (await runEffect(fixture.gateway.ingest(
@@ -139,4 +130,5 @@ test("#1600: a surface's declared default tier admits a stranger at that tier â€
       .listSessions()
       .flatMap((row) => sessionTree(row.id, fixture.plane.sessionStore(row.id).actions).filter((action) => action.kind === "prompt")),
   ).toHaveLength(1);
+  expect(fixture.plane.stores.actors.resolveEndpoint("discord", "guest")).toBeUndefined();
 });

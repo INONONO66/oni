@@ -4,7 +4,6 @@ import {
   type ChannelDeliveryRoute,
   type ProviderDeliveryRoute,
   type ProviderTypingRoute,
-  resolveChannelGrant,
 } from "@oni/channels";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -20,7 +19,6 @@ import { Effect } from "effect";
 import { bootResource } from "../src/composition/boot";
 import { rescanOccurrences } from "../src/composition/cluster-runtime";
 import { gatewayRuntime, runAppBoot } from "../src/gateway";
-import { MOUNTED_CHANNEL_DEFAULT_TIER, registerTrustedChannelGrant } from "../src/gateway";
 import {
   type ChannelSupervisor,
   createChannelSupervisor,
@@ -29,7 +27,6 @@ import {
 } from "../src/bundles/provision/supervisor";
 import { assistantMessage } from "./helpers/assistant-message";
 import { planeOf } from "./helpers/ledger";
-import { planeFixture } from "./helpers/plane-fixture";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
 import { Bus, newTraceId } from "./helpers/bus";
@@ -67,23 +64,23 @@ describe("boot tool catalog", () => {
   });
 });
 
-test("stopping the daemon preserves the durable WebSocket bootstrap grant", async () => {
+test("stopping the daemon preserves durable WebSocket seed rows", async () => {
   const config = suite.config("oni-bootstrap-lifetime-");
   const app = await suite.boot({ config, llm: { resolveModel: fakeProviderModel } });
   if (config.catalogPath === undefined) throw new Error("suite config always sets catalogPath");
   const database = new Database(config.catalogPath, { readonly: true });
   try {
     expect((await fetch(`http://127.0.0.1:${app.port}/health`)).status).toBe(200);
-    const grants = () =>
+    const rules = () =>
       database
         .query<Record<string, string | number | null>, [string]>(
-          "SELECT * FROM channel_grant WHERE id = ?",
+          "SELECT * FROM rule WHERE id = ?",
         )
-        .all("oni-resident-ws");
-    const before = grants();
+        .all("seed:ws:dm");
+    const before = rules();
     expect(before).toHaveLength(1);
     await app.stop();
-    expect(grants()).toEqual(before);
+    expect(rules()).toEqual(before);
   } finally {
     database.close();
   }
@@ -96,7 +93,6 @@ test("stopping the daemon preserves the durable WebSocket bootstrap grant", asyn
 // no kernel/fence equivalent, and boot no longer promotes legacy rows.
 
 describe("channel supervisor", () => {
-  const { plane, channelStores } = planeFixture();
 
   interface FakeChannel {
     readonly component: ChannelComponent;
@@ -161,7 +157,6 @@ describe("channel supervisor", () => {
     const supervisor = createChannelSupervisor({
       desired,
       build: (component) => component.build(async () => undefined),
-      grant: (surface, defaultTier) => registerTrustedChannelGrant(plane().stores.channelGrants, { surface, defaultTier }),
       deliveryRoutes,
       typingRoutes,
       webhookHandlers,
@@ -174,10 +169,9 @@ describe("channel supervisor", () => {
     instanceId: instanceId ?? `channel:${channel.component.id}:main`,
     key,
     component: channel.component,
-    defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER,
   });
 
-  test("a stage owns its grant, route, and webhook; stopAll revokes all of them", async () => {
+  test("a stage owns its route and webhook; stopAll revokes both", async () => {
     const calls: string[] = [];
     const route: ProviderDeliveryRoute = async () => ({ value: "accepted" });
     const typing: ProviderTypingRoute = { everyMs: 4_000, open: async (externalId) => ({ channelId: externalId }), pulse: async () => undefined };
@@ -199,15 +193,6 @@ describe("channel supervisor", () => {
     // in the live webhook table the HTTP surface reads per request.
     expect(deliveryRoutes.has("github")).toBe(false);
     expect(webhookHandlers.has("github")).toBe(true);
-    expect(resolveChannelGrant(channelStores(), { surface: "telegram" })?.grant.kind).toBe("trusted_channel");
-    // #931: the mounted stage's grant carries the row's declared tier — a
-    // named surface never materializes owner authority by mounting.
-    expect(resolveChannelGrant(channelStores(), { surface: "telegram" })?.grant.defaultTier).toBe(
-      MOUNTED_CHANNEL_DEFAULT_TIER,
-    );
-    expect(resolveChannelGrant(channelStores(), { surface: "github" })?.grant.defaultTier).toBe(
-      MOUNTED_CHANNEL_DEFAULT_TIER,
-    );
     expect(supervisor.source()).toBe("declared");
 
     await supervisor.stopAll();
@@ -216,8 +201,6 @@ describe("channel supervisor", () => {
     expect(deliveryRoutes.has("telegram")).toBe(false);
     expect(typingRoutes.has("telegram")).toBe(false);
     expect(webhookHandlers.has("github")).toBe(false);
-    expect(resolveChannelGrant(channelStores(), { surface: "telegram" })).toBeUndefined();
-    expect(resolveChannelGrant(channelStores(), { surface: "github" })).toBeUndefined();
   });
 
   test("#1600 lane R3: a webhook declaration's handler is held under its own key, never the platform's, and leaves with the stage", async () => {
@@ -233,27 +216,6 @@ describe("channel supervisor", () => {
     expect(webhookHandlers.has("webhook")).toBe(false);
     await supervisor.stopAll();
     expect(webhookHandlers.has("webhook:hooky")).toBe(false);
-  });
-
-  // #931 done-means 5: the grant row is observable immediately after the
-  // synchronous part of reconcile resolves, at the row's exact tier, and the
-  // disposal path removes it.
-  test("a row's declared tier is the mounted grant's tier and disposal removes the row", async () => {
-    const calls: string[] = [];
-    const declared = fakeChannel("discord", calls);
-    const { supervisor } = supervisorFor(() => ({
-      source: "declared",
-      rows: [{ ...row(declared, "0:0"), defaultTier: "observer" }],
-      statuses: [],
-    }));
-
-    await supervisor.reconcile();
-
-    expect(resolveChannelGrant(channelStores(), { surface: "discord" })?.grant.defaultTier).toBe("observer");
-
-    await supervisor.stopAll();
-
-    expect(resolveChannelGrant(channelStores(), { surface: "discord" })).toBeUndefined();
   });
 
   test("§8.7 rotation bounces exactly the changed stage, stop before start", async () => {
@@ -299,8 +261,7 @@ describe("channel supervisor", () => {
       state: "start_failed",
       detail: "telegram start refused",
     });
-    // Fail-closed: the stage that never started owns no grant and no route.
-    expect(resolveChannelGrant(channelStores(), { surface: "telegram" })).toBeUndefined();
+    // A stage that never started owns no route.
     expect(deliveryRoutes.has("telegram")).toBe(false);
 
     await supervisor.reconcile();
@@ -309,7 +270,6 @@ describe("channel supervisor", () => {
     const removed = await supervisor.reconcile();
     expect(removed).toEqual([]);
     expect(calls).toEqual(["start:telegram", "stop:telegram"]);
-    expect(resolveChannelGrant(channelStores(), { surface: "telegram" })).toBeUndefined();
   });
 
   test("three consecutive start failures trip the breaker; only resume re-arms it", async () => {
@@ -390,9 +350,6 @@ describe("supervisor status passthrough", () => {
       }),
       build: () => {
         throw new Error("nothing to build");
-      },
-      grant: () => {
-        throw new Error("nothing to grant");
       },
       deliveryRoutes,
       typingRoutes,

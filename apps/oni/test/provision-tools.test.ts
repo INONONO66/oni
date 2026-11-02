@@ -3,7 +3,7 @@ import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Vault } from "@oni/channels";
+import { createRuleStore, Vault } from "@oni/channels";
 import { testPlane } from "./helpers/ledger";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { type PlainObject, Provisioning } from "@oni/protocol";
@@ -50,6 +50,7 @@ function portWith(overrides: Partial<ProvisionPort> = {}): {
 } {
   const supervisor: FakeSupervisor = { calls: [], statuses: [] };
   const port: ProvisionPort = {
+    rules: { store: createRuleStore(plane().channel), id: () => crypto.randomUUID() },
     persons: plane().stores.persons,
     instances: plane().stores.instances,
     secrets: plane().stores.secrets,
@@ -479,7 +480,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     ).toMatchObject({ required: false });
     // The direct path (no consent on the invocation) refuses before anything lands or reconciles.
     await expect(tool.execute({ operation: { op: "channel_add", args } }, context)).rejects.toThrow(
-      "channel:slack:owner: an Owner instance, its outbound grant, a grant block, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
+      "channel:slack:owner: an Owner instance, its outbound grant, sender restrictions, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
     );
     // A webhook declaration naming a url is an outbound destination: the Owner's call, never the Resident's own.
     const target = {
@@ -500,7 +501,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
       ),
     ).toMatchObject({ required: false });
     await expect(tool.execute({ operation: { op: "channel_add", args: target } }, context)).rejects.toThrow(
-      "channel:webhook:out: an Owner instance, its outbound grant, a grant block, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
+      "channel:webhook:out: an Owner instance, its outbound grant, sender restrictions, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
     );
     expect(plane().stores.instances.get("channel:webhook:out")).toBeUndefined();
     expect(plane().stores.instances.get("channel:slack:owner")).toBeUndefined();
@@ -567,7 +568,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     });
     expect(approval({ operation: { op: "channel_add", args: { ...peer, credential: { token: "scout-token" } } } }, context)).toMatchObject({ required: false });
     await expect(tool.execute({ operation: { op: "channel_add", args: peer } }, context)).rejects.toThrow(
-      "channel:a2a:scout: an Owner instance, its outbound grant, a grant block, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
+      "channel:a2a:scout: an Owner instance, its outbound grant, sender restrictions, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
     );
     expect(plane().stores.instances.get("channel:a2a:scout")).toBeUndefined();
     expect(
@@ -911,46 +912,33 @@ test("#1569 lane 8: a Person's `reach` is the Owner's standing grant — contact
   expect(plane().stores.persons.get("person:ranger")?.reach).toBeUndefined();
 });
 
-test("#1600: the grant block is the Owner's — any block suspends for consent bound to the row, a consented block replaces the stored one, a declaration without one keeps it, and an empty allowlist is refused", async () => {
+test("sender restrictions require revision-bound consent and remain on both seed rows", async () => {
   const { port } = portWith();
   const tool = createProvisionTool(port, () => NOW);
   const approval = tool.approval;
   if (approval === undefined) throw new Error("provision declares no approval hook");
-  const context = { sessionId: "provision-session", turnId: "provision-turn", callId: "grant-declare", signal: new AbortController().signal };
+  const context = { sessionId: "provision-session", turnId: "provision-turn", callId: "from-declare", signal: new AbortController().signal };
   const base = { id: "channel:telegram:main", provider: "telegram", enabled: true, credential: { token: "tg-token" } };
-  // Even a narrowing block is the Owner's perimeter decision.
-  expect(approval({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: ["7"], mentionOnly: true } } } }, context)).toEqual({
-    required: true,
-    domainRevisions: { "channel:telegram:main": -1 },
-  });
-  await expect(tool.execute({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: ["7"], mentionOnly: true } } } }, context)).rejects.toThrow(
-    "a grant block, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
-  );
-  expect(plane().stores.instances.get("channel:telegram:main")).toBeUndefined();
-  expect(
-    await tool.execute({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: ["7"], mentionOnly: true } } } }, { ...context, domainRevisions: { "channel:telegram:main": -1 } }),
-  ).toMatchObject({ action: "declared" });
-  expect(plane().stores.instances.get("channel:telegram:main")?.grant).toEqual({ allowedSenders: ["7"], mentionOnly: true });
-  // A declaration without a block is the Resident's own re-declaration: the consented block stays.
-  expect(approval({ operation: { op: "channel_add", args: { id: base.id, provider: base.provider, enabled: true } } }, context)).toMatchObject({ required: false });
-  await tool.execute({ operation: { op: "channel_add", args: { id: base.id, provider: base.provider, enabled: true } } }, context);
-  expect(plane().stores.instances.get("channel:telegram:main")?.grant).toEqual({ allowedSenders: ["7"], mentionOnly: true });
-  // A consented block replaces the stored one: the tier lands, the list and the posture are cleared.
-  expect(approval({ operation: { op: "channel_add", args: { ...base, grant: { defaultTier: "manager" } } } }, context)).toEqual({
-    required: true,
-    domainRevisions: { "channel:telegram:main": 1 },
-  });
-  expect(
-    await tool.execute({ operation: { op: "channel_add", args: { ...base, grant: { defaultTier: "manager" } } } }, { ...context, domainRevisions: { "channel:telegram:main": 1 } }),
-  ).toMatchObject({ action: "declared" });
-  expect(plane().stores.instances.get("channel:telegram:main")?.grant).toEqual({ defaultTier: "manager" });
-  // Widening by re-declaring the list is the same consent, bound to the new revision; an empty list admits nobody and is refused.
-  expect(approval({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: ["7", "8"] } } } }, context)).toEqual({
-    required: true,
-    domainRevisions: { "channel:telegram:main": 2 },
-  });
-  await expect(tool.execute({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: [] } } } }, { ...context, domainRevisions: { "channel:telegram:main": 2 } })).rejects.toThrow();
-  expect(plane().stores.instances.get("channel:telegram:main")?.grant).toEqual({ defaultTier: "manager" });
+  const restricted = { operation: { op: "channel_add" as const, args: { ...base, from: ["7"] } } };
+  expect(approval(restricted, context)).toEqual({ required: true, domainRevisions: { [base.id]: -1 } });
+  await expect(tool.execute(restricted, context)).rejects.toThrow("sender restrictions");
+  expect(plane().stores.instances.get(base.id)).toBeUndefined();
+  expect(await tool.execute(restricted, { ...context, domainRevisions: { [base.id]: -1 } })).toMatchObject({ action: "declared" });
+  const seeds = () => port.rules.store.list().map(({ record }) => record);
+  expect(seeds()).toEqual([
+    expect.objectContaining({ seed: true, createdBy: "owner", when: { instance: base.id, dm: true, isBot: false, from: ["7"] }, then: { target: "conversation", kind: "prompt", reply: "auto" } }),
+    expect.objectContaining({ seed: true, createdBy: "owner", when: { instance: base.id, addressed: true, isBot: false, from: ["7"] }, then: { target: "conversation", kind: "prompt", reply: "auto" } }),
+  ]);
+  port.rules.store.disable(`seed:${base.id}:dm`);
+  const redeclare = { operation: { op: "channel_add" as const, args: { id: base.id, provider: base.provider, enabled: true } } };
+  expect(approval(redeclare, context)).toMatchObject({ required: false });
+  await tool.execute(redeclare, context);
+  expect(seeds().map((row) => [row.enabled, row.when.from])).toEqual([[false, ["7"]], [true, ["7"]]]);
+  const widened = { operation: { op: "channel_add" as const, args: { ...base, from: ["7", "8"] } } };
+  expect(approval(widened, context)).toEqual({ required: true, domainRevisions: { [base.id]: 1 } });
+  expect(await tool.execute(widened, { ...context, domainRevisions: { [base.id]: 1 } })).toMatchObject({ action: "declared" });
+  expect(seeds().map((row) => row.when.from)).toEqual([["7", "8"], ["7", "8"]]);
+  await expect(tool.execute({ operation: { op: "channel_add", args: { ...base, from: [] } } }, { ...context, domainRevisions: { [base.id]: 2 } })).rejects.toThrow();
 });
 
 test("#1600: rotating the session an Owner instance speaks as re-points who the Owner is — the Owner's call, bound to those rows", async () => {

@@ -35,7 +35,6 @@ function historySupervisor(rows: () => readonly DesiredChannelRow[], historyRout
   return createChannelSupervisor({
     desired: () => ({ source: "declared", rows: rows(), statuses: [] }),
     build: (component) => component.build(async () => undefined),
-    grant: () => () => undefined,
     deliveryRoutes: new Map(), typingRoutes: new Map(), webhookHandlers: new Map(),
     historyRoutes, traceId: () => "trace",
   });
@@ -257,10 +256,6 @@ test("gateway history interception answers an Owner while peers and malformed fr
   const plane = testPlane();
   const runtime = gatewayRuntime({ composed: composedHolder(), observations: Bus });
   try {
-    plane.stores.channelGrants.put({
-      id: "ws-owner", surface: "ws", kind: "trusted_channel",
-      defaultTier: "owner", createdBy: "owner",
-    });
     const stores = createChannelStores(channelStoreSource(plane, () => 0));
     const handler = new WebSocketHandler(() => Effect.void, Bus.publish, { now: () => 0, id: testIds("history-gateway") });
     const frames: string[] = [];

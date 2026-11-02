@@ -1,12 +1,10 @@
-import { RuleConfigurationError, RuleEnableRefused, type createRuleStore } from "@oni/channels";
+import { RuleConfigurationError, RuleEnableRefused } from "@oni/channels";
 import { Ingress } from "@oni/protocol";
 import { Effect, Result } from "effect";
 import { ThrownError } from "../thrown";
+import type { ProvisionPort } from "../bundles/provision/channels";
 
-export interface RulePort {
-  readonly store: ReturnType<typeof createRuleStore>;
-  readonly id: () => string;
-}
+type RulePort = ProvisionPort["rules"];
 
 function refused(request: Ingress.RuleRequest, reason: Ingress.RuleRefusalReason): Ingress.RuleRefused {
   return Ingress.RuleRefused.parse({ type: `${request.type}_refused`, requestId: request.requestId, reason, detail: reason });

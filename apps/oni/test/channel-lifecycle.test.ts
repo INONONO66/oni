@@ -12,7 +12,7 @@ async function fixture(scripts: readonly Parameters<typeof fakeTelegramOwner>[0]
   const rows: DesiredChannelRow[] = fakes.map((fake, index) => {
     const runtime = ownerRuntime(fake.sdk, directory);
     return {
-      instanceId: `channel:telegram:owner-${index}`, key: "one", defaultTier: "owner",
+      instanceId: `channel:telegram:owner-${index}`, key: "one",
       component: { id: "telegram", identity: "owner", listens: true, build: () => runtime },
     };
   });
@@ -22,7 +22,6 @@ async function fixture(scripts: readonly Parameters<typeof fakeTelegramOwner>[0]
   const supervisor = createChannelSupervisor({
     desired: () => ({ source: "declared", rows, statuses: [] }),
     build: (component) => component.build(async () => undefined),
-    grant: () => () => undefined,
     bindAccount: (_platform, account) => { bound.push(account.externalId); },
     deliveryRoutes: delivery, historyRoutes: history,
     typingRoutes: new Map(), webhookHandlers: new Map(), traceId: () => "lifecycle",
