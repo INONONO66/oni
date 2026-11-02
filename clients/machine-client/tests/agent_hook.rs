@@ -131,23 +131,21 @@ async fn claude_hook_round_trip_carries_the_host_verdict() {
 }
 
 #[tokio::test]
-async fn pi_and_omp_hooks_allow_on_exit_zero_and_block_on_refusal() {
+async fn pi_hook_allows_on_exit_zero_and_blocks_on_refusal() {
     let socket = socket();
     let server = serve(&socket.path, Host::Allow);
-    for cli in ["pi", "omp"] {
-        let allowed = hook_run(cli, &pi_input(), &socket.path).await;
-        assert_eq!(
-            allowed,
-            Outcome {
-                code: 0,
-                stdout: String::new(),
-                stderr: String::new()
-            }
-        );
-    }
+    let allowed = hook_run("pi", &pi_input(), &socket.path).await;
+    assert_eq!(
+        allowed,
+        Outcome {
+            code: 0,
+            stdout: String::new(),
+            stderr: String::new()
+        }
+    );
     server.abort();
     let server = serve(&socket.path, Host::Elsewhere);
-    let mismatched = hook_run("omp", &pi_input(), &socket.path).await;
+    let mismatched = hook_run("pi", &pi_input(), &socket.path).await;
     blocked(&mismatched, "oni: permission answer names another request");
     server.abort();
 }
@@ -162,7 +160,7 @@ async fn every_failure_blocks() {
         "{unreachable:?}"
     );
 
-    for cli in ["codex", "unknown"] {
+    for cli in ["codex", "omp", "unknown"] {
         let outcome = hook_run(cli, &pi_input(), &socket.path).await;
         assert_eq!(outcome.code, 2, "{cli}");
     }
