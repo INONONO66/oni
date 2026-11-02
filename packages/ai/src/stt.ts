@@ -42,7 +42,7 @@ export function makeStt(input: {
   readonly rows?: readonly ProviderRow[];
   readonly transport?: Transport;
   readonly model?: Model.Ref;
-  /** Receives one `llm.transcription.completed` row per settled provider call. */
+  /** Receives one row per settled provider call: `llm.transcription.completed` or `llm.transcription.failed`. */
   readonly events: BusEvent.Sink;
   readonly now: () => number;
 }): Stt {
@@ -62,7 +62,12 @@ export function makeStt(input: {
         // Retries belong to the caller, as for `run`: one attempt per invocation.
         try: (abortSignal) => transcribe({ model: sdk.transcription(modelId), audio: audio.bytes, maxRetries: 0, abortSignal }),
         catch: decodeLlmFailure("stt.transcribe"),
-      });
+      }).pipe(Effect.tapError((error) => Effect.sync(() => {
+        const time = input.now();
+        input.events.publish(LlmCall.Events.TranscriptionFailed, {
+          traceId: audio.traceId, time, provider: row.id, model: modelId, inputBytes: audio.bytes.byteLength, durationMs: time - startedAt, error: error.message,
+        });
+      })));
       const time = input.now();
       input.events.publish(LlmCall.Events.TranscriptionCompleted, {
         traceId: audio.traceId, time, provider: row.id, model: modelId, inputBytes: audio.bytes.byteLength, durationMs: time - startedAt,

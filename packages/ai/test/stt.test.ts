@@ -96,12 +96,14 @@ describe("Stt", () => {
     ]);
   });
 
-  test("a failed provider call publishes no row", async () => {
+  test("a failed provider call publishes exactly one llm.transcription.failed row", async () => {
     globalThis.fetch = mockFetch(() => new Response("{\"error\":{\"message\":\"down\"}}", { status: 500 }));
     const events = collector();
-    const failed = await runTestExit(stt({ authFilePath: await authFile(), rows: [openai], events }).transcribe(audio));
+    const failed = await runTestExit(stt({ authFilePath: await authFile(), rows: [openai], events, now: ticking() }).transcribe(audio));
     expect(Exit.isFailure(failed)).toBe(true);
-    expect(events.events).toEqual([]);
+    expect(events.events.map((event) => event.name)).toEqual(["llm.transcription.failed"]);
+    const [row] = events.named("llm.transcription.failed");
+    expect(row).toEqual({ traceId: "trace-stt-1", time: 1_080, provider: "openai", model: "whisper-1", inputBytes: 7, durationMs: 40, error: expect.any(String) });
   });
 
   test("the model id comes from the row, not the code", async () => {

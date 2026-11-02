@@ -64,6 +64,14 @@ describe("LlmCall BusEvents", () => {
     }
   });
 
+  test("TranscriptionFailed carries the completed row's identity plus the error message", () => {
+    const row = { traceId: "test-trace-id", time: 10, provider: "openai", model: "gpt-4o-transcribe", inputBytes: 7, durationMs: 250, error: "down" };
+    expect(LlmCall.Events.TranscriptionFailed.schema.parse(row)).toEqual(row);
+    expect(LlmCall.Events.TranscriptionFailed.name).toBe("llm.transcription.failed");
+    expect(LlmCall.Events.TranscriptionFailed.visibility).toBe("llm_reason");
+    expect(LlmCall.Events.TranscriptionFailed.schema.safeParse({ ...row, error: undefined }).success).toBe(false);
+  });
+
   test("Completed rejects negative and fractional token counts", () => {
     const valid = {
       ...base,

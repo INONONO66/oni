@@ -69,6 +69,21 @@ export namespace LlmCall {
       { visibility: "llm_reason" },
     );
 
+    /** One speech-to-text provider call that failed; same identity as the completed row plus the error message. */
+    export const TranscriptionFailed = BusEvent.define(
+      "llm.transcription.failed",
+      z.object({
+        traceId: z.string(),
+        time: EpochMs,
+        provider: z.string(),
+        model: z.string(),
+        inputBytes: z.number().int().nonnegative(),
+        durationMs: z.number(),
+        error: z.string(),
+      }),
+      { visibility: "llm_reason" },
+    );
+
     export const RetryDecided = BusEvent.define(
       "llm.call.retry.decided",
       Base.extend({
