@@ -8,8 +8,9 @@ import {
   AGENT_PERMISSION_HOST_DEADLINE_MS,
   createAgentPermissionPort,
 } from "../src/bundles/approval-policy/agent-permission";
+import type { ProvisionPort } from "../src/bundles/provision/channels";
 import { executePermission } from "../src/bundles/provision/machines";
-import { provisionApproval } from "../src/bundles/provision/execution";
+import { executeProvision, provisionApproval } from "../src/bundles/provision/execution";
 import { runEffect, runSyncEffect } from "./helpers/effect";
 
 const OWNER = "session-owner";
@@ -117,16 +118,20 @@ test("a row the owning session cannot take is an incident and a refusal", async 
   expect(incidents).toEqual([`agent permission request ${KEY} was not delivered to ${OWNER}`]);
 });
 
-test("provision permission_allow needs Owner consent before it records, permission_deny records at once", () => {
+test("provision permission_allow needs Owner consent before it records, permission_deny records at once", async () => {
   const { port } = harness();
   const approval = provisionApproval(undefined);
+  // The provision tool routes both permission ops to the composed permission port.
+  const execute = executeProvision({ permissions: port } as Pick<ProvisionPort, "permissions"> as ProvisionPort, () => 1_000);
+  expect(await execute({ operation: { op: "permission_allow", args: REF } }, context))
+    .toEqual({ op: "permission_allow", result: { type: "require_approval", id: "req-1" } });
   expect(approval({ operation: { op: "permission_allow", args: REF } })).toEqual({ required: true, domainRevisions: {} });
   expect(approval({ operation: { op: "permission_deny", args: REF } })).toEqual({ required: false, domainRevisions: {} });
   expect(executePermission(port, { op: "permission_allow", args: REF }, context))
     .toEqual({ op: "permission_allow", result: { type: "require_approval", id: "req-1" } });
   expect(executePermission(port, { op: "permission_allow", args: REF }, { ...context, domainRevisions: {} }))
     .toEqual({ op: "permission_allow", result: { kind: "recorded", status: "allowed" } });
-  expect(executePermission(port, { op: "permission_deny", args: REF }, context))
+  expect(await execute({ operation: { op: "permission_deny", args: REF } }, context))
     .toEqual({ op: "permission_deny", result: { kind: "exists", status: "allowed" } });
   expect(() => executePermission(port, { op: "permission_deny", args: { ...REF, agentSessionId: "agent-x" } }, context))
     .toThrow(new Core.ToolRefused("provision", "no cli turn of this session owns agent session agent-x"));
