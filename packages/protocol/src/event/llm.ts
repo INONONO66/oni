@@ -114,6 +114,41 @@ export namespace LlmCall {
       { visibility: "llm_reason" },
     );
 
+    /**
+     * One settled image-generation provider call: how many images the
+     * caller asked for and the byte total the provider returned. Generation
+     * runs behind a tool port, so the row carries the caller's trace id and
+     * no session or run identity.
+     */
+    export const ImageCompleted = BusEvent.define(
+      "llm.image.completed",
+      z.object({
+        traceId: z.string(),
+        time: EpochMs,
+        provider: z.string(),
+        model: z.string(),
+        n: z.number().int().positive(),
+        bytes: z.number().int().nonnegative(),
+        durationMs: z.number(),
+      }),
+      { visibility: "llm_reason" },
+    );
+
+    /** One image-generation provider call that failed; same identity as the completed row plus the error message. */
+    export const ImageFailed = BusEvent.define(
+      "llm.image.failed",
+      z.object({
+        traceId: z.string(),
+        time: EpochMs,
+        provider: z.string(),
+        model: z.string(),
+        n: z.number().int().positive(),
+        durationMs: z.number(),
+        error: z.string(),
+      }),
+      { visibility: "llm_reason" },
+    );
+
     export const RetryDecided = BusEvent.define(
       "llm.call.retry.decided",
       Base.extend({
