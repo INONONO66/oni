@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ProviderRowsError } from "../errors";
 import bundled from "./bundled-rows.json";
 
-const BUNDLED_NPM = ["@ai-sdk/anthropic", "@ai-sdk/openai"] as const;
+const BUNDLED_NPM = ["@ai-sdk/anthropic", "@ai-sdk/google", "@ai-sdk/openai"] as const;
 
 export const ProviderRow = z
   .object({
