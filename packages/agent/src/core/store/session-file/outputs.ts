@@ -26,7 +26,7 @@ const ToolOutputSqlRow = z.object({
  * Content-addressed tool output storage: `put` is idempotent — the identifier
  * is the sha256 digest of the stored bytes themselves, whatever the media
  * type, so a media id (`image/png`, `audio/ogg`, ...) names exactly the bytes
- * `get` hands back, never a transcoded or decoded view of them (#1783).
+ * `get` hands back, never a transcoded or decoded view of them.
  */
 export interface ToolOutputsAdapter {
   put(write: ToolOutputWrite): void;

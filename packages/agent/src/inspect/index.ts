@@ -474,7 +474,7 @@ export type ToolOutputBytesInspection =
       readonly kind: "output";
       readonly outputId: string;
       readonly mediaType?: string;
-      /** The bytes the identifier digests, undecoded (#1783). */
+      /** The bytes the identifier digests, undecoded. */
       readonly bytes: Uint8Array;
     }
   | { readonly kind: "unknown_output"; readonly outputId: string };
@@ -500,7 +500,7 @@ export function toolOutput(
 }
 
 /**
- * The raw read beside `toolOutput` (#1783): a media output (`image/png`,
+ * The raw read beside `toolOutput`: a media output (`image/png`,
  * `audio/ogg`, ...) is bytes whose identifier digests them, and a UTF-8
  * decode would not survive the round trip, so the bytes come back as stored
  * with the media type they were stored under.
