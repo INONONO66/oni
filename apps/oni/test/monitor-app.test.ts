@@ -12,7 +12,6 @@ import { planeOf } from "./helpers/ledger";
 import { residentSuite, fakeProviderModel } from "./helpers/resident-suite";
 import { attachAppMclient, mclientBinary } from "./helpers/mclient";
 import { testSelfMachine } from "./helpers/self-machine";
-import { routeAlarmToSession } from "./helpers/automation";
 
 const suite = residentSuite();
 beforeAll(mclientBinary, 300_000);
@@ -84,7 +83,7 @@ function alarmPrompts(plane: Plane, sessionId: string, watchId: string) {
   return sessionTree(sessionId, plane.sessionStore(sessionId).actions).filter((action) => {
     if (action.kind !== "prompt") return false;
     const intent = action.intent.value as { surface?: string; conversation?: { channelId: string }; rule?: { id: string } };
-    return intent.surface === "alarm" && intent.rule?.id === `alarm:${sessionId}` && intent.conversation?.channelId === `monitor:${watchId}`;
+    return intent.surface === "alarm" && intent.rule?.id === "seed:alarm" && intent.conversation?.channelId === `monitor:${watchId}`;
   });
 }
 
@@ -123,7 +122,6 @@ test("app monitor source escapes the creating tool wave and wakes the session on
   await awaitWaiting(plane, () => sendPrompt(ws, "watch for the signal"), "monitor did not suspend", 5000);
   const arm = createdWatch(plane);
   const kernel = plane.openKernel(arm.sessionId);
-  routeAlarmToSession(plane, arm.sessionId);
   expect(calls).toBe(1);
   const chain = foldAlarmChains(kernel, arm.sessionId).get(arm.watchId);
   if (chain === undefined) throw new Error("no armed chain");
@@ -211,7 +209,6 @@ test("a monitor watch observes a named tmux terminal and leaves it open", async 
   expect(Bun.spawnSync(["tmux", "-L", tmuxSocket, "has-session", "-t", "qa"], { stderr: "pipe" }).exitCode).toBe(0);
   const arm = createdWatch(plane);
   const wake = onResult(plane, arm.sessionId, "terminal watch wake timed out", 15_000);
-  routeAlarmToSession(plane, arm.sessionId);
   suite.defer(wake.close);
   // printf's format string avoids matching the typed keystroke echo.
   expect(Bun.spawnSync(["tmux", "-L", tmuxSocket, "send-keys", "-t", "qa", "-l", "printf 'WAKE-%d\\n' 7342"]).exitCode).toBe(0);

@@ -187,7 +187,7 @@ The profile's Grant carries two fields evaluated together (formerly two separate
 - **Channel ceiling** — per-surface policy: what any actor may do through this surface. The ceiling has a kind — `trusted_channel` (full access for registered actors, default tier for unregistered), `broadcast_channel` (inbound allowed but treated as evidence-only: data, never instructions), `blocked_channel` (inbound dropped silently except request correlation matches) — refined by an `inboundTreatment` override (`normal | evidence_only | owner_review | block`). **The channel is a ceiling**: even a registered owner in a public channel may be restricted from sensitive operations; personal grant beats channel default but never exceeds the ceiling.
 - **Worker egress** — what an executor may do outbound: which existing actors/channels it may contact, whether it may ask the Resident, and any explicitly granted lifecycle action on existing work. Worker egress never includes new Worker creation. A Worker contacting an external actor gets tools limited to result reporting, clarification, and artifact attachment; external responses are data, never instructions; its session is isolated from user sessions. No deleted memory policy point or built-in recall port confers authority.
 
-**Blacklist is absolute** and checked before all other evaluation, inbound and outbound — a Worker cannot contact a blacklisted target; the outbound attempt fails with reason. Entries: `{ kind: actor | endpoint | channel | pattern, value, reason?, expiresAt?, createdBy }`.
+**Inbound admission is the ordered rule table** (`Ingress.Rule`, #1793; shipped state in `docs/implementation-status.md`): the first enabled row whose `when` facts match decides `drop`, `record` or `deliver`, and no row records the inbound without delivery. A rule admits a message, never a sender's authority: an admitted sender the actor registry does not hold is delivered as evidence. There is no separate blacklist layer: a `drop` row at the head of the table is the silent drop with its decision receipt, and outbound reach is bounded by worker egress and the social budget below.
 
 **Social budget** bounds what the system spends of the Owner's reputation: per-contact outreach frequency caps, cooldowns, a do-not-contact list, and a per-channel disclosure policy. First contact with a stranger is approval-gated; replies within an existing thread are not. Where a platform forbids automation, egress degrades to owner-mediated send (the system drafts, the Owner taps send) — modeled as just another executor, not an exception.
 
@@ -209,8 +209,7 @@ the generation can load. The kernel never rewrites them while loading.
 Not a stored value — a computation performed per request, intersecting five dimensions:
 
 ```
-allow = NOT blacklisted
-      ∩ channel ceiling
+allow = first matching Ingress.Rule delivers (#1793; no rule, drop or record → not admitted)
       ∩ (personal grant || channel default grant)
       ∩ session ownership grant
       ∩ original-request scope (allowedActions)
@@ -222,10 +221,9 @@ Any dimension missing → deny. Authority comes from verified identity and grant
 
 Fixed evaluation order for every inbound message:
 
-1. **Blacklist** — match → silent drop, audit record only.
-2. **Request correlation** — correlation match routes to the original action's session before surface routing; the kernel decides whether the authenticated answer may continue it.
-3. **Channel allowed?** — not allowed → block.
-4. **Actor identification** — registered → personal grant; unregistered → channel default tier; neither → block.
+1. **Request correlation** — correlation match routes to the original action's session before any rule is read; the kernel decides whether the authenticated answer may continue it.
+2. **Rule table** — the first enabled `Ingress.Rule` whose `when` matches decides: `drop` (silent, decision receipt only), `record` (receipt, no delivery) or `deliver` (target `new`, `conversation` or `session:<id>`, as prompt or action). No match → recorded, never delivered.
+3. **Actor identification** — registered → its tier; unregistered → delivered `evidence_only`. A rule never raises a sender's tier.
 
 Ingress uses `gateway.ingest(sender, envelope)`. Physical reply matching supplies `requestContext` with the original action and allowed response; it does not settle a second lifecycle. The kernel admits normalized answers under the receiving session's fence, and ledger commits the request decision and its receiving input together. Surface identity and action-derived correlation remain different read questions: the default session is not a substitute for an explicit outstanding request. Late or refused answers never become fresh conversational prompts.
 
@@ -491,7 +489,7 @@ The target read capability excludes policy, Skill, disclosure, remediation, egre
 
 - Autonomous: routing hints; numeric tightening (lower retry caps, lower budgets, narrower tool sets); recording and alerting.
 - Approval required: numeric loosening; skill/prompt/template changes; new verification checks; anything expanding any actor's autonomy.
-- Never (kernel-enforced floor): blacklist, social-budget ceilings, approval-tier definitions, safety constraints, kernel code, its own write permissions. Proposable, never self-applicable.
+- Never (kernel-enforced floor): seed rule rows (disable only, never delete), social-budget ceilings, approval-tier definitions, safety constraints, kernel code, its own write permissions. Proposable, never self-applicable.
 - Rate limits: at most one active change per fingerprint; at most M autonomous changes per day; every applied change is journaled with a scope tag.
 
 **Regression ratchet.** Every applied change opens a canary window (the next N tasks of the affected type). Two consecutive same-type failures inside the window → automatic rollback plus an immediate-lane RCA on the change itself — a bad fix is just another incident whose root cause is a recent change, visible because changes are journaled. No separate regression machinery; rollback triggers are simple counting rules, not statistics (a personal system's samples are too small for significance, and a false rollback costs only a restore).

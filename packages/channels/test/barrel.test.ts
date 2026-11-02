@@ -37,6 +37,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "createWebhookSender",
     "decodeChannelFailure",
     "inboundOnce",
+    "ingressSurfaceKey",
     "openChannelStore",
     "scheduleTickChannel",
     "signWebhookBody",

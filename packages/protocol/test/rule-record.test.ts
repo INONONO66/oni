@@ -27,11 +27,6 @@ test.each([
   expect(Ingress.Rule.safeParse({ ...record, ...overrides }).success).toBe(false);
 });
 
-test("retains the closed grouping windows", () => {
-  for (const window of [0, 5, 10, 20, 30, 60] as const) expect(Ingress.WindowSeconds.parse(window)).toBe(window);
-  expect(Ingress.WindowSeconds.safeParse(61).success).toBe(false);
-});
-
 test.each(["drop", "record"] as const)("a %s outcome contains no delivery fields", (kind) => {
   expect(Ingress.Rule.parse({ ...record, outcome: { kind } }).outcome).toEqual({ kind });
   expect(Ingress.Rule.safeParse({ ...record, outcome: { kind, target: "new" } }).success).toBe(false);

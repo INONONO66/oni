@@ -359,7 +359,7 @@ export function seedChannelRules(store: ProvisionPort["rules"]["store"], instanc
     store.add({
       id, position: previous?.position ?? store.list().length,
       enabled: previous?.enabled ?? true, createdBy: "owner", seed: true,
-      when: { instance, [selector]: true, isBot: false, ...(senders === undefined ? {} : { from: [...senders] }) },
+      when: { instance, [selector]: true, event: "message", isBot: false, ...(senders === undefined ? {} : { from: [...senders] }) },
       outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: identity === "owner" ? "draft" : "auto",
         ...(identity === "owner" ? { as: instance } : {}) },
     }, true);

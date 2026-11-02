@@ -11,6 +11,7 @@ export const RefusalReason = z.enum([
   "require_approval",
   "invalid_record",
   "store_unconfigured",
+  "store_failed",
   "seed_protected",
   "invalid_position",
 ]);
@@ -29,7 +30,8 @@ export type LedgerFilter = z.infer<typeof LedgerFilter>;
 export const Request = z.discriminatedUnion("type", [
   Correlation.extend({
     type: z.literal("rule_add"),
-    record: Rule.extend({ id: Id.optional() }),
+    // Seed rows are the composing app's alone: a client never mints one, so nothing undeletable comes in over the wire.
+    record: Rule.omit({ seed: true }).extend({ id: Id.optional() }),
   }).strict(),
   Correlation.extend({ type: z.literal("rule_remove"), id: Id }).strict(),
   Correlation.extend({ type: z.literal("rule_enable"), id: Id }).strict(),

@@ -226,3 +226,19 @@ test.each([0, 10] as const)("egress denial also governs %s-second automation del
     expect.objectContaining({ decision: "refused", reason: "message.external.egress_budget" }),
   ]);
 });
+
+test.each([
+  ["an unregistered sender", false, "evidence_only"],
+  ["the registered owner", true, "full_access"],
+] as const)("a rule admits %s's message without lending it authority", async (_label, registered, treatment) => {
+  if (registered) registerOwnerDm();
+  trigger({ outcome: { kind: "deliver", target: "session:worker", deliveryKind: "prompt", reply: "none" } });
+  const router = makeRouter();
+  expect(await runEffect(router.ingest(ownerSender, facts))).toMatchObject({ status: "executed" });
+  expect(routingDecisions().filter((row) => row.inboundId === id && row.stage === "surface_default")).toEqual([
+    expect.objectContaining({ outcome: "route", sessionId: "worker",
+      ...(registered ? { trustTier: "owner" } : { inboundTreatment: "evidence_only" }) }),
+  ]);
+  expect(commits).toHaveLength(1);
+  expect(commits[0]?.origin.value).toMatchObject({ inboundTreatment: treatment });
+});

@@ -12,7 +12,6 @@ import { eventSignal } from "./helpers/event-signal";
 import { planeOf } from "./helpers/ledger";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
-import { routeAlarmToSession } from "./helpers/automation";
 
 const suite = residentSuite();
 
@@ -71,7 +70,6 @@ test("the app reconciles a lost create on TestClock cadence and retires it on mo
     expect((await installed).kind).toBe("waiting");
     const sessionId = plane.listSessions().find((row) => row.id !== "gateway-ingress")?.id;
     if (sessionId === undefined) throw new Error("missing watch session");
-    routeAlarmToSession(plane, sessionId);
     const kernel = plane.openKernel(sessionId);
     watchId = kernel.armedAlarms().find((row) => row.purpose === "monitor.hit")?.alarmId;
     if (watchId === undefined) throw new Error("missing monitor watch");

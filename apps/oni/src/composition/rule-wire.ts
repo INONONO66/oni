@@ -1,13 +1,14 @@
 import { RuleConfigurationError, RuleEnableRefused } from "@oni/channels";
 import { Ingress } from "@oni/protocol";
 import { Effect, Result } from "effect";
+import { z } from "zod";
 import { ThrownError } from "../thrown";
 import type { ProvisionPort } from "../bundles/provision/channels";
 
 type RulePort = ProvisionPort["rules"];
 
-function refused(request: Ingress.RuleRequest, reason: Ingress.RuleRefusalReason): Ingress.RuleRefused {
-  return Ingress.RuleRefused.parse({ type: `${request.type}_refused`, requestId: request.requestId, reason, detail: reason });
+function refused(request: Ingress.RuleRequest, reason: Ingress.RuleRefusalReason, detail: string = reason): Ingress.RuleRefused {
+  return Ingress.RuleRefused.parse({ type: `${request.type}_refused`, requestId: request.requestId, reason, detail });
 }
 
 function respond(port: RulePort, request: Ingress.RuleRequest,
@@ -18,10 +19,10 @@ function respond(port: RulePort, request: Ingress.RuleRequest,
     case "rule_add": {
       const id = request.record.id ?? port.id();
       if (caller !== "owner" && store.get(id) !== undefined) return refused(request, "require_approval");
+      // A session's row lands disabled, awaiting the Owner's enable; the answer carries it so the proposal is addressable.
       const entry = store.add({ ...request.record, id, createdBy: caller,
-        seed: caller === "owner" && request.record.seed === true,
         enabled: caller === "owner" && request.record.enabled }, caller === "owner");
-      return caller === "owner" ? { type: "rule_added", requestId, record: entry.record } : refused(request, "require_approval");
+      return { type: "rule_added", requestId, record: entry.record };
     }
     case "rule_list": return { type: "rule_listed", requestId, records: store.list().map((entry) => entry.record) };
     case "rule_ledger": {
@@ -53,6 +54,9 @@ export function ruleWire(port: RulePort | undefined) {
     const error = result.failure;
     if (error instanceof RuleEnableRefused)
       return refused(request, error.reason === "approval_required" ? "require_approval" : error.reason);
-    return refused(request, error instanceof RuleConfigurationError ? "store_unconfigured" : "invalid_record");
+    if (error instanceof RuleConfigurationError) return refused(request, "store_unconfigured");
+    if (error instanceof z.ZodError) return refused(request, "invalid_record", error.message);
+    // Any other failure is the store's, not the record's: the frame names the cause so nothing reads as a bad request.
+    return refused(request, "store_failed", error.message);
   });
 }

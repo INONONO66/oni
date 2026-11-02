@@ -15,18 +15,23 @@ The `rule` and `rule_*` tables replace the former automation tables;
 channel grants, blacklist matching, environment posture readers and synthesized
 direct records are removed. Channels schema version 2 refuses older stores
 without migration. Add, move, enable, disable and remove are store operations;
-seed deletion is refused. The correlated `rule_*` WebSocket API includes
-ledger reads; no provision rule tool exists. The desktop editor uses the same
-contract and supports all three outcomes.
+seed deletion is refused, and a wire `rule_add` record cannot declare itself a
+seed (`invalid_record`). A rule admits a message, never a sender's authority:
+an admitted sender the actor registry does not hold is delivered
+`evidence_only`; a registered sender keeps its tier. The correlated `rule_*`
+WebSocket API includes ledger reads; a failing store answers `store_failed`;
+no provision rule tool exists. The desktop editor uses the same contract and
+supports all three outcomes.
 
 On `channel_add`, the app persists non-bot DM and addressed-message seeds.
 Both target the conversation as prompts: bot replies are automatic; Owner
 account replies are drafts with `as` pinned to the instance. Optional `from`
 restricts both seeds. Re-declaration preserves order and disabled state.
-The alarm seed routes instance `alarm` to `session:main` as an action with
-no reply. Lifecycle tests that require a same-session prompt declare that row
-explicitly. Agent selection remains opaque to channels and uses the app-owned
-#1796 profile resolver when a new session is created.
+The alarm seed is the last row: instance `alarm` delivers to the conversation
+as a prompt with no reply, and the arming session claims its own
+`alarm:dm:session:<id>` conversation key on the first tick, so a fired alarm
+wakes the session that armed it. Agent selection remains opaque to channels
+and uses the app-owned #1796 profile resolver when a new session is created.
 
 Conversation keys are `<instance>:channel:<channelId>:thread:<root>`, with
 top-level messages as their own roots, or `<instance>:dm:<peerId>`. The first

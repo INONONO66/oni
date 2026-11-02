@@ -27,7 +27,6 @@ import { nextFrame } from "./helpers/ws";
 import { approvalPolicy } from "./helpers/approval-policy";
 import { declarePerson } from "./helpers/declared-channel";
 import { materializeResident } from "./helpers/resident-materialize";
-import { routeAlarmToSession } from "./helpers/automation";
 
 const suite = residentSuite();
 
@@ -628,7 +627,6 @@ test("boot rescan wakes armed idle sessions and skips ghost catalog rows and nat
 async function seedArmedSession(plane: Awaited<ReturnType<typeof planeOf>>, sessionId: string) {
   const kernel = plane.openKernel(sessionId);
   await materializeResident(plane, sessionId, kernel.currentPolicyGeneration());
-  routeAlarmToSession(plane, sessionId);
   const fence = await runEffect(adoptTestFence(kernel, sessionId, "fault-seeder"));
   const due = Core.armAction({
     parentId: `${sessionId}:materialize`,

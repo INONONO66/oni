@@ -100,9 +100,9 @@ test("the Owner's socket declares a channel, seals its credential, and reads bac
   expect(f.stores.rules.list().filter(({ record }) => record.when.instance === "channel:slack:owner").map(({ record }) => ({
     when: record.when, outcome: record.outcome,
   }))).toEqual([
-    { when: { instance: "channel:slack:owner", dm: true, isBot: false, from: ["T1:U-friend"] },
+    { when: { instance: "channel:slack:owner", dm: true, event: "message", isBot: false, from: ["T1:U-friend"] },
       outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "draft", as: "channel:slack:owner" } },
-    { when: { instance: "channel:slack:owner", addressed: true, isBot: false, from: ["T1:U-friend"] },
+    { when: { instance: "channel:slack:owner", addressed: true, event: "message", isBot: false, from: ["T1:U-friend"] },
       outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "draft", as: "channel:slack:owner" } },
   ]);
   if (instance?.credentialRef === undefined) throw new Error("the declared credential was not sealed");

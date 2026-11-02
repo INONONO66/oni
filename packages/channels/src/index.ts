@@ -39,6 +39,7 @@ export {
 export { createActorRegistry, type ActorRegistry } from "./store/actor/index.js";
 export { createRuleStore, RuleEnableRefused } from "./store/rule/index.js";
 export { scheduleTickChannel } from "./automation/matcher.js";
+export { ingressSurfaceKey } from "./router/automation/input.js";
 export { createEgressBudgetStore } from "./store/egress/index.js";
 export {
   createChannelInstanceStore,

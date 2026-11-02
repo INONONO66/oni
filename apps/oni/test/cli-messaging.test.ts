@@ -62,6 +62,17 @@ test.each(["slack", "telegram", "github", "webhook", "a2a", "linear", "instagram
   expect(messagingReadiness({ instances: [{ ...row, enabled: false }], persons: [], sealed: new Set() }).ok).toBe(true);
 });
 
+test("the report names where the Owner is known and that delivery follows the rule table", () => {
+  const row = instance("channel:slack:main", "slack");
+  const owner: Provisioning.Person = {
+    id: "person:owner", displayName: "Owner", kind: "human", trustTier: "owner",
+    endpoints: [{ channel: "slack", externalId: "U1", workspace: "T1" }], revision: 0, createdBy: "owner", updatedAt: 1,
+  };
+  const { lines } = messagingReadiness({ instances: [row], persons: [owner], sealed: sealedOf([row]) });
+  expect(lines).toContain("  OWNER you are U1 in T1 here (owner-tier); inbound delivery follows the rule table");
+  expect(lines).toContain("  READ  channel:slack:main on slack uses the ordered rule table; its seeded rows match non-bot DMs and addressed messages");
+});
+
 test("an enabled declaration without a credential reference is not ready", () => {
   expect(messagingReadiness({ instances: [instance("channel:slack:main", "slack", { credentialRef: undefined })], persons: [], sealed: new Set() }).ok).toBe(false);
 });

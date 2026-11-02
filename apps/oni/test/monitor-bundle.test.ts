@@ -34,7 +34,6 @@ import { planeOf } from "./helpers/ledger";
 import { residentSuite, fakeProviderModel } from "./helpers/resident-suite";
 import { nextFrame } from "./helpers/ws";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
-import { routeAlarmToSession } from "./helpers/automation";
 
 const suite = residentSuite();
 const TOKEN = "bundle-test";
@@ -110,7 +109,6 @@ test("a cron armed through the monitor tool survives restart; a past-due boot fi
   const sessionId = residentSessionId(plane1);
   if (sessionId === undefined) throw new Error("no resident session");
   const kernel1 = plane1.openKernel(sessionId);
-  routeAlarmToSession(plane1, sessionId);
   const chains1 = [...foldAlarmChains(kernel1, sessionId).entries()];
   expect(chains1).toHaveLength(1);
   const [watchId, chain1] = chains1[0] ?? ["", undefined];
@@ -398,7 +396,6 @@ test("bundle_disable cron: a due tick folds fired{stale} with no prompt; bundle_
   const sessionId = residentSessionId(plane);
   if (sessionId === undefined) throw new Error("no resident session");
   const kernel = plane.openKernel(sessionId);
-  routeAlarmToSession(plane, sessionId);
   const [firstId, firstChain] = [...foldAlarmChains(kernel, sessionId).entries()][0] ?? ["", undefined];
   if (firstChain === undefined) throw new Error("no armed chain");
   expect(watchStateOf(firstChain, sessionId)).toMatchObject({ kind: "cron", status: "armed", fireAt: FIRST_FIRE });

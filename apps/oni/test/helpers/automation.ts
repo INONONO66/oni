@@ -1,25 +1,17 @@
 import { Core } from "@oni/agent";
-import { createChannelStores, createRuleStore } from "@oni/channels";
+import { createChannelStores } from "@oni/channels";
 import { Gateway, Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { runAppEffect, channelStoreSource } from "../../src/gateway";
 import type { ResidentSuite } from "./resident-suite";
 import { fakeProviderModel } from "./resident-suite";
 import { assistantMessage } from "./assistant-message";
-import { planeOf, type TestLedgerPlane } from "./ledger";
+import { planeOf } from "./ledger";
 import { nextResidentTurn } from "./resident-turn";
 import { nextFrame } from "./ws";
 
 const automationSender = { kind: "external", surface: "discord", externalId: "source" } as const;
 
-/** Lifecycle tests explicitly route their alarm back to its owning session. */
-export function routeAlarmToSession(plane: TestLedgerPlane, sessionId: string): void {
-  createRuleStore(plane.channel).add({
-    id: `alarm:${sessionId}`, position: 0, enabled: true, createdBy: "owner",
-    when: { instance: "alarm", from: [`session:${sessionId}`] },
-    outcome: { kind: "deliver", target: `session:${sessionId}`, deliveryKind: "prompt", reply: "none" },
-  });
-}
 export const automationFacts = Gateway.IngressFacts.parse({
   eventId: "event", surface: "discord", channelId: "room", dm: false, addressees: [],
   author: { externalId: "source", isBot: false }, payload: {}, render: "BUILD_SENTINEL",

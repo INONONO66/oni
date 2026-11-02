@@ -50,6 +50,9 @@ export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
     return { event, decision, requestExecution: { kind: "request", correlation, requestedAction, record } };
   }
   const actor = event.meta?.actor;
+  // A rule admits a message, never a sender's authority: the registry's tier
+  // decides that, and a sender it does not hold reads as evidence (§8.12).
+  const treatment = event.meta?.inboundTreatment ?? (actor?.trustTier === undefined ? "evidence_only" : undefined);
   const decision: Ingress.RoutingDecisionPayload = matched === undefined
     ? { ...common, stage: "automation", outcome: "record", by: "rule/none", decision: "filtered",
         reason: "none", factsUsed: [], factsDigest: event.id }
@@ -57,7 +60,7 @@ export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
         sessionId, reason: "Inbound message matched a rule", factsUsed: [`rule:${matched.ruleId}`],
         ...(actor?.actorId === undefined ? {} : { actorId: actor.actorId }),
         ...(actor?.trustTier === undefined ? {} : { trustTier: actor.trustTier }),
-        ...(event.meta?.inboundTreatment === undefined ? {} : { inboundTreatment: event.meta.inboundTreatment }) };
+        ...(treatment === undefined ? {} : { inboundTreatment: treatment }) };
   return { event, decision, requestExecution: { kind: "none" } };
 }
 

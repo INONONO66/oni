@@ -22,6 +22,7 @@ const cases: readonly { name: string; message: Ingress.Input; rules: readonly In
   { name: "bound thread followup", message: input, rules: [record], expected: "addressed" },
   { name: "bot author", message: { ...input, author: { ...input.author, isBot: true } }, rules: [record, dm] },
   { name: "reaction", message: { ...input, event: "reaction", mentionsBot: false }, rules: [record, dm] },
+  { name: "DM reaction under a message-only DM rule", message: { ...input, dm: true, event: "reaction" }, rules: [{ ...dm, when: { ...dm.when, event: "message" } }] },
   { name: "explicit reaction", message: { ...input, event: "reaction" }, rules: [{ ...record, id: "react", when: { instance: "chat", event: "reaction" } }], expected: "react" },
   { name: "unknown sender", message: input, rules: [{ ...record, when: { instance: "chat", from: ["someone"] } }] },
   { name: "Owner mention", message: { ...input, instance: "owner" }, rules: [{ ...record, id: "owner-draft", when: { ...record.when, instance: "owner" }, outcome: { ...record.outcome, reply: "draft", as: "owner" } }], expected: "owner-draft" },

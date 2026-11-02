@@ -30,8 +30,9 @@ test("a registered peer can propose but cannot enable or overwrite approved rule
   f.stores.actors.registerIdentity({ id: "peer", kind: "human", trustTier: "collaborator" });
   f.stores.actors.registerEndpoint({ id: "ws:peer", actorId: "peer", channel: "ws", externalId: "peer" });
   const socket = await suite.openSocket(`ws://127.0.0.1:${f.app.port}/ws?actor=peer`, ["auth", "owner-token"]);
+  // The proposal is stored disabled and answered as added, so the peer can name it; only the Owner enables it.
   expect(await automationRequest(socket, { type: "rule_add", requestId: "add", record: automationRecord() }))
-    .toMatchObject({ type: "rule_add_refused", reason: "require_approval" });
+    .toMatchObject({ type: "rule_added", requestId: "add", record: { id: "build", enabled: false, createdBy: "session:ws:peer" } });
   expect(f.stores.rules.get("build")).toMatchObject({ approved: false, record: { enabled: false, createdBy: "session:ws:peer" } });
   for (const type of ["rule_enable", "rule_disable", "rule_remove"] as const) {
     expect(await automationRequest(socket, { type, requestId: type, id: "seed:alarm" }))
@@ -86,10 +87,20 @@ test("malformed wire records return correlated issues without a store write", as
   expect(f.stores.rules.list()).toEqual(before);
 });
 
+test("a wire record cannot declare itself a seed", async () => {
+  const f = await automationFixture(suite);
+  const socket = await f.socket();
+  const before = f.stores.rules.list();
+  const response = nextFrame(socket, (frame) => frame.requestId === "seeded");
+  socket.send(JSON.stringify({ type: "rule_add", requestId: "seeded", record: { ...automationRecord(), seed: true } }));
+  expect(Ingress.RuleResponse.parse(await response)).toMatchObject({ type: "rule_add_refused", reason: "invalid_record" });
+  expect(f.stores.rules.list()).toEqual(before);
+});
+
 test("unconfigured and failing stores answer with correlated refusal frames", async () => {
   const f = await automationFixture(suite);
   const request: Ingress.RuleRequest = { type: "rule_list", requestId: "list" };
   expect(await runEffect(ruleWire(undefined)(request, "owner"))).toMatchObject({ type: "rule_list_refused", requestId: "list", reason: "store_unconfigured" });
   const wire = ruleWire({ id: () => "new", store: { ...f.stores.rules, list: () => { throw new Error("unavailable"); } } });
-  expect(await runEffect(wire(request, "owner"))).toMatchObject({ type: "rule_list_refused", requestId: "list", reason: "invalid_record" });
+  expect(await runEffect(wire(request, "owner"))).toMatchObject({ type: "rule_list_refused", requestId: "list", reason: "store_failed", detail: "unavailable" });
 });
