@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AttachmentFetchWithStream } from "@oni/channels";
-import { Operational, type Channel, type Gateway } from "@oni/protocol";
+import { Operational, type Channel, type Ingress } from "@oni/protocol";
 import { Machine } from "@oni/protocol";
 import { wireDaemon, wireHost } from "../../../packages/machines/test/helpers";
 import { mclientBinary } from "../../../packages/machines/test/helpers/mclient";
@@ -14,7 +14,7 @@ import type { AttachmentInbox } from "../src/composition/attachments";
 import { runEffect } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
 
-const attachment: NonNullable<Gateway.IngressFacts["attachments"]>[number] = {
+const attachment: NonNullable<Ingress.Message["attachments"]>[number] = {
   kind: "file", ref: "tdlib-file:71", name: "large.bin",
 };
 beforeAll(mclientBinary, 300_000);

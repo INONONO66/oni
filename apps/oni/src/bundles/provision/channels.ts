@@ -30,7 +30,7 @@ export const CHANNEL_DECLARE_INPUT = z
     settings: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
       .optional()
-      .describe("Non-secret knobs; an Owner instance's intake posture. A re-declaration keeps the stored settings."),
+      .describe("Provider-specific non-secret settings. A re-declaration keeps the stored settings."),
     credential: z
       .record(z.string(), z.string())
       .optional()
@@ -214,11 +214,10 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
   ) => {
     const existing = port.instances.get(input.id);
     const identity = declaredIdentity(input, existing);
-    // A re-declaration keeps the stored knobs (an Owner row's posture is not
-    // dropped by an unrelated edit); a fresh declaration carries none.
+    // A re-declaration keeps stored settings; a fresh declaration carries none.
     const settings = input.settings ?? existing?.settings ?? {};
     // §4: knobs must parse under the provider's settings declaration before
-    // the row lands — an Owner instance's are its intake posture (#1569); a
+    // the row lands; a
     // cli contact's (#1512) are its dialect, machine and cwd, judged by the
     // contact's own door, and it carries no credential.
     const badSettings = settingsRefusal(port, input, settings, identity);

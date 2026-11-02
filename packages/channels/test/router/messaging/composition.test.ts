@@ -36,7 +36,7 @@ interface Delivered {
 
 const delivered: Delivered[] = [];
 const sender = { kind: "external", surface: "discord", externalId: "buyer-external" } as const;
-const facts: Gateway.IngressFacts = {
+const facts: Ingress.Message = {
   eventId: "contact",
   surface: "discord",
   workspaceId: "shop-ws",

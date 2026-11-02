@@ -90,11 +90,11 @@ describe("declared Owner instances", () => {
     const reading = declaredChannelProfile([instance({})], reader(OWNER_SESSION), testChannelDeps());
     expect(reading.rows[0]?.component).toMatchObject({ identity: "owner", listens: true });
     const sendOnly = declaredChannelProfile([instance({ settings: { intake: "none" } })], reader(OWNER_SESSION), testChannelDeps());
-    expect(sendOnly.rows[0]?.component).toMatchObject({ identity: "owner", listens: false });
+    expect(sendOnly.statuses[0]?.state).toBe("credential_invalid");
     const bad = declaredChannelProfile([instance({ settings: { intake: "loud" } })], reader(OWNER_SESSION), testChannelDeps());
     expect(bad.rows).toEqual([]);
     expect(bad.statuses[0]).toMatchObject({ state: "credential_invalid", detail: expect.stringContaining("settings:") });
-    expect(validateProviderSettings("slack", { intake: "all" }, "owner")).toBeUndefined();
+    expect(validateProviderSettings("slack", {}, "owner")).toBeUndefined();
     expect(validateProviderSettings("slack", { intake: "all" })).toBeDefined();
     expect(validateProviderSettings("slack", { botUsername: "x" }, "owner")).toBeDefined();
   });
@@ -102,19 +102,19 @@ describe("declared Owner instances", () => {
   test("an Owner-only platform mounts through its owner arm; a bot declaration of it is identity_unsupported (#1569 lane 7)", () => {
     const session = JSON.stringify({ cookies: "sessionid=x", device: {}, user_id: "1" });
     const owner = declaredChannelProfile(
-      [instance({ id: "channel:instagram:owner", provider: "instagram", credentialRef: "secret:ig", settings: { autoReply: true }, grant: { outbound: true } })],
+      [instance({ id: "channel:instagram:owner", provider: "instagram", credentialRef: "secret:ig", grant: { outbound: true } })],
       reader(JSON.stringify({ session })),
       testChannelDeps(),
     );
     expect(owner.rows[0]?.component).toMatchObject({ id: "instagram", identity: "owner", listens: true });
-    expect(owner.rows[0]?.component.build(async () => undefined)).toMatchObject({ autoReply: true });
+    expect(owner.rows[0]?.component.build(async () => undefined).deliveryRoute).toBeDefined();
     // Without an outbound grant the auto-reply means nothing: no route, no auto-reply.
     const drafting = declaredChannelProfile(
       [instance({ id: "channel:instagram:owner", provider: "instagram", credentialRef: "secret:ig", settings: { autoReply: true } })],
       reader(JSON.stringify({ session })),
       testChannelDeps(),
     );
-    expect(drafting.rows[0]?.component.build(async () => undefined).autoReply).toBeUndefined();
+    expect(drafting.rows[0]?.component.build(async () => undefined).deliveryRoute).toBeUndefined();
     const bot = declaredChannelProfile(
       [instance({ id: "channel:kakaotalk:main", provider: "kakaotalk", identity: "bot", credentialRef: "secret:kk" })],
       reader('{"oauthToken":"o","userId":"1"}'),
@@ -279,25 +279,22 @@ describe("the supervisor with an Owner instance", () => {
           onMessage: () => undefined,
         },
         deliveryRoute: async () => ({ value: "accepted" as const }),
-        autoReply: true,
       }),
     };
     let rows = [{ instanceId: "channel:slack:owner", key: "0:0", component: answering }];
-    const autoReplies = new Set<string>();
     const supervisor = createChannelSupervisor({
       desired: () => ({ source: "declared", rows, statuses: [] }),
       build: (row) => row.build(async () => undefined),
       deliveryRoutes,
       typingRoutes,
       webhookHandlers,
-      autoReplies,
       traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
     });
     await supervisor.reconcile();
-    expect([...autoReplies]).toEqual(["slack:owner"]);
+    expect([...deliveryRoutes.keys()]).toEqual(["slack:owner"]);
     rows = [];
     await supervisor.reconcile();
-    expect(autoReplies.size).toBe(0);
+    expect(deliveryRoutes.size).toBe(0);
   });
 
 });

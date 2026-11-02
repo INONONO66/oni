@@ -56,8 +56,7 @@ export interface SupervisorDeps {
   readonly voiceRoutes?: Map<string, ProviderVoiceRoute>;
   readonly historyRoutes?: Map<string, ProviderHistoryRoute>;
   readonly webhookHandlers: Map<string, (request: Request) => Promise<Response>>;
-  /** Owner instance ids whose declaration lets the reply door answer through the account. */
-  readonly autoReplies?: Set<string>;
+
   readonly traceId: () => string;
   /** Consecutive start failures before the breaker pauses the instance. */
   readonly breakerThreshold?: number;
@@ -198,10 +197,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
         registerRoute(deps.voiceRoutes, surfaceId, built.voiceRoute),
         registerRoute(deps.webhookHandlers, webhookKey, built.webhookHandler),
       );
-      if (built.autoReply === true) {
-        deps.autoReplies?.add(surfaceId);
-        revokers.push(() => { deps.autoReplies?.delete(surfaceId); });
-      }
+
       history.register();
       mounted.set(row.instanceId, {
         key: row.key, surfaceId, stop: () => unwind(true), withdrawn: history.withdrawn,

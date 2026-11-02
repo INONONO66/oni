@@ -2,7 +2,7 @@ import type { Channel, Gateway, Outbound } from "@oni/protocol";
 import type { AttachmentFetch, AttachmentFetchWithStream, EffectRunner, MediaResolver, PublishPort } from "../types.js";
 import type { ProviderHistoryRoute } from "./history.js";
 import type { ProviderVoiceRoute } from "./voice.js";
-import { z } from "zod";
+import type { z } from "zod";
 
 /**
  * Existing-agent delivery through this provider, keyed by ActorEndpoint

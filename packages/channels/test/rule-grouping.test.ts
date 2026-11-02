@@ -7,10 +7,11 @@ const record = Ingress.Rule.parse({
   when: { instance: "telegram" },
   outcome: { kind: "deliver", target: "session:one", deliveryKind: "action", reply: "none" }, group: { by: "thread", windowSeconds: 10 },
 });
-const input = Ingress.Input.parse({
+const input = Ingress.Message.parse({
   eventId: "one", instance: "telegram", surface: "telegram", event: "message", channelId: "room",
-  author: { externalId: "user", isBot: false }, dm: false, mentionsBot: false,
-  body: "hello", receivedAt: 0,
+  author: { externalId: "user", isBot: false }, dm: false, addressed: false,
+  from: "user", addressees: [], payload: {},
+  render: "hello", receivedAt: 0,
 });
 
 describe("automation grouping", () => {

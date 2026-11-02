@@ -19,6 +19,7 @@ export function discordCall(
       channelId: state.channel_id,
       author: { externalId: state.user_id, isBot: false },
       addressees: [{ externalId: selfId }],
+      account: selfId,
       dm: false,
       payload: state,
       render: `joined voice channel ${state.channel_id}`,
@@ -48,6 +49,7 @@ function discordPostback(
       channelId: message.channel_id,
       ...(message.guild_id === undefined ? {} : { workspaceId: message.guild_id }),
       addressees: [{ externalId: selfId }],
+      account: selfId,
       dm: message.guild_id === undefined,
       payload: message,
       render: label,
@@ -115,6 +117,8 @@ export class DiscordNormalizer
         channelId: message.channel_id,
         ...(message.guild_id === undefined ? {} : { workspaceId: message.guild_id }),
         addressees: mentions.map((user) => ({ externalId: user.id })),
+        account: this.selfId,
+        ...(!reaction && message.referenced_message != null ? { quotes: message.referenced_message.author.id } : {}),
         dm: isDM,
         ...(!reaction && message.message_reference?.message_id
           ? {

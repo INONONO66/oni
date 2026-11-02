@@ -1,6 +1,6 @@
 import { Bundle, Core } from "@oni/agent";
 import { activeBudgetFor, type PersonStore } from "@oni/channels";
-import { Gateway, Outbound } from "@oni/protocol";
+import { Gateway, type Ingress, Outbound } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
 import { boundTool, ToolCapabilityPort } from "../../seams";
@@ -21,7 +21,7 @@ const ToolRefused = Core.ToolRefused;
 
 /** The tool needs exactly the router's ingest door; composition supplies the router itself. */
 export interface MessagePort {
-  ingest(sender: Gateway.IngestSender, message: Gateway.SendMessage | Gateway.IngressFacts | Gateway.RequestAnswer): Promise<Gateway.IngestResult>;
+  ingest(sender: Gateway.IngestSender, message: Gateway.SendMessage | Ingress.Message | Gateway.RequestAnswer): Promise<Gateway.IngestResult>;
 }
 
 const Id = z.string().min(1);

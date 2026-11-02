@@ -632,8 +632,7 @@ export interface OutboundMessaging {
   readonly deliveryRoutes: ReadonlyMap<string, ChannelDeliveryRoute>;
   readonly grants: () => readonly Gateway.SenderTargetGrant[];
   readonly budgets?: () => readonly Gateway.SocialBudget[];
-  /** Owner instance ids whose declaration lets the reply door answer through the account. */
-  readonly autoReplies?: () => ReadonlySet<string>;
+
 }
 
 /** One synchronous ledger unit on the ingress session file (decision facts live there), resolved per use. */

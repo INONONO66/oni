@@ -212,6 +212,7 @@ export class InstagramOwnerAdapter implements Channel.Surface {
             surface: "instagram",
             channelId: message.thread_id,
             addressees: [],
+            ...(this.userId === null ? {} : { account: this.userId }),
             dm: true,
             receivedBy: "owner",
             payload: { ...message },

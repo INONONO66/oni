@@ -5,7 +5,7 @@ import { z } from "zod";
 export const PendingGroup = z.object({
   ruleId: z.string(), key: z.string(), openedAt: z.number(),
   windowSeconds: Ingress.WindowSeconds, when: Ingress.Rule.shape.when,
-  inputs: z.array(Ingress.Input).min(1).max(64),
+  inputs: z.array(Ingress.Message).min(1).max(64),
   verdict: Ingress.MatchContext.shape.verdict,
 });
 export type PendingGroup = z.infer<typeof PendingGroup>;
@@ -14,7 +14,7 @@ const RouteFields = Ingress.Rule.shape.outcome.options[2].omit({ kind: true, del
   ruleId: z.string(), target: z.string(), newSession: z.boolean(), conversation: z.boolean(),
 });
 export const Route = z.discriminatedUnion("kind", [
-  RouteFields.extend({ kind: z.literal("prompt"), origin: Ingress.Input }),
+  RouteFields.extend({ kind: z.literal("prompt"), origin: Ingress.Message }),
   RouteFields.extend({ kind: z.literal("action"), source: z.literal("ingress"),
     handlerRef: z.string(), body: Ingress.MatchContext }),
 ]);
@@ -36,20 +36,20 @@ export function scheduleTickChannel(cron: string): string {
   return `cron:${cron}`;
 }
 
-function context(record: Ingress.Rule, inputs: readonly Ingress.Input[]): Ingress.MatchContext {
+function context(record: Ingress.Rule, inputs: readonly Ingress.Message[]): Ingress.MatchContext {
   const latest = inputs.at(-1);
   return Ingress.MatchContext.parse({
     ruleId: record.id, when: record.when,
     ...(record.judge === undefined ? {} : { verdict: "yes" }),
     event: {
       instance: latest?.instance, channel: latest?.channelId, thread: latest?.threadId,
-      from: latest?.author.externalId,
-      messages: inputs.map((entry) => ({ eventId: entry.eventId, body: entry.body, receivedAt: entry.receivedAt })),
+      from: latest?.from,
+      messages: inputs.map((entry) => ({ eventId: entry.eventId, body: entry.render, receivedAt: entry.receivedAt })),
     },
   });
 }
 
-function ledger(input: Ingress.Input, now: number, id: string,
+function ledger(input: Ingress.Message, now: number, id: string,
   decision: "matched" | "filtered" | "refused" | "grouped", reason: string,
   when?: Ingress.Rule["when"], verdict?: "yes"): Ingress.RoutingDecisionPayload {
   return Ingress.Events.RoutingDecision.schema.parse({
@@ -61,17 +61,17 @@ function ledger(input: Ingress.Input, now: number, id: string,
   });
 }
 
-function route(record: Ingress.Rule, inputs: readonly Ingress.Input[]): Route | undefined {
+function route(record: Ingress.Rule, inputs: readonly Ingress.Message[]): Route | undefined {
   if (record.outcome.kind !== "deliver") return undefined;
   const { deliveryKind, kind: _kind, ...outcome } = record.outcome;
   const fields = { ...outcome, ruleId: record.id, newSession: outcome.target === "new", conversation: outcome.target === "conversation" };
   return deliveryKind === "prompt"
-    ? Route.parse({ ...fields, kind: "prompt", origin: { ...inputs.at(-1), body: inputs.map((input) => input.body).join("\n\n") } })
+    ? Route.parse({ ...fields, kind: "prompt", origin: { ...inputs.at(-1), render: inputs.map((input) => input.render).join("\n\n") } })
     : { ...fields, kind: "action", source: "ingress", handlerRef: `rule/${record.id}`, body: context(record, inputs) };
 }
 
 /** Grouping and limits apply only after the first matching rule has been selected. */
-export function routeRule(record: Ingress.Rule | undefined, input: Ingress.Input, ports: MatchPorts): MatchDecision {
+export function routeRule(record: Ingress.Rule | undefined, input: Ingress.Message, ports: MatchPorts): MatchDecision {
   const pending = [...ports.pending];
   if (record === undefined)
     return { pending, rows: [ledger(input, ports.now, "none", "filtered", "none")] };
@@ -83,7 +83,7 @@ export function routeRule(record: Ingress.Rule | undefined, input: Ingress.Input
     return { pending, rows: [ledger(input, ports.now, record.id, "refused", "limit", record.when, verdict)] };
   const group = record.group;
   if (group !== undefined && group.windowSeconds > 0) {
-    const key = JSON.stringify([input.instance, input.channelId, input.threadId ?? input.author.externalId]);
+    const key = JSON.stringify([input.instance, input.channelId, input.threadId ?? input.from]);
     const index = pending.findIndex((item) => item.ruleId === record.id && item.key === key &&
       item.inputs.length < 64 && ports.now - item.openedAt < item.windowSeconds * 1000);
     const previous = index < 0 ? undefined : pending[index];

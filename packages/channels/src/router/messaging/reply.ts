@@ -81,8 +81,7 @@ export interface ReplyPorts {
   readonly transaction: GatewayRouterPorts["transaction"];
   /** The surfaces with a mounted delivery route. */
   readonly routes: () => ReadonlyMap<string, Channel.Instance>;
-  /** Owner instance ids whose declaration lets the reply door answer through the account. */
-  readonly autoReplies: () => ReadonlySet<string>;
+
   readonly deliver: (
     message: OutboundMessage,
   ) => KernelDeliveryReceipt | Promise<KernelDeliveryReceipt>;
@@ -149,7 +148,7 @@ function deliveryTarget(
  * matching route.
  */
 function replyInstance(
-  ports: Pick<ReplyPorts, "routes" | "autoReplies">,
+  ports: Pick<ReplyPorts, "routes">,
   binding: Pick<ConversationBinding, "surface" | "instance" | "receivedBy" | "reply" | "as">,
 ): { readonly instance: string; readonly identity: Channel.Identity } | "draft" | "no_route" {
   if (binding.reply === "none") return "no_route";
@@ -158,7 +157,7 @@ function replyInstance(
   const identity = binding.as === undefined ? binding.receivedBy ?? "bot" : routes.get(binding.as)?.identity ?? "bot";
   const selected = resolveInstance(routes, binding.surface, identity, binding.as ?? binding.instance);
   if ("code" in selected) return identity === "owner" ? "draft" : "no_route";
-  if (identity === "owner" && binding.reply !== "auto" && !ports.autoReplies().has(selected.instance)) return "draft";
+
   return { instance: selected.instance, identity };
 }
 

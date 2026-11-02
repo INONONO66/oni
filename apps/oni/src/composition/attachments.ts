@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { type AttachmentFetch, type AttachmentFetchResult, type AttachmentFetchWithStream, inboundOnce, type MediaBytes } from "@oni/channels";
-import { type BusEvent, type Channel, type Gateway, Operational } from "@oni/protocol";
+import { type BusEvent, type Channel, type Ingress, Operational } from "@oni/protocol";
 import { type FilePorts, defaultMachineOf, filesystem } from "../bundles/tools/core/filesystem";
 import type { ChannelRuntimeDeps } from "../channels";
 import { assertMediaSize, createMediaResolver, mediaBounds } from "./media";
@@ -74,7 +74,7 @@ export function inboxHandler(
   };
 }
 
-type Attachment = NonNullable<Gateway.IngressFacts["attachments"]>[number];
+type Attachment = NonNullable<Ingress.Message["attachments"]>[number];
 
 /** One path segment: the platform's own name with everything but a conservative character set folded away. */
 function safeName(name: string): string {
@@ -120,7 +120,7 @@ async function fetchStream(
   return { ...fetched, name: attachment.name ?? fetched.name };
 }
 
-function storageKey(facts: Gateway.IngressFacts, index: number, ref: string): string {
+function storageKey(facts: Ingress.Message, index: number, ref: string): string {
   return createHash("sha256").update(JSON.stringify([
     facts.instance ?? facts.surface, facts.receivedBy ?? "bot", facts.workspaceId ?? null,
     facts.channelId, facts.eventId, index, ref,

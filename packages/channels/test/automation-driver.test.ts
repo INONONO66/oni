@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { beforeEach, expect, test } from "bun:test";
-import { type Channel, Gateway, Ingress } from "@oni/protocol";
+import { type Channel, type Gateway, Ingress } from "@oni/protocol";
 import { GitHubAdapter } from "../src/provider/github/surface.js";
 import { WebhookAdapter } from "../src/provider/webhook/surface.js";
 import { inboundIdOf } from "../src/router/inbound-id.js";
@@ -81,10 +81,10 @@ function identifySender(scenario: Scenario): void {
 async function deliver(scenario: Scenario) {
   const adapter = scenario.adapter();
   const router = makeRouter();
-  const received: { facts: Gateway.IngressFacts; result: Gateway.IngestResult }[] = [];
+  const received: { facts: Ingress.Message; result: Gateway.IngestResult }[] = [];
   try {
     adapter.onMessage(async (message: Channel.InboundMessage) => {
-      const facts = Gateway.IngressFacts.parse(message.facts);
+      const facts = Ingress.Message.parse(message.facts);
       received.push({ facts, result: await runEffect(router.ingest(message.sender, facts)) });
     });
     const response = await adapter.handleWebhook(scenario.request());

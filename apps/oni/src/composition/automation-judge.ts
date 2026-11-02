@@ -11,7 +11,7 @@ export function automationJudge(
   return Effect.gen(function* () {
     const llm = yield* Core.Llm;
     const events = yield* Core.ObservationSink;
-    return (question: string, event: Ingress.Input) =>
+    return (question: string, event: Ingress.Message) =>
       Effect.gen(function* () {
         const sessionId = "gateway-ingress";
         const messageId = sources.id();

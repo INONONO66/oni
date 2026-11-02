@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "bun:test";
-import { type Channel, Gateway, Operational, Outbound } from "@oni/protocol";
+import { type Channel, Ingress, Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { LinearProvider } from "../src/provider/linear/provider";
 import { LINEAR_REPLAY_WINDOW_MS } from "../src/provider/linear/surface";
@@ -92,7 +92,7 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
       expect((await runtime.webhookHandler?.(signed(JSON.stringify(envelope()))))?.status).toBe(200);
       expect(received).toHaveLength(1);
       expect(received[0]?.sender).toEqual({ kind: "external", surface: "linear", externalId: "user-1" });
-      expect(Gateway.IngressFacts.parse(received[0]?.facts)).toMatchObject({
+      expect(Ingress.Message.parse(received[0]?.facts)).toMatchObject({
         eventId: "delivery-1",
         surface: "linear",
         event: "mention",

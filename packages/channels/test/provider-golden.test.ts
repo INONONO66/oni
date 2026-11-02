@@ -63,6 +63,7 @@ describe("provider ingress facts", () => {
       text: "<@UBOT> tracking number",
       ts: "1710.0002",
       thread_ts: "1710.0001",
+      parent_user_id: "UBOT",
     });
     expect(result?.facts).toMatchObject({
       eventId: "1710.0002",
@@ -71,10 +72,53 @@ describe("provider ingress facts", () => {
       workspaceId: "T9",
       channelId: "C123",
       addressees: [{ externalId: "T9:UBOT" }],
+      account: "T9:UBOT",
+      quotes: "T9:UBOT",
+      dm: false,
       reply: { chain: ["1710.0001"] },
       render: "<@UBOT> tracking number",
     });
     expect(result?.sender.externalId).toBe("T9:U77");
+  });
+
+  test.each([false, true])("normalizers preserve bot=%s independently of addressing", (isBot) => {
+    const slack = new SlackNormalizer({ botUserId: "self", team: "T" }).normalize({
+      type: "message", channel: "D1", channel_type: "im", user: "peer", ts: "1",
+      text: "<@self> <@other>", ...(isBot ? { bot_id: "integration" } : {}),
+      parent_user_id: "quoted",
+    });
+    expect(slack?.facts).toMatchObject({
+      account: "T:self", addressees: [{ externalId: "T:self" }, { externalId: "T:other" }],
+      dm: true, author: { externalId: "T:peer", isBot }, quotes: "T:quoted",
+    });
+    const discord = new DiscordNormalizer("self").normalize({
+      id: "1", channel_id: "D1", author: { id: "peer", username: "Peer", bot: isBot },
+      content: "<@self>", mentions: [{ id: "self", username: "Self" }],
+      referenced_message: { author: { id: "quoted", username: "Quoted" } },
+    });
+    expect(discord?.facts).toMatchObject({
+      account: "self", addressees: [{ externalId: "self" }],
+      dm: true, author: { externalId: "peer", isBot }, quotes: "quoted",
+    });
+    const telegram = new TelegramNormalizer({ botId: "1", botUsername: "self" }).normalize({
+      ...telegramReply("peer"), from: { id: 56, first_name: "Peer", is_bot: isBot },
+      text: "@self", entities: [{ type: "mention", offset: 0, length: 5 }],
+      chat: { id: 34, type: "private" },
+    });
+    expect(telegram?.facts).toMatchObject({
+      account: "1", addressees: [{ externalId: "1" }],
+      dm: true, author: { externalId: "56", isBot }, quotes: "78",
+    });
+    const account = ownerInbound({
+      ...ownerMessage, sender: { kind: "user", id: "peer", isBot },
+      mentionedUserIds: ["owner-1", "other"], dm: false,
+    }, "owner-1");
+    expect(account?.facts).toMatchObject({
+      account: "owner-1", addressees: [{ externalId: "owner-1" }, { externalId: "other" }],
+      dm: false, author: { externalId: "peer", isBot },
+    });
+    // The account transport supplies a reply id, but no quoted author.
+    expect(account?.facts.quotes).toBeUndefined();
   });
 
   test("a slack mention at channel top level keys the thread its answer opens on its own ts (#1490)", () => {

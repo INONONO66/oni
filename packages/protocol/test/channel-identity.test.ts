@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Channel } from "../src/channel/index.js";
-import { Gateway } from "../src/gateway/index.js";
+import { Ingress } from "../src/ingress/index.js";
 
 /** The identity axis (#1569): a mounted channel is one `(platform, identity)` instance. */
 describe("Channel.Identity", () => {
@@ -14,7 +14,7 @@ describe("Channel.Identity", () => {
       surface: "slack", instance: "channel:slack:workspace-b",
       eventId: "event", channelId: "C1", addressees: [], dm: false, payload: {}, render: "hello",
     };
-    expect(Gateway.IngressFacts.parse(facts)).toEqual(facts);
-    expect(Gateway.IngressFacts.safeParse({ ...facts, instance: "" }).success).toBe(false);
+    expect(Ingress.Message.parse(facts)).toEqual(facts);
+    expect(Ingress.Message.safeParse({ ...facts, instance: "" }).success).toBe(false);
   });
 });

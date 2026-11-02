@@ -21,15 +21,13 @@ export interface LoginDeps {
 export interface LoginOptions {
   readonly platform: LoginPlatform;
   readonly instanceId: string;
-  readonly intake: "mentions_and_dms" | "all" | "none";
   readonly outbound: boolean;
-  readonly autoReply: boolean;
   /** Print the credential payload instead of declaring the instance. */
   readonly print: boolean;
 }
 
 export const LOGIN_USAGE = `usage: oni login <slack|discord|instagram|kakaotalk|telegram> [--id channel:<platform>:owner]
-                     [--intake mentions_and_dms|all|none] [--outbound] [--auto-reply] [--print]`;
+                     [--outbound] [--print]`;
 
 /** Names a rejected argument without its value: a flag's bare name, never a positional or an `=value`. */
 function rejectedArgument(argument: string | undefined): string {
@@ -45,9 +43,7 @@ export function parseLoginArgs(args: readonly string[]): LoginOptions {
   const options = {
     platform: platform as LoginPlatform,
     instanceId: `channel:${platform}:owner`,
-    intake: "mentions_and_dms" as LoginOptions["intake"],
     outbound: false,
-    autoReply: false,
     print: false,
   };
   for (let index = 0; index < rest.length; index += 1) {
@@ -59,17 +55,8 @@ export function parseLoginArgs(args: readonly string[]): LoginOptions {
         options.instanceId = value;
         index += 1;
         break;
-      case "--intake":
-        if (value !== "mentions_and_dms" && value !== "all" && value !== "none")
-          throw new CliError(`--intake needs mentions_and_dms, all or none\n${LOGIN_USAGE}`);
-        options.intake = value;
-        index += 1;
-        break;
       case "--outbound":
         options.outbound = true;
-        break;
-      case "--auto-reply":
-        options.autoReply = true;
         break;
       case "--print":
         if (platform === "telegram") throw new CliError(`Telegram cannot print credentials\n${LOGIN_USAGE}`);
@@ -79,8 +66,6 @@ export function parseLoginArgs(args: readonly string[]): LoginOptions {
         throw new CliError(`${rejectedArgument(flag)}\n${LOGIN_USAGE}`);
     }
   }
-  if (options.autoReply && !options.outbound)
-    throw new CliError(`--auto-reply needs --outbound: the reply door answers as the Owner only from an instance that may send\n${LOGIN_USAGE}`);
   return options;
 }
 
@@ -211,7 +196,7 @@ async function loginTelegram(args: readonly string[], deps: LoginDeps, io: Login
       id: options.instanceId,
       provider: "telegram",
       identity: "owner",
-      settings: { intake: options.intake, autoReply: options.autoReply },
+
       ...(options.outbound ? { outbound: true } : {}),
       credential,
     });
@@ -248,7 +233,7 @@ export async function login(args: readonly string[], deps: LoginDeps, io: LoginR
       id: options.instanceId,
       provider: options.platform,
       identity: "owner",
-      settings: { intake: options.intake, autoReply: options.autoReply },
+
       ...(options.outbound ? { outbound: true } : {}),
       credential,
     });

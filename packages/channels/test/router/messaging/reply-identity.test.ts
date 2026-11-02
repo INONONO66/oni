@@ -25,7 +25,7 @@ describe("the reply door's instance", () => {
       stores: unconfiguredChannelStores(() => 1),
       transaction: (effect) => effect,
       routes: () => routes,
-      autoReplies: () => new Set(["channel:instagram:main"]),
+
       deliver: () => {
         throw new Error("never reached");
       },

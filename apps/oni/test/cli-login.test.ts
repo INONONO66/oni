@@ -46,10 +46,10 @@ function deps(overrides: Partial<LoginDeps> = {}, declared: Provisioning.Channel
 describe("oni login (#1569 lane 5b)", () => {
   test("parses the platform and its flags; anything else names the usage", () => {
     expect(parseLoginArgs(["slack"])).toEqual({
-      platform: "slack", instanceId: "channel:slack:owner", intake: "mentions_and_dms", outbound: false, autoReply: false, print: false,
+      platform: "slack", instanceId: "channel:slack:owner", outbound: false, print: false,
     });
-    expect(parseLoginArgs(["kakaotalk", "--id", "channel:kakaotalk:me", "--intake", "all", "--outbound", "--auto-reply", "--print"])).toEqual({
-      platform: "kakaotalk", instanceId: "channel:kakaotalk:me", intake: "all", outbound: true, autoReply: true, print: true,
+    expect(parseLoginArgs(["kakaotalk", "--id", "channel:kakaotalk:me", "--outbound", "--print"])).toEqual({
+      platform: "kakaotalk", instanceId: "channel:kakaotalk:me", outbound: true, print: true,
     });
     for (const args of [[], ["telegram", "--print"], ["slack", "--intake", "loud"], ["slack", "--id"], ["slack", "--bogus"], ["slack", "--auto-reply"]]) {
       expect(() => parseLoginArgs(args)).toThrow(CliError);
@@ -147,7 +147,7 @@ describe("oni login (#1569 lane 5b)", () => {
     const out: string[] = [];
     const err: string[] = [];
     const io = { ask: asking({ "account email": "ino@example.com", "KakaoTalk password": "kpw" }), stdout: (line: string) => out.push(line), stderr: (line: string) => err.push(line) };
-    expect(await login(["kakaotalk", "--outbound", "--auto-reply", "--intake", "all"], deps({}, declared), io)).toBe(0);
+    expect(await login(["kakaotalk", "--outbound"], deps({}, declared), io)).toBe(0);
     expect(declared).toEqual([
       {
         type: "channel_add",
@@ -155,7 +155,6 @@ describe("oni login (#1569 lane 5b)", () => {
         id: "channel:kakaotalk:owner",
         provider: "kakaotalk",
         identity: "owner",
-        settings: { intake: "all", autoReply: true },
         outbound: true,
         credential: { oauthToken: "oauth-ino@example.com", userId: "1001", deviceUuid: "dev-1", deviceType: "tablet" },
       },

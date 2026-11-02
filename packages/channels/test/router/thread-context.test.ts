@@ -1,4 +1,4 @@
-import { Delivery, type Gateway } from "@oni/protocol";
+import { Delivery, type Ingress } from "@oni/protocol";
 import { runEffect } from "../helpers/effect";
 import { beforeEach, expect, test } from "bun:test";
 import { commits, kernelRouter, ownerFacts, ownerPrompt, ownerSender, registerOwnerDm, resetRouterState } from "./_router-fixture";
@@ -71,7 +71,7 @@ test("direct ingress lists media references immediately below the sender header"
 
 test("every played media reference reaches the one committed prompt exactly once", async () => {
   const router = kernelRouter();
-  const attachments: NonNullable<Gateway.IngressFacts["attachments"]> = [
+  const attachments: NonNullable<Ingress.Message["attachments"]> = [
     { kind: "audio", ref: "ref-voice-7f3a", voice: true, durationMs: 12_000, mime: "audio/ogg", bytes: 420 },
     { kind: "audio", ref: "ref-song-91c2", name: "song.mp3", durationMs: 12_400, mime: "audio/mpeg" },
     { kind: "video", ref: "ref-clip-4be8", name: "clip.mp4", durationMs: 65_000 },

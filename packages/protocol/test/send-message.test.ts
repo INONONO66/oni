@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { z } from "zod";
-import { Actor, Gateway, LedgerAction, type Outbound, SessionTransition } from "../src/index.js";
+import { Ingress, Actor, Gateway, LedgerAction, type Outbound, SessionTransition } from "../src/index.js";
 
 function issues<T>(result: z.ZodSafeParseResult<T>) {
   expect(result.success).toBe(false);
@@ -138,7 +138,7 @@ describe("gateway ingest", () => {
   });
 
   test("preserves event identity, mentions, DM, reply chain, payload and rendering", () => {
-    const value: Gateway.IngressFacts = Gateway.IngressFacts.parse(ingress);
+    const value: Ingress.Message = Ingress.Message.parse(ingress);
     expect(value).toEqual(ingress);
     const dm = {
       ...ingress,
@@ -151,20 +151,20 @@ describe("gateway ingest", () => {
         chain: ["m-0", "m-root"],
       },
     };
-    expect(Gateway.IngressFacts.parse(dm)).toEqual(dm);
+    expect(Ingress.Message.parse(dm)).toEqual(dm);
     expect(
       issues(
-        Gateway.IngressFacts.safeParse({
+        Ingress.Message.safeParse({
           ...ingress,
           addressees: [{ externalId: "bot-1", axis: "bot" }],
         }),
       ),
     ).toEqual([{ code: "unrecognized_keys", path: ["addressees", 0], keys: ["axis"] }]);
     expect(
-      issues(Gateway.IngressFacts.safeParse({ ...ingress, senderTier: "owner", admitted: true })),
+      issues(Ingress.Message.safeParse({ ...ingress, senderTier: "owner", admitted: true })),
     ).toEqual([{ code: "unrecognized_keys", path: [], keys: ["senderTier", "admitted"] }]);
     const { eventId: _eventId, ...missingEvent } = ingress;
-    expect(issues(Gateway.IngressFacts.safeParse(missingEvent))).toEqual([
+    expect(issues(Ingress.Message.safeParse(missingEvent))).toEqual([
       { code: "invalid_type", path: ["eventId"] },
     ]);
   });
@@ -185,7 +185,7 @@ describe("gateway ingest", () => {
     for (const correlation of cases) {
       const shared = SessionTransition.Correlation.parse(correlation);
       const input = { ...ingress, reply: { ...shared, chain: [] } };
-      const parsed = Gateway.IngressFacts.parse(input);
+      const parsed = Ingress.Message.parse(input);
       expect(parsed).toEqual(input);
       expect(SessionTransition.Correlation.parse({ ...parsed.reply, ...pins })).toEqual({
         ...shared,
@@ -199,7 +199,7 @@ describe("gateway ingest", () => {
     for (const key of ["endpointId", "channelId", "senderTier", "verdict"]) {
       expect(
         issues(
-          Gateway.IngressFacts.safeParse({
+          Ingress.Message.safeParse({
             ...ingress,
             reply: {
               tokenHash: "token-1",
@@ -213,7 +213,7 @@ describe("gateway ingest", () => {
     }
     for (const key of ["tokenHash", "externalConversationId"]) {
       expect(
-        issues(Gateway.IngressFacts.safeParse({ ...ingress, reply: { chain: [], [key]: "" } })),
+        issues(Ingress.Message.safeParse({ ...ingress, reply: { chain: [], [key]: "" } })),
       ).toEqual([{ code: "too_small", path: ["reply", key] }]);
     }
   });

@@ -127,6 +127,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
       log_id: "log-3",
       author_id: 2003,
       message: "@ino look at this",
+      attachment: { src_userId: "1001" },
     });
     expect(await mention).toMatchObject({
       facts: {
@@ -135,6 +136,9 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
         dm: false,
         event: "mention",
         addressees: [{ externalId: "1001" }],
+        account: "1001",
+        quotes: "1001",
+        author: { externalId: "2003", isBot: false },
       },
     });
     listener.message({ chat_id: "chat-dm", log_id: "log-4", author_id: 1001, message: "my own" });

@@ -32,6 +32,7 @@ export const SlackMessageEventSchema = z.object({
     .optional(),
   ts: z.string().optional(),
   thread_ts: z.string().optional(),
+  parent_user_id: z.string().optional(),
   reaction: z.string().optional(),
   item: z.object({ channel: z.string(), ts: z.string() }).optional(),
   /** Present on `message_changed`: the edited message's own user and text, not the envelope's. */

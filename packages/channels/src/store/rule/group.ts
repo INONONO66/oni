@@ -1,4 +1,4 @@
-import { Gateway } from "@oni/protocol";
+import { Gateway, Ingress } from "@oni/protocol";
 import { z } from "zod";
 import { PendingGroup } from "../../automation/matcher.js";
 
@@ -8,6 +8,6 @@ export const StoredGroup = z.object({
   target: z.string(),
   pending: PendingGroup,
   sender: Gateway.IngestSender.options[0],
-  facts: Gateway.IngressFacts,
+  facts: Ingress.Message,
 });
 export type StoredGroup = z.infer<typeof StoredGroup>;

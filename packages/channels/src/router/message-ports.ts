@@ -69,7 +69,7 @@ export interface GatewayRouterPorts {
   /** Every gateway reads records through the same required perimeter store. */
   readonly stores: import("./stores.js").ChannelStores;
   readonly transaction: <A>(operation: Effect.Effect<A, ChannelError>) => Effect.Effect<A, ChannelError>;
-  readonly judge?: (question: string, event: Ingress.Input) => Effect.Effect<"yes" | "no" | "unknown", ChannelError>;
+  readonly judge?: (question: string, event: Ingress.Message) => Effect.Effect<"yes" | "no" | "unknown", ChannelError>;
   readonly authenticateAnswer?: (
     sender: Gateway.IngestSender & { kind: "external" }, credential: string, requestId: string,
   ) => Effect.Effect<SessionTransition.Principal, ChannelError>;
@@ -97,8 +97,7 @@ export interface GatewayRouterPorts {
   readonly id: () => string;
   readonly messaging?: MessagingGrantSources & {
     readonly deliveryRoutes: ReadonlyMap<string, ChannelDeliveryRoute>;
-    /** Owner instances whose declaration lets the reply door answer through the account. */
-    readonly autoReplies?: () => ReadonlySet<string>;
+
   };
 }
 
@@ -106,7 +105,7 @@ export interface GatewayRouter {
   advance(at?: number): Effect.Effect<void, ChannelError>;
   ingest(
     sender: Gateway.IngestSender,
-    message: Gateway.SendMessage | Gateway.IngressFacts | Gateway.RequestAnswer,
+    message: Gateway.SendMessage | Ingress.Message | Gateway.RequestAnswer,
     context?: { readonly surfaceKey: string; readonly machineId?: string },
   ): Effect.Effect<Gateway.IngestResult, ChannelError>;
 }

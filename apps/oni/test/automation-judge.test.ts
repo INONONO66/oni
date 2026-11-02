@@ -8,9 +8,10 @@ import { assistantMessage } from "./helpers/assistant-message";
 import { runEffect } from "./helpers/effect";
 import { observationService } from "../../../packages/agent/test/helpers/service-layers";
 
-const event = Ingress.Input.parse({
+const event = Ingress.Message.parse({
   eventId: "event", instance: "discord", surface: "discord", event: "message", author: { externalId: "user", isBot: false },
-  dm: false, mentionsBot: false, body: "EVIDENCE", receivedAt: 100,
+  from: "user", addressees: [], payload: {}, channelId: "room",
+  dm: false, addressed: false, render: "EVIDENCE", receivedAt: 100,
 });
 function judgeWith(run: Context.Service.Shape<typeof Core.Llm>["run"]) {
   return automationJudge({ provider: "test", id: "primary", fastId: "fast", apiKey: "secret" }, {
@@ -33,7 +34,7 @@ test.each([["yes", "yes"], ["no", "no"], ["garbage", "unknown"], ["YES", "unknow
       sink.onMessage(assistantMessage(input, { text }));
       return { type: "stop" as const };
     })));
-    expect(await runEffect(judge("q".repeat(3000), { ...event, body: "b".repeat(20_000) }))).toBe(verdict);
+    expect(await runEffect(judge("q".repeat(3000), { ...event, render: "b".repeat(20_000) }))).toBe(verdict);
     expect(calls[0]).toMatchObject({ model: { id: "fast" }, temperature: 0, maxTokens: 2, toolChoice: "none", tools: [] });
     const sent = calls[0]?.messages[0]?.parts[0];
     expect(sent?.type === "text" && sent.text.length <= 16_385).toBe(true);

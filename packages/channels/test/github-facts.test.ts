@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { injectedOptions } from "./helpers/injected";
 import { expect, test } from "bun:test";
-import { Gateway, Outbound, type Channel } from "@oni/protocol";
+import { Ingress, Outbound, type Channel } from "@oni/protocol";
 import { GitHubAdapter } from "../src/provider/github/surface";
 
 for (const text of ["ambient event", "@owner review @bot", "@bot"]) {
@@ -39,7 +39,7 @@ for (const text of ["ambient event", "@owner review @bot", "@bot"]) {
         surface: "github",
         externalId: "sender",
       });
-      const facts = Gateway.IngressFacts.parse(received[0]?.facts);
+      const facts = Ingress.Message.parse(received[0]?.facts);
       expect(facts.payload).toEqual(payload);
       expect(facts).toMatchObject({
         eventId: "event-42",

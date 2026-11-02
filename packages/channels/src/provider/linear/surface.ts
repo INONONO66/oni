@@ -258,6 +258,7 @@ export class LinearAdapter implements Channel.Surface {
         ...(envelope.organizationId === undefined || envelope.organizationId === null ? {} : { workspaceId: envelope.organizationId }),
         channelId: content.issueId,
         addressees: mentioned && this.ownerUserId !== undefined ? [{ externalId: this.ownerUserId }] : [],
+        account: this.ownerUserId,
         dm: false,
         receivedBy: "owner",
         reply: {

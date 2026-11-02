@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Delivery, Gateway, Message, SessionTurn } from "../src/index.js";
+import { Ingress, Delivery, Gateway, Message, SessionTurn } from "../src/index.js";
 
 const voice = { kind: "audio", ref: "mac:/inbox/v.ogg", mime: "audio/ogg", durationMs: 4200, voice: true } as const;
 const photo = { kind: "image", ref: "mac:/inbox/p.png", mime: "image/png", name: "p.png" } as const;
@@ -21,9 +21,9 @@ describe("delivered content parts", () => {
     expect(Gateway.MediaPart.safeParse({ ...photo, kind: "sticker" }).success).toBe(false);
     expect(Gateway.MediaPart.safeParse({ ...photo, ref: "" }).success).toBe(false);
     expect(Gateway.MediaPart.safeParse({ ...photo, caption: "x" }).success).toBe(false);
-    const facts = Gateway.IngressFacts.shape.attachments.parse([voice, photo]);
+    const facts = Ingress.Message.shape.attachments.parse([voice, photo]);
     expect(facts).toEqual([voice, photo]);
-    expect(Gateway.IngressFacts.shape.attachments.safeParse([{ ...voice, durationMs: -1 }]).success).toBe(false);
+    expect(Ingress.Message.shape.attachments.safeParse([{ ...voice, durationMs: -1 }]).success).toBe(false);
   });
 
   test("text, image and file parts parse as content in order", () => {

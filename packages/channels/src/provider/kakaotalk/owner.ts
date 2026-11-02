@@ -263,6 +263,8 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
             surface: "kakaotalk",
             channelId: message.chat_id,
             addressees: mentioned ? [{ externalId: this.credentials.userId }] : [],
+            account: this.credentials.userId,
+            ...(typeof message.attachment?.src_userId === "string" ? { quotes: message.attachment.src_userId } : {}),
             dm,
             receivedBy: "owner",
             payload: { ...message, attachment: message.attachment === null ? null : JSON.stringify(message.attachment) },

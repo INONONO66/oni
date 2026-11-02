@@ -100,6 +100,9 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
         event: "message",
         receivedBy: "owner",
         render: "hey",
+        account: INSTAGRAM_OWNER_ID,
+        addressees: [],
+        author: { externalId: "500", isBot: false },
       },
     });
     listener.message({

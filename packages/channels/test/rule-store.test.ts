@@ -87,8 +87,9 @@ test("group closure records member facts atomically and cannot close twice", () 
     pending: { ruleId: "daily", key: "room", openedAt: 0, windowSeconds: 10,
       when: { instance: "telegram" },
       inputs: [{ eventId: "member", instance: "telegram", surface: "telegram", event: "message", channelId: "room",
-        author: { externalId: "owner", isBot: false }, dm: false, mentionsBot: false,
-        body: "hello", receivedAt: 0 }] },
+        author: { externalId: "owner", isBot: false }, dm: false, addressed: false,
+        from: "owner", addressees: [], payload: {},
+        render: "hello", receivedAt: 0 }] },
   });
   const closed = Ingress.Events.RoutingDecision.schema.parse({
     ...held, time: 10_000, decision: "filtered", reason: "disabled",
