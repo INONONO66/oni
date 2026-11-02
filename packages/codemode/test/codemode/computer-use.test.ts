@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { type Ipc, Machine } from "@oni/protocol";
 import { Effect } from "effect";
-import type { MachineInputCapture, RelayEnd } from "@oni/machines";
+import { CaptureOutputs, type MachineInputCapture, type RelayEnd } from "@oni/machines";
 import { createMachineHost } from "../../../machines/test/helpers/native";
 import { eventCollector } from "../../../machines/test/helpers/events";
 import { socketPath } from "../../../machines/test/helpers/socket-path";
@@ -78,7 +78,13 @@ test("the code-mode handle reaches screen and input under the wire op names, inp
   await fixture(async ({ mode, received, captured }) => {
     const computer = mode.native.getMachine("desk").computer;
     expect((await run(computer.screen.list())).status).toBe("ok");
-    const shot = await run(computer.screen.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } }));
+    const outputs = new Map<string, { readonly bytes: Uint8Array }>();
+    const shot = await run(computer.screen.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } }).pipe(
+      Effect.provideService(CaptureOutputs, {
+        put: (write) => outputs.set(write.outputId, { bytes: write.bytes }),
+        get: (outputId) => outputs.get(outputId),
+      }),
+    ));
     if (shot.status !== "ok") throw new Error(`capture refused: ${shot.reason}`);
     expect(shot.data.toString("utf8")).toBe("png");
     expect(await run(computer.input.pointer({ kind: "move", at: { captureId: "cap-1", x: 1, y: 1 } }))).toEqual({ status: "ok" });

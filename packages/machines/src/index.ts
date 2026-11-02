@@ -1,4 +1,5 @@
 export * from "./errors";
+export { CaptureOutputs, captureData, type CaptureOutputStore } from "./capture-output";
 export { createMachineHost, type MachineHost, type MachineHandle, type MachineInfo } from "./host";
 export { createMemoryGenerationStore, createFileGenerationStore, type AttachGenerationStore } from "./generation-store";
 export type { LeaseHandle, LeaseClass } from "./capacity";

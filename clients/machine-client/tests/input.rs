@@ -16,8 +16,8 @@ use oni_machine_client::{
     screen::{Display, Fault, Screen, Source, Window},
 };
 use oni_protocol::{
-    InputKeyRequest, InputPointerRequest, InputTextRequest, InputWriteRequest,
-    ScreenCaptureRequest, ScreenCaptureResult,
+    InputKeyRequest, InputPointerRequest, InputTextRequest, InputWriteRequest, PeerScreenCapture,
+    ScreenCaptureRequest,
 };
 use serde_json::{json, Value};
 
@@ -177,7 +177,7 @@ impl Rig {
             json!({"target":{"kind":"display","display":display},"encoding":{"format":"png"}}),
         );
         match decode(self.screen.capture(&request)) {
-            ScreenCaptureResult::Ok { capture_id, .. } => capture_id.to_string(),
+            PeerScreenCapture::Ok { capture_id, .. } => capture_id.to_string(),
             refused => panic!("capture refused: {refused:?}"),
         }
     }

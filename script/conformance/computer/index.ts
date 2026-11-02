@@ -13,6 +13,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Effect, Result } from "effect";
 import { z } from "zod";
+import { CaptureOutputs, captureData, type CaptureOutputStore } from "../../../packages/machines/src/index.js";
 import type {
   CapturedResult,
   CaptureRefusal,
@@ -257,6 +258,21 @@ function computerOf(context: Context): ComputerHandle {
   return computer;
 }
 
+function memoryCaptureOutputs(): CaptureOutputStore {
+  const outputs = new Map<string, { readonly bytes: Uint8Array }>();
+  return {
+    put: (write) => outputs.set(write.outputId, { bytes: write.bytes }),
+    get: (outputId) => outputs.get(outputId),
+  };
+}
+const captureOutputs = memoryCaptureOutputs();
+function withCaptureOutputs<A, E>(effect: Effect.Effect<A, E, CaptureOutputs>): Effect.Effect<A, E> {
+  return effect.pipe(Effect.provideService(CaptureOutputs, captureOutputs));
+}
+async function readCapture(sha256: string): Promise<Buffer> {
+  return run(withCaptureOutputs(captureData(sha256)));
+}
+
 async function exerciseScreen(context: Context): Promise<string> {
   const { harness, layout } = context;
   const computer = computerOf(context);
@@ -287,16 +303,17 @@ async function exerciseScreen(context: Context): Promise<string> {
   const [primary] = layout.displays;
   check(primary !== undefined, "fixture layout has no display");
   const capture = await run(
-    computer.capture({
+    withCaptureOutputs(computer.capture({
       target: { kind: "display", display: primary.id },
       encoding: { format: "png" },
-    }),
+    })),
   );
   check(
     capture.status === "ok",
     `display capture answered ${capture.status === "refused" ? capture.reason : capture.status}`,
   );
-  const size = pngSize(capture.data);
+  const captureBytes = await readCapture(capture.sha256);
+  const size = pngSize(captureBytes);
   const pixels = { width: primary.width * primary.scale, height: primary.height * primary.scale };
   check(
     size !== undefined &&
@@ -307,42 +324,43 @@ async function exerciseScreen(context: Context): Promise<string> {
     `display capture ${capture.width}x${capture.height}, png ${JSON.stringify(size)}`,
   );
   const windowCapture = await run(
-    computer.capture({
+    withCaptureOutputs(computer.capture({
       target: { kind: "window", windowId: listedWindow.windowId },
       encoding: { format: "jpeg", quality: 80 },
-    }),
+    })),
   );
+  check(windowCapture.status === "ok", `window capture answered ${windowCapture.status}`);
+  const windowBytes = await readCapture(windowCapture.sha256);
   check(
-    windowCapture.status === "ok" &&
-      windowCapture.data[0] === 0xff &&
-      windowCapture.data[1] === 0xd8 &&
+    windowBytes[0] === 0xff &&
+      windowBytes[1] === 0xd8 &&
       windowCapture.width === window.width &&
       windowCapture.height === window.height,
     `window capture answered ${windowCapture.status}`,
   );
   const missing = await run(
-    computer.capture({
+    withCaptureOutputs(computer.capture({
       target: { kind: "display", display: Machine.SCREEN_LIST_MAX_DISPLAYS },
       encoding: { format: "png" },
-    }),
+    })),
   );
   check(
     missing.status === "refused" && missing.reason === "display_not_found",
     `missing display answered ${JSON.stringify(missing.status === "refused" ? missing.reason : missing.status)}`,
   );
   const anchor = await run(
-    computer.capture({
+    withCaptureOutputs(computer.capture({
       target: { kind: "display", display: primary.id },
       encoding: { format: "png" },
       maxDimension: 320,
-    }),
+    })),
   );
   check(
-    anchor.status === "ok" && anchor.downscaled && Math.max(anchor.width, anchor.height) === 320,
+    anchor.status === "ok" && Math.max(anchor.width, anchor.height) === 320,
     "downscaled capture differs",
   );
   harness.record(
-    `screen capture: display png ${capture.width}x${capture.height} (${capture.data.length} B sha256 ${createHash("sha256").update(capture.data).digest("hex").slice(0, 16)}, IHDR matches), window jpeg ${windowCapture.width}x${windowCapture.height}, downscaled ${anchor.width}x${anchor.height}, display ${Machine.SCREEN_LIST_MAX_DISPLAYS} refused display_not_found`,
+    `screen capture: display png ${capture.width}x${capture.height} (${captureBytes.length} B sha256 ${createHash("sha256").update(captureBytes).digest("hex").slice(0, 16)}, IHDR matches), window jpeg ${windowCapture.width}x${windowCapture.height}, downscaled ${anchor.width}x${anchor.height}, display ${Machine.SCREEN_LIST_MAX_DISPLAYS} refused display_not_found`,
   );
   return anchor.captureId;
 }
@@ -451,11 +469,11 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
     "revoked input was not captured as tool.pre",
   );
   const fresh = await run(
-    computer.capture({
+    withCaptureOutputs(computer.capture({
       target: { kind: "display", display: primary.id },
       encoding: { format: "png" },
       maxDimension: 64,
-    }),
+    })),
   );
   check(fresh.status === "ok", "re-granted capture refused");
   const stale = await run(computer.pointer({ delivery: "foreground", kind: "move", at: { captureId, x: 1, y: 1 } }));
@@ -589,9 +607,9 @@ async function exercisePrivate(context: Context): Promise<void> {
     && "elements" in privateObservation && privateObservation.elements.length === 0
     && !("screenshot" in privateObservation) && !("focused" in privateObservation),
     `private observation leaked content ${JSON.stringify(privateObservation)}`);
-  const windowCapture = await run(computer.capture({
+  const windowCapture = await run(withCaptureOutputs(computer.capture({
     target: { kind: "window", windowId: String(window.id) }, encoding: { format: "png" },
-  }));
+  })));
   check(windowCapture.status === "refused" && windowCapture.reason === "private",
     `private window capture ${JSON.stringify(windowCapture)}`);
   const action = await run(computer.action({
@@ -600,9 +618,9 @@ async function exercisePrivate(context: Context): Promise<void> {
   }));
   check(action.status === "refused" && action.reason === "private",
     `private action ${JSON.stringify(action)}`);
-  const anchor = await run(computer.capture({
+  const anchor = await run(withCaptureOutputs(computer.capture({
     target: { kind: "display", display: display.id }, encoding: { format: "png" },
-  }));
+  })));
   check(anchor.status === "ok", "private display capture refused");
   const input = await run(computer.text({ delivery: "foreground", captureId: anchor.captureId, text: "secret" }));
   check(input.status === "refused" && input.reason === "private",
@@ -1010,7 +1028,7 @@ async function exerciseBackground(context: Context): Promise<void> {
   check(opened.status === "ok" && opened.pid === OBSERVED_PID, `launch ${JSON.stringify(opened)}`);
   const [target] = opened.windows;
   check(target !== undefined && target.epoch === 1, `launch windows ${JSON.stringify(opened.windows)}`);
-  const shot = await run(computer.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } }));
+  const shot = await run(withCaptureOutputs(computer.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } })));
   check(shot.status === "ok", `background capture ${JSON.stringify(shot)}`);
   const pointer = await run(computer.pointer({ delivery: "background", kind: "move", at: { captureId: shot.captureId, x: 1, y: 1 } }));
   check(pointer.status === "refused" && pointer.reason === "unsupported_action",

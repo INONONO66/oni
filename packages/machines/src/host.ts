@@ -15,6 +15,7 @@ import { ClockSamples, capturedAt, clockSample } from "./clock-samples";
 import { Reservations } from "./reservation";
 import { ComputerWindows } from "./computer-windows";
 import { ComputerRelay } from "./computer-relay";
+import { captureMetadata, pngDimensions, storeCapture } from "./capture-output";
 import { IpcConnectionError, IpcRemoteError, IpcTimeoutError } from "./ipc/errors";
 import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
@@ -97,7 +98,10 @@ type Value<O extends Machine.FsValue["op"]> = Extract<Machine.FsValue, { op: O }
 type WriteOptions = Pick<Extract<Machine.FsRequest, { op: "write" }>, "create">;
 type ReadValue = Omit<Value<"read">, "data"> & { readonly data: Uint8Array };
 type ExecValue = Omit<Extract<Machine.ExecResult, { status: "completed" }>, "stdout" | "stderr"> & { readonly stdout: Uint8Array; readonly stderr: Uint8Array };
-type ScreenValue = Omit<Extract<Machine.ScreenReadResult, { status: "ok" }>, "png"> & { readonly png: Uint8Array };
+type ScreenValue = Omit<Extract<Machine.ScreenReadResult, { status: "ok" }>, "png"> & {
+  readonly png: Uint8Array;
+  readonly capture: Extract<Machine.ScreenCaptureResult, { status: "ok" }>;
+};
 type DetachReason = import("zod").infer<typeof Machine.Events.Detached.schema>["reason"];
 type AgentSessionMethod =
   | typeof Machine.WireMethod.AgentSessionList | typeof Machine.WireMethod.AgentSessionOpen
@@ -189,7 +193,7 @@ export interface ComputerChannel {
   send(data: Uint8Array): Effect.Effect<Machine.CdpChunkResult, MachineError>;
   close(): Effect.Effect<Machine.CdpCloseResult, MachineError>;
 }
-type ComputerCapture = Exclude<Machine.ScreenCaptureResult, { status: "ok" }> | (Omit<Extract<Machine.ScreenCaptureResult, { status: "ok" }>, "data"> & { readonly data: Buffer });
+type ComputerCapture = Machine.ScreenCaptureResult;
 export interface ComputerHandle {
   readonly clipboard: {
     read(request?: Machine.ClipboardReadRequest): Effect.Effect<Machine.ClipboardReadResult | CaptureRefusal, MachineError>;
@@ -924,7 +928,16 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           peer.server.useConnection(peer.rawId);
           const raw = yield* typedCall(peer.server, Machine.WireMethod.ScreenRead, parsed, Machine.EXEC_TIMEOUT_MS + 1000).pipe(Effect.mapError(transportFailure("screen.call")));
           const result = yield* Effect.try({ try: () => Machine.ScreenReadResult.parse(raw), catch: decodeMachineFailure("screen.response") });
-          return result.status === "ok" ? { ...result, png: Buffer.from(result.png, "base64") } : result;
+          if (result.status !== "ok") return result;
+          const png = Buffer.from(result.png, "base64");
+          const size = pngDimensions(png);
+          if (size === undefined) return { status: "refused", reason: "capture_failed" } as const;
+          const capture = yield* storeCapture({
+            status: "ok", captureId: result.captureId, format: "png", display: parsed.display ?? 1,
+            ...size, scale: null, capturedAtUs: null,
+            ...(result.accessibilityUnavailable === undefined ? {} : { accessibilityUnavailable: result.accessibilityUnavailable }),
+          }, png);
+          return { ...result, png, capture };
         }),
         input: (request) => Effect.gen(function* () {
           const parsed = yield* Effect.try({ try: () => Machine.InputWriteRequest.parse(request), catch: decodeMachineFailure("input.request") });
@@ -1353,6 +1366,22 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         return opened.status === "opened" ? channelOf(peer, channelId, relay, opened.expiresAt) : opened;
       });
     }
+    function captureScreen(id: string, request: Machine.ScreenCaptureRequest): Effect.Effect<Machine.ScreenCaptureResult, MachineError> {
+      return Effect.gen(function* () {
+        const params = yield* decode(Machine.ScreenCaptureRequest, request, "screen.capture.request");
+        const peer = yield* screenGate(id, "screen.capture.connection");
+        if (typeof peer === "string") return { status: "refused", reason: peer === "permission_denied" ? peer : "screen_not_available" } as const;
+        const result = yield* computerCall(peer, Machine.WireMethod.ScreenCapture, params, Machine.PeerScreenCapture);
+        if (result.status !== "ok") return result;
+        computerWindows.get(id)?.capture(params, result.captureId);
+        const data = Buffer.from(result.data, "base64");
+        // The base64 length bound admits up to two decoded bytes past the legacy ceiling.
+        if (data.length > Machine.SCREEN_PNG_MAX_BYTES) {
+          return { status: "refused", reason: "capture_failed", message: `capture exceeds ${Machine.SCREEN_PNG_MAX_BYTES} bytes` } as const;
+        }
+        return yield* storeCapture(captureMetadata(result), data);
+      });
+    }
     function computerHandle(id: string): ComputerHandle {
       return {
         clipboard: {
@@ -1383,19 +1412,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
             Effect.tap((result) => Effect.sync(() => computerWindows.get(id)?.list(result))),
           );
         }),
-        capture: (request) => Effect.gen(function* () {
-          const params = yield* decode(Machine.ScreenCaptureRequest, request, "screen.capture.request");
-          const peer = yield* screenGate(id, "screen.capture.connection");
-          if (typeof peer === "string") return { status: "refused", reason: peer === "permission_denied" ? peer : "screen_not_available" } as const;
-          const result = yield* computerCall(peer, Machine.WireMethod.ScreenCapture, params, Machine.ScreenCaptureResult);
-          if (result.status !== "ok") return result;
-          computerWindows.get(id)?.capture(params, result.captureId);
-          const data = Buffer.from(result.data, "base64");
-          // The base64 length bound admits up to two decoded bytes past the legacy ceiling.
-          return data.length > Machine.SCREEN_PNG_MAX_BYTES
-            ? { status: "refused", reason: "capture_failed", message: `capture exceeds ${Machine.SCREEN_PNG_MAX_BYTES} bytes` } as const
-            : { ...result, data };
-        }),
+        capture: (request) => captureScreen(id, request),
         pointer: (request) => pointer(id, request),
         key: (request) => dispatchInput(id, Machine.WireMethod.InputKey, Machine.InputKeyRequest, request),
         text: (request) => dispatchInput(id, Machine.WireMethod.InputText, Machine.InputTextRequest, request),

@@ -154,7 +154,7 @@ const methods = {
   [Machine.WireMethod.ScreenList]: { params: Machine.ScreenListRequest, result: Machine.ScreenListResult },
   [Machine.WireMethod.ScreenCapture]: {
     params: Machine.ScreenCaptureRequest,
-    result: Machine.ScreenCaptureResult,
+    result: Machine.PeerScreenCapture,
   },
   [Machine.WireMethod.ClipboardRead]: { params: Machine.ClipboardReadRequest, result: Machine.ClipboardReadResult },
   [Machine.WireMethod.ClipboardWrite]: { params: Machine.ClipboardWriteRequest, result: Machine.ClipboardWriteResult },

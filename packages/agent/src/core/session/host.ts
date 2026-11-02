@@ -492,6 +492,8 @@ interface ConfigureToolsRuntime extends Pick<ResolvedSessionRuntime, "authorizeC
 /** Host-owned operations close over store handles; callers supply product policy and values only. */
 function ledgerSession(plane: LedgerPlane, sessionId: string, parentPath?: () => string) {
   return {
+    putOutput: (write: Parameters<SessionStore["toolOutputs"]["put"]>[0]): void =>
+      plane.sessionStore(sessionId).toolOutputs.put(write),
     create: (input: Omit<CreateSessionInput, "id">) => createSession(plane, { ...input, id: sessionId }),
     fork: (input: Omit<ForkInput, "from">) => Effect.suspend(() => {
       const version = parentPath === undefined

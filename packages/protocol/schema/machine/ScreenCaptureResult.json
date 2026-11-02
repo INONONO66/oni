@@ -4,28 +4,35 @@
     {
       "additionalProperties": false,
       "properties": {
-        "accessibilityTree": {},
         "accessibilityUnavailable": {
           "type": "boolean"
+        },
+        "bytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 4194304,
+          "type": "integer"
         },
         "captureId": {
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
         },
-        "data": {
-          "maxLength": 5592408,
-          "minLength": 1,
-          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
-          "type": "string"
+        "capturedAtUs": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "display": {
           "exclusiveMinimum": 0,
           "maximum": 16,
           "type": "integer"
-        },
-        "downscaled": {
-          "type": "boolean"
         },
         "format": {
           "enum": [
@@ -39,9 +46,21 @@
           "maximum": 16384,
           "type": "integer"
         },
-        "observedAt": {
-          "minimum": 0,
-          "type": "number"
+        "scale": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 8,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
         },
         "status": {
           "const": "ok",
@@ -57,12 +76,13 @@
         "status",
         "captureId",
         "display",
-        "format",
-        "data",
         "width",
         "height",
-        "downscaled",
-        "observedAt"
+        "scale",
+        "format",
+        "bytes",
+        "sha256",
+        "capturedAtUs"
       ],
       "type": "object"
     },

@@ -9,7 +9,7 @@ use std::sync::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use oni_machine_client::screen::{fixture::Fixture, Display, Fault, Screen, Source, Window};
 use oni_protocol::{
-    ScreenCaptureRequest, ScreenCaptureResult, ScreenListRequest, ScreenListResult,
+    PeerScreenCapture, ScreenCaptureRequest, ScreenListRequest, ScreenListResult,
     ScreenReadRequest, ScreenReadResult,
 };
 use serde_json::{json, Value};
@@ -55,7 +55,7 @@ fn list(screen: &Screen, params: Value) -> Value {
 fn capture(screen: &Screen, params: Value) -> Value {
     let request: ScreenCaptureRequest = oni_protocol::decode(params).expect("capture request");
     let answer = screen.capture(&request);
-    oni_protocol::decode::<ScreenCaptureResult>(answer.clone()).expect("capture result");
+    oni_protocol::decode::<PeerScreenCapture>(answer.clone()).expect("capture result");
     answer
 }
 

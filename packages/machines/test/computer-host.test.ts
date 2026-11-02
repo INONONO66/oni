@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { type Ipc, Machine } from "@oni/protocol";
 import { Effect, Fiber } from "effect";
-import { createMemoryGenerationStore, type AttachGenerationStore, type ChannelListeners, type ComputerHandle, type MachineError, type MachineInputCapture, type RelayEnd, type StreamListeners } from "../src";
+import { CaptureOutputs, createMemoryGenerationStore, type AttachGenerationStore, type ChannelListeners, type ComputerHandle, type MachineError, type MachineInputCapture, type RelayEnd, type StreamListeners } from "../src";
 import { createMachineHost } from "./helpers/native";
 import { eventCollector } from "./helpers/events";
 import { socketPath } from "./helpers/socket-path";
@@ -27,6 +27,11 @@ const channelRequest = { endpoint: { kind: "discover" }, lifetimeMs: 60_000 } as
 
 async function fixture(options: { grants?: string[]; captureInput?: Capture | "absent"; generations?: AttachGenerationStore } = {}) {
   const events = eventCollector();
+  const outputs = new Map<string, { readonly bytes: Uint8Array }>();
+  const captureOutputs = {
+    put: (write: { readonly outputId: string; readonly bytes: Uint8Array }) => outputs.set(write.outputId, { bytes: write.bytes }),
+    get: (outputId: string) => outputs.get(outputId),
+  };
   const grants = { allowed: options.grants ?? [COMPUTER] };
   let clock = 100;
   let ids = 0;
@@ -61,8 +66,13 @@ async function fixture(options: { grants?: string[]; captureInput?: Capture | "a
     machine: () => {
       const computer = host.native.get("desk").computer;
       if (computer === undefined) throw new Error("host handle carries no computer surface");
-      return computer;
+      return {
+        ...computer,
+        capture: (request: Parameters<typeof computer.capture>[0]) =>
+          computer.capture(request).pipe(Effect.provideService(CaptureOutputs, captureOutputs)),
+      };
     },
+    captureOutput: (outputId: string) => outputs.get(outputId),
     setClock(at: number) { clock = at; },
     async close() { for (const client of peers) await client.close(); await host.close(); },
   };
@@ -273,8 +283,9 @@ test("screen list and capture relay parsed answers, refusals pass through typed"
     expect(listed.status).toBe("ok");
     const shot = await run(computer.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } }));
     if (shot.status !== "ok") throw new Error(`capture refused: ${shot.reason}`);
-    expect(shot.data.toString("utf8")).toBe("png-bytes");
     expect(shot.captureId).toBe("cap-9");
+    expect(shot.bytes).toBe(Buffer.byteLength("png-bytes"));
+    expect(f.captureOutput(`sha256:${shot.sha256}`)?.bytes).toEqual(Uint8Array.from(Buffer.from("png-bytes")));
     expect(await run(computer.capture({ target: { kind: "window", windowId: "gone" }, encoding: { format: "png" } }))).toEqual({ status: "refused", reason: "window_not_found" });
     expect(desk.received.map((entry) => entry.method)).toEqual([Machine.WireMethod.ScreenList, Machine.WireMethod.ScreenCapture, Machine.WireMethod.ScreenCapture]);
   } finally { await f.close(); }
@@ -292,7 +303,8 @@ test("a capture whose decoded bytes pass the ceiling is refused typed, the ceili
     expect(await run(computer.capture(request))).toEqual({ status: "refused", reason: "capture_failed", message: `capture exceeds ${Machine.SCREEN_PNG_MAX_BYTES} bytes` });
     const shot = await run(computer.capture(request));
     if (shot.status !== "ok") throw new Error(`capture refused: ${shot.reason}`);
-    expect(shot.data.length).toBe(Machine.SCREEN_PNG_MAX_BYTES);
+    expect(shot.bytes).toBe(Machine.SCREEN_PNG_MAX_BYTES);
+    expect(f.captureOutput(`sha256:${shot.sha256}`)?.bytes.byteLength).toBe(Machine.SCREEN_PNG_MAX_BYTES);
   } finally { await f.close(); }
 });
 

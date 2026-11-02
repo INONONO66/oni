@@ -366,6 +366,10 @@
       "name": "PeekResult"
     },
     {
+      "file": "PeerScreenCapture.json",
+      "name": "PeerScreenCapture"
+    },
+    {
       "file": "PingResult.json",
       "name": "PingResult"
     },

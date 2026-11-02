@@ -88,6 +88,19 @@ displayed frames, including sequence gaps and the first fresh frame after
 reconnection. Fixture stream and fixed-clock tests cover these paths; a
 MacBook capture-to-display acceptance record still belongs to #1702.
 
+## #1776 screen capture output blobs
+
+The machine peer continues to send a bounded base64 PNG in its NDJSON capture
+reply (`PeerScreenCapture`). The host decodes it immediately, stores the bytes
+in the requesting session's tool-output store under `sha256:<digest>`, and
+returns the compact `ScreenCaptureResult` envelope to policy and ledger paths.
+The store reaches the host as the `CaptureOutputs` service: `apps/oni` binds
+`ledger.session(id).putOutput` per cell tenant through code mode, which
+provides it around every host op a cell issues. The prelude's `screen()`
+receives the envelope from `codemode.screen` and fetches the PNG bytes through
+the `capture_data` host op, which the cell boundary never records; the
+persisted tool result contains no image payload.
+
 ## #1694 screen verdict and Linux virtual display
 
 Contract v4 replaces `Report.screen.permission` with a verdict

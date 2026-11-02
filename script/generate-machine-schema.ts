@@ -10,7 +10,7 @@
  *   ToolCall          custom: `arguments` values are PlainValueSchema
  *   ToolCallResult    custom: `completed.value` is PlainValueSchema
  *   ScreenReadResult  custom: `ok.accessibilityTree` is PlainValueSchema
- *   ScreenCaptureResult custom: `ok.accessibilityTree` is PlainValueSchema
+ *   PeerScreenCapture custom: `ok.accessibilityTree` is PlainValueSchema
  *
  * Refinements dropped by the export (the base type is kept; Zod still
  * enforces them at parse time):
@@ -21,7 +21,7 @@
  *   CapacityRows                                       refine: unique selectors
  *   CellOutput, CellResult, CellState, PeekResult, PeekAnswer
  *                                                      refine: per-stream byte bound
- *   ScreenReadResult, ScreenCaptureResult              refine: accessibility tree byte bound
+ *   ScreenReadResult, PeerScreenCapture                refine: accessibility tree byte bound
  *   ScreenObserveResult                                refine: element list byte bound
  *   Screen                                             refine: an available verdict carries no needs
  * Regex grammars (CapabilityId, ExportName, KeyFingerprint, PtySessionName,

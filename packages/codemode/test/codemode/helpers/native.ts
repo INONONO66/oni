@@ -3,6 +3,7 @@ import type { Machine } from "@oni/protocol";
 import { createCodemode as create } from "../../../src";
 import { decodeCodeFailure } from "../../../src/failure";
 import type { CodeError } from "../../../src/errors";
+import type { CaptureOutputStore } from "@oni/machines";
 import type { MachineHost } from "../../../../machines/test/helpers/native";
 import { acquireSync, run } from "../../../../machines/test/ipc/helpers/effects";
 export * from "../../../src/errors";
@@ -25,6 +26,7 @@ export function createCodemode(options: {
   toolOutput?: (tenant: string, outputId: string) => Promise<{ text: string; bytes: number; mediaType?: string } | undefined>;
   tools?: (tenant: string) => Caller;
   boundary?: (tenant: string) => Boundary;
+  captureOutputs?: (tenant: string) => CaptureOutputStore;
   self?: string;
 } = {}) {
   const completion = options.completion;
@@ -39,6 +41,7 @@ export function createCodemode(options: {
     toolOutput: toolOutput ? (tenant, outputId) => code(() => toolOutput(tenant, outputId)) : undefined,
     tools: tools ? (tenant) => { const call = tools(tenant); return (request) => code(() => call(request)); } : undefined,
     boundary: boundary ? (tenant) => { const decide = boundary(tenant); return (call, body) => code(() => decide(call, () => run(body()))); } : undefined,
+    captureOutputs: options.captureOutputs,
     self: options.self,
   }));
   const shutdown = async () => { await run(native.close()); await close(); };
