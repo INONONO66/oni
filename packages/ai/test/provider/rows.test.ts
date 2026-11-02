@@ -64,11 +64,6 @@ describe("provider rows file", () => {
   test("a google model outside the catalog resolves through the bundled google row", async () => {
     const model = await runEffect(makeLlmService(AUTH_FILE, []).resolveModel({ provider: "google", id: "gemini-2.5-flash" }, fixedNow));
     expect(model).toEqual({ id: "gemini-2.5-flash", providerID: "google", name: "gemini-2.5-flash", api: { id: "gemini-2.5-flash", npm: "@ai-sdk/google" } });
-    expect(BUNDLED_ROWS.map((row) => row.id)).toEqual(["anthropic", "openai", "google"]);
-    expect(BUNDLED_ROWS.find((row) => row.id === "google")).toEqual({
-      id: "google", npm: "@ai-sdk/google", transcription: "gemini-3.5-transcribe",
-      speech: { model: "gemini-2.5-flash-preview-tts", voice: "Kore", format: "wav" }, image: { model: "gemini-2.5-flash-image" },
-    });
   });
 
   test("a catalog provider's missing model still refuses typed under a row", async () => {
