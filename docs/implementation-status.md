@@ -286,6 +286,32 @@ refusal of transcript bytes) and `apps/oni/test/gateway-child-state.test.ts`
 callbacks, the exact frame, the refusals). Not claimed: a console rendering
 of the frame (#1513) and a `screen` source, which no reconciler path emits.
 
+||||||| parent of a3fbdb442 (wip(1778): record live refusals and successful capture evidence)
+
+## #1778 MacBook live CLI and capture receipts
+
+An isolated local kernel and its release-built self mclient reached the real
+Claude Code, Codex and Pi executables on 2026-11-02. No CLI turn completed:
+Claude's first prompt is blocked by transcript-before-open readiness
+(#1807), Codex needs Owner login (#1809), and the installed Pi executable
+uses a different transcript root (#1810). Codex also has no host permission
+hook (#1811). The #1778 issue records the exact refusals; each CLI produced
+zero child facts, permission action/decision rows and pointer replies.
+These are live failure receipts, not successful CLI acceptance.
+
+The absent `omp` executable and home directory could not validate its
+documentation-derived layout. Its launch manifest entry is removed; retained
+parser fixtures are not an advertised launch dialect.
+
+The same kernel's native child captured a real 3024 by 1964 display through
+one code-mode cell (#1776 G002 C002): the session journal's effect JSON was
+444 bytes (751 bytes for the serialized row), pointing to a 2065011-byte PNG
+in that session's `tool_outputs` table. Screen Recording was granted;
+Accessibility was unavailable. Heartbeats continued beyond 15 seconds with
+no memory-budget exit. The self-client settings now use 512 MiB instead of
+overriding the Rust default with 96 MiB. Procedure: `docs/first-live-run.md`;
+exact session, action, digest and memory receipts: issues #1778 and #1776.
+
 ## #1775 memory budget default and breach reporting
 
 `mclient`'s default `memoryBudgetMb` is 512 (was 96, below one Retina
