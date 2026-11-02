@@ -146,10 +146,6 @@ function consume(turn: LiveTurn, event: LiveEvent): Effect.Effect<void, Core.Exe
       return runToolCall(turn, message, event.call);
     case "utterance_end":
       return closeUtterance(turn, message);
-    default: {
-      const exhaustive: never = event;
-      return exhaustive;
-    }
   }
 }
 
