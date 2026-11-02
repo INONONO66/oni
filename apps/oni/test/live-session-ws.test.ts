@@ -47,7 +47,7 @@ test("the authenticated ws door selects a kernel live runner and records its gat
   const messages = actions.flatMap((row) => {
     const value = row.effect.value;
     if (row.kind !== "message" || value === null || typeof value !== "object" || Array.isArray(value)) return [];
-    const parsed = Message.WithParts.safeParse(value.value);
+    const parsed = Message.WithParts.safeParse(value.result);
     return parsed.success ? [parsed.data] : [];
   });
   expect(messages).toMatchObject([{ parts: [{ type: "text", text: "Checking." }, { type: "tool", callID: "ws-live-call" }] }]);

@@ -16,7 +16,7 @@ function snapshots(rows: readonly LedgerAction.Node[]) {
   return rows.flatMap((row) => {
     const effect = row.effect.value;
     if (row.kind !== "message" || effect === null || typeof effect !== "object" || Array.isArray(effect)) return [];
-    const parsed = Message.WithParts.safeParse(effect.value);
+    const parsed = Message.WithParts.safeParse(effect.result);
     return parsed.success ? [parsed.data] : [];
   });
 }
@@ -107,7 +107,7 @@ test.each([
   const f = fixture(steps);
   await f.run();
   expect(snapshots(f.rows())).toEqual([]);
-  expect(f.world.kernel.latestTurnTerminal(f.world.sessionId)?.effect).toMatchObject({ outcome: "error" });
+  expect(f.world.kernel.latestTurnTerminal(f.world.sessionId)?.effect).toMatchObject({ kind: "error" });
   expect(JSON.stringify(f.rows())).toContain(cause);
   expect(f.stream.closed()).toBe(true);
 });
