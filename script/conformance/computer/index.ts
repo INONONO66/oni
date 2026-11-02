@@ -469,11 +469,11 @@ async function exerciseInput(context: Context, captureId: string): Promise<void>
     "revoked input was not captured as tool.pre",
   );
   const fresh = await run(
-    computer.capture({
+    withCaptureOutputs(computer.capture({
       target: { kind: "display", display: primary.id },
       encoding: { format: "png" },
       maxDimension: 64,
-    }),
+    })),
   );
   check(fresh.status === "ok", "re-granted capture refused");
   const stale = await run(computer.pointer({ delivery: "foreground", kind: "move", at: { captureId, x: 1, y: 1 } }));
@@ -607,9 +607,9 @@ async function exercisePrivate(context: Context): Promise<void> {
     && "elements" in privateObservation && privateObservation.elements.length === 0
     && !("screenshot" in privateObservation) && !("focused" in privateObservation),
     `private observation leaked content ${JSON.stringify(privateObservation)}`);
-  const windowCapture = await run(computer.capture({
+  const windowCapture = await run(withCaptureOutputs(computer.capture({
     target: { kind: "window", windowId: String(window.id) }, encoding: { format: "png" },
-  }));
+  })));
   check(windowCapture.status === "refused" && windowCapture.reason === "private",
     `private window capture ${JSON.stringify(windowCapture)}`);
   const action = await run(computer.action({
@@ -618,9 +618,9 @@ async function exercisePrivate(context: Context): Promise<void> {
   }));
   check(action.status === "refused" && action.reason === "private",
     `private action ${JSON.stringify(action)}`);
-  const anchor = await run(computer.capture({
+  const anchor = await run(withCaptureOutputs(computer.capture({
     target: { kind: "display", display: display.id }, encoding: { format: "png" },
-  }));
+  })));
   check(anchor.status === "ok", "private display capture refused");
   const input = await run(computer.text({ delivery: "foreground", captureId: anchor.captureId, text: "secret" }));
   check(input.status === "refused" && input.reason === "private",
@@ -1028,7 +1028,7 @@ async function exerciseBackground(context: Context): Promise<void> {
   check(opened.status === "ok" && opened.pid === OBSERVED_PID, `launch ${JSON.stringify(opened)}`);
   const [target] = opened.windows;
   check(target !== undefined && target.epoch === 1, `launch windows ${JSON.stringify(opened.windows)}`);
-  const shot = await run(computer.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } }));
+  const shot = await run(withCaptureOutputs(computer.capture({ target: { kind: "display", display: 1 }, encoding: { format: "png" } })));
   check(shot.status === "ok", `background capture ${JSON.stringify(shot)}`);
   const pointer = await run(computer.pointer({ delivery: "background", kind: "move", at: { captureId: shot.captureId, x: 1, y: 1 } }));
   check(pointer.status === "refused" && pointer.reason === "unsupported_action",
