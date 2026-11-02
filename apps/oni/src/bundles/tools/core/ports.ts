@@ -3,7 +3,7 @@ import type { LlmPort } from "../completion/index";
 import type { Cell } from "../eval/index";
 import type { OutputPort, SpeechPort } from "../speech/index";
 
-/** The ports the machine-tool bundles (file, bash, eval, completion, speech) execute against (#1561). */
+/** The ports the machine-tool bundles (file, bash, eval, completion, speech) execute against. */
 export interface MachineToolPorts {
   readonly machines: FilePorts["machines"];
   readonly cells: { readonly cell: Cell } | undefined;

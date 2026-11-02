@@ -52,7 +52,7 @@ const schemaPorts: ToolPorts = {
   messages: undefined, machines: undefined, cells: undefined,
   llm: undefined, speech: undefined, putOutput: undefined, provisioning: undefined, clock: () => 0, id: () => "schema",
 };
-// #1561: every tool is bundle-declared; the lint surface is the full 13 tools
+// Every tool is bundle-declared; the lint surface is the full 13 tools
 // in the reviewed snapshot order.
 const schemaSource = () => schemaPorts;
 const definitions: readonly AnyToolDefinition[] = [
