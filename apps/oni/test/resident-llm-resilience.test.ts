@@ -4,7 +4,7 @@ import { runEffect } from "./helpers/effect";
 import { providerFailure } from "./helpers/provider-failure";
 import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { Core } from "@oni/agent";
-import { Auth } from "@oni/llm";
+import { Auth } from "@oni/ai";
 const AgentFailure = Core.AgentFailure;
 import type { Model } from "@oni/protocol";
 import { createResidentGateway } from "../src/gateway";

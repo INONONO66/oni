@@ -2,7 +2,7 @@ import { Deferred, Duration, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "bun:test";
 import { Core } from "@oni/agent";
-import { classifyFailure, type LlmService } from "@oni/llm";
+import { classifyFailure, type LlmService } from "@oni/ai";
 const Llm = Core.Llm;
 const ObservationSink = Core.ObservationSink;
 import { Bus } from "./helpers/bus";

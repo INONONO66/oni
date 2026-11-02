@@ -45,12 +45,12 @@ export interface WorkspaceTopology {
  * #1246 merged ten packages into five: ipc and codemode folded into machines,
  * policy/ledger/llm folded into agent, and the channel-facing stores moved
  * into channels. #1272 extracted code mode back out as the sixth package.
- * #1352 extracted the model-call layer as `@oni/llm`; the agent core
- * declares the port and only the app binds the package. `@oni/sync` (#1629)
+ * #1352 extracted the model-call layer (`@oni/ai` since #1784); the agent
+ * core declares the port and only the app binds the package. `@oni/sync` (#1629)
  * was removed in #1780: it had zero consumers outside this inventory and one
  * conformance script. The import direction (right imports left) is:
- * protocol <- agent, llm, machines, channels, apps/oni, apps/desktop;
- * agent <- channels, apps/oni; llm <- apps/oni;
+ * protocol <- agent, ai, machines, channels, apps/oni, apps/desktop;
+ * agent <- channels, apps/oni; ai <- apps/oni;
  * machines <- codemode, apps/oni; codemode <- apps/oni;
  * channels <- apps/oni; ui <- apps/desktop.
  */
@@ -80,10 +80,10 @@ export const TOPOLOGY = [
     ciTestCommand: "bun run test:ci",
   },
   {
-    key: "llm",
-    displayName: "llm",
-    dir: "packages/llm",
-    packageName: "@oni/llm",
+    key: "ai",
+    displayName: "ai",
+    dir: "packages/ai",
+    packageName: "@oni/ai",
     // The model-call layer (#1352): provider adapters, stream processing and
     // accounting over the ai SDK. It knows protocol only; the agent core
     // declares the port it satisfies and never imports it.
@@ -140,7 +140,7 @@ export const TOPOLOGY = [
       "@oni/protocol",
       "@oni/channels",
       "@oni/agent",
-      "@oni/llm",
+      "@oni/ai",
       "@oni/machines",
       "@oni/codemode",
     ],

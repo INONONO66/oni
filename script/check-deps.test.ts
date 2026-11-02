@@ -748,7 +748,7 @@ test("#1247 S8 pin: validateAgentIndexPerimeter reads the pinned file and refuse
 // ONE conformance assertion over the issue body's "tokens that must return no
 // output" (the deleted monitor tool/ports files, the imperative session-tool
 // constructors, bundle names in boot, the legacy compose plane, kernel-row
-// @oni/llm references, the ambient cron grid). It reads the LIVE
+// @oni/ai references, the ambient cron grid). It reads the LIVE
 // repository via import.meta.dir — never a fixture — so a regrowth of any
 // retired surface names the file that grew it.
 
@@ -768,7 +768,7 @@ const RETIRED_SURFACES: Readonly<Record<string, { pattern: RegExp; globs: readon
     pattern: /BundlesLive/,
     globs: ["apps/*/src/**/*.ts", "packages/agent/src/**/*.ts"],
   },
-  "@oni/llm in kernel rows": { pattern: /@oni\/llm/, globs: ["packages/agent/src/**/*.ts"] },
+  "@oni/ai in kernel rows": { pattern: /@oni\/ai/, globs: ["packages/agent/src/**/*.ts"] },
   "ambient Bun.cron( grid": { pattern: /Bun\.cron\(/, globs: ["apps/**/*.ts", "packages/**/*.ts"] },
 };
 

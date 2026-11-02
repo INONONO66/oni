@@ -66,7 +66,7 @@ oni/
 ├── packages/
 │   ├── protocol/        # Zod schemas and cross-package contracts
 │   ├── agent/           # durable sessions, stateless runAgent loop, executor, policy gate, stores, llm port
-│   ├── llm/             # model-call layer: providers, stream processor, accounting, failure classifier
+│   ├── ai/              # model-call layer: providers, stream processor, accounting, failure classifier, speech-to-text
 │   ├── machines/        # host attachment, handles, admission, capacity and IPC transport
 │   ├── codemode/        # code facade, machine handles and cell routing
 │   ├── channels/        # channel drivers and perimeter gateway router
@@ -87,9 +87,9 @@ oni/
 Read `X <- Y` as Y may depend on X.
 
 ```text
-protocol <- agent, llm, machines, codemode, channels, apps/oni, apps/desktop
+protocol <- agent, ai, machines, codemode, channels, apps/oni, apps/desktop
 agent <- channels, apps/oni
-llm <- apps/oni
+ai <- apps/oni
 machines <- codemode, apps/oni
 codemode <- apps/oni
 channels <- apps/oni
@@ -100,11 +100,11 @@ ui <- apps/desktop
 | --- | --- |
 | `protocol` | none |
 | `agent` | protocol |
-| `llm` | protocol |
+| `ai` | protocol |
 | `machines` | protocol |
 | `codemode` | protocol, machines |
 | `channels` | protocol, agent |
-| `apps/oni` | protocol, channels, agent, llm, machines, codemode |
+| `apps/oni` | protocol, channels, agent, ai, machines, codemode |
 | `ui` | none |
 | `apps/desktop` | protocol, ui |
 <!-- END GENERATED TOPOLOGY -->
@@ -116,8 +116,8 @@ ui <- apps/desktop
 | Package | Owns | Must not own |
 | --- | --- | --- |
 | `packages/protocol` | Schemas, wire contracts, pure folds | I/O, storage, product decisions |
-| `packages/agent` | Generic durable-session mechanics over its store facts, stateless loop, and compaction; the generic policy gate (`src/core/gate/`); handle-scoped catalog/session-file stores, action hash chain, decision facts, and activation fence CAS (`src/core/store/`); the model-call port and retry decision (`src/core/llm.ts`, `src/core/retry.ts`); bus and scoped observation (`src/observation/`) | Product-specific session identity, routing, lifecycle policy, or authority decisions; provider adapters or the `ai` SDK (that is `packages/llm`'s) |
-| `packages/llm` | The model-call layer behind the core port: provider resolution and adapters over `ai@7.0.93`, one streaming attempt per `run`, stream-event processing, usage accounting, credential storage, the pure `classifyFailure` | Retry scheduling, attempt caps, fallback, compaction, or any `@oni/agent` import |
+| `packages/agent` | Generic durable-session mechanics over its store facts, stateless loop, and compaction; the generic policy gate (`src/core/gate/`); handle-scoped catalog/session-file stores, action hash chain, decision facts, and activation fence CAS (`src/core/store/`); the model-call port and retry decision (`src/core/llm.ts`, `src/core/retry.ts`); bus and scoped observation (`src/observation/`) | Product-specific session identity, routing, lifecycle policy, or authority decisions; provider adapters or the `ai` SDK (that is `packages/ai`'s) |
+| `packages/ai` | The model-call layer behind the core port: provider resolution and adapters over `ai@7.0.93`, one streaming attempt per `run`, stream-event processing, usage accounting, credential storage, the pure `classifyFailure` | Retry scheduling, attempt caps, fallback, compaction, or any `@oni/agent` import |
 | `packages/machines` | Host attachment, admission, generation CAS, capacity, host-side fs/exec/PTY/computer handles and IPC transport (`src/ipc/`). The host routes calls to an attached Rust client and fences stale generations. | Client drivers, Python execution, enrollment policy, kernel policy or product judgment. |
 | `packages/codemode` | `createCodemode` facade, machine object handles, cell `run/peek/stop` routing, codemode errors and host tool-call routing. | Interpreter processes and prelude (Rust client), kernel policy, ledger, machine transport or enrollment. |
 | `packages/channels` | Drivers over the agent-messenger SDK transport; ordered rule matching and the rule store, physical request correlation, instance-keyed delivery (`channel:<provider>:<slug>` routes), and perimeter stores (`src/store/`) | Product policy defaults or seed rows; session content or product execution; the SDK's own credential store |
@@ -134,7 +134,7 @@ ui <- apps/desktop
 | Shared schema or event | `packages/protocol/src/` |
 | Session/store behavior | `packages/agent/src/core/store/` |
 | Policy mechanism | `packages/agent/src/core/gate/` |
-| Model/provider behavior | `packages/llm/src/` (port: `packages/agent/src/core/llm.ts`) |
+| Model/provider behavior | `packages/ai/src/` (port: `packages/agent/src/core/llm.ts`) |
 | Session loop, executor, and compaction | `packages/agent/src/core/run.ts`, `packages/agent/src/core/turn.ts`, `packages/agent/src/core/gate/decide.ts`, `packages/agent/src/plugins/compaction/` |
 | Channel driver or perimeter route | `packages/channels/src/` |
 | Messaging identity, reply door vs `send_message`, SDK transport (#1569) | `docs/conversation-and-message-io.md`, `packages/channels/src/provider/slack/sdk.ts` |

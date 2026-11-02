@@ -1,5 +1,5 @@
 import { Core } from "@oni/agent";
-import { makeLlmService } from "@oni/llm";
+import { makeLlmService } from "@oni/ai";
 const ObservationSink = Core.ObservationSink;
 import { Bus } from "./bus";
 const Llm = Core.Llm;

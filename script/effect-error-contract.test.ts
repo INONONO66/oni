@@ -3,10 +3,10 @@ import { Effect, Result } from "effect";
 import ts from "typescript";
 import { runSyncEffect } from "../apps/oni/test/helpers/effect";
 import * as Agent from "../packages/agent/src/core/ports/failure";
-import * as Llm from "../packages/llm/src/errors";
+import * as Llm from "../packages/ai/src/errors";
 import * as CoreLlm from "../packages/agent/src/core/ports/llm";
 import * as Store from "../packages/agent/src/core/store/errors";
-import { sdkError } from "../packages/llm/test/helpers/retry";
+import { sdkError } from "../packages/ai/test/helpers/retry";
 import * as Channels from "../packages/channels/src/errors";
 import * as Code from "../packages/codemode/src/errors";
 import * as Machines from "../packages/machines/src/errors";
@@ -144,7 +144,7 @@ const carrierOwners: Readonly<Record<string, object>> = {
 const packages: readonly PackageEntry[] = [
   { name: "agent", path: "agent/src/core/ports/failure", module: Agent, union: "SessionError", carrier: "AgentFailure", carrierPath: "agent/src/core/ports/failure", failures: agent, thrown: [Agent.AgentInvariantViolation, Agent.SessionCommitError] },
   { name: "agent store", path: "agent/src/core/store/errors", module: Store, union: "LedgerError", carrier: "AgentFailure", carrierPath: "agent/src/core/store/errors", failures: store, thrown: [Store.LedgerInvariant, Store.CatalogUpgradeRefused] },
-  { name: "llm", path: "llm/src/errors", module: Llm, union: "LlmError", carrier: "LlmOperationFailure", carrierPath: "llm/src/errors", failures: llm, thrown: [] },
+  { name: "ai", path: "ai/src/errors", module: Llm, union: "LlmError", carrier: "LlmOperationFailure", carrierPath: "ai/src/errors", failures: llm, thrown: [] },
   { name: "channels", path: "channels/src/errors", module: Channels, union: "ChannelError", carrier: "ChannelsFailure", carrierPath: "channels/src/errors", failures: channels, thrown: [Channels.VoiceJoinRefused] },
   { name: "machines", path: "machines/src/errors", module: Machines, union: "MachineError", carrier: "MachinesFailure", carrierPath: "machines/src/errors", failures: machines, thrown: [] },
   { name: "machines ipc", path: "machines/src/ipc/errors", module: Ipc, union: "IpcError", carrier: "MachinesFailure", carrierPath: "machines/src/errors", failures: ipc, thrown: [] },

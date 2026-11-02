@@ -140,7 +140,7 @@ test("a real committed failed attempt contributes billed usage once", () =>
 /**
  * The port's attempt evidence per provenance (#1352): the call layer decides
  * `reported | estimated | unknown` beside its stream decoder (tested in
- * packages/llm); the core records whatever the port states, never a default.
+ * packages/ai); the core records whatever the port states, never a default.
  */
 function evidenceOf(provenance: "reported" | "estimated" | "unknown"): AttemptEvidence {
   const counts = provenance === "estimated" ? { inputTokens: 5, outputTokens: 2 } : { inputTokens: 0, outputTokens: 0 };

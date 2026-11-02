@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Core } from "@oni/agent";
-import { run } from "@oni/llm";
+import { run } from "@oni/ai";
 const defineTool = Core.defineTool;
 const eraseTool = Core.eraseTool;
 import { Bus, newTraceId } from "./bus";

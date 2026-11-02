@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { Core } from "@oni/agent";
 import { VoiceJoinRefused, type PcmVoiceHandle, type ProviderVoiceRoute } from "@oni/channels";
-import { TransportFailure, type Realtime, type RealtimeEvent, type RealtimeToolCall } from "@oni/llm";
+import { TransportFailure, type Realtime, type RealtimeEvent, type RealtimeToolCall } from "@oni/ai";
 import type { PlainValue, Tool } from "@oni/protocol";
 import { Effect, Queue, Stream } from "effect";
 import { z } from "zod";

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { Auth, makeRealtime, resolveAuthFilePath } from "@oni/llm";
+import { Auth, makeRealtime, resolveAuthFilePath } from "@oni/ai";
 import { Effect, Stream } from "effect";
 import { loadConfig, modelTransport } from "../src/config";
 import { runEffect } from "./helpers/effect";

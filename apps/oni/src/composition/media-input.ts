@@ -1,4 +1,4 @@
-import { Capability, type DerivedPart, type PartBytes, type PartDerive, type Stt } from "@oni/llm";
+import { Capability, type DerivedPart, type PartBytes, type PartDerive, type Stt } from "@oni/ai";
 import { type Gateway, NamedError } from "@oni/protocol";
 import { Effect, Result } from "effect";
 import { z } from "zod";

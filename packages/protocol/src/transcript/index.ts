@@ -3,7 +3,7 @@ import * as Schema from "./schema.js";
 
 /**
  * Transcript domain: append-only conversation-history facts and the pure fold
- * projecting them into Message.WithParts. Consumed by `packages/llm/src/processor`;
+ * projecting them into Message.WithParts. Consumed by `packages/ai/src/processor`;
  * the domain carries no bus event descriptors.
  */
 export namespace Transcript {

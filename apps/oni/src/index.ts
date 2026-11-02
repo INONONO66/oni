@@ -139,7 +139,7 @@ import { inboxHandler } from "./composition/attachments";
 import { inboxStreamWriter } from "./composition/attachment-stream";
 import { type MediaInputPorts, inboxPartBytes, mediaDerive } from "./composition/media-input";
 import type { DeliveryMedia } from "./composition/delivery-media";
-import { makeRealtime, makeStt, resolveAuthFilePath } from "@oni/llm";
+import { makeRealtime, makeStt, resolveAuthFilePath } from "@oni/ai";
 import type { Channel } from "@oni/protocol";
 import { type WsParts, wsParts } from "./composition/ws-parts";
 import { createSessionForkExecutor } from "./composition/session-fork";

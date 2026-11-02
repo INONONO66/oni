@@ -863,15 +863,15 @@ export async function validateAgentCoreLayout(root = "."): Promise<string[]> {
   if (TOPOLOGY.length !== CORE_END_STATE_TARGETS.workspaces) {
     violations.push(`VIOLATION: workspaces ${TOPOLOGY.length} != ${CORE_END_STATE_TARGETS.workspaces}`);
   }
-  if (!existsSync(join(root, "packages/llm/package.json"))) {
-    violations.push("VIOLATION: missing packages/llm/package.json");
+  if (!existsSync(join(root, "packages/ai/package.json"))) {
+    violations.push("VIOLATION: missing packages/ai/package.json");
   }
   return violations;
 }
 
 /**
  * #1276 agent responsibility bands (four bands since #1352 moved `model/`
- * out to `@oni/llm`; the core declares the llm port itself). Key =
+ * out to `@oni/ai`; the core declares the llm port itself). Key =
  * directory under packages/agent/src; `internal` = sibling bands a file may
  * relative-import; `externalBans` = module-specifier prefixes refused
  * outright; `tokenBans` = ambient authority tokens the band may not name.

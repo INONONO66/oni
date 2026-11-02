@@ -1,7 +1,7 @@
 /** Channel rendering of kernel-classified failures; raw provider details stay private. */
 
 import { Core } from "@oni/agent";
-import { classifyFailure } from "@oni/llm";
+import { classifyFailure } from "@oni/ai";
 const failureFacts = Core.failureFacts;
 import { PlainValueSchema, type PlainValue } from "@oni/protocol";
 import { z } from "zod";

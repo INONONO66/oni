@@ -114,7 +114,7 @@ describe("NamedError.create", () => {
   });
 });
 
-// #500 C3: the APIError suite moved to packages/llm/test/error.test.ts with the
+// #500 C3: the APIError suite moved to packages/ai/test/error.test.ts with the
 // schema — llm is its home now.
 
 // NamedError payloads are object-shaped by contract: NamedError.create rejects

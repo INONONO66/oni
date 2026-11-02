@@ -6,7 +6,7 @@ import { normalizeExportRoot } from "@oni/machines";
 import { Gateway, Machine, NamedError, type Model, type PlainValue } from "@oni/protocol";
 import { loadPromptCatalog, type PromptCatalog } from "./bundles/prompt/data";
 import { type KekResolution, resolveKek } from "./bundles/provision/vault-key";
-import { ProviderRowsError, readProviderRows, type ProviderRow } from "@oni/llm";
+import { ProviderRowsError, readProviderRows, type ProviderRow } from "@oni/ai";
 import { Result } from "effect";
 import { z } from "zod";
 

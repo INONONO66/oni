@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { Gateway } from "@oni/protocol";
 import { z } from "zod";
-import type { PartBytes } from "@oni/llm";
+import type { PartBytes } from "@oni/ai";
 import { createProcessSessionTransport } from "../src/composition/process-session";
 import { ProcessReplyReceipt } from "../src/composition/process-replies";
 import { deliveryMedia } from "../src/composition/delivery-media";

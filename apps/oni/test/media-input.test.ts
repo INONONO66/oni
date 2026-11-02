@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { type Capability, type Stt, resolveInputParts } from "@oni/llm";
+import { type Capability, type Stt, resolveInputParts } from "@oni/ai";
 import type { Gateway } from "@oni/protocol";
 import { Effect } from "effect";
 import type { FilePorts } from "../src/bundles/tools/core/filesystem";
