@@ -1,4 +1,3 @@
-import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import { z } from "zod";
 import type { ChannelProvider, OwnerArm } from "../contract.js";
 import { kernelDeliveryRoute } from "../delivery-route.js";
@@ -103,10 +102,7 @@ export function createSlackProvider(
       return {
         surface,
         attachments: (ref, bounds) => surface.download(ref, bounds),
-        deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
-          surface
-            .deliver(externalId, payload, idempotencyKey, conversation)
-            .then(kernelDeliveryReceipt),
+        deliveryRoute: kernelDeliveryRoute(surface),
       };
     },
   };

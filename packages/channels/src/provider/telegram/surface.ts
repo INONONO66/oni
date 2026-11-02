@@ -179,6 +179,7 @@ export class TelegramAdapter extends BotState implements Channel.Surface {
     payload: Outbound.Payload,
     idempotencyKey: string,
     conversation?: Gateway.Conversation,
+    sender?: Gateway.IngestSender,
   ): Promise<DeliveryReceipt> {
     const chatId = conversation?.channelId ?? externalId;
     return deliverKeyed(
@@ -210,6 +211,7 @@ export class TelegramAdapter extends BotState implements Channel.Surface {
                 .then(() => undefined),
           },
           this.options.media,
+          sender,
         );
       },
       (error) =>

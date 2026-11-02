@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { Outbound } from "@oni/protocol";
+import { type Gateway, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryNotSent, MediaTooLarge } from "../src/errors";
 import type { MediaLimits, RenderPolicy } from "../src/provider/contract";
@@ -144,6 +144,18 @@ describe("translate: media", () => {
       { kind: "text", chunk: "<after>" },
     ]);
     expect(outcome).toEqual({ accepted: true, externalMessageId: "m4" });
+  });
+
+  test("the resolver hears the letter's sender for every media part, and none when the route carries none", async () => {
+    const heard: (Gateway.IngestSender | undefined)[] = [];
+    const hearing = (part: Outbound.Part & { kind: MediaKind }, sender?: Gateway.IngestSender) => {
+      heard.push(sender);
+      return resolve(part);
+    };
+    const sender: Gateway.IngestSender = { kind: "session", id: "session-a" };
+    await translate(letter, UNBOUNDED, recorder({ media: true }).sends, hearing, sender);
+    await translate(letter, UNBOUNDED, recorder({ media: true }).sends, hearing);
+    expect(heard).toEqual([sender, sender, undefined, undefined]);
   });
 
   test("without a resolver or without surface media, the reference line stays in the text", async () => {

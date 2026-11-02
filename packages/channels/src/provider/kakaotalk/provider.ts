@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ChannelsFailure } from "../../errors.js";
-import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import type { ChannelProvider, OwnerArm } from "../contract.js";
+import { kernelDeliveryRoute } from "../delivery-route.js";
 import { KAKAOTALK_MEDIA_LIMITS, KAKAOTALK_RENDER } from "./format.js";
 import { type KakaoTalkOwnerCredentials, KakaoTalkOwnerAdapter } from "./owner.js";
 import { type KakaoTalkOwnerSdk, kakaoTalkOwnerSdk } from "./owner-sdk.js";
@@ -34,8 +34,7 @@ function createKakaoTalkOwnerArm(sdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk()): 
       return {
         surface,
         account: () => surface.account(),
-        deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
-          surface.deliver(externalId, payload, idempotencyKey, conversation).then(kernelDeliveryReceipt),
+        deliveryRoute: kernelDeliveryRoute(surface),
         typingRoute: {
           everyMs: 8_000,
           open: (externalId, conversation) => surface.openTyping(externalId, conversation),

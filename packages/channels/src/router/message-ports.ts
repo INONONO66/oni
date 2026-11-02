@@ -13,6 +13,7 @@ export interface ChannelDeliveryRoute extends Channel.Instance {
     payload: Outbound.Payload,
     idempotencyKey: string,
     conversation?: Gateway.Conversation,
+    sender?: Gateway.IngestSender,
   ) => Promise<KernelDeliveryReceipt>;
 }
 

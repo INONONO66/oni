@@ -303,8 +303,9 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
     payload: Outbound.Payload,
     key: string,
     conversation?: Gateway.Conversation,
+    sender?: Gateway.IngestSender,
   ): Promise<Outbound.Receipt> {
-    return kernelDeliveryReceipt(await this.send(externalId, payload, key, conversation));
+    return kernelDeliveryReceipt(await this.send(externalId, payload, key, conversation, sender));
   }
 
   private send(
@@ -312,6 +313,7 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
     payload: Outbound.Payload,
     key: string,
     conversation?: Gateway.Conversation,
+    sender?: Gateway.IngestSender,
   ): Promise<DeliveryReceipt> {
     const chatId = conversation?.channelId ?? externalId;
     let reason: string | undefined;
@@ -350,7 +352,7 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
                 throw error;
               }),
         },
-        }, this.options.media);
+        }, this.options.media, sender);
       },
       // An explicit native refusal is definite whatever its recovery code (FILE_TOO_BIG, AUTH_KEY_UNREGISTERED).
       (error) => error instanceof TelegramOwnerError && (error.code === "not_sent" || error.requestRefused),

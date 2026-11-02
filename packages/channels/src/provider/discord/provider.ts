@@ -1,6 +1,6 @@
-import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import { z } from "zod";
 import type { ChannelProvider, OwnerArm } from "../contract.js";
+import { kernelDeliveryRoute } from "../delivery-route.js";
 import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format.js";
 import { DiscordOwnerAdapter } from "./owner.js";
 import { type DiscordOwnerSdk, discordOwnerSdk } from "./owner-sdk.js";
@@ -38,8 +38,7 @@ function createDiscordOwnerArm(sdk: DiscordOwnerSdk = discordOwnerSdk()): OwnerA
       return {
         surface,
         account: () => surface.accountIdentity(),
-        deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
-          surface.deliver(externalId, payload, idempotencyKey, conversation).then(kernelDeliveryReceipt),
+        deliveryRoute: kernelDeliveryRoute(surface),
         typingRoute: {
           everyMs: 8_000,
           open: (externalId, conversation) => surface.openTyping(externalId, conversation),
@@ -89,10 +88,7 @@ export function createDiscordProvider(
       const surface = new DiscordAdapter(credentials.token, config, publish, options, sdk);
       return {
         surface,
-        deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
-          surface
-            .deliver(externalId, payload, idempotencyKey, conversation)
-            .then(kernelDeliveryReceipt),
+        deliveryRoute: kernelDeliveryRoute(surface),
         voiceRoute: (input) => surface.joinVoice(input),
         // POST /channels/{id}/typing shows the indicator for about ten seconds.
         typingRoute: {
