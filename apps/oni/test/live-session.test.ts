@@ -1,8 +1,9 @@
 import "../src/bundles/prompt/roles";
 import { afterEach, expect, test } from "bun:test";
 import { Core } from "@oni/agent";
-import { Message, type LedgerAction } from "@oni/protocol";
+import { canonicalJson, Message, type LedgerAction } from "@oni/protocol";
 import { z } from "zod";
+import { deliver } from "../../../packages/agent/src/core/session/entity-delivery";
 import { compiledPolicy } from "../../../packages/agent/test/helpers/compiled-policy";
 import { toolTurnWorld } from "../../../packages/agent/test/helpers/tool-turn";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
@@ -92,6 +93,32 @@ test("C002 commits one utterance and continues after the same dispatcher denial 
     { phase: "intent", op: "probe", value: { n: 1 } }, { phase: "result", op: "probe" },
   ]);
   expect(f.stream.closed()).toBe(true);
+});
+
+test("a steer drained at the tool boundary reaches the live model through the port", async () => {
+  let f: ReturnType<typeof fixture>;
+  const steer = async () => {
+    const receipt = await runEffect(deliver(f.world.handle, {
+      kind: "prompt", idempotencyKey: "steer-1",
+      body: JSON.stringify({ content: [{ kind: "text", text: "Louder." }, { kind: "image", ref: "sha256:steer-image" }], delivery: "steer" }),
+      source: canonicalJson({ kind: "external", inboundTreatment: "full_access" }),
+    }));
+    expect(receipt.existed).toBe(false);
+  };
+  f = fixture([
+    { type: "utterance_start" },
+    steer,
+    { type: "tool_call", call: { id: "call", tool: "probe", input: { n: 3 } } },
+    { type: "utterance_end" },
+  ]);
+  await f.run();
+  expect(f.stream.sent).toMatchObject([
+    { type: "tool", callID: "call" },
+    { type: "text", text: "Louder.", messageID: "steer-1" },
+    { type: "file", kind: "image", ref: "sha256:steer-image", messageID: "steer-1" },
+  ]);
+  const consumed = f.rows().filter((row) => row.kind === "prompt").map((row) => row.effect.value);
+  expect(consumed).toContainEqual(expect.objectContaining({ phase: "delivery", deliveryId: "steer-1", boundary: "after_tools" }));
 });
 
 test("separate utterance boundaries persist separate assistant messages", async () => {
