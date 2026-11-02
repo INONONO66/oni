@@ -37,6 +37,8 @@ const cases: readonly { name: string; message: Ingress.Message; rules: readonly 
 test.each([...cases])("matches the first rule for $name", async ({ message, rules, expected }) => {
   const matched = await runEffect(match(message, rules));
   expect(matched?.rule.id).toBe(expected);
+  expect(matched?.factsUsed).toEqual(matched === undefined ? undefined : Object.keys(matched.rule.when));
+  expect(matched?.verdict).toBeUndefined();
   if (expected === "owner-draft") expect(matched?.rule.outcome).toMatchObject({ reply: "draft", as: "owner" });
   if (expected === "alarm") expect(matched?.rule.outcome).toEqual({ kind: "deliver", target: "session:main", deliveryKind: "action", reply: "none" });
 });
@@ -44,6 +46,7 @@ test.each([...cases])("matches the first rule for $name", async ({ message, rule
 test.each(["yes", "no", "unknown"] as const)("judge %s selects only a yes answer", async (verdict) => {
   const matched = await runEffect(match(input, [{ ...record, judge: "Urgent?" }], () => Effect.succeed(verdict)));
   expect(matched?.rule.id).toBe(verdict === "yes" ? "addressed" : undefined);
+  expect(matched?.verdict).toBe(verdict === "yes" ? "yes" : undefined);
 });
 
 test("only structurally matching rows invoke the judge and matching stops immediately", async () => {

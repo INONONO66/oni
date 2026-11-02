@@ -1,0 +1,1 @@
+#1795 (epic #1791) | refactor/1795-match-value | 2026-11-02 | base cc85c7548 | PR #1816 | Channels returns match values; app-owned ingress decisions, receipts, replay and messaging policy; account transport contracts carry no product vocabulary; verification receipts in PR #1816.

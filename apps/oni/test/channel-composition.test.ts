@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { fakeProviders } from "./helpers/channel-providers";
 import { Outbound, type Channel, type Provisioning } from "@oni/protocol";
-import { declaredChannelProfile } from "../src/channels";
+import { declaredChannelProfile, type ChannelRuntimeDeps } from "../src/channels";
 import { testChannelDeps } from "./helpers/test-entropy";
 
 const handler: Channel.MessageHandler = () => Promise.resolve();
@@ -23,7 +23,7 @@ const instances: Provisioning.ChannelInstance[] = Object.keys(credentials).map((
   updatedAt: 0,
 }));
 
-function profile(rows = instances) {
+function profile(rows = instances, deps: ChannelRuntimeDeps = testChannelDeps()) {
   const fakes = fakeProviders();
   const payloads = new Map(
     Object.entries(credentials).map(([key, value]) => [key, JSON.stringify(value)]),
@@ -36,7 +36,7 @@ function profile(rows = instances) {
         ? { kind: "locked", reason: "missing" }
         : { kind: "ok", plaintext: new TextEncoder().encode(value) };
     },
-    testChannelDeps(),
+    deps,
     fakes.providers,
   );
   return { fakes, ...selected };
@@ -124,10 +124,21 @@ describe("declared channel composition", () => {
 
   test("one row per declaration preserves credentials and binds the handler", async () => {
     const { fakes, rows, statuses } = profile();
+    const received: Channel.InboundMessage[] = [];
+    const receive: Channel.MessageHandler = async (message) => { received.push(message); };
     expect(rows.map((row) => row.component.id)).toEqual(["telegram", "github", "discord"]);
     expect(statuses.every((status) => status.state === "ready")).toBe(true);
-    const built = rows.map((row) => row.component.build(handler));
-    expect(fakes.surfaces.map((surface) => surface.handler)).toEqual([handler, handler, handler]);
+    const built = rows.map((row) => row.component.build(receive));
+    for (const surface of fakes.surfaces)
+      await surface.handler?.({
+        sender: { kind: "external", surface: surface.id, externalId: "peer" },
+        facts: {
+          eventId: "message", surface: surface.id, channelId: "room",
+          addressees: [], dm: true, payload: {}, render: "hello", receivedBy: "owner",
+        },
+      });
+    expect(received.map((message) => [message.sender.surface, message.facts.receivedBy]))
+      .toEqual([["telegram", "bot"], ["github", "bot"], ["discord", "bot"]]);
     expect(fakes.surfaces.map((surface) => surface.credentials)).toEqual(
       Object.values(credentials),
     );
@@ -145,5 +156,27 @@ describe("declared channel composition", () => {
       200,
     );
     expect(fakes.webhookCalls).toHaveLength(1);
+  });
+
+  test("composition pins identity before attachment processing", async () => {
+    const observed: string[] = [];
+    const { fakes, rows } = profile(instances.slice(0, 1), {
+      ...testChannelDeps(),
+      inbox: (_fetch, receive) => (message) => {
+        observed.push(`inbox:${message.facts.receivedBy}`);
+        return receive(message);
+      },
+    });
+    rows[0]?.component.build(async (message) => {
+      observed.push(`handler:${message.facts.receivedBy}`);
+    });
+    await fakes.surfaces[0]?.handler?.({
+      sender: { kind: "external", surface: "telegram", externalId: "peer" },
+      facts: {
+        eventId: "message", surface: "telegram", channelId: "room",
+        addressees: [], dm: true, payload: {}, render: "hello", receivedBy: "owner",
+      },
+    });
+    expect(observed).toEqual(["inbox:bot", "handler:bot"]);
   });
 });
