@@ -40,7 +40,7 @@ export function createResident(options: ResidentOptions) {
   return createResidentBundle({
     ...resident,
     prompt: (agent) => buildAgentPrompt({ name: agent.id, ...agent.prompt }, {
-      ...(agent.id === "resident" ? { structuredMessages: `Structured messages\n\n${Outbound.prompt()}` } : {}),
+      ...(agent.tools.includes("send_message") ? { structuredMessages: `Structured messages\n\n${Outbound.prompt()}` } : {}),
       catalog: options.prompts,
       computerTools: computerTools && computerPack.tools.some((tool) => agent.tools.includes(tool.name)),
     }),

@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createAgentStore } from "../src/agents";
-import { SessionGeneration, type LedgerSession } from "@oni/protocol";
+import { Outbound, SessionGeneration, type LedgerSession } from "@oni/protocol";
+import { buildAgentPrompt } from "../src/bundles/prompt/build";
 import type { PromptCatalog } from "../src/bundles/prompt/data";
 import { APPROVAL_POLICY } from "../src/composition/policy";
 import { createResident } from "../src/composition/resident";
@@ -16,6 +17,22 @@ function systemPrompt(
   const materialization = resident.genesis(`prompt-wiring-${role}`, null, role, role);
   return SessionGeneration.ConfigureEffect.parse(materialization.initialAction.effect.value).snapshot.systemPreset;
 }
+
+test.each([{ tools: ["send_message"] }, { tools: [] }])("structured guidance follows custom profile tools %j", ({ tools }) => {
+  using database = new Database(":memory:");
+  const agents = createAgentStore(database);
+  const agent = agents.add({ id: "custom", prompt: { identity: "IDENTITY", mandate: "MANDATE" }, tools: [...tools] });
+  const resident = createResident({
+    agents, model: { provider: "fixture", id: "fixture" }, apiKey: "fixture", tools: testToolPorts,
+    sessionRuntime: { approvalPolicy: APPROVAL_POLICY, authorizeConfigure: allowConfigure },
+    policyGeneration: () => 1,
+  });
+  const created = resident.genesis("custom-guidance", null, "resident", "native", agent.id);
+  const actual = SessionGeneration.ConfigureEffect.parse(created.initialAction.effect.value).snapshot.systemPreset;
+  expect(actual).toBe(buildAgentPrompt({ name: agent.id, ...agent.prompt }, {
+    ...(tools.length === 0 ? {} : { structuredMessages: `Structured messages\n\n${Outbound.prompt()}` }),
+  }));
+});
 
 test("a configured skill is present in resident and child system prompts", () => {
   using database = new Database(":memory:");

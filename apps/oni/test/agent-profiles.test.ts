@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Core } from "@oni/agent";
-import { Gateway, Provisioning, SessionGeneration, type Delivery } from "@oni/protocol";
+import { Gateway, Outbound, Provisioning, SessionGeneration, type Delivery } from "@oni/protocol";
 import { Effect } from "effect";
 import { materializeDeliveryTarget, prepareMessage } from "../src/composition/message-session";
 import { buildAgentPrompt } from "../src/bundles/prompt/build";
@@ -95,7 +95,9 @@ test.each(["x", undefined])("delegation selects %s independently of the child's 
   expect(resident.plane.read.session("delegated").row("delegated")).toMatchObject({
     agent: agent ?? "child", role: "child", parentId: "parent",
   });
-  expect(child?.system).toBe(`${buildAgentPrompt({ name: profile.id, ...profile.prompt })}\n\nnative`);
+  expect(child?.system).toBe(`${buildAgentPrompt({ name: profile.id, ...profile.prompt }, {
+    ...(profile.tools.includes("send_message") ? { structuredMessages: `Structured messages\n\n${Outbound.prompt()}` } : {}),
+  })}\n\nnative`);
   expect(child?.model.id).toBe(agent === undefined ? "default" : "family/custom");
   expect(child?.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(profile.tools.filter((name) => name === "eval")));
   if (agent !== undefined) expect(child?.tools.map((tool) => tool.name)).toEqual(["eval"]);
