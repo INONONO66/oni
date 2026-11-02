@@ -19,8 +19,10 @@ export { resolveAuthFilePath } from "./model/loader";
 export { resolveInputParts } from "./message/parts";
 export type { DerivedPart, PartBytes, PartDerive, UnacceptedPart, UserBlock } from "./message/parts";
 export { makeStt } from "./stt";
+export { makeTts } from "./tts";
 export { makeRealtime } from "./realtime/openai";
 export type { Stt, Transcript } from "./stt";
+export type { Speech, Tts } from "./tts";
 export type {
   Realtime, RealtimeEvent, RealtimeOpenInput, RealtimeSession, RealtimeToolCall,
 } from "./realtime";

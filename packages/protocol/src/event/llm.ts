@@ -84,6 +84,36 @@ export namespace LlmCall {
       { visibility: "llm_reason" },
     );
 
+    /** One text-to-speech provider call that settled; `inputChars` sizes the text and `outputBytes` the audio returned. */
+    export const SpeechCompleted = BusEvent.define(
+      "llm.speech.completed",
+      z.object({
+        traceId: z.string(),
+        time: EpochMs,
+        provider: z.string(),
+        model: z.string(),
+        inputChars: z.number().int().nonnegative(),
+        outputBytes: z.number().int().nonnegative(),
+        durationMs: z.number(),
+      }),
+      { visibility: "llm_reason" },
+    );
+
+    /** One text-to-speech provider call that failed; same identity as the completed row (no bytes came back) plus the error message. */
+    export const SpeechFailed = BusEvent.define(
+      "llm.speech.failed",
+      z.object({
+        traceId: z.string(),
+        time: EpochMs,
+        provider: z.string(),
+        model: z.string(),
+        inputChars: z.number().int().nonnegative(),
+        durationMs: z.number(),
+        error: z.string(),
+      }),
+      { visibility: "llm_reason" },
+    );
+
     export const RetryDecided = BusEvent.define(
       "llm.call.retry.decided",
       Base.extend({

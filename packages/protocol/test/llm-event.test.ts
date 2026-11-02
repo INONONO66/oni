@@ -72,6 +72,29 @@ describe("LlmCall BusEvents", () => {
     expect(LlmCall.Events.TranscriptionFailed.schema.safeParse({ ...row, error: undefined }).success).toBe(false);
   });
 
+  test("SpeechCompleted carries the call's trace, text size and audio byte count without session identity", () => {
+    const row = { traceId: "test-trace-id", time: 10, provider: "openai", model: "gpt-4o-mini-tts", inputChars: 12, outputBytes: 7, durationMs: 250 };
+    expect(LlmCall.Events.SpeechCompleted.schema.parse(row)).toEqual(row);
+    expect(LlmCall.Events.SpeechCompleted.name).toBe("llm.speech.completed");
+    expect(LlmCall.Events.SpeechCompleted.visibility).toBe("llm_reason");
+    for (const malformed of [
+      { ...row, inputChars: -1 },
+      { ...row, outputBytes: 1.5 },
+      { ...row, provider: undefined },
+      { ...row, traceId: undefined },
+    ]) {
+      expect(LlmCall.Events.SpeechCompleted.schema.safeParse(malformed).success).toBe(false);
+    }
+  });
+
+  test("SpeechFailed carries the completed row's identity without bytes plus the error message", () => {
+    const row = { traceId: "test-trace-id", time: 10, provider: "openai", model: "gpt-4o-mini-tts", inputChars: 12, durationMs: 250, error: "down" };
+    expect(LlmCall.Events.SpeechFailed.schema.parse(row)).toEqual(row);
+    expect(LlmCall.Events.SpeechFailed.name).toBe("llm.speech.failed");
+    expect(LlmCall.Events.SpeechFailed.visibility).toBe("llm_reason");
+    expect(LlmCall.Events.SpeechFailed.schema.safeParse({ ...row, error: undefined }).success).toBe(false);
+  });
+
   test("Completed rejects negative and fractional token counts", () => {
     const valid = {
       ...base,
