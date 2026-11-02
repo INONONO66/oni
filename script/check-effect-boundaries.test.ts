@@ -161,7 +161,7 @@ test("rejects an Effect import in the provision tool body", (): void => {
 test("maps every catalog tool name to an existing checked body", async (): Promise<void> => {
   const expected = [
     "read", "write", "edit", "ls", "find", "grep", "bash", "eval",
-    "monitor", "send_message", "provision", "speech", "completion",
+    "monitor", "send_message", "provision", "speech", "completion", "image",
   ];
   expect(new Set(TOOL_BODY_PATHS.keys())).toEqual(new Set(expected));
   for (const path of TOOL_BODY_PATHS.values()) expect(await Bun.file(join(import.meta.dir, "..", path)).exists()).toBe(true);

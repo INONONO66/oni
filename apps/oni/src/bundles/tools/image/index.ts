@@ -25,8 +25,12 @@ export interface ImagePort {
   readonly putOutput: (sessionId: string, write: { readonly outputId: string; readonly bytes: Uint8Array; readonly mediaType: string }) => void;
 }
 
-/** The per-cell call budget: image calls cost money, so a cell gets fewer than it gets sub-model calls. */
-const MAX_IMAGE_CALLS = 8;
+/**
+ * The image budget, keyed by the executing turn (one model turn at the model
+ * door, one cell inside a cell): images cost money, so a turn gets fewer of
+ * them than it gets sub-model calls, and a call's `n` is charged whole.
+ */
+const MAX_IMAGES_PER_TURN = 8;
 /** The largest image one stored output may hold. */
 const IMAGE_OUTPUT_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -37,20 +41,20 @@ const Input = z
   .object({
     prompt: z.string().min(1),
     size: Size.optional(),
-    n: z.int().min(1).max(10).default(1),
+    n: z.int().min(1).max(MAX_IMAGES_PER_TURN).default(1),
     model: z.string().min(1).optional(),
   })
   .strict();
-const Output = z.array(z.object({ kind: z.literal("image"), ref: z.string(), mediaType: z.string() }).strict());
+const Output = z.array(z.object({ kind: z.literal("image"), ref: z.string() }).strict());
 
 function executeImage(image: ImagePort | undefined) {
   const spent = new Map<string, number>();
   return async (input: z.output<typeof Input>, ctx: ToolExecutionContext): Promise<z.output<typeof Output>> => {
     if (image === undefined) throw new ToolRefused(IMAGE_TOOL_NAME, "image port is not composed");
-    const calls = spent.get(ctx.turnId) ?? 0;
-    if (calls >= MAX_IMAGE_CALLS)
-      throw new ToolRefused(IMAGE_TOOL_NAME, `the per-cell budget of ${MAX_IMAGE_CALLS} image calls is spent`);
-    spent.set(ctx.turnId, calls + 1);
+    const charged = spent.get(ctx.turnId) ?? 0;
+    if (charged + input.n > MAX_IMAGES_PER_TURN)
+      throw new ToolRefused(IMAGE_TOOL_NAME, `the budget of ${MAX_IMAGES_PER_TURN} images for this turn is spent`);
+    spent.set(ctx.turnId, charged + input.n);
     const generated = await image.generate(
       {
         prompt: input.prompt,
@@ -66,7 +70,7 @@ function executeImage(image: ImagePort | undefined) {
     return generated.map(({ bytes, mediaType }) => {
       const ref = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
       image.putOutput(ctx.sessionId, { outputId: ref, bytes, mediaType });
-      return { kind: "image" as const, ref, mediaType };
+      return { kind: "image" as const, ref };
     });
   };
 }
@@ -76,7 +80,7 @@ function createImageTool(image: ImagePort | undefined) {
     name: IMAGE_TOOL_NAME,
     category: "execution",
     description:
-      "Generate images from a prompt. Each image is stored as a session output and returned as {kind:\"image\", ref:\"sha256:…\", mediaType}; send the ref in a letter's image part. Options: size ({width}x{height}), n (images per call, default 1), model (an id on the configured provider's image surface).",
+      "Generate images from a prompt. Each image is stored as a session output and returned as {kind:\"image\", ref:\"sha256:…\"}; send the ref in a letter's image part. Options: size ({width}x{height}), n (images per call, default 1), model (an id on the configured provider's image surface).",
     input: Input,
     output: Output,
     visibility: { model: ["resident", "child"], cell: ["resident", "child"] },

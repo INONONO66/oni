@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import type { PlainObject } from "@oni/protocol";
+import { Outbound, type PlainObject } from "@oni/protocol";
 import { composeImage, createImagePort } from "../src/composition/image";
 import type { ImageCall, ImagePort } from "../src/bundles/tools/image/index";
 import { toolPorts } from "../src/gateway";
@@ -12,7 +12,7 @@ import { dispatchModelTool } from "./helpers/tool-dispatch";
 import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 
 const IMAGE_TOOL_NAME = "image";
-const MAX_IMAGE_CALLS = 8;
+const MAX_IMAGES_PER_TURN = 8;
 const IMAGE_OUTPUT_MAX_BYTES = 25 * 1024 * 1024;
 const RESIDENT = { role: "resident", sessionId: "image-session" } as const;
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
@@ -46,12 +46,14 @@ describe("the image tool", () => {
     ]);
     const result = await dispatchModelTool(IMAGE_TOOL_NAME, { image: port }, RESIDENT)({ prompt: "a red circle" });
     const expected = [
-      { kind: "image", ref: digest(PNG), mediaType: "image/png" },
-      { kind: "image", ref: digest(JPEG), mediaType: "image/jpeg" },
+      { kind: "image", ref: digest(PNG) },
+      { kind: "image", ref: digest(JPEG) },
     ];
     expect(result.isError).toBeUndefined();
     expect(result.structuredContent).toEqual(expected);
     expect(result.content).toBe(JSON.stringify(expected));
+    // Each item is a letter part as send_message reads it, not a copy of its shape.
+    for (const item of expected) expect(Outbound.Part.parse(item)).toEqual(item);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.call).toEqual({ prompt: "a red circle", n: 1 });
     expect(calls[0]?.signal).toBeInstanceOf(AbortSignal);
@@ -134,29 +136,33 @@ describe("the image tool", () => {
     expect(tool?.category).toBe("execution");
   });
 
-  it(`serves ${MAX_IMAGE_CALLS} calls per cell, then refuses that cell without invoking the port`, async () => {
+  it(`serves ${MAX_IMAGES_PER_TURN} images per turn charging each call's count, then refuses that turn without invoking the port`, async () => {
     const { port, calls } = recordingPort([{ bytes: PNG, mediaType: "image/png" }]);
     const dispatcher = dispatcherFixture(bundleTools({ ...testToolPorts, image: port }), { executor });
     let nextId = 0;
-    const run = (cellId: string) =>
+    const run = (cellId: string, n = 1) =>
       runEffect(
         dispatcher.executeCell(
-          { id: `cell:${cellId}:${++nextId}`, tool: IMAGE_TOOL_NAME, input: { prompt: "p" } },
+          { id: `cell:${cellId}:${++nextId}`, tool: IMAGE_TOOL_NAME, input: { prompt: "p", n } },
           { sessionId: RESIDENT.sessionId, turnId: cellId },
         ),
       );
     const refusal = {
       isError: true,
       errorKind: "precondition_failed",
-      content: `image refused: the per-cell budget of ${MAX_IMAGE_CALLS} image calls is spent`,
+      content: `image refused: the budget of ${MAX_IMAGES_PER_TURN} images for this turn is spent`,
     };
-    for (let i = 1; i <= MAX_IMAGE_CALLS; i++) expect((await run("cell-a")).isError).toBeUndefined();
+    for (let i = 1; i <= MAX_IMAGES_PER_TURN; i++) expect((await run("cell-a")).isError).toBeUndefined();
     expect(await run("cell-a")).toMatchObject(refusal);
-    expect(calls).toHaveLength(MAX_IMAGE_CALLS);
-    for (let i = 1; i <= MAX_IMAGE_CALLS; i++) expect((await run("cell-b")).isError).toBeUndefined();
+    expect(calls).toHaveLength(MAX_IMAGES_PER_TURN);
+    // A call's count is charged whole: three, three, then two fill the budget and one more is refused.
+    expect((await run("cell-b", 3)).isError).toBeUndefined();
+    expect((await run("cell-b", 3)).isError).toBeUndefined();
+    expect(await run("cell-b", 3)).toMatchObject(refusal);
+    expect((await run("cell-b", 2)).isError).toBeUndefined();
     expect(await run("cell-b")).toMatchObject(refusal);
     expect(await run("cell-a")).toMatchObject(refusal);
-    expect(calls).toHaveLength(2 * MAX_IMAGE_CALLS);
+    expect(calls).toHaveLength(MAX_IMAGES_PER_TURN + 3);
   });
 });
 
@@ -173,7 +179,6 @@ describe("the composed image port", () => {
           return Effect.succeed(generated);
         },
       },
-      { provider: "openai" },
       () => {
         const id = ids.shift();
         if (id === undefined) throw new Error("out of ids");
@@ -193,14 +198,14 @@ describe("the composed image port", () => {
     ]);
   });
 
-  it("keeps a model id override on the configured provider and forwards size and count", async () => {
+  it("forwards a model id override, size and count to the port untouched", async () => {
     const { generate, requests } = composed();
     await runEffect(generate({ prompt: "a fox", model: "gpt-image-1-mini", size: "512x512", n: 2 }));
     expect(requests).toEqual([
       {
         prompt: "a fox",
         traceId: "00000000000040008000000000000001",
-        model: { provider: "openai", id: "gpt-image-1-mini" },
+        model: "gpt-image-1-mini",
         size: "512x512",
         n: 2,
       },
@@ -211,11 +216,13 @@ describe("the composed image port", () => {
 describe("the composed image generator", () => {
   const services = { observations: { publish: () => undefined }, now: () => 0 };
 
-  it("falls back to the bundled rows, which refuse an unknown provider typed before any call", async () => {
+  it("falls back to the bundled rows, whose first image row refuses typed without its credential before any call", async () => {
     const image = composeImage({ imageRows: undefined }, services);
-    await expect(
-      runEffect(image.generate({ prompt: "p", traceId: "t", model: { provider: "nowhere", id: "m" } })),
-    ).rejects.toMatchObject({ _tag: "ModelResolutionError", reason: "provider_not_found", provider: "nowhere" });
+    await expect(runEffect(image.generate({ prompt: "p", traceId: "t", model: "m" }))).rejects.toMatchObject({
+      _tag: "AuthResolutionError",
+      reason: "missing_auth",
+      provider: "openai",
+    });
   });
 
   it("uses the configured rows, which refuse typed when none names an image model", async () => {

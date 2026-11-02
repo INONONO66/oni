@@ -285,7 +285,7 @@
   },
   {
     "name": "image",
-    "description": "Generate images from a prompt. Each image is stored as a session output and returned as {kind:\"image\", ref:\"sha256:…\", mediaType}; send the ref in a letter's image part. Options: size ({width}x{height}), n (images per call, default 1), model (an id on the configured provider's image surface).",
+    "description": "Generate images from a prompt. Each image is stored as a session output and returned as {kind:\"image\", ref:\"sha256:…\"}; send the ref in a letter's image part. Options: size ({width}x{height}), n (images per call, default 1), model (an id on the configured provider's image surface).",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -301,7 +301,7 @@
           "default": 1,
           "type": "integer",
           "minimum": 1,
-          "maximum": 10
+          "maximum": 8
         },
         "model": {
           "type": "string",

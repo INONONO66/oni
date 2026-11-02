@@ -84,25 +84,26 @@ describe("Image", () => {
     expect(bodies).toEqual([{ model: "gpt-image-1", prompt: "a red square", n: 1 }]);
   });
 
-  test("an explicit model picks its provider row and id over the first image row", async () => {
+  test("an explicit model id stays on the first image row, skipping rows without one", async () => {
     const bodies: Record<string, string | number>[] = [];
     globalThis.fetch = mockFetch((_input, init) => {
       bodies.push(bodyOf(init));
       return jsonResponse({ data: [{ b64_json: b64(png) }] });
     });
-    const gateway = ProviderRow.parse({ id: "gateway", npm: "@ai-sdk/openai" });
-    const explicit = image({ authFilePath: await authFile("gateway"), rows: [openai, gateway] });
-    const exit = await runTestExit(explicit.generate({ ...request, model: { provider: "gateway", id: "dall-e-3" } }));
+    const imageless = ProviderRow.parse({ id: "gateway", npm: "@ai-sdk/openai" });
+    const explicit = image({ authFilePath: await authFile("gateway"), rows: [imageless, openai] });
+    const exit = await runTestExit(explicit.generate({ ...request, model: "dall-e-3" }));
     expect(exit).toEqual(Exit.succeed([{ bytes: png, mediaType: "image/png" }]));
     expect(bodies).toEqual([{ model: "dall-e-3", prompt: "a red square", n: 1, response_format: "b64_json" }]);
   });
 
-  test("an explicit model refuses typed when its row is absent or lacks the image surface", async () => {
-    const authFilePath = await authFile("anthropic");
-    const absent = await runEffect(Effect.flip(image({ authFilePath, rows: [openai] }).generate({ ...request, model: { provider: "gateway", id: "gw-1" } })));
-    expect(absent).toMatchObject({ _tag: "ModelResolutionError", reason: "provider_not_found", provider: "gateway", model: "gw-1" });
-    const anthropic = ProviderRow.parse({ id: "anthropic", npm: "@ai-sdk/anthropic" });
-    const noSurface = await runEffect(Effect.flip(image({ authFilePath, rows: [openai, anthropic] }).generate({ ...request, model: { provider: "anthropic", id: "claude" } })));
+  test("refuses typed when no row names an image model, or the first one lacks the image surface", async () => {
+    const authFilePath = await authFile("anthropic", "gateway");
+    const imageless = ProviderRow.parse({ id: "gateway", npm: "@ai-sdk/openai" });
+    const none = await runEffect(Effect.flip(image({ authFilePath, rows: [imageless] }).generate({ ...request, model: "gw-1" })));
+    expect(none).toMatchObject({ _tag: "ModelResolutionError", reason: "model_not_found", provider: "", model: "" });
+    const anthropic = ProviderRow.parse({ id: "anthropic", npm: "@ai-sdk/anthropic", image: { model: "claude" } });
+    const noSurface = await runEffect(Effect.flip(image({ authFilePath, rows: [anthropic, openai] }).generate(request)));
     expect(noSurface).toMatchObject({ _tag: "ModelResolutionError", reason: "model_not_found", provider: "anthropic", model: "claude" });
   });
 

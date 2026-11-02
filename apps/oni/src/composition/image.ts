@@ -17,19 +17,15 @@ export function composeImage(
 
 /**
  * The gateway's image door over the composed `Image`: every call runs under
- * its own trace, and a model id override stays on the configured provider,
- * whose credential the rows own.
+ * its own trace, and a model id override stays on the row that serves the
+ * default call, whose credential the rows own.
  */
-export function createImagePort(
-  image: Image,
-  model: { readonly provider: string },
-  id: () => string,
-): (call: ImageCall) => ReturnType<Image["generate"]> {
+export function createImagePort(image: Image, id: () => string): (call: ImageCall) => ReturnType<Image["generate"]> {
   return (call) =>
     image.generate({
       prompt: call.prompt,
       traceId: traceIdFromUuid(id()),
-      ...(call.model === undefined ? {} : { model: { provider: model.provider, id: call.model } }),
+      ...(call.model === undefined ? {} : { model: call.model }),
       ...(call.size === undefined ? {} : { size: call.size }),
       ...(call.n === undefined ? {} : { n: call.n }),
     });

@@ -21,9 +21,23 @@
     "trustTier",
     "updatedAt"
   ],
-  "Actor.Profile": ["budget", "model", "systemPrompt", "tools", "trustTier"],
-  "Actor.ResolvedEndpoint": ["endpoint", "identity"],
-  "Alarm.RetrySchedule": ["attempt", "kind", "notBefore", "reason"],
+  "Actor.Profile": [
+    "budget",
+    "model",
+    "systemPrompt",
+    "tools",
+    "trustTier"
+  ],
+  "Actor.ResolvedEndpoint": [
+    "endpoint",
+    "identity"
+  ],
+  "Alarm.RetrySchedule": [
+    "attempt",
+    "kind",
+    "notBefore",
+    "reason"
+  ],
   "Alarm.Watch#0": [
     "command",
     "description",
@@ -31,7 +45,13 @@
     "persistent",
     "timeout_ms"
   ],
-  "Alarm.Watch#1": ["description", "event", "path", "persistent", "timeout_ms"],
+  "Alarm.Watch#1": [
+    "description",
+    "event",
+    "path",
+    "persistent",
+    "timeout_ms"
+  ],
   "Alarm.Watch#2": [
     "description",
     "filter",
@@ -40,7 +60,11 @@
     "session",
     "timeout_ms"
   ],
-  "Alarm.WatchSpec": ["notificationLimit", "policyGeneration", "watch"],
+  "Alarm.WatchSpec": [
+    "notificationLimit",
+    "policyGeneration",
+    "watch"
+  ],
   "BusEvent.Metadata": [
     "actorId",
     "agentName",
@@ -79,8 +103,15 @@
     "threadId",
     "timestampMs"
   ],
-  "Channel.HistoryPage": ["before", "messages"],
-  "Channel.HistoryQuery": ["before", "chatId", "limit"],
+  "Channel.HistoryPage": [
+    "before",
+    "messages"
+  ],
+  "Channel.HistoryQuery": [
+    "before",
+    "chatId",
+    "limit"
+  ],
   "Channel.HistoryRefused": [
     "detail",
     "instanceId",
@@ -121,8 +152,19 @@
     "turn",
     "type"
   ],
-  "ChildState.Refused": ["detail", "reason", "requestId", "type"],
-  "ChildState.Request": ["child", "requestId", "sessionId", "turn", "type"],
+  "ChildState.Refused": [
+    "detail",
+    "reason",
+    "requestId",
+    "type"
+  ],
+  "ChildState.Request": [
+    "child",
+    "requestId",
+    "sessionId",
+    "turn",
+    "type"
+  ],
   "ChildState.Response#0": [
     "child",
     "diagnostics",
@@ -135,11 +177,32 @@
     "turn",
     "type"
   ],
-  "ChildState.Response#1": ["detail", "reason", "requestId", "type"],
-  "DecisionFact.Outcome#exists": ["fact", "kind"],
-  "DecisionFact.Outcome#recorded": ["fact", "kind"],
-  "DecisionFact.Record": ["data", "key", "timeCreated", "type"],
-  "DecisionFact.Recorded": ["data", "key", "timeCreated", "type"],
+  "ChildState.Response#1": [
+    "detail",
+    "reason",
+    "requestId",
+    "type"
+  ],
+  "DecisionFact.Outcome#exists": [
+    "fact",
+    "kind"
+  ],
+  "DecisionFact.Outcome#recorded": [
+    "fact",
+    "kind"
+  ],
+  "DecisionFact.Record": [
+    "data",
+    "key",
+    "timeCreated",
+    "type"
+  ],
+  "DecisionFact.Recorded": [
+    "data",
+    "key",
+    "timeCreated",
+    "type"
+  ],
   "Delivery.Commit": [
     "after",
     "content",
@@ -163,11 +226,15 @@
     "ref",
     "voice"
   ],
-  "Delivery.ContentPart#text": ["kind", "text"],
+  "Delivery.ContentPart#text": [
+    "kind",
+    "text"
+  ],
   "Delivery.MessageOrigin": [
     "deadline",
     "kind",
     "messageId",
+    "reply",
     "replyTo",
     "senderSessionId",
     "sourceActionId"
@@ -176,6 +243,7 @@
     "childSessionId",
     "kind",
     "messageId",
+    "reply",
     "replyTo",
     "sourceActionId",
     "terminalKind"
@@ -205,9 +273,23 @@
     "totalOutputTokens",
     "turns"
   ],
-  "FoldCheckpoint.Effect": ["phase", "result", "terminal"],
-  "FoldCheckpoint.Intent": ["foldVersion", "phase", "reason", "revision"],
-  "FoldCheckpoint.Result": ["foldVersion", "revision", "state", "stateHash"],
+  "FoldCheckpoint.Effect": [
+    "phase",
+    "result",
+    "terminal"
+  ],
+  "FoldCheckpoint.Intent": [
+    "foldVersion",
+    "phase",
+    "reason",
+    "revision"
+  ],
+  "FoldCheckpoint.Result": [
+    "foldVersion",
+    "revision",
+    "state",
+    "stateHash"
+  ],
   "FoldCheckpoint.State": [
     "budgetState",
     "canonicalTurn",
@@ -223,8 +305,16 @@
     "origin",
     "trustTier"
   ],
-  "Gateway.Conversation": ["channelId", "replyToMessageId", "threadId"],
-  "Gateway.DelegationResult": ["pointer", "preview", "status"],
+  "Gateway.Conversation": [
+    "channelId",
+    "replyToMessageId",
+    "threadId"
+  ],
+  "Gateway.DelegationResult": [
+    "pointer",
+    "preview",
+    "status"
+  ],
   "Gateway.Deliver": [
     "actorContext",
     "decision",
@@ -244,20 +334,50 @@
     "userId",
     "workspace"
   ],
-  "Gateway.EgressDebitRow": ["at", "class", "id", "senderId", "targetActorId"],
+  "Gateway.EgressDebitRow": [
+    "at",
+    "class",
+    "id",
+    "senderId",
+    "targetActorId"
+  ],
   "Gateway.EgressDebitState": [
     "converseInWindow",
     "countInWindow",
     "lastSendAt",
     "notifyInWindow"
   ],
-  "Gateway.HostDrain#drain_cancelled": ["type"],
-  "Gateway.HostDrain#draining": ["graceMs", "targetVersion", "type"],
-  "Gateway.IngestResult#blocked_post": ["handle", "reasonCode", "status"],
-  "Gateway.IngestResult#blocked_pre": ["reasonCode", "status"],
-  "Gateway.IngestResult#executed": ["delivery", "handle", "status"],
-  "Gateway.IngestSender#external": ["externalId", "kind", "surface"],
-  "Gateway.IngestSender#session": ["id", "kind"],
+  "Gateway.HostDrain#drain_cancelled": [
+    "type"
+  ],
+  "Gateway.HostDrain#draining": [
+    "graceMs",
+    "targetVersion",
+    "type"
+  ],
+  "Gateway.IngestResult#blocked_post": [
+    "handle",
+    "reasonCode",
+    "status"
+  ],
+  "Gateway.IngestResult#blocked_pre": [
+    "reasonCode",
+    "status"
+  ],
+  "Gateway.IngestResult#executed": [
+    "delivery",
+    "handle",
+    "status"
+  ],
+  "Gateway.IngestSender#external": [
+    "externalId",
+    "kind",
+    "surface"
+  ],
+  "Gateway.IngestSender#session": [
+    "id",
+    "kind"
+  ],
   "Gateway.Lease": [
     "apps",
     "expiresAt",
@@ -449,9 +569,21 @@
     "identity",
     "surface"
   ],
-  "Gateway.NewSessionTarget": ["agent", "kind", "parent", "role", "runner"],
-  "Gateway.Origin": ["externalId", "surface"],
-  "Gateway.OriginTarget": ["inReplyTo", "kind"],
+  "Gateway.NewSessionTarget": [
+    "agent",
+    "kind",
+    "parent",
+    "role",
+    "runner"
+  ],
+  "Gateway.Origin": [
+    "externalId",
+    "surface"
+  ],
+  "Gateway.OriginTarget": [
+    "inReplyTo",
+    "kind"
+  ],
   "Gateway.RequestAnswer": [
     "credential",
     "decision",
@@ -459,7 +591,10 @@
     "kind",
     "request"
   ],
-  "Gateway.RequestContext": ["allowedAction", "requestId"],
+  "Gateway.RequestContext": [
+    "allowedAction",
+    "requestId"
+  ],
   "Gateway.RequestSpec": [
     "allowedActions",
     "correlation",
@@ -518,8 +653,14 @@
     "to",
     "type"
   ],
-  "Gateway.SendMessageHandle": ["messageId", "target"],
-  "Gateway.SessionTarget": ["id", "kind"],
+  "Gateway.SendMessageHandle": [
+    "messageId",
+    "target"
+  ],
+  "Gateway.SessionTarget": [
+    "id",
+    "kind"
+  ],
   "Gateway.SocialBudget": [
     "classCaps",
     "cooldownMs",
@@ -531,7 +672,10 @@
     "targetActorId",
     "windowMs"
   ],
-  "Gateway.Surface": ["kind", "machineId"],
+  "Gateway.Surface": [
+    "kind",
+    "machineId"
+  ],
   "Ingress.ActorSchema": [
     "actorId",
     "agentName",
@@ -560,6 +704,25 @@
     "userId",
     "workspace"
   ],
+  "Ingress.InternalEventSchema": [
+    "agentName",
+    "channel",
+    "id",
+    "meta",
+    "mode",
+    "payload",
+    "surface",
+    "target",
+    "traceId",
+    "userId",
+    "workspace"
+  ],
+  "Ingress.MatchContext": [
+    "event",
+    "ruleId",
+    "verdict",
+    "when"
+  ],
   "Ingress.Message": [
     "account",
     "addressed",
@@ -586,20 +749,6 @@
     "threadId",
     "workspaceId"
   ],
-  "Ingress.InternalEventSchema": [
-    "agentName",
-    "channel",
-    "id",
-    "meta",
-    "mode",
-    "payload",
-    "surface",
-    "target",
-    "traceId",
-    "userId",
-    "workspace"
-  ],
-  "Ingress.MatchContext": ["event", "ruleId", "verdict", "when"],
   "Ingress.MetaSchema": [
     "actor",
     "agentName",
@@ -639,9 +788,21 @@
     "requestId",
     "type"
   ],
-  "Ingress.RuleRequest#rule_add": ["record", "requestId", "type"],
-  "Ingress.RuleRequest#rule_disable": ["id", "requestId", "type"],
-  "Ingress.RuleRequest#rule_enable": ["id", "requestId", "type"],
+  "Ingress.RuleRequest#rule_add": [
+    "record",
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleRequest#rule_disable": [
+    "id",
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleRequest#rule_enable": [
+    "id",
+    "requestId",
+    "type"
+  ],
   "Ingress.RuleRequest#rule_ledger": [
     "decision",
     "limit",
@@ -652,9 +813,21 @@
     "type",
     "until"
   ],
-  "Ingress.RuleRequest#rule_list": ["requestId", "type"],
-  "Ingress.RuleRequest#rule_move": ["id", "position", "requestId", "type"],
-  "Ingress.RuleRequest#rule_remove": ["id", "requestId", "type"],
+  "Ingress.RuleRequest#rule_list": [
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleRequest#rule_move": [
+    "id",
+    "position",
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleRequest#rule_remove": [
+    "id",
+    "requestId",
+    "type"
+  ],
   "Ingress.RuleResponse#7": [
     "detail",
     "id",
@@ -663,21 +836,86 @@
     "requestId",
     "type"
   ],
-  "Ingress.RuleResponse#rule_added": ["record", "requestId", "type"],
-  "Ingress.RuleResponse#rule_disabled": ["record", "requestId", "type"],
-  "Ingress.RuleResponse#rule_enabled": ["record", "requestId", "type"],
-  "Ingress.RuleResponse#rule_ledger_read": ["requestId", "rows", "type"],
-  "Ingress.RuleResponse#rule_listed": ["records", "requestId", "type"],
-  "Ingress.RuleResponse#rule_moved": ["record", "requestId", "type"],
-  "Ingress.RuleResponse#rule_removed": ["id", "requestId", "type"],
-  "Ingress.TargetSchema": ["kind", "parentSessionId", "sessionId"],
-  "Ipc.Notification": ["id", "method", "params", "type", "v"],
-  "Ipc.Request": ["id", "method", "params", "type", "v"],
-  "Ipc.Response": ["error", "id", "result", "type", "v"],
-  "Journal.Corrupt": ["kind", "reason", "seq"],
-  "JournalKind.EncodedPayload": ["encodingVersion", "value"],
-  "JournalKind.RowBody": ["effect", "intent"],
-  "L0Observation.ActionCommitted": ["id", "kind", "revision", "sessionId"],
+  "Ingress.RuleResponse#rule_added": [
+    "record",
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleResponse#rule_disabled": [
+    "record",
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleResponse#rule_enabled": [
+    "record",
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleResponse#rule_ledger_read": [
+    "requestId",
+    "rows",
+    "type"
+  ],
+  "Ingress.RuleResponse#rule_listed": [
+    "records",
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleResponse#rule_moved": [
+    "record",
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleResponse#rule_removed": [
+    "id",
+    "requestId",
+    "type"
+  ],
+  "Ingress.TargetSchema": [
+    "kind",
+    "parentSessionId",
+    "sessionId"
+  ],
+  "Ipc.Notification": [
+    "id",
+    "method",
+    "params",
+    "type",
+    "v"
+  ],
+  "Ipc.Request": [
+    "id",
+    "method",
+    "params",
+    "type",
+    "v"
+  ],
+  "Ipc.Response": [
+    "error",
+    "id",
+    "result",
+    "type",
+    "v"
+  ],
+  "Journal.Corrupt": [
+    "kind",
+    "reason",
+    "seq"
+  ],
+  "JournalKind.EncodedPayload": [
+    "encodingVersion",
+    "value"
+  ],
+  "JournalKind.RowBody": [
+    "effect",
+    "intent"
+  ],
+  "L0Observation.ActionCommitted": [
+    "id",
+    "kind",
+    "revision",
+    "sessionId"
+  ],
   "LedgerAction.Append#0": [
     "effect",
     "id",
@@ -698,7 +936,12 @@
     "sessionId",
     "ts"
   ],
-  "LedgerAction.Intent": ["op", "originalArgs", "phase", "value"],
+  "LedgerAction.Intent": [
+    "op",
+    "originalArgs",
+    "phase",
+    "value"
+  ],
   "LedgerAction.Node#0": [
     "effect",
     "id",
@@ -721,8 +964,15 @@
     "sessionId",
     "ts"
   ],
-  "LedgerAction.Receipt": ["action", "revision"],
-  "LedgerSession.AdoptFence": ["fence", "owner", "sessionId"],
+  "LedgerAction.Receipt": [
+    "action",
+    "revision"
+  ],
+  "LedgerSession.AdoptFence": [
+    "fence",
+    "owner",
+    "sessionId"
+  ],
   "LedgerSession.Commit": [
     "actions",
     "expectedRevision",
@@ -734,7 +984,11 @@
     "sessionId",
     "state"
   ],
-  "LedgerSession.CommitResult#0": ["ok", "receipts", "row"],
+  "LedgerSession.CommitResult#0": [
+    "ok",
+    "receipts",
+    "row"
+  ],
   "LedgerSession.CommitResult#1": [
     "currentFence",
     "currentRevision",
@@ -746,9 +1000,19 @@
     "systemHash",
     "toolsGeneration"
   ],
-  "LedgerSession.Materialize": ["initialAction", "row"],
-  "LedgerSession.MaterializeResult#0": ["created", "receipt", "row"],
-  "LedgerSession.MaterializeResult#1": ["created", "row"],
+  "LedgerSession.Materialize": [
+    "initialAction",
+    "row"
+  ],
+  "LedgerSession.MaterializeResult#0": [
+    "created",
+    "receipt",
+    "row"
+  ],
+  "LedgerSession.MaterializeResult#1": [
+    "created",
+    "row"
+  ],
   "LedgerSession.Row": [
     "agent",
     "fence",
@@ -785,29 +1049,79 @@
     "recordHash",
     "sessionId"
   ],
-  "Machine.AgentSessionInfo": ["cli", "project", "sessionId", "state"],
-  "Machine.AgentSessionListRequest": ["project"],
-  "Machine.AgentSessionListResult#ok": ["sessions", "status", "truncated"],
-  "Machine.AgentSessionListResult#refused": ["reason", "status"],
-  "Machine.AgentSessionOpenRequest": ["cli", "project", "sessionId"],
-  "Machine.AgentSessionOpenResult#ok": ["cursor", "status"],
-  "Machine.AgentSessionOpenResult#refused": ["reason", "status"],
-  "Machine.AgentSessionSendRequest": ["sessionId", "text"],
-  "Machine.AgentSessionSendResult#ok": ["status"],
-  "Machine.AgentSessionSendResult#refused": ["reason", "status"],
-  "Machine.AgentSessionStopRequest": ["sessionId"],
-  "Machine.AgentSessionStopResult#ok": ["status"],
-  "Machine.AgentSessionStopResult#refused": ["reason", "status"],
-  "Machine.AgentSessionTailRequest#0": ["sessionId"],
-  "Machine.AgentSessionTailRequest#1": ["cursor"],
+  "Machine.AgentSessionInfo": [
+    "cli",
+    "project",
+    "sessionId",
+    "state"
+  ],
+  "Machine.AgentSessionListRequest": [
+    "project"
+  ],
+  "Machine.AgentSessionListResult#ok": [
+    "sessions",
+    "status",
+    "truncated"
+  ],
+  "Machine.AgentSessionListResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.AgentSessionOpenRequest": [
+    "cli",
+    "project",
+    "sessionId"
+  ],
+  "Machine.AgentSessionOpenResult#ok": [
+    "cursor",
+    "status"
+  ],
+  "Machine.AgentSessionOpenResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.AgentSessionSendRequest": [
+    "sessionId",
+    "text"
+  ],
+  "Machine.AgentSessionSendResult#ok": [
+    "status"
+  ],
+  "Machine.AgentSessionSendResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.AgentSessionStopRequest": [
+    "sessionId"
+  ],
+  "Machine.AgentSessionStopResult#ok": [
+    "status"
+  ],
+  "Machine.AgentSessionStopResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.AgentSessionTailRequest#0": [
+    "sessionId"
+  ],
+  "Machine.AgentSessionTailRequest#1": [
+    "cursor"
+  ],
   "Machine.AgentSessionTailResult#ok": [
     "cursor",
     "hasMore",
     "records",
     "status"
   ],
-  "Machine.AgentSessionTailResult#refused": ["reason", "status"],
-  "Machine.AgentTranscriptRecord#corrupt": ["excerpt", "kind", "reason"],
+  "Machine.AgentSessionTailResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.AgentTranscriptRecord#corrupt": [
+    "excerpt",
+    "kind",
+    "reason"
+  ],
   "Machine.AgentTranscriptRecord#tool_call": [
     "callId",
     "input",
@@ -825,8 +1139,15 @@
     "originalBytes",
     "prefix"
   ],
-  "Machine.AgentTranscriptRecord#turn": ["kind", "role", "text"],
-  "Machine.AppIdentity": ["bundleId", "path"],
+  "Machine.AgentTranscriptRecord#turn": [
+    "kind",
+    "role",
+    "text"
+  ],
+  "Machine.AppIdentity": [
+    "bundleId",
+    "path"
+  ],
   "Machine.AppLaunchRequest": [
     "activate",
     "app",
@@ -834,7 +1155,11 @@
     "freshInstance",
     "timeoutMs"
   ],
-  "Machine.AppLaunchResult#ok": ["pid", "status", "windows"],
+  "Machine.AppLaunchResult#ok": [
+    "pid",
+    "status",
+    "windows"
+  ],
   "Machine.AppLaunchResult#refused": [
     "blocker",
     "humanActiveMs",
@@ -850,8 +1175,13 @@
     "reason",
     "status"
   ],
-  "Machine.AppQuitRequest": ["pid"],
-  "Machine.AppQuitResult#ok": ["exited", "status"],
+  "Machine.AppQuitRequest": [
+    "pid"
+  ],
+  "Machine.AppQuitResult#ok": [
+    "exited",
+    "status"
+  ],
   "Machine.AppQuitResult#refused": [
     "blocker",
     "humanActiveMs",
@@ -873,39 +1203,139 @@
     "generation",
     "status"
   ],
-  "Machine.AttachResult#refused": ["reason", "status"],
-  "Machine.CancelCode": ["cellId"],
-  "Machine.CancelResult": ["cancelled"],
+  "Machine.AttachResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.CancelCode": [
+    "cellId"
+  ],
+  "Machine.CancelResult": [
+    "cancelled"
+  ],
   "Machine.CapacityRow#0": [
     "classCosts",
     "machineId",
     "memReserveBytes",
     "slots"
   ],
-  "Machine.CapacityRow#1": ["classCosts", "memReserveBytes", "slots", "tag"],
-  "Machine.CdpChunk": ["channelId", "data", "seq"],
-  "Machine.CdpChunkResult#accepted": ["seq", "status"],
-  "Machine.CdpChunkResult#refused": ["reason", "status"],
-  "Machine.CdpCloseRequest": ["channelId", "reason"],
-  "Machine.CdpCloseResult#closed": ["channelId", "status"],
-  "Machine.CdpCloseResult#refused": ["reason", "status"],
-  "Machine.CdpOpenRequest": ["channelId", "endpoint", "lifetimeMs"],
-  "Machine.CdpOpenResult#opened": ["channelId", "expiresAt", "status"],
-  "Machine.CdpOpenResult#refused": ["message", "reason", "status"],
-  "Machine.CellOutput": ["stderr", "stdout", "truncated"],
-  "Machine.CellRequest": ["cellId", "code", "tenant", "timeoutMs"],
-  "Machine.CellResult#cancelled": ["cellId", "output", "status"],
-  "Machine.CellResult#completed": ["cellId", "output", "status", "value"],
-  "Machine.CellResult#raised": ["cellId", "error", "output", "status"],
-  "Machine.CellResult#refused": ["reason", "status"],
-  "Machine.CellResult#timed_out": ["cellId", "output", "status"],
-  "Machine.CellState#cancelled": ["cellId", "output", "status"],
-  "Machine.CellState#completed": ["cellId", "output", "status", "value"],
-  "Machine.CellState#raised": ["cellId", "error", "output", "status"],
-  "Machine.CellState#refused": ["reason", "status"],
-  "Machine.CellState#running": ["cellId", "output", "status"],
-  "Machine.CellState#timed_out": ["cellId", "output", "status"],
-  "Machine.ClipboardReadRequest": ["formats"],
+  "Machine.CapacityRow#1": [
+    "classCosts",
+    "memReserveBytes",
+    "slots",
+    "tag"
+  ],
+  "Machine.CdpChunk": [
+    "channelId",
+    "data",
+    "seq"
+  ],
+  "Machine.CdpChunkResult#accepted": [
+    "seq",
+    "status"
+  ],
+  "Machine.CdpChunkResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.CdpCloseRequest": [
+    "channelId",
+    "reason"
+  ],
+  "Machine.CdpCloseResult#closed": [
+    "channelId",
+    "status"
+  ],
+  "Machine.CdpCloseResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.CdpOpenRequest": [
+    "channelId",
+    "endpoint",
+    "lifetimeMs"
+  ],
+  "Machine.CdpOpenResult#opened": [
+    "channelId",
+    "expiresAt",
+    "status"
+  ],
+  "Machine.CdpOpenResult#refused": [
+    "message",
+    "reason",
+    "status"
+  ],
+  "Machine.CellOutput": [
+    "stderr",
+    "stdout",
+    "truncated"
+  ],
+  "Machine.CellRequest": [
+    "cellId",
+    "code",
+    "tenant",
+    "timeoutMs"
+  ],
+  "Machine.CellResult#cancelled": [
+    "cellId",
+    "output",
+    "status"
+  ],
+  "Machine.CellResult#completed": [
+    "cellId",
+    "output",
+    "status",
+    "value"
+  ],
+  "Machine.CellResult#raised": [
+    "cellId",
+    "error",
+    "output",
+    "status"
+  ],
+  "Machine.CellResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.CellResult#timed_out": [
+    "cellId",
+    "output",
+    "status"
+  ],
+  "Machine.CellState#cancelled": [
+    "cellId",
+    "output",
+    "status"
+  ],
+  "Machine.CellState#completed": [
+    "cellId",
+    "output",
+    "status",
+    "value"
+  ],
+  "Machine.CellState#raised": [
+    "cellId",
+    "error",
+    "output",
+    "status"
+  ],
+  "Machine.CellState#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.CellState#running": [
+    "cellId",
+    "output",
+    "status"
+  ],
+  "Machine.CellState#timed_out": [
+    "cellId",
+    "output",
+    "status"
+  ],
+  "Machine.ClipboardReadRequest": [
+    "formats"
+  ],
   "Machine.ClipboardReadResult#ok": [
     "changeCount",
     "html",
@@ -913,18 +1343,56 @@
     "status",
     "text"
   ],
-  "Machine.ClipboardReadResult#refused": ["reason", "status"],
-  "Machine.ClipboardWriteRequest#0": ["text"],
-  "Machine.ClipboardWriteRequest#1": ["html"],
-  "Machine.ClipboardWriteRequest#2": ["image"],
-  "Machine.ClipboardWriteResult#ok": ["changeCount", "previous", "status"],
-  "Machine.ClipboardWriteResult#refused": ["reason", "status"],
-  "Machine.CompletionRequest": ["model", "prompt", "schema", "system"],
-  "Machine.ComputerCancelled": ["dispatched", "hint", "reason", "status"],
-  "Machine.ComputerCloseRequest": ["generation", "through"],
-  "Machine.ComputerCloseResult": ["status"],
-  "Machine.ComputerExclusion": ["app", "machineId"],
-  "Machine.ComputerKeep": ["machineId", "reason", "target"],
+  "Machine.ClipboardReadResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.ClipboardWriteRequest#0": [
+    "text"
+  ],
+  "Machine.ClipboardWriteRequest#1": [
+    "html"
+  ],
+  "Machine.ClipboardWriteRequest#2": [
+    "image"
+  ],
+  "Machine.ClipboardWriteResult#ok": [
+    "changeCount",
+    "previous",
+    "status"
+  ],
+  "Machine.ClipboardWriteResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.CompletionRequest": [
+    "model",
+    "prompt",
+    "schema",
+    "system"
+  ],
+  "Machine.ComputerCancelled": [
+    "dispatched",
+    "hint",
+    "reason",
+    "status"
+  ],
+  "Machine.ComputerCloseRequest": [
+    "generation",
+    "through"
+  ],
+  "Machine.ComputerCloseResult": [
+    "status"
+  ],
+  "Machine.ComputerExclusion": [
+    "app",
+    "machineId"
+  ],
+  "Machine.ComputerKeep": [
+    "machineId",
+    "reason",
+    "target"
+  ],
   "Machine.ComputerLease#active": [
     "admittedAt",
     "apps",
@@ -966,8 +1434,16 @@
     "state",
     "usage"
   ],
-  "Machine.ComputerRefusal#0": ["message", "reason", "status"],
-  "Machine.ComputerRefusal#budget_exhausted": ["reason", "resetAt", "status"],
+  "Machine.ComputerRefusal#0": [
+    "message",
+    "reason",
+    "status"
+  ],
+  "Machine.ComputerRefusal#budget_exhausted": [
+    "reason",
+    "resetAt",
+    "status"
+  ],
   "Machine.ComputerRefusal#paused:human_input": [
     "humanActiveMs",
     "message",
@@ -982,7 +1458,12 @@
     "foreground",
     "minutes"
   ],
-  "Machine.ComputerWindow": ["app", "epoch", "pid", "windowId"],
+  "Machine.ComputerWindow": [
+    "app",
+    "epoch",
+    "pid",
+    "windowId"
+  ],
   "Machine.Enrollment": [
     "allowedCapabilities",
     "allowedExports",
@@ -992,8 +1473,13 @@
     "publicKey",
     "tags"
   ],
-  "Machine.ExecRequest": ["cmd", "cwd"],
-  "Machine.ExecResult#2": ["status"],
+  "Machine.ExecRequest": [
+    "cmd",
+    "cwd"
+  ],
+  "Machine.ExecResult#2": [
+    "status"
+  ],
   "Machine.ExecResult#completed": [
     "exitCode",
     "signal",
@@ -1002,14 +1488,47 @@
     "stdout",
     "truncated"
   ],
-  "Machine.ExecResult#refused": ["reason", "status"],
-  "Machine.FsRequest#list": ["export", "op", "path"],
-  "Machine.FsRequest#read": ["export", "limit", "offset", "op", "path"],
-  "Machine.FsRequest#stat": ["export", "op", "path"],
-  "Machine.FsRequest#write": ["create", "data", "export", "op", "path"],
-  "Machine.FsResult#completed": ["status", "value"],
-  "Machine.FsResult#refused": ["message", "reason", "status"],
-  "Machine.FsStreamRequest#abort": ["op", "transferId"],
+  "Machine.ExecResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.FsRequest#list": [
+    "export",
+    "op",
+    "path"
+  ],
+  "Machine.FsRequest#read": [
+    "export",
+    "limit",
+    "offset",
+    "op",
+    "path"
+  ],
+  "Machine.FsRequest#stat": [
+    "export",
+    "op",
+    "path"
+  ],
+  "Machine.FsRequest#write": [
+    "create",
+    "data",
+    "export",
+    "op",
+    "path"
+  ],
+  "Machine.FsResult#completed": [
+    "status",
+    "value"
+  ],
+  "Machine.FsResult#refused": [
+    "message",
+    "reason",
+    "status"
+  ],
+  "Machine.FsStreamRequest#abort": [
+    "op",
+    "transferId"
+  ],
   "Machine.FsStreamRequest#begin": [
     "create",
     "export",
@@ -1020,8 +1539,15 @@
     "path",
     "transferId"
   ],
-  "Machine.FsStreamRequest#finish": ["op", "transferId"],
-  "Machine.FsStreamRequest#read": ["op", "seq", "transferId"],
+  "Machine.FsStreamRequest#finish": [
+    "op",
+    "transferId"
+  ],
+  "Machine.FsStreamRequest#read": [
+    "op",
+    "seq",
+    "transferId"
+  ],
   "Machine.FsStreamRequest#write": [
     "data",
     "digest",
@@ -1030,13 +1556,42 @@
     "seq",
     "transferId"
   ],
-  "Machine.FsStreamResult#begun": ["seq", "size", "status"],
-  "Machine.FsStreamResult#chunk": ["data", "digest", "last", "seq", "status"],
-  "Machine.FsStreamResult#finished": ["status"],
-  "Machine.FsStreamResult#refused": ["message", "reason", "status"],
-  "Machine.FsStreamResult#written": ["bytesWritten", "last", "seq", "status"],
-  "Machine.HumanInput": ["events", "lastAt", "source"],
-  "Machine.HumanInputNotification": ["at", "machineId", "source"],
+  "Machine.FsStreamResult#begun": [
+    "seq",
+    "size",
+    "status"
+  ],
+  "Machine.FsStreamResult#chunk": [
+    "data",
+    "digest",
+    "last",
+    "seq",
+    "status"
+  ],
+  "Machine.FsStreamResult#finished": [
+    "status"
+  ],
+  "Machine.FsStreamResult#refused": [
+    "message",
+    "reason",
+    "status"
+  ],
+  "Machine.FsStreamResult#written": [
+    "bytesWritten",
+    "last",
+    "seq",
+    "status"
+  ],
+  "Machine.HumanInput": [
+    "events",
+    "lastAt",
+    "source"
+  ],
+  "Machine.HumanInputNotification": [
+    "at",
+    "machineId",
+    "source"
+  ],
   "Machine.Info": [
     "allowedCapabilities",
     "allowedExports",
@@ -1054,11 +1609,21 @@
     "resources",
     "tags"
   ],
-  "Machine.InputAction#0": ["click"],
-  "Machine.InputAction#1": ["type"],
-  "Machine.InputAction#2": ["key"],
-  "Machine.InputAction#3": ["move"],
-  "Machine.InputAction#4": ["scroll"],
+  "Machine.InputAction#0": [
+    "click"
+  ],
+  "Machine.InputAction#1": [
+    "type"
+  ],
+  "Machine.InputAction#2": [
+    "key"
+  ],
+  "Machine.InputAction#3": [
+    "move"
+  ],
+  "Machine.InputAction#4": [
+    "scroll"
+  ],
   "Machine.InputActionRequest": [
     "action",
     "name",
@@ -1094,7 +1659,12 @@
     "kind",
     "requestId"
   ],
-  "Machine.InputPointerRequest#move": ["at", "delivery", "kind", "requestId"],
+  "Machine.InputPointerRequest#move": [
+    "at",
+    "delivery",
+    "kind",
+    "requestId"
+  ],
   "Machine.InputPointerRequest#scroll": [
     "at",
     "delivery",
@@ -1103,7 +1673,9 @@
     "kind",
     "requestId"
   ],
-  "Machine.InputStatusRequest": ["requestId"],
+  "Machine.InputStatusRequest": [
+    "requestId"
+  ],
   "Machine.InputStatusResult#ok": [
     "dispatched",
     "eventsDelivered",
@@ -1111,7 +1683,10 @@
     "state",
     "status"
   ],
-  "Machine.InputStatusResult#refused": ["reason", "status"],
+  "Machine.InputStatusResult#refused": [
+    "reason",
+    "status"
+  ],
   "Machine.InputTextRequest": [
     "captureId",
     "delivery",
@@ -1119,8 +1694,15 @@
     "target",
     "text"
   ],
-  "Machine.InputWriteRequest": ["actions", "captureId"],
-  "Machine.InputWriteResult#ok": ["landedOn", "status", "target"],
+  "Machine.InputWriteRequest": [
+    "actions",
+    "captureId"
+  ],
+  "Machine.InputWriteResult#ok": [
+    "landedOn",
+    "status",
+    "target"
+  ],
   "Machine.InputWriteResult#refused": [
     "humanActiveMs",
     "landedOn",
@@ -1144,7 +1726,11 @@
     "reason",
     "slots"
   ],
-  "Machine.Load": ["inFlight", "loadAvg1", "memoryAvailableBytes"],
+  "Machine.Load": [
+    "inFlight",
+    "loadAvg1",
+    "memoryAvailableBytes"
+  ],
   "Machine.ObservedElement": [
     "actions",
     "checked",
@@ -1173,11 +1759,25 @@
     "platform",
     "resources"
   ],
-  "Machine.PeekAnswer#0": ["output", "running"],
-  "Machine.PeekAnswer#1": ["reason", "status"],
-  "Machine.PeekCode": ["cellId"],
-  "Machine.PeekRefused": ["reason", "status"],
-  "Machine.PeekResult": ["output", "running"],
+  "Machine.PeekAnswer#0": [
+    "output",
+    "running"
+  ],
+  "Machine.PeekAnswer#1": [
+    "reason",
+    "status"
+  ],
+  "Machine.PeekCode": [
+    "cellId"
+  ],
+  "Machine.PeekRefused": [
+    "reason",
+    "status"
+  ],
+  "Machine.PeekResult": [
+    "output",
+    "running"
+  ],
   "Machine.PeerScreenCapture#ok": [
     "accessibilityTree",
     "accessibilityUnavailable",
@@ -1193,33 +1793,115 @@
     "status",
     "width"
   ],
-  "Machine.PeerScreenCapture#refused": ["message", "reason", "status"],
-  "Machine.PingResult": ["receivedAtUs", "sentAtUs", "status"],
-  "Machine.PlacementOutcome#all_stale": ["kind"],
-  "Machine.PlacementOutcome#machine_saturated": ["kind"],
-  "Machine.PlacementOutcome#no_member": ["kind"],
-  "Machine.PlacementOutcome#placed": ["kind", "machineId"],
-  "Machine.PlacementRequest": ["prefer", "requires", "tag"],
-  "Machine.PrivateEvent": ["machineId", "reason", "state", "target"],
-  "Machine.PtyCloseRequest": ["name"],
-  "Machine.PtyCloseResult#ok": ["status"],
-  "Machine.PtyCloseResult#refused": ["reason", "status"],
+  "Machine.PeerScreenCapture#refused": [
+    "message",
+    "reason",
+    "status"
+  ],
+  "Machine.PingResult": [
+    "receivedAtUs",
+    "sentAtUs",
+    "status"
+  ],
+  "Machine.PlacementOutcome#all_stale": [
+    "kind"
+  ],
+  "Machine.PlacementOutcome#machine_saturated": [
+    "kind"
+  ],
+  "Machine.PlacementOutcome#no_member": [
+    "kind"
+  ],
+  "Machine.PlacementOutcome#placed": [
+    "kind",
+    "machineId"
+  ],
+  "Machine.PlacementRequest": [
+    "prefer",
+    "requires",
+    "tag"
+  ],
+  "Machine.PrivateEvent": [
+    "machineId",
+    "reason",
+    "state",
+    "target"
+  ],
+  "Machine.PtyCloseRequest": [
+    "name"
+  ],
+  "Machine.PtyCloseResult#ok": [
+    "status"
+  ],
+  "Machine.PtyCloseResult#refused": [
+    "reason",
+    "status"
+  ],
   "Machine.PtyListRequest": [],
-  "Machine.PtyListResult#ok": ["sessions", "status", "truncated"],
-  "Machine.PtyListResult#refused": ["reason", "status"],
-  "Machine.PtyOpenRequest": ["cwd", "name"],
-  "Machine.PtyOpenResult#ok": ["cursor", "status"],
-  "Machine.PtyOpenResult#refused": ["reason", "status"],
-  "Machine.PtyOutput": ["name"],
-  "Machine.PtyReadParams#0": ["name", "source"],
-  "Machine.PtyReadParams#1": ["cursor", "name", "waitMs"],
-  "Machine.PtyReadRequest": ["cursor", "name", "waitMs"],
-  "Machine.PtyReadResult#ok": ["cursor", "data", "status", "truncated"],
-  "Machine.PtyReadResult#refused": ["reason", "status"],
-  "Machine.PtyReadScreenRequest": ["name", "source"],
-  "Machine.PtyResizeRequest": ["cols", "name", "rows"],
-  "Machine.PtyResizeResult#ok": ["status"],
-  "Machine.PtyResizeResult#refused": ["reason", "status"],
+  "Machine.PtyListResult#ok": [
+    "sessions",
+    "status",
+    "truncated"
+  ],
+  "Machine.PtyListResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.PtyOpenRequest": [
+    "cwd",
+    "name"
+  ],
+  "Machine.PtyOpenResult#ok": [
+    "cursor",
+    "status"
+  ],
+  "Machine.PtyOpenResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.PtyOutput": [
+    "name"
+  ],
+  "Machine.PtyReadParams#0": [
+    "name",
+    "source"
+  ],
+  "Machine.PtyReadParams#1": [
+    "cursor",
+    "name",
+    "waitMs"
+  ],
+  "Machine.PtyReadRequest": [
+    "cursor",
+    "name",
+    "waitMs"
+  ],
+  "Machine.PtyReadResult#ok": [
+    "cursor",
+    "data",
+    "status",
+    "truncated"
+  ],
+  "Machine.PtyReadResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.PtyReadScreenRequest": [
+    "name",
+    "source"
+  ],
+  "Machine.PtyResizeRequest": [
+    "cols",
+    "name",
+    "rows"
+  ],
+  "Machine.PtyResizeResult#ok": [
+    "status"
+  ],
+  "Machine.PtyResizeResult#refused": [
+    "reason",
+    "status"
+  ],
   "Machine.PtyScreenResult#ok": [
     "cursor",
     "observedAt",
@@ -1227,15 +1909,44 @@
     "rows",
     "status"
   ],
-  "Machine.PtyScreenResult#refused": ["reason", "status"],
-  "Machine.PtySessionInfo": ["name", "status"],
-  "Machine.PtyWriteRequest": ["data", "name"],
-  "Machine.PtyWriteResult#ok": ["status"],
-  "Machine.PtyWriteResult#refused": ["reason", "status"],
-  "Machine.Release": ["artifacts", "contractVersion", "version"],
-  "Machine.ReleaseArtifact": ["bytes", "name", "sha256", "url"],
-  "Machine.ReleaseResult#available": ["release", "status"],
-  "Machine.ReleaseResult#refused": ["reason", "status"],
+  "Machine.PtyScreenResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.PtySessionInfo": [
+    "name",
+    "status"
+  ],
+  "Machine.PtyWriteRequest": [
+    "data",
+    "name"
+  ],
+  "Machine.PtyWriteResult#ok": [
+    "status"
+  ],
+  "Machine.PtyWriteResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.Release": [
+    "artifacts",
+    "contractVersion",
+    "version"
+  ],
+  "Machine.ReleaseArtifact": [
+    "bytes",
+    "name",
+    "sha256",
+    "url"
+  ],
+  "Machine.ReleaseResult#available": [
+    "release",
+    "status"
+  ],
+  "Machine.ReleaseResult#refused": [
+    "reason",
+    "status"
+  ],
   "Machine.Report": [
     "humanInput",
     "load",
@@ -1247,19 +1958,43 @@
     "streams",
     "transport"
   ],
-  "Machine.ReportResult#accepted": ["status"],
-  "Machine.ReportResult#refused": ["reason", "status"],
-  "Machine.Request": ["requestId", "type"],
-  "Machine.Resources": ["cpus", "memoryBytes"],
+  "Machine.ReportResult#accepted": [
+    "status"
+  ],
+  "Machine.ReportResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.Request": [
+    "requestId",
+    "type"
+  ],
+  "Machine.Resources": [
+    "cpus",
+    "memoryBytes"
+  ],
   "Machine.Response#machine_list_refused": [
     "detail",
     "reason",
     "requestId",
     "type"
   ],
-  "Machine.Response#machine_listed": ["requestId", "rows", "type"],
-  "Machine.Screen": ["blockers", "display", "grants", "needs", "verdict"],
-  "Machine.ScreenBlocker": ["detail", "kind"],
+  "Machine.Response#machine_listed": [
+    "requestId",
+    "rows",
+    "type"
+  ],
+  "Machine.Screen": [
+    "blockers",
+    "display",
+    "grants",
+    "needs",
+    "verdict"
+  ],
+  "Machine.ScreenBlocker": [
+    "detail",
+    "kind"
+  ],
   "Machine.ScreenCaptureRequest": [
     "accessibility",
     "encoding",
@@ -1280,9 +2015,21 @@
     "status",
     "width"
   ],
-  "Machine.ScreenCaptureResult#refused": ["message", "reason", "status"],
-  "Machine.ScreenDisplay": ["display", "height", "primary", "scale", "width"],
-  "Machine.ScreenListRequest": ["windows"],
+  "Machine.ScreenCaptureResult#refused": [
+    "message",
+    "reason",
+    "status"
+  ],
+  "Machine.ScreenDisplay": [
+    "display",
+    "height",
+    "primary",
+    "scale",
+    "width"
+  ],
+  "Machine.ScreenListRequest": [
+    "windows"
+  ],
   "Machine.ScreenListResult#ok": [
     "displays",
     "observedAt",
@@ -1290,8 +2037,17 @@
     "truncated",
     "windows"
   ],
-  "Machine.ScreenListResult#refused": ["message", "reason", "status"],
-  "Machine.ScreenNeed": ["action", "blocker", "onScreen", "step"],
+  "Machine.ScreenListResult#refused": [
+    "message",
+    "reason",
+    "status"
+  ],
+  "Machine.ScreenNeed": [
+    "action",
+    "blocker",
+    "onScreen",
+    "step"
+  ],
   "Machine.ScreenObserveRequest": [
     "match",
     "maxDepth",
@@ -1328,7 +2084,10 @@
     "reason",
     "status"
   ],
-  "Machine.ScreenReadRequest": ["display", "region"],
+  "Machine.ScreenReadRequest": [
+    "display",
+    "region"
+  ],
   "Machine.ScreenReadResult#ok": [
     "accessibilityTree",
     "accessibilityUnavailable",
@@ -1336,10 +2095,24 @@
     "png",
     "status"
   ],
-  "Machine.ScreenReadResult#refused": ["reason", "status"],
-  "Machine.ScreenRegion": ["height", "width", "x", "y"],
-  "Machine.ScreenSettleRequest": ["quietMs", "target", "timeoutMs"],
-  "Machine.ScreenSettleResult#destroyed": ["status"],
+  "Machine.ScreenReadResult#refused": [
+    "reason",
+    "status"
+  ],
+  "Machine.ScreenRegion": [
+    "height",
+    "width",
+    "x",
+    "y"
+  ],
+  "Machine.ScreenSettleRequest": [
+    "quietMs",
+    "target",
+    "timeoutMs"
+  ],
+  "Machine.ScreenSettleResult#destroyed": [
+    "status"
+  ],
   "Machine.ScreenSettleResult#pending": [
     "changesInWindow",
     "method",
@@ -1360,7 +2133,10 @@
     "observationId",
     "status"
   ],
-  "Machine.ScreenSettleResult#unsupported": ["blocker", "status"],
+  "Machine.ScreenSettleResult#unsupported": [
+    "blocker",
+    "status"
+  ],
   "Machine.ScreenSettleResult#unverifiable": [
     "dispatched",
     "hint",
@@ -1378,10 +2154,22 @@
     "title",
     "windowId"
   ],
-  "Machine.Session": ["asleep", "locked"],
-  "Machine.StreamCloseRequest": ["reason", "streamId"],
-  "Machine.StreamCloseResult#closed": ["status", "streamId"],
-  "Machine.StreamCloseResult#refused": ["reason", "status"],
+  "Machine.Session": [
+    "asleep",
+    "locked"
+  ],
+  "Machine.StreamCloseRequest": [
+    "reason",
+    "streamId"
+  ],
+  "Machine.StreamCloseResult#closed": [
+    "status",
+    "streamId"
+  ],
+  "Machine.StreamCloseResult#refused": [
+    "reason",
+    "status"
+  ],
   "Machine.StreamObservation": [
     "bytesPerSecond",
     "droppedFrames",
@@ -1398,17 +2186,54 @@
     "streamId",
     "video"
   ],
-  "Machine.StreamOpenResult#opened": ["expiresAt", "status", "streamId"],
-  "Machine.StreamOpenResult#refused": ["message", "reason", "status"],
-  "Machine.StreamSignalRequest": ["seq", "signal", "streamId"],
-  "Machine.StreamSignalResult#accepted": ["seq", "status"],
-  "Machine.StreamSignalResult#refused": ["message", "reason", "status"],
-  "Machine.ToolCall": ["arguments", "cellId", "name"],
-  "Machine.ToolCallResult#completed": ["status", "value"],
-  "Machine.ToolCallResult#failed": ["error", "status"],
-  "Machine.TransportFacts": ["attempts", "lastFailure"],
-  "Machine.WindowCloseRequest": ["target"],
-  "Machine.WindowCloseResult#ok": ["closed", "status"],
+  "Machine.StreamOpenResult#opened": [
+    "expiresAt",
+    "status",
+    "streamId"
+  ],
+  "Machine.StreamOpenResult#refused": [
+    "message",
+    "reason",
+    "status"
+  ],
+  "Machine.StreamSignalRequest": [
+    "seq",
+    "signal",
+    "streamId"
+  ],
+  "Machine.StreamSignalResult#accepted": [
+    "seq",
+    "status"
+  ],
+  "Machine.StreamSignalResult#refused": [
+    "message",
+    "reason",
+    "status"
+  ],
+  "Machine.ToolCall": [
+    "arguments",
+    "cellId",
+    "name"
+  ],
+  "Machine.ToolCallResult#completed": [
+    "status",
+    "value"
+  ],
+  "Machine.ToolCallResult#failed": [
+    "error",
+    "status"
+  ],
+  "Machine.TransportFacts": [
+    "attempts",
+    "lastFailure"
+  ],
+  "Machine.WindowCloseRequest": [
+    "target"
+  ],
+  "Machine.WindowCloseResult#ok": [
+    "closed",
+    "status"
+  ],
   "Machine.WindowCloseResult#refused": [
     "blocker",
     "humanActiveMs",
@@ -1424,8 +2249,13 @@
     "reason",
     "status"
   ],
-  "Machine.WindowParkRequest": ["target"],
-  "Machine.WindowParkResult#ok": ["parked", "status"],
+  "Machine.WindowParkRequest": [
+    "target"
+  ],
+  "Machine.WindowParkResult#ok": [
+    "parked",
+    "status"
+  ],
   "Machine.WindowParkResult#refused": [
     "blocker",
     "humanActiveMs",
@@ -1441,7 +2271,11 @@
     "reason",
     "status"
   ],
-  "Machine.WindowTarget": ["epoch", "pid", "windowId"],
+  "Machine.WindowTarget": [
+    "epoch",
+    "pid",
+    "windowId"
+  ],
   "Message.AssistantMessage": [
     "agent",
     "finish",
@@ -1523,7 +2357,12 @@
     "tokens",
     "type"
   ],
-  "Message.Part#step-start": ["id", "messageID", "sessionID", "type"],
+  "Message.Part#step-start": [
+    "id",
+    "messageID",
+    "sessionID",
+    "type"
+  ],
   "Message.Part#text": [
     "id",
     "messageID",
@@ -1560,7 +2399,12 @@
     "tokens",
     "type"
   ],
-  "Message.StepStartPart": ["id", "messageID", "sessionID", "type"],
+  "Message.StepStartPart": [
+    "id",
+    "messageID",
+    "sessionID",
+    "type"
+  ],
   "Message.TextPart": [
     "id",
     "messageID",
@@ -1590,9 +2434,19 @@
     "tools",
     "variant"
   ],
-  "Message.WithParts": ["info", "parts"],
-  "Model.Ref": ["id", "provider"],
-  "Outbound.Message": ["kind", "parts", "spec"],
+  "Message.WithParts": [
+    "info",
+    "parts"
+  ],
+  "Model.Ref": [
+    "id",
+    "provider"
+  ],
+  "Outbound.Message": [
+    "kind",
+    "parts",
+    "spec"
+  ],
   "Outbound.Part#audio": [
     "caption",
     "durationMs",
@@ -1602,10 +2456,28 @@
     "ref",
     "voice"
   ],
-  "Outbound.Part#code": ["kind", "lang", "text"],
-  "Outbound.Part#file": ["caption", "kind", "mime", "name", "ref"],
-  "Outbound.Part#image": ["caption", "kind", "name", "ref"],
-  "Outbound.Part#text": ["kind", "text"],
+  "Outbound.Part#code": [
+    "kind",
+    "lang",
+    "text"
+  ],
+  "Outbound.Part#file": [
+    "caption",
+    "kind",
+    "mime",
+    "name",
+    "ref"
+  ],
+  "Outbound.Part#image": [
+    "caption",
+    "kind",
+    "name",
+    "ref"
+  ],
+  "Outbound.Part#text": [
+    "kind",
+    "text"
+  ],
   "Outbound.Part#video": [
     "caption",
     "durationMs",
@@ -1614,11 +2486,32 @@
     "name",
     "ref"
   ],
-  "Outbound.Payload#message": ["kind", "parts", "spec"],
-  "Outbound.Payload#react": ["emoji", "kind", "messageId", "replaces"],
-  "Outbound.React": ["emoji", "kind", "messageId", "replaces"],
-  "Outbound.Receipt": ["externalMessageId", "reason", "value"],
-  "Outbound.Spec": ["elements", "root"],
+  "Outbound.Payload#message": [
+    "kind",
+    "parts",
+    "spec"
+  ],
+  "Outbound.Payload#react": [
+    "emoji",
+    "kind",
+    "messageId",
+    "replaces"
+  ],
+  "Outbound.React": [
+    "emoji",
+    "kind",
+    "messageId",
+    "replaces"
+  ],
+  "Outbound.Receipt": [
+    "externalMessageId",
+    "reason",
+    "value"
+  ],
+  "Outbound.Spec": [
+    "elements",
+    "root"
+  ],
   "Policy.EvaluationRequest": [
     "action",
     "actor",
@@ -1655,22 +2548,74 @@
     "reasonCodes",
     "verdict"
   ],
-  "Policy.PolicyEffect#audit.annotate": ["annotation", "severity", "type"],
-  "Policy.PolicyEffect#model.override": ["id", "provider", "type"],
-  "Policy.PolicyEffect#prompt.append_context": ["context", "type"],
-  "Policy.PolicyEffect#prompt.inject_message": ["message", "role", "type"],
-  "Policy.PolicyEffect#prompt.replace": ["prompt", "type"],
-  "Policy.PolicyEffect#run.abort": ["reason", "type"],
-  "Policy.PolicyEffect#run.continue_with_prompt": ["prompt", "type"],
-  "Policy.PolicyEffect#run.replace_messages": ["messages", "type"],
-  "Policy.PolicyEffect#run.retry_after": ["delayMs", "maxRetries", "type"],
-  "Policy.PolicyEffect#tool.filter": ["toolPattern", "type"],
-  "Policy.PolicyEffect#tool.require_approval": ["reason", "type"],
-  "Policy.PolicyEffect#tool.rewrite_input": ["input", "type"],
-  "Policy.PolicyEffect#tool.rewrite_output": ["output", "type"],
-  "Policy.PolicyEffect#tool.skip_invocation": ["reason", "type"],
-  "Policy.PolicyEffect#writeback.rewrite": ["output", "type"],
-  "Policy.PolicyEffect#writeback.suppress": ["reason", "type"],
+  "Policy.PolicyEffect#audit.annotate": [
+    "annotation",
+    "severity",
+    "type"
+  ],
+  "Policy.PolicyEffect#model.override": [
+    "id",
+    "provider",
+    "type"
+  ],
+  "Policy.PolicyEffect#prompt.append_context": [
+    "context",
+    "type"
+  ],
+  "Policy.PolicyEffect#prompt.inject_message": [
+    "message",
+    "role",
+    "type"
+  ],
+  "Policy.PolicyEffect#prompt.replace": [
+    "prompt",
+    "type"
+  ],
+  "Policy.PolicyEffect#run.abort": [
+    "reason",
+    "type"
+  ],
+  "Policy.PolicyEffect#run.continue_with_prompt": [
+    "prompt",
+    "type"
+  ],
+  "Policy.PolicyEffect#run.replace_messages": [
+    "messages",
+    "type"
+  ],
+  "Policy.PolicyEffect#run.retry_after": [
+    "delayMs",
+    "maxRetries",
+    "type"
+  ],
+  "Policy.PolicyEffect#tool.filter": [
+    "toolPattern",
+    "type"
+  ],
+  "Policy.PolicyEffect#tool.require_approval": [
+    "reason",
+    "type"
+  ],
+  "Policy.PolicyEffect#tool.rewrite_input": [
+    "input",
+    "type"
+  ],
+  "Policy.PolicyEffect#tool.rewrite_output": [
+    "output",
+    "type"
+  ],
+  "Policy.PolicyEffect#tool.skip_invocation": [
+    "reason",
+    "type"
+  ],
+  "Policy.PolicyEffect#writeback.rewrite": [
+    "output",
+    "type"
+  ],
+  "Policy.PolicyEffect#writeback.suppress": [
+    "reason",
+    "type"
+  ],
   "PolicyPermission.EvaluationRequest": [
     "action",
     "actor",
@@ -1695,7 +2640,10 @@
     "reason",
     "toolPattern"
   ],
-  "PolicyPermission.LabelEntry": ["source", "value"],
+  "PolicyPermission.LabelEntry": [
+    "source",
+    "value"
+  ],
   "PolicyPermission.Permission": [
     "action",
     "allowLabels",
@@ -1715,7 +2663,13 @@
     "priority",
     "verdict"
   ],
-  "Provisioning.Agent": ["enabled", "id", "model", "prompt", "tools"],
+  "Provisioning.Agent": [
+    "enabled",
+    "id",
+    "model",
+    "prompt",
+    "tools"
+  ],
   "Provisioning.ChannelDeclareRefused": [
     "detail",
     "reason",
@@ -1778,15 +2732,57 @@
     "rotatedAt",
     "wrappedDek"
   ],
-  "RowVerdict.out#allow": ["effects", "reason", "reasonCodes", "type"],
-  "RowVerdict.out#consult": ["config", "observe", "ref", "rewrite", "type"],
-  "RowVerdict.out#deny": ["reason", "type"],
-  "RowVerdict.out#obligation": ["limit", "metric", "ref", "type"],
-  "RowVerdict.out#require_approval": ["reason", "type"],
-  "RowVerdict.out#transform": ["config", "ref", "type"],
-  "SessionFork.Forked": ["forkedFrom", "head", "parentId", "sessionId", "type"],
-  "SessionFork.Refused": ["detail", "reason", "sessionId", "type"],
-  "SessionFork.Request": ["at", "childId", "sessionId", "type"],
+  "RowVerdict.out#allow": [
+    "effects",
+    "reason",
+    "reasonCodes",
+    "type"
+  ],
+  "RowVerdict.out#consult": [
+    "config",
+    "observe",
+    "ref",
+    "rewrite",
+    "type"
+  ],
+  "RowVerdict.out#deny": [
+    "reason",
+    "type"
+  ],
+  "RowVerdict.out#obligation": [
+    "limit",
+    "metric",
+    "ref",
+    "type"
+  ],
+  "RowVerdict.out#require_approval": [
+    "reason",
+    "type"
+  ],
+  "RowVerdict.out#transform": [
+    "config",
+    "ref",
+    "type"
+  ],
+  "SessionFork.Forked": [
+    "forkedFrom",
+    "head",
+    "parentId",
+    "sessionId",
+    "type"
+  ],
+  "SessionFork.Refused": [
+    "detail",
+    "reason",
+    "sessionId",
+    "type"
+  ],
+  "SessionFork.Request": [
+    "at",
+    "childId",
+    "sessionId",
+    "type"
+  ],
   "SessionFork.Response#0": [
     "forkedFrom",
     "head",
@@ -1794,16 +2790,29 @@
     "sessionId",
     "type"
   ],
-  "SessionFork.Response#1": ["detail", "reason", "sessionId", "type"],
-  "SessionGeneration.ConfigureEffect": ["phase", "snapshot"],
+  "SessionFork.Response#1": [
+    "detail",
+    "reason",
+    "sessionId",
+    "type"
+  ],
+  "SessionGeneration.ConfigureEffect": [
+    "phase",
+    "snapshot"
+  ],
   "SessionGeneration.ConfigureIntent": [
     "agent",
     "forkedFrom",
     "operation",
     "settings"
   ],
-  "SessionGeneration.ConfigureReceipt": ["generation", "revertTo"],
-  "SessionGeneration.ConfigureRevert": ["generation"],
+  "SessionGeneration.ConfigureReceipt": [
+    "generation",
+    "revertTo"
+  ],
+  "SessionGeneration.ConfigureRevert": [
+    "generation"
+  ],
   "SessionGeneration.ForkAncestry": [
     "anchor",
     "copied",
@@ -1811,7 +2820,10 @@
     "parentSeq",
     "session"
   ],
-  "SessionGeneration.Id": ["generation", "sessionId"],
+  "SessionGeneration.Id": [
+    "generation",
+    "sessionId"
+  ],
   "SessionGeneration.Snapshot": [
     "bundles",
     "generation",
@@ -1826,7 +2838,11 @@
     "tools",
     "toolsHash"
   ],
-  "SessionGeneration.SystemBlock": ["content", "id", "source"],
+  "SessionGeneration.SystemBlock": [
+    "content",
+    "id",
+    "source"
+  ],
   "SessionGeneration.Tool": [
     "category",
     "idempotent",
@@ -1834,9 +2850,17 @@
     "name",
     "sequential"
   ],
-  "SessionHistory.Cause#action": ["actionId", "kind"],
-  "SessionHistory.Cause#delivery": ["deliveryIds", "kind"],
-  "SessionHistory.Cause#root": ["kind"],
+  "SessionHistory.Cause#action": [
+    "actionId",
+    "kind"
+  ],
+  "SessionHistory.Cause#delivery": [
+    "deliveryIds",
+    "kind"
+  ],
+  "SessionHistory.Cause#root": [
+    "kind"
+  ],
   "SessionHistory.Compaction": [
     "compactionId",
     "discarded",
@@ -1857,7 +2881,9 @@
     "sessionId",
     "transitions"
   ],
-  "SessionHistory.InspectRequest": ["depth"],
+  "SessionHistory.InspectRequest": [
+    "depth"
+  ],
   "SessionHistory.Page": [
     "actions",
     "afterRevision",
@@ -1865,7 +2891,10 @@
     "nextRevision",
     "sessionId"
   ],
-  "SessionHistory.PageRequest": ["afterRevision", "limit"],
+  "SessionHistory.PageRequest": [
+    "afterRevision",
+    "limit"
+  ],
   "SessionHistory.PolicyDecision": [
     "actionId",
     "generation",
@@ -1881,7 +2910,11 @@
     "turnId",
     "verdict"
   ],
-  "SessionHistory.PolicyFilter": ["generation", "ruleId", "verdict"],
+  "SessionHistory.PolicyFilter": [
+    "generation",
+    "ruleId",
+    "verdict"
+  ],
   "SessionHistory.Request": [
     "callId",
     "deadline",
@@ -1913,8 +2946,14 @@
     "sessionId",
     "turnId"
   ],
-  "SessionRead.Bound": ["result", "type"],
-  "SessionRead.Cursor": ["epoch", "revision"],
+  "SessionRead.Bound": [
+    "result",
+    "type"
+  ],
+  "SessionRead.Cursor": [
+    "epoch",
+    "revision"
+  ],
   "SessionRead.Gap": [
     "epoch",
     "headRevision",
@@ -1938,8 +2977,16 @@
     "type",
     "usage"
   ],
-  "SessionRead.Receipt": ["status", "type"],
-  "SessionRead.Request": ["cursor", "limit", "sessionId", "type"],
+  "SessionRead.Receipt": [
+    "status",
+    "type"
+  ],
+  "SessionRead.Request": [
+    "cursor",
+    "limit",
+    "sessionId",
+    "type"
+  ],
   "SessionRead.Response#0": [
     "actions",
     "afterRevision",
@@ -2007,7 +3054,11 @@
     "sourceActionId",
     "value"
   ],
-  "SessionTransition.Outbound": ["destinationReceipt", "message", "state"],
+  "SessionTransition.Outbound": [
+    "destinationReceipt",
+    "message",
+    "state"
+  ],
   "SessionTransition.OutboundMessage": [
     "content",
     "delivery",
@@ -2020,16 +3071,32 @@
     "sourceSessionId",
     "terminal"
   ],
-  "SessionTransition.Payload#request.answer": ["answer", "kind"],
+  "SessionTransition.Payload#request.answer": [
+    "answer",
+    "kind"
+  ],
   "SessionTransition.Payload#request.cancel": [
     "kind",
     "principal",
     "requestId"
   ],
-  "SessionTransition.Payload#request.delivery": ["kind", "receipt"],
-  "SessionTransition.Payload#request.open": ["kind", "request"],
-  "SessionTransition.Payload#request.timeout": ["kind", "requestId"],
-  "SessionTransition.Principal": ["evidenceId", "kind", "principalId"],
+  "SessionTransition.Payload#request.delivery": [
+    "kind",
+    "receipt"
+  ],
+  "SessionTransition.Payload#request.open": [
+    "kind",
+    "request"
+  ],
+  "SessionTransition.Payload#request.timeout": [
+    "kind",
+    "requestId"
+  ],
+  "SessionTransition.Principal": [
+    "evidenceId",
+    "kind",
+    "principalId"
+  ],
   "SessionTransition.Reply": [
     "content",
     "receivedAt",
@@ -2174,8 +3241,16 @@
     "toolsGeneration",
     "toolsHash"
   ],
-  "SessionTurn.Message": ["role", "text"],
-  "SessionTurn.Observation#gap": ["from", "kind", "sessionId", "to"],
+  "SessionTurn.Message": [
+    "role",
+    "text"
+  ],
+  "SessionTurn.Observation#gap": [
+    "from",
+    "kind",
+    "sessionId",
+    "to"
+  ],
   "SessionTurn.Observation#revision": [
     "actionId",
     "actionKind",
@@ -2183,7 +3258,9 @@
     "revision",
     "sessionId"
   ],
-  "SessionTurn.Pending": ["phase"],
+  "SessionTurn.Pending": [
+    "phase"
+  ],
   "SessionTurn.Resume": [
     "boundaryActionId",
     "context",
@@ -2209,7 +3286,13 @@
     "toolsGeneration",
     "turns"
   ],
-  "SessionTurn.Tail": ["messages", "startedAt", "state", "terminal", "turnId"],
+  "SessionTurn.Tail": [
+    "messages",
+    "startedAt",
+    "state",
+    "terminal",
+    "turnId"
+  ],
   "SessionTurn.Terminal": [
     "alarmIds",
     "boundaryActionId",
@@ -2220,7 +3303,10 @@
     "text",
     "turnId"
   ],
-  "SessionTurn.TerminalIntent": ["phase", "turnId"],
+  "SessionTurn.TerminalIntent": [
+    "phase",
+    "turnId"
+  ],
   "Token.AgentUsage": [
     "cacheReadTokens",
     "cacheWriteTokens",
@@ -2229,7 +3315,11 @@
     "reasoningTokens",
     "totalTokens"
   ],
-  "Tool.Call": ["id", "input", "tool"],
+  "Tool.Call": [
+    "id",
+    "input",
+    "tool"
+  ],
   "Tool.Result": [
     "content",
     "details",
@@ -2258,10 +3348,26 @@
     "time",
     "title"
   ],
-  "Tool.State#error": ["error", "input", "status", "time"],
-  "Tool.State#pending": ["input", "status"],
-  "Tool.State#running": ["input", "status", "time"],
-  "Transcript.Fact#message.created": ["attemptId", "message", "type"],
+  "Tool.State#error": [
+    "error",
+    "input",
+    "status",
+    "time"
+  ],
+  "Tool.State#pending": [
+    "input",
+    "status"
+  ],
+  "Tool.State#running": [
+    "input",
+    "status",
+    "time"
+  ],
+  "Transcript.Fact#message.created": [
+    "attemptId",
+    "message",
+    "type"
+  ],
   "Transcript.Fact#message.finished": [
     "at",
     "attemptId",
@@ -2277,7 +3383,12 @@
     "transition",
     "type"
   ],
-  "Transcript.Fact#part.appended": ["attemptId", "messageId", "part", "type"],
+  "Transcript.Fact#part.appended": [
+    "attemptId",
+    "messageId",
+    "part",
+    "type"
+  ],
   "Transcript.PartTransition#completed": [
     "at",
     "output",
@@ -2285,8 +3396,24 @@
     "title",
     "to"
   ],
-  "Transcript.PartTransition#error": ["at", "error", "to"],
-  "Transcript.PartTransition#interrupted": ["at", "partialOutput", "to"],
-  "Transcript.PartTransition#running": ["at", "to"],
-  "Transcript.Usage": ["cache", "input", "output", "reasoning"]
+  "Transcript.PartTransition#error": [
+    "at",
+    "error",
+    "to"
+  ],
+  "Transcript.PartTransition#interrupted": [
+    "at",
+    "partialOutput",
+    "to"
+  ],
+  "Transcript.PartTransition#running": [
+    "at",
+    "to"
+  ],
+  "Transcript.Usage": [
+    "cache",
+    "input",
+    "output",
+    "reasoning"
+  ]
 }

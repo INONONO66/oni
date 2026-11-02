@@ -867,7 +867,7 @@ export async function startOni(options: StartOptions = {}) {
       speech: speechPort(config, transport, { events: services.observations, now: services.now }),
       putOutput: (sessionId, write) => plane.session(sessionId).putOutput(write),
       image: {
-        generate: createImagePort(image, config.model, services.entropy.id),
+        generate: createImagePort(image, services.entropy.id),
         putOutput: (sessionId, write) => plane.session(sessionId).putOutput(write),
       },
       messages,

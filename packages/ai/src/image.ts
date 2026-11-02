@@ -1,4 +1,4 @@
-import { type BusEvent, LlmCall, type Model } from "@oni/protocol";
+import { type BusEvent, LlmCall } from "@oni/protocol";
 import { generateImage } from "ai";
 import { Effect } from "effect";
 import { Auth } from "./auth/storage";
@@ -17,8 +17,8 @@ export interface ImageRequest {
   readonly prompt: string;
   /** `traceId` correlates the call's observation row; the caller mints it. */
   readonly traceId: string;
-  /** Absent uses the first row that names an image model; present names the row by provider and the model id. */
-  readonly model?: Model.Ref;
+  /** A model id on the first row that names an image model; absent uses that row's own id. */
+  readonly model?: string;
   /** `{width}x{height}`; absent leaves the size to the provider. */
   readonly size?: `${number}x${number}`;
   /** Images per call; absent asks for one. */
@@ -34,17 +34,12 @@ interface Selection {
   readonly modelId: string;
 }
 
-function select(rows: readonly ProviderRow[], model: Model.Ref | undefined): Effect.Effect<Selection, ModelResolutionError> {
-  if (model === undefined) {
-    const row = rows.find((candidate) => candidate.image !== undefined);
-    return row?.image === undefined
-      ? Effect.fail(new ModelResolutionError({ message: "No provider row names an image model", provider: "", model: "", reason: "model_not_found" }))
-      : Effect.succeed({ row, modelId: row.image.model });
-  }
-  const row = rows.find((candidate) => candidate.id === model.provider);
-  return row === undefined
-    ? Effect.fail(new ModelResolutionError({ message: `No provider row named ${model.provider}`, provider: model.provider, model: model.id, reason: "provider_not_found" }))
-    : Effect.succeed({ row, modelId: model.id });
+/** The first row naming an image model serves every call; a per-call `model` id stays on that row. */
+function select(rows: readonly ProviderRow[], modelId: string | undefined): Effect.Effect<Selection, ModelResolutionError> {
+  const row = rows.find((candidate) => candidate.image !== undefined);
+  return row?.image === undefined
+    ? Effect.fail(new ModelResolutionError({ message: "No provider row names an image model", provider: "", model: "", reason: "model_not_found" }))
+    : Effect.succeed({ row, modelId: modelId ?? row.image.model });
 }
 
 export function makeImage(input: {
