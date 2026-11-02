@@ -9,6 +9,7 @@ import {
   type Gateway,
   type LedgerAction,
   type PlainValue,
+  type PlainObject,
 } from "@oni/protocol";
 import type { createExistingAgentMessaging } from "./messaging/send";
 import type { ReplyMessaging } from "./messaging/reply";
@@ -116,6 +117,16 @@ function deliveredContent(text: string, parts: Delivery.Content | undefined): De
   return [...(text.length === 0 ? [] : [{ kind: "text" as const, text }]), ...(parts ?? [])];
 }
 
+function ruleOrigin(automation: NonNullable<MessageContext["external"]>["automation"]): PlainObject {
+  if (automation === undefined) return {};
+  return { rule: {
+    id: automation.ruleId, reply: automation.reply, newSession: automation.newSession,
+    ...(automation.as === undefined ? {} : { as: automation.as }),
+    ...(automation.agent === undefined ? {} : { agent: automation.agent }),
+    ...(automation.instructions === undefined ? {} : { instructions: automation.instructions }),
+  } };
+}
+
 function deliveryAdmission(
   context: MessageContext,
   intent: LedgerAction.Receipt,
@@ -157,16 +168,7 @@ function deliveryAdmission(
         ...(external === undefined ? {} : { inboundTreatment: external.route.decision.inboundTreatment ?? "full_access" }),
         ...(external?.automation?.kind === "action"
           ? { source: external.automation.source, handlerRef: external.automation.handlerRef } : {}),
-        ...(external?.automation === undefined ? {} : {
-          rule: {
-            id: external.automation.ruleId,
-            reply: external.automation.reply,
-            ...(external.automation.as === undefined ? {} : { as: external.automation.as }),
-            ...(external.automation.agent === undefined ? {} : { agent: external.automation.agent }),
-            newSession: external.automation.newSession ?? false,
-            ...(external.automation.instructions === undefined ? {} : { instructions: external.automation.instructions }),
-          },
-        }),
+        ...ruleOrigin(external?.automation),
       },
     },
   };

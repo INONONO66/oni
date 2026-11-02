@@ -41,40 +41,73 @@ export function externalMessage(
     const resolved = resolveIngress(stores, sender, facts, ports, at);
     const { event, surfaceKey, existing } = resolved;
     const request = resolved.route.decision.stage === "request_correlation";
-    const records = stores.rules.list().filter((entry) => entry.approved || entry.record.createdBy === "owner").map((entry) => entry.record);
-    const outcome: MatchDecision = closingRoute !== undefined ? { route: closingRoute, rows: [], pending }
-      : request ? { rows: [], pending }
-      : routeRule(yield* match(records, ingress.input, ports.judge), ingress.input,
-        { now: at, pending, matchedToday: (id) => stores.rules.matchedToday(id, at) });
+    const outcome = yield* selectRule(stores, ports, ingress, at, pending, request, closingRoute);
     const selected = outcome.route;
     const target = request ? resolved.route.decision.sessionId ?? ports.id()
-      : selected?.target === "conversation" ? existing ?? ports.id()
-      : selected?.target.startsWith("session:") ? selected.target.slice("session:".length) : ports.id();
-    const automation = selected === undefined ? undefined : {
-      ...selected, newSession: selected.newSession || (selected.conversation && existing === undefined),
-    };
+      : destination(selected, existing, ports.id);
+    const automation = selectedAutomation(selected, existing);
+    const admitted = request || automation !== undefined;
     const granted = request ? resolved.route : resolveKernelRoute(event, ports.requests, at, automation, target);
     const route = closingRoute === undefined ? recordKernelRoute(stores, granted, ports.sink, at, granted.decision.stage !== "automation") : granted;
-    const budget = budgets.find((candidate) => candidate.targetActorId === event.meta?.actor?.actorId);
-    const egressBudget = request || budget === undefined || evaluateSocialBudget(budget,
-      stores.egressBudgets.read(target, budget.targetActorId, at - budget.windowMs), { class: "converse", at }) === "allow";
-    const message: Extract<NonNullable<PolicyEvaluationInput["message"]>, { sender: "external" }> = {
-      sender: "external", addressee: ingress.addressed ? "bot" : ingress.identities.some((identity) => identity.trustTier === "owner") ? "owner" : "ambient",
-      ...(route.decision.trustTier === undefined ? {} : { senderTier: route.decision.trustTier }),
-      identity: request || automation !== undefined, grantTier: route.decision.outcome === "route",
-      egressBudget, eventIdUnique: true, replyCorrelation: route.decision.outcome !== "ambiguous",
-    };
+    const egressBudget = request || budgetAllows(stores, budgets, event, target, at);
+    const message = policyMessage(ingress, route.decision, admitted, egressBudget);
     return { route, event, target, surfaceKey, message, facts, automation,
-      content: automation?.kind === "action" ? JSON.stringify(automation.body)
-        : promptContent({ ...facts, render: automation?.kind === "prompt" ? automation.origin.body : facts.render }, existing === undefined, request || facts.surface === "ws" ? undefined : event.meta?.actor?.actorId ?? sender.externalId),
-      ...(facts.attachments === undefined ? {} : { parts: facts.attachments.map(({ kind, ref, mime, name, durationMs, voice }) => ({
-        kind, ref, ...(mime === undefined ? {} : { mime }), ...(name === undefined ? {} : { name }),
-        ...(durationMs === undefined ? {} : { durationMs }), ...(voice === undefined ? {} : { voice }),
-      })) }),
+      content: matchedContent(automation, facts, existing === undefined,
+        request || facts.surface === "ws" ? undefined : event.meta?.actor?.actorId ?? sender.externalId),
+      ...(facts.attachments === undefined ? {} : { parts: facts.attachments.map(({ bytes: _bytes, ...part }) => part) }),
       pending: outcome.pending, decision: outcome.rows[0],
-      disposition: request || automation !== undefined ? undefined : outcome.rows[0]?.reason ?? "none",
+      disposition: admitted ? undefined : outcome.rows[0]?.reason ?? "none",
     };
   });
+}
+
+/** A conversation-targeted rule opens a session only when the thread has none bound yet. */
+function selectedAutomation(selected: MatchDecision["route"], existing: string | undefined) {
+  if (selected === undefined) return undefined;
+  return { ...selected, newSession: selected.newSession || (selected.conversation && existing === undefined) };
+}
+
+/** A closing route is frozen; a request answer matches no rule; otherwise the first admitted rule decides. */
+function selectRule(stores: ChannelStores, ports: GatewayRouterPorts, ingress: ReturnType<typeof ingressInput>,
+  at: number, pending: readonly PendingGroup[], request: boolean, closingRoute: MatchDecision["route"],
+): Effect.Effect<MatchDecision, import("../errors.js").ChannelError> {
+  return Effect.gen(function* () {
+    if (closingRoute !== undefined) return { route: closingRoute, rows: [], pending };
+    if (request) return { rows: [], pending };
+    const records = stores.rules.list().filter((entry) => entry.approved || entry.record.createdBy === "owner").map((entry) => entry.record);
+    return routeRule(yield* match(records, ingress.input, ports.judge), ingress.input,
+      { now: at, pending, matchedToday: (id) => stores.rules.matchedToday(id, at) });
+  });
+}
+
+function destination(selected: MatchDecision["route"], existing: string | undefined, fresh: () => string) {
+  if (selected?.target === "conversation") return existing ?? fresh();
+  if (selected?.target.startsWith("session:")) return selected.target.slice("session:".length);
+  return fresh();
+}
+
+function budgetAllows(stores: ChannelStores, budgets: readonly Gateway.SocialBudget[],
+  event: Gateway.DeliveredEvent, target: string, at: number) {
+  const budget = budgets.find((candidate) => candidate.targetActorId === event.meta?.actor?.actorId);
+  return budget === undefined || evaluateSocialBudget(budget,
+    stores.egressBudgets.read(target, budget.targetActorId, at - budget.windowMs), { class: "converse", at }) === "allow";
+}
+
+function policyMessage(ingress: ReturnType<typeof ingressInput>, decision: Ingress.RoutingDecisionPayload,
+  admitted: boolean, egressBudget: boolean): Extract<NonNullable<PolicyEvaluationInput["message"]>, { sender: "external" }> {
+  const addressee = ingress.addressed ? "bot"
+    : ingress.identities.some((identity) => identity.trustTier === "owner") ? "owner" : "ambient";
+  return {
+    sender: "external", addressee,
+    ...(decision.trustTier === undefined ? {} : { senderTier: decision.trustTier }),
+    identity: admitted, grantTier: decision.outcome === "route",
+    egressBudget, eventIdUnique: true, replyCorrelation: decision.outcome !== "ambiguous",
+  };
+}
+
+function matchedContent(automation: MatchDecision["route"], facts: Gateway.IngressFacts, fresh: boolean, from: string | undefined) {
+  if (automation?.kind === "action") return JSON.stringify(automation.body);
+  return promptContent({ ...facts, render: automation?.kind === "prompt" ? automation.origin.body : facts.render }, fresh, from);
 }
 
 /** A sender-controlled field stays on its own bracket line: no line breaks, no closing bracket. */

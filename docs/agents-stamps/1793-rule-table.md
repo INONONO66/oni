@@ -1,0 +1,1 @@
+#1793 (#1791), `refactor/1793-rule-table`, 2026-11-02, base `074c83751`, PR #1805: one ordered rule store and first-match outcome replace layered inbound policy; app-owned protected seeds, conversation roots, replay and grouping receipts, and the rule wire/editor are wired; verification receipts are in the PR.

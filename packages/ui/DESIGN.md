@@ -62,7 +62,8 @@ Refusals persist inline. Pending session proposals have a labeled approval
 affordance and cannot be enabled by editing. Mutation controls remain disabled
 until the server mutation and authoritative reread settle.
 Destructive removal requires confirmation and offers a keep action.
-The delivery controls remain exactly two independent axes: target and kind.
+The rule outcome selects drop, record only, or deliver. Only deliver shows
+target, prompt/action kind, reply policy and optional delivery settings.
 Native disclosure, select and button behavior provides keyboard alternatives.
 No new animation is introduced.
 

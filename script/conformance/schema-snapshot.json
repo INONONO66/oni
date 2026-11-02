@@ -1,30 +1,4 @@
 {
-  "Actor.BlacklistEntry": [
-    "createdAt",
-    "createdBy",
-    "expiresAt",
-    "id",
-    "kind",
-    "reason",
-    "updatedAt",
-    "value"
-  ],
-  "Actor.ChannelGrant": [
-    "allowedSenders",
-    "channel",
-    "createdAt",
-    "createdBy",
-    "defaultTier",
-    "id",
-    "inboundTreatment",
-    "kind",
-    "mentionOnly",
-    "ownerIntake",
-    "provisionalMint",
-    "surface",
-    "updatedAt",
-    "workspace"
-  ],
   "Actor.Endpoint": [
     "actorId",
     "channel",
@@ -47,16 +21,7 @@
     "trustTier",
     "updatedAt"
   ],
-  "Actor.Profile": [
-    "blacklistEntryId",
-    "budget",
-    "channelGrantIds",
-    "model",
-    "systemPrompt",
-    "tools",
-    "trustTier"
-  ],
-  "Actor.ProvisionalMintPolicy": ["max", "windowMs"],
+  "Actor.Profile": ["budget", "model", "systemPrompt", "tools", "trustTier"],
   "Actor.ResolvedEndpoint": ["endpoint", "identity"],
   "Alarm.RetrySchedule": ["attempt", "kind", "notBefore", "reason"],
   "Alarm.Watch#0": [
@@ -437,13 +402,6 @@
     "targetRole",
     "type"
   ],
-  "Gateway.SenderTargetGrant": [
-    "expiresAt",
-    "id",
-    "operations",
-    "senderId",
-    "targetActorId"
-  ],
   "Gateway.SendInput": [
     "at",
     "class",
@@ -466,6 +424,13 @@
     "type"
   ],
   "Gateway.SendMessageHandle": ["messageId", "target"],
+  "Gateway.SenderTargetGrant": [
+    "expiresAt",
+    "id",
+    "operations",
+    "senderId",
+    "targetActorId"
+  ],
   "Gateway.SessionTarget": ["id", "kind"],
   "Gateway.SocialBudget": [
     "classCaps",
@@ -493,96 +458,6 @@
     "standing",
     "trustTier",
     "type"
-  ],
-  "Ingress.Automation": [
-    "conditions",
-    "createdBy",
-    "enabled",
-    "grouping",
-    "id",
-    "instructions",
-    "kind",
-    "limits",
-    "name",
-    "runWhen",
-    "target",
-    "triggers"
-  ],
-  "Ingress.AutomationLedgerFilter": [
-    "decision",
-    "limit",
-    "recordId",
-    "since",
-    "surface",
-    "until"
-  ],
-  "Ingress.AutomationRefused": [
-    "detail",
-    "id",
-    "issues",
-    "reason",
-    "requestId",
-    "type"
-  ],
-  "Ingress.AutomationRequest#automation_add": ["record", "requestId", "type"],
-  "Ingress.AutomationRequest#automation_disable": ["id", "requestId", "type"],
-  "Ingress.AutomationRequest#automation_enable": ["id", "requestId", "type"],
-  "Ingress.AutomationRequest#automation_ledger": [
-    "decision",
-    "limit",
-    "recordId",
-    "requestId",
-    "since",
-    "surface",
-    "type",
-    "until"
-  ],
-  "Ingress.AutomationRequest#automation_list": ["requestId", "type"],
-  "Ingress.AutomationRequest#automation_remove": ["id", "requestId", "type"],
-  "Ingress.AutomationResponse#6": [
-    "detail",
-    "id",
-    "issues",
-    "reason",
-    "requestId",
-    "type"
-  ],
-  "Ingress.AutomationResponse#automation_added": [
-    "record",
-    "requestId",
-    "type"
-  ],
-  "Ingress.AutomationResponse#automation_disabled": [
-    "record",
-    "requestId",
-    "type"
-  ],
-  "Ingress.AutomationResponse#automation_enabled": [
-    "record",
-    "requestId",
-    "type"
-  ],
-  "Ingress.AutomationResponse#automation_ledger_read": [
-    "requestId",
-    "rows",
-    "type"
-  ],
-  "Ingress.AutomationResponse#automation_listed": [
-    "records",
-    "requestId",
-    "type"
-  ],
-  "Ingress.AutomationResponse#automation_removed": ["id", "requestId", "type"],
-  "Ingress.Conditions": [
-    "channels",
-    "contains",
-    "dm",
-    "excludes",
-    "includeBots",
-    "mentionOnly",
-    "regex",
-    "threads",
-    "users"
   ],
   "Ingress.DirectEventSchema": [
     "channel",
@@ -624,11 +499,10 @@
     "userId",
     "workspace"
   ],
+  "Ingress.MatchContext": ["event", "ruleId", "verdict", "when"],
   "Ingress.MetaSchema": [
     "actor",
     "agentName",
-    "channelGrantId",
-    "channelGrantKind",
     "correlation",
     "inboundTreatment",
     "kind",
@@ -638,13 +512,65 @@
     "target",
     "threadId"
   ],
+  "Ingress.Rule": [
+    "createdBy",
+    "enabled",
+    "group",
+    "id",
+    "judge",
+    "outcome",
+    "position",
+    "seed",
+    "when"
+  ],
+  "Ingress.RuleLedgerFilter": [
+    "decision",
+    "limit",
+    "recordId",
+    "since",
+    "surface",
+    "until"
+  ],
+  "Ingress.RuleRefused": [
+    "detail",
+    "id",
+    "issues",
+    "reason",
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleRequest#rule_add": ["record", "requestId", "type"],
+  "Ingress.RuleRequest#rule_disable": ["id", "requestId", "type"],
+  "Ingress.RuleRequest#rule_enable": ["id", "requestId", "type"],
+  "Ingress.RuleRequest#rule_ledger": [
+    "decision",
+    "limit",
+    "recordId",
+    "requestId",
+    "since",
+    "surface",
+    "type",
+    "until"
+  ],
+  "Ingress.RuleRequest#rule_list": ["requestId", "type"],
+  "Ingress.RuleRequest#rule_move": ["id", "position", "requestId", "type"],
+  "Ingress.RuleRequest#rule_remove": ["id", "requestId", "type"],
+  "Ingress.RuleResponse#7": [
+    "detail",
+    "id",
+    "issues",
+    "reason",
+    "requestId",
+    "type"
+  ],
+  "Ingress.RuleResponse#rule_added": ["record", "requestId", "type"],
+  "Ingress.RuleResponse#rule_disabled": ["record", "requestId", "type"],
+  "Ingress.RuleResponse#rule_enabled": ["record", "requestId", "type"],
+  "Ingress.RuleResponse#rule_ledger_read": ["requestId", "rows", "type"],
+  "Ingress.RuleResponse#rule_listed": ["records", "requestId", "type"],
+  "Ingress.RuleResponse#rule_moved": ["record", "requestId", "type"],
+  "Ingress.RuleResponse#rule_removed": ["id", "requestId", "type"],
   "Ingress.TargetSchema": ["kind", "parentSessionId", "sessionId"],
-  "Ingress.Trigger#github": ["event", "type"],
-  "Ingress.Trigger#message": ["event", "surface", "type"],
-  "Ingress.Trigger#on_demand": ["type"],
-  "Ingress.Trigger#schedule": ["cron", "type", "tz"],
-  "Ingress.Trigger#webhook": ["secretRef", "type"],
-  "Ingress.TriggerContext": ["automationId", "event", "matched", "trigger"],
   "Ipc.Notification": ["id", "method", "params", "type", "v"],
   "Ipc.Request": ["id", "method", "params", "type", "v"],
   "Ipc.Response": ["error", "id", "result", "type", "v"],
@@ -1158,7 +1084,7 @@
   "Provisioning.ChannelDeclareRequest": [
     "credential",
     "enabled",
-    "grant",
+    "from",
     "id",
     "identity",
     "outbound",
@@ -1178,11 +1104,6 @@
     "requestId",
     "statuses",
     "type"
-  ],
-  "Provisioning.ChannelGrantDeclaration": [
-    "allowedSenders",
-    "defaultTier",
-    "mentionOnly"
   ],
   "Provisioning.ChannelInstance": [
     "createdBy",
@@ -1280,6 +1201,7 @@
     "summaryDigest",
     "turnId"
   ],
+  "SessionHistory.InspectRequest": ["depth"],
   "SessionHistory.Inspection": [
     "children",
     "compactions",
@@ -1290,7 +1212,6 @@
     "sessionId",
     "transitions"
   ],
-  "SessionHistory.InspectRequest": ["depth"],
   "SessionHistory.Page": [
     "actions",
     "afterRevision",

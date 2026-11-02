@@ -248,8 +248,7 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
       port.secrets.put(sealed);
       credentialRef = secretId;
     }
-    try {
-      port.transaction(() => {
+    await Promise.resolve().then(() => port.transaction(() => {
       port.instances.put({
         id: input.id, provider: input.provider, identity, enabled: input.enabled, settings,
         ...(credentialRef === undefined ? {} : { credentialRef }),
@@ -259,11 +258,7 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
         revision: (existing?.revision ?? -1) + 1, createdBy, updatedAt: now(),
       });
       seedChannelRules(port.rules.store, input.id, identity, input.from);
-      });
-    } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      return storeRefusal("channel_add", error);
-    }
+    })).catch((error: Error) => storeRefusal("channel_add", error));
     return { id: input.id, action: "declared" as const, statuses: await port.supervisor.reconcile() };
   };
 }

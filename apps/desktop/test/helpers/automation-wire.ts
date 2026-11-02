@@ -38,6 +38,20 @@ export function createAutomationFixture(
   let refusal: Ingress.RuleRefusalReason | null = null;
   const sockets: FixtureSocket[] = [];
   const served = new Set<(request: Ingress.RuleRequest) => void>();
+  function mutate(request: Extract<Ingress.RuleRequest, { type: "rule_remove" | "rule_enable" | "rule_disable" }>): Ingress.RuleResponse {
+    const requestId = request.requestId;
+        const record = records.get(request.id);
+        if (record === undefined) return { type: `${request.type}_refused`, requestId, reason: "not_found", detail: "Missing record", id: request.id };
+        if (request.type === "rule_remove" && record.seed === true)
+          return { type: "rule_remove_refused", requestId, reason: "seed_protected", detail: "Seed rows can only be disabled" };
+        if (request.type === "rule_remove") {
+          records.delete(request.id);
+          return { type: "rule_removed", requestId, id: request.id };
+        }
+        const next = { ...record, enabled: request.type === "rule_enable" };
+        records.set(request.id, next);
+        return { type: request.type === "rule_enable" ? "rule_enabled" : "rule_disabled", requestId, record: next };
+  }
   function respond(request: Ingress.RuleRequest): Ingress.RuleResponse {
     const requestId = request.requestId;
     if (refusal !== null) return {
@@ -67,18 +81,7 @@ export function createAutomationFixture(
         for (const [position, row] of ordered.entries()) records.set(row.id, { ...row, position });
         return { type: "rule_moved", requestId, record: { ...record, position: request.position } };
       }
-      default: {
-        const record = records.get(request.id);
-        if (record === undefined) return { type: `${request.type}_refused`, requestId, reason: "not_found", detail: "Missing record", id: request.id };
-        if (request.type === "rule_remove") {
-          if (record.seed === true) return { type: "rule_remove_refused", requestId, reason: "seed_protected", detail: "Seed rows can only be disabled" };
-          records.delete(request.id);
-          return { type: "rule_removed", requestId, id: request.id };
-        }
-        const next = { ...record, enabled: request.type === "rule_enable" };
-        records.set(request.id, next);
-        return { type: request.type === "rule_enable" ? "rule_enabled" : "rule_disabled", requestId, record: next };
-      }
+      default: return mutate(request);
     }
   }
   class FixtureSocket {

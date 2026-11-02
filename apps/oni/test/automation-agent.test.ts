@@ -25,7 +25,7 @@ async function deliveryFixture(defect?: Error) {
     policyGeneration: () => f.plane.openKernel("gateway-ingress").currentPolicyGeneration(),
   });
   const commit = createAutomationDelivery(
-    { plane: f.plane, client: await f.client(), clock: () => f.time.now }, f.stores.automations,
+    { plane: f.plane, client: await f.client(), clock: () => f.time.now }, f.stores.rules,
     defect === undefined ? resident.genesis : () => { throw defect; },
   );
   return { f, resident, commit };
@@ -41,7 +41,7 @@ test.each(["action", "prompt"] as const)("automation %s selects a persona withou
     content: [{ kind: "text", text: "INPUT_SENTINEL" }],
     origin: { encodingVersion: 1, value: {
       kind: "external", inboundTreatment: "full_access",
-      automation: { id: "fixture", newSession: true, agent: "x", instructions: "INSTRUCTIONS_SENTINEL" },
+      rule: { id: "fixture", newSession: true, agent: "x", instructions: "INSTRUCTIONS_SENTINEL" },
     } },
     createdAt: f.time.now, parentActionId: null,
     createSession: resident.genesis("automated", null, "resident", "resident"),
@@ -65,7 +65,7 @@ test.each(["action", "prompt"] as const)("automation %s selects a persona withou
 
   await runAppEffect(f.app.runtime, commit({
     ...input, id: "existing-input",
-    origin: { encodingVersion: 1, value: { automation: { id: "fixture", newSession: false, agent: "child" } } },
+    origin: { encodingVersion: 1, value: { rule: { id: "fixture", newSession: false, agent: "child" } } },
   }));
   expect(reads.row("automated").agent).toBe("x");
 });
@@ -77,15 +77,15 @@ test.each(["missing", "disabled", "defect"])("automation handles a %s agent sele
     f.plane.stores.agents.add({ id: "x", prompt: { identity: "IDENTITY", mandate: "MANDATE" }, tools: [] });
     f.plane.stores.agents.disable("x");
   }
-  f.stores.automations.record(Ingress.Events.RoutingDecision.schema.parse({
+  f.stores.rules.record(Ingress.Events.RoutingDecision.schema.parse({
     traceId: "trace", time: f.time.now, inboundId: "refused-input", surface: "discord",
     mode: "direct", stage: "automation", outcome: "record", decision: "matched",
-    by: "automation/fixture", reason: "matched", factsUsed: ["event"], factsDigest: "digest",
+    by: "rule/fixture", reason: "matched", factsUsed: ["event"], factsDigest: "digest",
   }));
   const delivery = commit({
     id: "refused-input", sessionId: "refused-session", kind: "prompt",
     content: [{ kind: "text", text: "INPUT_SENTINEL" }],
-    origin: { encodingVersion: 1, value: { automation: { id: "fixture", newSession: true, agent: "x" } } },
+    origin: { encodingVersion: 1, value: { rule: { id: "fixture", newSession: true, agent: "x" } } },
     createdAt: f.time.now, parentActionId: null,
   });
   if (state === "defect") {
@@ -95,7 +95,7 @@ test.each(["missing", "disabled", "defect"])("automation handles a %s agent sele
     const failure = await runAppEffect(f.app.runtime, Effect.flip(delivery));
     const reason = `agent_${state === "missing" ? "not_found" : "disabled"}`;
     expect(failure).toMatchObject({ _tag: "AgentFailure", operation: "automation.deliver", cause: reason });
-    expect(f.stores.automations.decisions("refused-input")).toContainEqual(expect.objectContaining({ decision: "refused", reason }));
+    expect(f.stores.rules.decisions("refused-input")).toContainEqual(expect.objectContaining({ decision: "refused", reason }));
   }
   expect(f.plane.read.sessions.list().some((row) => row.id === "refused-session")).toBe(false);
 });
