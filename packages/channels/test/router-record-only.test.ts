@@ -3,7 +3,6 @@ import { Ingress } from "@oni/protocol";
 import { ledger } from "./helpers/ledger";
 import { runEffect } from "./helpers/effect";
 import { inboundIdOf } from "../src/router/inbound-id";
-import { matchPerimeterRules } from "../src/automation/rules";
 import {
   commits,
   makeRouter,
@@ -15,29 +14,8 @@ import {
 
 beforeEach(resetRouterState);
 
-test("webhook bot authors are eligible while reactions remain filtered", () => {
-  const webhook = Ingress.Input.parse({
-    eventId: "webhook:event", surface: "webhook", event: "webhook",
-    channelId: "hook", author: { externalId: "automation", isBot: true },
-    dm: false, mentionsBot: false, body: "payload", receivedAt: 0,
-  });
-  expect(matchPerimeterRules(webhook, 0)).toBeUndefined();
-  expect(matchPerimeterRules({ ...webhook, event: "reaction" }, 0))
-    .toMatchObject({ reason: "reaction_unrouted" });
-  // #1569 lane 9c: an A2A peer is an agent admitted by its declared bearer; the bot-echo rule is not for it.
-  const peer = Ingress.Input.parse({
-    eventId: "m-1", surface: "a2a", event: "message",
-    channelId: "ctx-1", author: { externalId: "scout", isBot: true },
-    dm: true, mentionsBot: false, body: "plan the sprint", receivedAt: 0,
-  });
-  expect(matchPerimeterRules(peer, 0)).toBeUndefined();
-  expect(matchPerimeterRules({ ...peer, surface: "telegram" }, 0)).toMatchObject({ reason: "bot_author" });
-});
 
-for (const [event, reason, used] of [
-  ["message", "bot_author", "author.isBot"],
-  ["reaction", "reaction_unrouted", "event"],
-] as const) {
+for (const event of ["message", "reaction"] as const) {
   test(`${event} ignored at the router records exactly one filtered fact and no delivery`, async () => {
     const facts = {
       ...ownerFacts,
@@ -46,7 +24,7 @@ for (const [event, reason, used] of [
     };
     expect(await runEffect(makeRouter().ingest(ownerSender, facts))).toEqual({
       status: "blocked_pre",
-      reasonCode: reason,
+      reasonCode: "none",
     });
     const decision = routingDecisions()[0];
     expect(routingDecisions()).toHaveLength(1);
@@ -54,8 +32,8 @@ for (const [event, reason, used] of [
       stage: "automation",
       outcome: "record",
       decision: "filtered",
-      reason,
-      factsUsed: [used],
+      reason: "none",
+      factsUsed: [],
     });
     expect(decision?.sessionId).toBeUndefined();
     expect(commits).toHaveLength(0);
@@ -67,8 +45,8 @@ for (const [event, reason, used] of [
         .map((part) => encodeURIComponent(part ?? ""))
         .join(":"),
     });
-    expect(ledger().sessions.decisionFacts?.head(stream)).toBeUndefined();
-    expect(ledger().stores.automations.decisions(inboundIdOf(facts))).toEqual([...routingDecisions()]);
+    expect(ledger().sessions.decisionFacts?.head(stream)?.data).toMatchObject({ by: "rule/none", outcome: "record" });
+    expect(ledger().stores.rules.decisions(inboundIdOf(facts))).toEqual([...routingDecisions()]);
   });
 }
 
@@ -85,14 +63,14 @@ test("redelivering an already-filtered eventId writes zero additional journal ro
     id: inboundIdOf(facts),
   });
   const first = await runEffect(makeRouter().ingest(ownerSender, facts));
-  const firstRows = ledger().stores.automations.decisions(inboundIdOf(facts));
+  const firstRows = ledger().stores.rules.decisions(inboundIdOf(facts));
   const second = await runEffect(makeRouter().ingest(ownerSender, facts));
-  const secondRows = ledger().stores.automations.decisions(inboundIdOf(facts));
-  expect(first).toEqual({ status: "blocked_pre", reasonCode: "bot_author" });
-  expect(second).toEqual({ status: "blocked_pre", reasonCode: "bot_author" });
+  const secondRows = ledger().stores.rules.decisions(inboundIdOf(facts));
+  expect(first).toEqual({ status: "blocked_pre", reasonCode: "none" });
+  expect(second).toEqual({ status: "blocked_pre", reasonCode: "none" });
   expect(firstRows).toHaveLength(1);
   expect(secondRows).toEqual(firstRows);
-  expect(ledger().sessions.decisionFacts?.head(stream)).toBeUndefined();
+  expect(ledger().sessions.decisionFacts?.head(stream)?.data).toMatchObject({ by: "rule/none", outcome: "record" });
   expect(routingDecisions()).toHaveLength(1);
   expect(commits).toHaveLength(0);
 });

@@ -24,7 +24,7 @@ type KernelRouteResolution<Event extends Gateway.DeliveredEvent = Gateway.Delive
 
 /** Physical request correlation is independent of inbound rule policy. */
 export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
-  event: Event, requests: GatewayRouterPorts["requests"], at: number,
+  event: Event, requests: Pick<GatewayRouterPorts["requests"], "list">, at: number,
   matched?: MatchDecision["route"], sessionId?: string,
 ): KernelRouteResolution<Event> {
   const correlation = event.meta?.correlation === undefined ? undefined : ScopedCorrelationClaim.parse(event.meta.correlation);

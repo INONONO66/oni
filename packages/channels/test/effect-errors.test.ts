@@ -9,11 +9,11 @@ const failures = {
   VoiceJoinRefused: new Errors.VoiceJoinRefused({
     reason: "not_started", surface: "discord", detail: "fixture",
   }),
-  AutomationEnableRefused: new Errors.AutomationEnableRefused({
+  RuleEnableRefused: new Errors.RuleEnableRefused({
     id: "fixture",
     reason: "approval_required",
   }),
-  AutomationConfigurationError: new Errors.AutomationConfigurationError({
+  RuleConfigurationError: new Errors.RuleConfigurationError({
     reason: "store_unconfigured",
   }),
   DeliveryNotSent: new Errors.DeliveryNotSent({ operation: "fixture.preflight", cause: "refused" }),
@@ -36,8 +36,8 @@ const failures = {
     mode: "direct",
     reason: "fixture",
     factsUsed: [],
-    stage: "blacklist",
-    outcome: "drop",
+    stage: "request_correlation",
+    outcome: "block",
   }),
   SendAdmissionConflict: new Errors.SendAdmissionConflict({ message: "fixture" }),
   RateLimited: new Errors.RateLimited({

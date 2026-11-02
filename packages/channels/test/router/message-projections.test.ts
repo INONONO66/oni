@@ -15,13 +15,12 @@ test.each([
   "owner",
   "ambient",
 ] as const)("perimeter resolves %s addressee independently from sender standing", async (addressee: "owner" | "bot" | "ambient") => {
-  ledger().stores.channelGrants.put({
-    id: "channel",
-    surface: "ws",
-    kind: "trusted_channel",
-    defaultTier: "owner",
-    createdBy: "owner",
+  ledger().stores.rules.add({
+    id: "ws", position: 0, enabled: true, createdBy: "owner", when: { instance: "ws" },
+    then: { target: "conversation", kind: "prompt", reply: "auto" },
   });
+  ledger().stores.actors.registerIdentity({ id: "sender", kind: "human", trustTier: "owner" });
+  ledger().stores.actors.registerEndpoint({ id: "ws:sender", actorId: "sender", channel: "ws", externalId: "owner" });
   ledger().stores.actors.registerIdentity({
     id: "addressee",
     kind: addressee === "bot" ? "resident" : "human",

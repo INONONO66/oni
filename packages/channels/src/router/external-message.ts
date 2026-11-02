@@ -59,9 +59,9 @@ export function externalMessage(
     const egressBudget = request || budget === undefined || evaluateSocialBudget(budget,
       stores.egressBudgets.read(target, budget.targetActorId, at - budget.windowMs), { class: "converse", at }) === "allow";
     const message: Extract<NonNullable<PolicyEvaluationInput["message"]>, { sender: "external" }> = {
-      sender: "external", addressee: ingress.addressed ? "bot" : "ambient",
+      sender: "external", addressee: ingress.addressed ? "bot" : ingress.identities.some((identity) => identity.trustTier === "owner") ? "owner" : "ambient",
       ...(route.decision.trustTier === undefined ? {} : { senderTier: route.decision.trustTier }),
-      identity: request || automation !== undefined, grantTier: request || automation !== undefined,
+      identity: request || automation !== undefined, grantTier: route.decision.outcome === "route",
       egressBudget, eventIdUnique: true, replyCorrelation: route.decision.outcome !== "ambiguous",
     };
     return { route, event, target, surfaceKey, message, facts, automation,

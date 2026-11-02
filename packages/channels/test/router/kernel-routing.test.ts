@@ -42,11 +42,11 @@ describe("GatewayRouter kernel routing", () => {
     await runEffect(kernelRouter().ingest(ownerSender, ownerFacts));
     expect(routingDecisions()).toHaveLength(2);
     expect(routingDecisions()[1]).toMatchObject({
-      stage: "automation", decision: "superseded", target: `session:${mapped.id}`,
+      stage: "automation", decision: "matched", target: `session:${mapped.id}`,
     });
     // The stored row is what the desktop ledger explorer links from (#1458).
-    expect(ledger().stores.automations.ledger({ limit: 20 })).toEqual([
-      expect.objectContaining({ stage: "automation", decision: "superseded", target: `session:${mapped.id}` }),
+    expect(ledger().stores.rules.ledger({ limit: 20 })).toEqual([
+      expect.objectContaining({ stage: "automation", decision: "matched", target: `session:${mapped.id}` }),
     ]);
     expect(routingDecisions()[0]).toMatchObject({
       inboundId: ownerEvent.id,
@@ -55,7 +55,6 @@ describe("GatewayRouter kernel routing", () => {
       sessionId: mapped.id,
       actorId: "actor-owner",
       trustTier: "owner",
-      inboundTreatment: "full_access",
     });
   });
   test("routing publication failure does not invoke delivery commit", async () => {
@@ -74,19 +73,14 @@ describe("GatewayRouter kernel routing", () => {
       spy.mockRestore();
     }
   });
-  test("reads blacklist and channel facts for routing and the granted-direct record", async () => {
+  test("reads the ordered rule table once for one inbound", async () => {
     registerOwnerDm();
     createMappedOwnerSession();
-    const blacklist = spyOn(ledger().stores.blacklist, "list");
-    const channels = spyOn(ledger().stores.channelGrants, "list");
+    const rules = spyOn(ledger().stores.rules, "list");
     try {
       await runEffect(kernelRouter().ingest(ownerSender, ownerFacts));
-      expect(blacklist).toHaveBeenCalledTimes(1);
-      expect(channels).toHaveBeenCalledTimes(1);
-    } finally {
-      blacklist.mockRestore();
-      channels.mockRestore();
-    }
+      expect(rules).toHaveBeenCalledTimes(1);
+    } finally { rules.mockRestore(); }
   });
   test("first admission claims the physical surface for the next event", async () => {
     registerOwnerDm();

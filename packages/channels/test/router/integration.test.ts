@@ -2,6 +2,7 @@ import { ledger } from "../helpers/ledger";
 import { effectFailure } from "../helpers/effect-failure";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { runEffect } from "../helpers/effect";
+import { registerRule } from "../helpers/rule";
 
 import {
   commits,
@@ -14,13 +15,7 @@ import {
 
 beforeEach(() => {
   resetRouterState();
-  ledger().stores.channelGrants.put({
-    id: "grant",
-    surface: "discord",
-    kind: "trusted_channel",
-    defaultTier: "owner",
-    createdBy: "owner",
-  });
+  registerRule();
 });
 
 describe("GatewayRouter conversation isolation", () => {
@@ -29,26 +24,13 @@ describe("GatewayRouter conversation isolation", () => {
     expect(first).toBe(second);
     expect(commits).toHaveLength(2);
   });
-  test.each([
-    "workspaceId",
-    "channelId",
-  ] as const)("different %s isolates the target session", async (field: "channelId" | "workspaceId") => {
-    const [first, second] = await ownerMessageTargets({
-      ...ownerFacts,
-      eventId: "second",
-      [field]: "other",
-    });
+  test("different instances isolate identical peer conversations", async () => {
+    registerRule({ id: "other", position: 1, when: { instance: "other" } });
+    const [first, second] = await ownerMessageTargets({ ...ownerFacts, instance: "other", eventId: "second" });
     expect(first).not.toBe(second);
   });
   test("allowlist refuses strangers while admitting the authenticated listed sender", async () => {
-    ledger().stores.channelGrants.put({
-      id: "grant",
-      surface: "discord",
-      kind: "trusted_channel",
-      defaultTier: "owner",
-      allowedSenders: [ownerSender.externalId],
-      createdBy: "owner",
-    });
+    registerRule({ when: { instance: "discord", from: [ownerSender.externalId] } });
     expect(
       await runEffect(kernelRouter().ingest({ ...ownerSender, externalId: "stranger" }, ownerFacts)),
     ).toMatchObject({ status: "blocked_pre" });

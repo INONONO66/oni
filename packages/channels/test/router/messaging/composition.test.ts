@@ -3,7 +3,9 @@ import { beforeEach, expect, test } from "bun:test";
 import { runEffect } from "../../helpers/effect";
 import { effectFailure } from "../../helpers/effect-failure";
 import { Effect } from "effect";
-import { Channel, type Gateway, Ingress, MessagingEvents, Outbound } from "@oni/protocol";
+import { type Gateway, Ingress, MessagingEvents, Outbound } from "@oni/protocol";
+import { ingressSurfaceKey } from "../../../src/router/automation/input";
+import { registerRule } from "../../helpers/rule";
 import type { ChannelDeliveryRoute } from "../../../src/router";
 import { admitReply } from "../../../src/router/messaging/admission";
 import { SendAdmissionConflict } from "../../../src/errors";
@@ -44,12 +46,7 @@ const facts: Gateway.IngressFacts = {
   payload: "available?",
   render: "available?",
 };
-const MARKET_KEY = Channel.SurfaceKey.fromChannel({
-  surface: "discord",
-  namespace: "shop-ws",
-  kind: "channel",
-  id: "market",
-});
+const MARKET_KEY = ingressSurfaceKey(facts, sender.externalId);
 
 const capturing: ChannelDeliveryRoute = { platform: "discord", identity: "bot", deliver: async (
   externalId,
@@ -88,15 +85,7 @@ function replyFrom(router: Router, sessionId: string, inReplyTo: string, content
 beforeEach(() => {
   resetRouterState();
   delivered.length = 0;
-  ledger().stores.channelGrants.put({
-    id: "market",
-    surface: "discord",
-    workspace: "shop-ws",
-    channel: "market",
-    kind: "broadcast_channel",
-    defaultTier: "collaborator",
-    createdBy: "owner",
-  });
+  registerRule({ when: { instance: "discord", channel: "market" } });
   ledger().stores.actors.registerIdentity({
     id: "actor-buyer",
     kind: "human",
@@ -139,7 +128,7 @@ test("the session the conversation was routed to answers it through the reply do
         externalId: "buyer-external",
         body: "yes",
         idempotencyKey: answered.handle.messageId,
-        conversation: { channelId: "market", replyToMessageId: "contact" },
+        conversation: { channelId: "market", threadId: "contact", replyToMessageId: "contact" },
       },
     ]);
     expect(await bounded(sent.promise)).toMatchObject({
@@ -168,6 +157,9 @@ test("two instances keep identical conversation and event ids separate and reply
     } },
   ]));
   const router = makeRouter(routes);
+  for (const [position, slug] of ["east", "west"].entries()) {
+    registerRule({ id: slug, position: position + 1, when: { instance: `channel:discord:${slug}` } });
+  }
   const east = await runEffect(router.ingest(sender, { ...facts, instance: "channel:discord:east" }));
   const west = await runEffect(router.ingest(sender, { ...facts, instance: "channel:discord:west" }));
   if (east.status !== "executed" || west.status !== "executed") throw new Error("instances not admitted");
@@ -263,7 +255,7 @@ test("a DM is answered in its chat, unthreaded, and a thread in its thread: the 
   ]);
 });
 
-test("an automation-routed prompt is answered by the session the automation ledger routed it to, with no key claimed", async () => {
+test("a rule-routed action is answered by the session the ledger routed it to, with no key claimed", async () => {
   const router = makeRouter();
   ledger().stores.actors.registerIdentity({ id: "observer", kind: "human", trustTier: "observer" });
   ledger().stores.actors.registerEndpoint({
@@ -273,27 +265,20 @@ test("an automation-routed prompt is answered by the session the automation ledg
     externalId: ownerSender.externalId,
     workspace: ownerFacts.workspaceId,
   });
-  ledger().stores.automations.add(
-    Ingress.Automation.parse({
+  ledger().stores.rules.add(
+    Ingress.Rule.parse({
       id: "greeter",
-      name: "greeter",
+      position: 1,
       enabled: true,
       createdBy: "owner",
-      triggers: [{ type: "message", surface: ownerFacts.surface, event: "message" }],
-      conditions: { contains: ["hello"] },
-      target: "session:worker",
-      kind: "action",
+      when: { instance: ownerFacts.surface, dm: true },
+      then: { target: "session:worker", kind: "action", reply: "auto" },
     }),
   );
   const routed = await runEffect(router.ingest(ownerSender, ownerFacts));
   expect(routed).toMatchObject({ status: "executed", handle: { target: "worker" } });
   if (routed.status !== "executed") throw new Error("not routed");
-  const ownerKey = Channel.SurfaceKey.fromChannel({
-    surface: ownerFacts.surface,
-    namespace: "owner-workspace",
-    kind: "dm",
-    id: ownerFacts.channelId,
-  });
+  const ownerKey = ingressSurfaceKey(ownerFacts, ownerSender.externalId);
   expect(ledger().stores.surfaceKeys.lookup(ownerKey)).toBeUndefined();
   expect(await replyFrom(router, "worker", routed.handle.messageId, "hi")).toMatchObject({
     status: "executed",
@@ -398,14 +383,15 @@ test("a route revoked after admission never falls through to another instance", 
   expect(delivered).toEqual([]);
 });
 
-test("a surface reached only through the Owner's account: the reply is a draft unless the declaration auto-replies (#1569 lane 7)", async () => {
+test("an Owner-account rule freezes draft replies until a new inbound matches auto", async () => {
   const ownerDelivered: string[] = [];
   const ownerRoute: ChannelDeliveryRoute = { platform: "discord", identity: "owner", deliver: async (externalId, payload) => {
     ownerDelivered.push(`${externalId}:${Outbound.text(payload)}`);
     return { value: "accepted" };
   } };
   const routes = new Map([["discord:owner", ownerRoute]]);
-  // The Owner instance does not auto-reply: the answer stays the Owner's to send.
+  registerRule({ id: "owner", position: 1, when: { instance: "discord:owner" },
+    then: { target: "conversation", kind: "prompt", reply: "draft", as: "discord:owner" } });
   const drafting = makeFixtureRouter({ messaging: { deliveryRoutes: routes, grants: () => [] } });
   const inbound = await runEffect(drafting.ingest(sender, { ...facts, receivedBy: "owner", instance: "discord:owner" }));
   if (inbound.status !== "executed") throw new Error("Owner contact was not admitted");
@@ -415,21 +401,25 @@ test("a surface reached only through the Owner's account: the reply is a draft u
     reasonCode: "message.resident.reply_draft",
   });
   expect(ownerDelivered).toEqual([]);
-  // The same conversation with the declaration's auto-reply: the door answers as the Owner.
+  // A later rule edit applies to new inbounds, not an already recorded draft.
+  registerRule({ id: "owner", position: 1, when: { instance: "discord:owner" },
+    then: { target: "conversation", kind: "prompt", reply: "auto", as: "discord:owner" } });
   const answering = makeFixtureRouter({
-    messaging: { deliveryRoutes: routes, grants: () => [], autoReplies: () => new Set(["discord:owner"]) },
+    messaging: { deliveryRoutes: routes, grants: () => [] },
   });
-  expect((await replyFrom(answering, prompt.target, prompt.messageId, "as the Owner")).status).toBe("executed");
+  expect((await replyFrom(answering, prompt.target, prompt.messageId)).status).toBe("blocked_pre");
+  const fresh = await runEffect(answering.ingest(sender, { ...facts, eventId: "auto-contact", receivedBy: "owner", instance: "discord:owner" }));
+  if (fresh.status !== "executed") throw new Error("new Owner contact was not admitted");
+  expect((await replyFrom(answering, fresh.handle.target, fresh.handle.messageId, "as the Owner")).status).toBe("executed");
   expect(ownerDelivered).toEqual(["buyer-external:as the Owner"]);
   // Adding a bot never moves the Owner instance's conversation to that bot.
   const withBot = makeFixtureRouter({
     messaging: {
       deliveryRoutes: new Map([["discord:bot", capturing], ["discord:owner", ownerRoute]]),
       grants: () => [],
-      autoReplies: () => new Set(["discord:owner"]),
     },
   });
-  expect((await replyFrom(withBot, prompt.target, prompt.messageId, "still the Owner")).status).toBe("executed");
+  expect((await replyFrom(withBot, fresh.handle.target, fresh.handle.messageId, "still the Owner")).status).toBe("executed");
   expect(delivered).toEqual([]);
   expect(ownerDelivered).toEqual(["buyer-external:as the Owner", "buyer-external:still the Owner"]);
 });
@@ -442,9 +432,10 @@ test("a DM the Owner's account received is answered through the Owner's instance
   } };
   const routes = new Map([["discord:bot", capturing], ["discord:owner", ownerRoute]]);
   registerOwnerDm();
-  // The bot cannot reach a DM the Owner's account read: without the declaration's auto-reply the answer is the Owner's draft.
+  registerRule({ id: "owner", position: 3, when: { instance: "discord:owner", dm: true },
+    then: { target: "conversation", kind: "prompt", reply: "draft", as: "discord:owner" } });
   const drafting = makeFixtureRouter({ messaging: { deliveryRoutes: routes, grants: () => [] } });
-  const dm = await runEffect(drafting.ingest(ownerSender, { ...ownerFacts, receivedBy: "owner" }));
+  const dm = await runEffect(drafting.ingest(ownerSender, { ...ownerFacts, instance: "discord:owner", receivedBy: "owner" }));
   if (dm.status !== "executed") throw new Error(`dm was ${dm.status}`);
   expect(await replyFrom(drafting, dm.handle.target, dm.handle.messageId)).toMatchObject({
     status: "blocked_pre",
@@ -459,11 +450,14 @@ test("a DM the Owner's account received is answered through the Owner's instance
     reasonCode: "message.resident.reply_draft",
   });
   expect(delivered).toEqual([]);
-  // With the auto-reply the Owner's instance answers in the DM it read.
+  registerRule({ id: "owner", position: 3, when: { instance: "discord:owner", dm: true },
+    then: { target: "conversation", kind: "prompt", reply: "auto", as: "discord:owner" } });
   const answering = makeFixtureRouter({
-    messaging: { deliveryRoutes: routes, grants: () => [], autoReplies: () => new Set(["discord:owner"]) },
+    messaging: { deliveryRoutes: routes, grants: () => [] },
   });
-  expect((await replyFrom(answering, dm.handle.target, dm.handle.messageId, "as the Owner")).status).toBe("executed");
+  const fresh = await runEffect(answering.ingest(ownerSender, { ...ownerFacts, eventId: "auto-dm", instance: "discord:owner", receivedBy: "owner" }));
+  if (fresh.status !== "executed") throw new Error("new Owner DM was not admitted");
+  expect((await replyFrom(answering, fresh.handle.target, fresh.handle.messageId, "as the Owner")).status).toBe("executed");
   expect(ownerDelivered).toEqual([`${ownerSender.externalId}:as the Owner`]);
   expect(delivered).toEqual([]);
   // The same DM observed by the bot is the bot's to answer.
@@ -492,7 +486,7 @@ test("a button tap is answered on the message the button was on, not the tap's o
       externalId: "buyer-external",
       body: "noted",
       idempotencyKey: delivered[0]?.idempotencyKey ?? "",
-      conversation: { channelId: "market", replyToMessageId: "offer-message" },
+      conversation: { channelId: "market", threadId: "tap-1", replyToMessageId: "offer-message" },
     },
   ]);
 });

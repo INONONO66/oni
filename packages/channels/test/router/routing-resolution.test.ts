@@ -6,7 +6,8 @@ import { Effect, } from "effect";
 import { effectFailure } from "../helpers/effect-failure";
 import { replaceDecisionFacts } from "../helpers/ledger";
 import { endpointFacts } from "../../src/router/endpoint-facts";
-import { Channel, Ingress, type Delivery, type DecisionFact } from "@oni/protocol";
+import { Ingress, type Delivery, type DecisionFact } from "@oni/protocol";
+import { ingressSurfaceKey } from "../../src/router/automation/input";
 import { Bus } from "../helpers/observation";
 import { commits, createMappedOwnerSession, makeRouter, ownerEvent, ownerFacts, ownerSender, registerOwnerDm, resetRouterState, routingDecisions, } from "./_router-fixture";
 
@@ -37,7 +38,7 @@ test("blocked decisions are durable before returning the receipt", async () => {
   expect(ledger().sessions.decisionFacts?.head(streamId())).toMatchObject({
     key: streamId(),
     type: "route.decided",
-    data: { outcome: "block" },
+    data: { outcome: "record" },
   });
 });
 
@@ -65,12 +66,7 @@ test("historical route facts upcast on redelivery without reconstructing another
   resetRouterState();
   registerOwnerDm();
   ledger().stores.surfaceKeys.claim(
-    Channel.SurfaceKey.fromChannel({
-      surface: "discord",
-      namespace: "owner-workspace",
-      kind: "dm",
-      id: "owner-dm",
-    }),
+    ingressSurfaceKey(ownerFacts, ownerSender.externalId),
     mapped.id,
   );
   const recorded = ledger().sessions.decisionFacts?.record({
@@ -85,16 +81,14 @@ test("historical route facts upcast on redelivery without reconstructing another
   expect(ledger().sessions.decisionFacts?.head(streamId())).toEqual(recorded?.fact);
 });
 
-test("a changed decision refuses redelivery before committing or observing", async () => {
+test("adding a rule does not reroute an already recorded inbound", async () => {
   const router = makeRouter();
   expect(await runEffect(router.ingest(ownerSender, ownerFacts))).toMatchObject({ status: "blocked_pre" });
   registerOwnerDm();
   createMappedOwnerSession();
   const count = routingDecisions().length;
   const recorded = ledger().sessions.decisionFacts?.head(streamId());
-  expect(await effectFailure(router.ingest(ownerSender, ownerFacts))).toMatchObject({
-    code: "route_replay_divergent",
-  });
+  expect(await runEffect(router.ingest(ownerSender, ownerFacts))).toEqual({ status: "blocked_pre", reasonCode: "none" });
   expect(commits).toEqual([]);
   expect(routingDecisions()).toHaveLength(count);
   expect(ledger().sessions.decisionFacts?.head(streamId())).toEqual(recorded);
@@ -103,8 +97,7 @@ test("a changed decision refuses redelivery before committing or observing", asy
 test.each([
   "actorId",
   "trustTier",
-  "inboundTreatment",
-] as const)("mutated %s authority refuses redelivery without leaking the authority", async (field: "actorId" | "trustTier" | "inboundTreatment") => {
+] as const)("mutated %s authority refuses redelivery without leaking the authority", async (field: "actorId" | "trustTier") => {
   registerOwnerDm();
   createMappedOwnerSession();
   const router = makeRouter();
@@ -119,18 +112,8 @@ test.each([
       externalId: ownerSender.externalId,
       workspace: ownerFacts.workspaceId,
     });
-  } else if (field === "trustTier") {
-    ledger().stores.actors.registerIdentity({ id: "actor-owner", kind: "human", trustTier: "manager" });
   } else {
-    ledger().stores.channelGrants.put({
-      id: "grant-owner-dm",
-      surface: "discord",
-      workspace: "owner-workspace",
-      channel: "owner-dm",
-      kind: "trusted_channel",
-      inboundTreatment: "evidence_only",
-      createdBy: "owner",
-    });
+    ledger().stores.actors.registerIdentity({ id: "actor-owner", kind: "human", trustTier: "manager" });
   }
   const caught: Error = await effectFailure(router.ingest(ownerSender, ownerFacts));
   expect(caught).toMatchObject({ _tag: "IngressRoutingError", code: "route_replay_divergent" });
