@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryNotSent } from "../src/errors";
-import type { OwnerPosture, ProviderOptions } from "../src/provider/contract";
+import type { ProviderOptions } from "../src/provider/contract";
 import { KAKAOTALK_MEDIA_LIMITS } from "../src/provider/kakaotalk/format";
 import { KakaoTalkOwnerAdapter } from "../src/provider/kakaotalk/owner";
 import { KakaoTalkOwnerError, kakaoTalkOwnerSdk } from "../src/provider/kakaotalk/owner-sdk";
@@ -20,8 +20,6 @@ import {
 } from "./helpers/kakaotalk-owner-sdk";
 
 const noopPublish: PublishPort = () => undefined;
-const DEFAULT_INTAKE: OwnerPosture = { intake: "mentions_and_dms", autoReply: false };
-const SEND_ONLY: OwnerPosture = { intake: "none", autoReply: false };
 const CREDENTIALS = {
   oauthToken: "oauth-1",
   userId: KAKAO_OWNER.user_id,
@@ -40,7 +38,6 @@ function mediaAdapter(script: KakaoScript, publish: PublishPort = noopPublish) {
   const fake = fakeKakaoTalkOwnerSdk(script);
   const adapter = new KakaoTalkOwnerAdapter(
     CREDENTIALS,
-    SEND_ONLY,
     publish,
     {
       ...injectedOptions(immediate),
@@ -53,7 +50,6 @@ function mediaAdapter(script: KakaoScript, publish: PublishPort = noopPublish) {
 
 /** One started Owner instance over the scripted SDK, with an inbound queue. */
 async function started(
-  posture: OwnerPosture = DEFAULT_INTAKE,
   script: KakaoScript = { chats: CHATS },
   publish: PublishPort = noopPublish,
   listener?: FakeKakaoTalkOwnerListener,
@@ -61,7 +57,6 @@ async function started(
   const fake = fakeKakaoTalkOwnerSdk(script, listener);
   const adapter = new KakaoTalkOwnerAdapter(
     CREDENTIALS,
-    posture,
     publish,
     injectedOptions(immediate),
     fake.sdk,
@@ -89,21 +84,21 @@ const SENTINEL = {
 describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner instance (#1569 lane 7)", () => {
   it("logs the account in, reads its profile, and opens the push listener under the default posture", async () => {
     const { infos, publish } = infoCollector();
-    const { client, listener, adapter } = await started(DEFAULT_INTAKE, { chats: CHATS }, publish);
+    const { client, listener, adapter } = await started({ chats: CHATS }, publish);
     expect(adapter.id).toBe("channel:test:main");
     expect(client.calls.map((call) => call.method)).toEqual(["login", "getProfile"]);
     expect(client.calls[0]?.args).toEqual(["oauth-1", "1001", "dev-1", "tablet"]);
     expect(listener.started).toBe(1);
     expect(infos.at(-1)).toEqual({
       msg: "kakaotalk owner instance started",
-      context: { userId: "1001", nickname: "ino", listener: "mentions_and_dms" },
+      context: { userId: "1001", nickname: "ino", listener: true },
     });
     adapter.stop("stop");
     expect(listener.stopped).toBe(1);
     expect(client.closed).toBe(1);
   });
 
-  it("a direct chat is a DM to the Owner and a group message is intake only when it names the Owner; the account's own never is", async () => {
+  it("a direct chat is a DM to the Owner and a group message carries its mention facts; the account's own never is", async () => {
     const { listener, next, inbound, client } = await started();
     const dm = next();
     listener.message({ chat_id: "chat-dm", log_id: "log-1", author_id: 2002, message: "hey" });
@@ -118,12 +113,14 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
         render: "hey",
       },
     });
+    const chatter = next();
     listener.message({
       chat_id: "chat-group",
       log_id: "log-2",
       author_id: 2003,
       message: "group chatter",
     });
+    expect((await chatter).facts.addressees).toEqual([]);
     const mention = next();
     listener.message({
       chat_id: "chat-group",
@@ -146,6 +143,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
     await sentinel;
     expect(inbound.map((message) => message.facts.eventId)).toEqual([
       "log-1",
+      "log-2",
       "log-3",
       SENTINEL.log_id,
     ]);
@@ -153,14 +151,16 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
     expect(client.of("getChat").map((call) => call.args)).toEqual([["chat-dm"], ["chat-group"]]);
   });
 
-  it("a chat the SDK cannot describe is treated as a group; under `all` everything is intake; under `none` no listener opens", async () => {
-    const strict = await started(DEFAULT_INTAKE, { chats: {} });
+  it("unknown chats stay non-DM while all observed messages reach the router", async () => {
+    const strict = await started({ chats: {} });
+    const unknown = strict.next();
     strict.listener.message({
       chat_id: "chat-unknown",
       log_id: "log-5",
       author_id: 2002,
       message: "hello?",
     });
+    expect((await unknown).facts.dm).toBe(false);
     const mention = strict.next();
     strict.listener.message({
       chat_id: "chat-unknown",
@@ -169,8 +169,8 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
       message: "@ino hello?",
     });
     expect((await mention).facts.dm).toBe(false);
-    expect(strict.inbound.map((message) => message.facts.eventId)).toEqual(["log-6"]);
-    const everything = await started({ intake: "all", autoReply: false });
+    expect(strict.inbound.map((message) => message.facts.eventId)).toEqual(["log-5", "log-6"]);
+    const everything = await started();
     const chatter = everything.next();
     everything.listener.message({
       chat_id: "chat-group",
@@ -179,8 +179,6 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
       message: "group chatter",
     });
     expect((await chatter).facts.event).toBe("message");
-    const sendOnly = await started(SEND_ONLY);
-    expect(sendOnly.listener.started).toBe(0);
   });
 
   it("delivers into the conversation's chat, or into the direct chat the person last wrote from; a stranger cannot be reached cold", async () => {
@@ -230,7 +228,6 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
     const fake = fakeKakaoTalkOwnerSdk({ chats: CHATS });
     const adapter = new KakaoTalkOwnerAdapter(
       CREDENTIALS,
-      SEND_ONLY,
       noopPublish,
       {
         ...injectedOptions(immediate),
@@ -279,14 +276,12 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
     const payload: Outbound.Payload = { kind: "message", parts: [{ kind: "video", ref: "/clip" }] };
     const uncertain = new KakaoTalkOwnerAdapter(
       CREDENTIALS,
-      SEND_ONLY,
       noopPublish,
       options,
       missing.sdk,
     );
     const refused = new KakaoTalkOwnerAdapter(
       CREDENTIALS,
-      SEND_ONLY,
       noopPublish,
       options,
       rejected.sdk,
@@ -409,7 +404,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
   });
 
   it("a refused send is not_sent, a preflight refusal is not_sent, a thrown send is unknown (the SDK may have re-run it), a socket closed before the reply is unknown and never re-sent", async () => {
-    const refused = await started(SEND_ONLY, {
+    const refused = await started({
       chats: CHATS,
       send: { success: false, status_code: -500 },
     });
@@ -420,7 +415,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
         })
       ).value,
     ).toBe("not_sent");
-    const preflight = await started(SEND_ONLY, {
+    const preflight = await started({
       chats: CHATS,
       send: new KakaoTalkOwnerError("Not authenticated", "not_authenticated"),
     });
@@ -431,7 +426,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
         })
       ).value,
     ).toBe("not_sent");
-    const thrown = await started(SEND_ONLY, {
+    const thrown = await started({
       chats: CHATS,
       send: new KakaoTalkOwnerError("send failed", "send_message_failed"),
     });
@@ -440,7 +435,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
         .value,
     ).toBe("unknown");
     // The SDK answers a WRITE whose socket closed before the reply with its synthetic −1: the message may have landed.
-    const closed = await started(SEND_ONLY, {
+    const closed = await started({
       chats: CHATS,
       send: { success: false, status_code: -1 },
     });
@@ -464,7 +459,6 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
       else self.emit("connected", { userId: KAKAO_OWNER.user_id });
     });
     const { listener } = await started(
-      DEFAULT_INTAKE,
       { chats: CHATS },
       (event, data) => {
         const { msg } = z.object({ msg: z.string() }).parse(data);
@@ -514,7 +508,6 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
     const fake = fakeKakaoTalkOwnerSdk({ chats: CHATS }, refusing);
     const adapter = new KakaoTalkOwnerAdapter(
       CREDENTIALS,
-      DEFAULT_INTAKE,
       noopPublish,
       injectedOptions(immediate),
       fake.sdk,
@@ -542,7 +535,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
     expect(
       provider.owner?.credentials.safeParse({ ...CREDENTIALS, deviceType: "phone" }).success,
     ).toBe(false);
-    const runtime = provider.owner?.create(CREDENTIALS, SEND_ONLY, noopPublish, injectedOptions());
+    const runtime = provider.owner?.create(CREDENTIALS, noopPublish, injectedOptions());
     expect(runtime?.surface.id).toBe("channel:test:main");
     expect(runtime?.deliveryRoute).toBeDefined();
     expect(runtime?.typingRoute).toBeDefined();
@@ -553,7 +546,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
     const owner = fakeKakaoTalkOwnerSdk({ chats: CHATS });
     const arm = createKakaoTalkProvider(owner.sdk).owner;
     if (arm === undefined) throw new Error("kakaotalk owner arm missing");
-    const runtime = arm.create(CREDENTIALS, SEND_ONLY, noopPublish, injectedOptions());
+    const runtime = arm.create(CREDENTIALS, noopPublish, injectedOptions());
     if (runtime.deliveryRoute === undefined || runtime.typingRoute === undefined)
       throw new Error("kakaotalk owner arm mounts no routes");
     await runtime.surface.start("boot");

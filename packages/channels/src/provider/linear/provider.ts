@@ -25,8 +25,8 @@ const LinearOwnerArm: OwnerArm<LinearOwnerCredentials> = {
   ],
   capabilities: { deliver: true, react: false, media: false, typing: false, voice: false },
   listen: true,
-  create(credentials, posture, publish, options) {
-    const surface = new LinearAdapter(credentials, posture, publish, {
+  create(credentials, publish, options) {
+    const surface = new LinearAdapter(credentials, publish, {
       instance: options.instance,
       now: options.now,
       id: options.id,

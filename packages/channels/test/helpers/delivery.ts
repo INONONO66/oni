@@ -12,7 +12,7 @@ export function deliveryFixture(provider: Provider, publish: PublishPort = () =>
     ? new TelegramAdapter("token", {}, publish, injectedOptions())
     : provider === "discord"
       ? new DiscordAdapter("token", {}, publish, injectedOptions())
-      : new DiscordOwnerAdapter({ token: "token" }, { intake: "none", autoReply: false }, publish, injectedOptions());
+      : new DiscordOwnerAdapter({ token: "token" }, publish, injectedOptions());
   const limit = ChannelProviders[provider === "telegram" ? "telegram" : "discord"].capabilities.render.messageLimit;
   if (limit === null) throw new Error("delivery fixture requires a bounded provider");
   return { adapter, limit, address: "123" };

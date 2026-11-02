@@ -29,8 +29,8 @@ function createKakaoTalkOwnerArm(sdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk()): 
     ],
     capabilities: { deliver: true, react: false, media: KAKAOTALK_MEDIA_LIMITS, typing: true, voice: false },
     listen: true,
-    create(credentials, posture, publish, options) {
-      const surface = new KakaoTalkOwnerAdapter(credentials, posture, publish, options, sdk);
+    create(credentials, publish, options) {
+      const surface = new KakaoTalkOwnerAdapter(credentials, publish, options, sdk);
       return {
         surface,
         account: () => surface.account(),

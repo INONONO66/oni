@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import { Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryNotSent, SlackEndpointKeyError } from "../src/errors";
-import type { OwnerPosture } from "../src/provider/contract";
 import { SlackOwnerError } from "../src/provider/slack/owner-sdk";
 import { SlackOwnerAdapter } from "../src/provider/slack/owner";
 import { createSlackProvider } from "../src/provider/slack/provider";
@@ -20,18 +19,15 @@ import {
 
 const noopPublish: PublishPort = () => undefined;
 const CREDENTIALS = { token: "xoxc-1", cookie: "d-cookie" };
-const SEND_ONLY: OwnerPosture = { intake: "none", autoReply: false };
-const DEFAULT_INTAKE: OwnerPosture = { intake: "mentions_and_dms", autoReply: false };
 
 /** One started Owner instance over the scripted user SDK; send-only unless a posture says otherwise. */
 async function started(
   script: OwnerScript = {},
   publish: PublishPort = noopPublish,
-  posture: OwnerPosture = SEND_ONLY,
   listener?: FakeSlackOwnerListener,
 ) {
   const fake = fakeSlackOwnerSdk(script, listener);
-  const adapter = new SlackOwnerAdapter(CREDENTIALS, posture, publish, injectedOptions(), fake.sdk);
+  const adapter = new SlackOwnerAdapter(CREDENTIALS, publish, injectedOptions(), fake.sdk);
   const queue = inboundQueue(adapter);
   await adapter.start("boot");
   return { ...fake, adapter, ...queue };
@@ -72,10 +68,10 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     expect(infos).toEqual([
       {
         msg: "slack owner instance started",
-        context: { userId: "U-owner", team: "T1", listener: "none" },
+        context: { userId: "U-owner", team: "T1", listener: true },
       },
     ]);
-    expect(listener.started).toBe(0);
+    expect(listener.started).toBe(1);
     adapter.stop("stop");
     expect(infos.at(-1)?.msg).toBe("slack owner instance stopped");
   });
@@ -84,7 +80,6 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     const fake = fakeSlackOwnerSdk({ login: webApi("Cookie is required", "missing_cookie") });
     const adapter = new SlackOwnerAdapter(
       CREDENTIALS,
-      SEND_ONLY,
       noopPublish,
       injectedOptions(),
       fake.sdk,
@@ -98,20 +93,19 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
       const { listener, listenerClient, client, adapter } = await started(
         {},
         publish,
-        DEFAULT_INTAKE,
-      );
+        );
       expect(listener.started).toBe(1);
       expect(listenerClient()).toBe(client);
       expect(infos.at(-1)).toEqual({
         msg: "slack owner instance started",
-        context: { userId: "U-owner", team: "T1", listener: "mentions_and_dms" },
+        context: { userId: "U-owner", team: "T1", listener: true },
       });
       adapter.stop("stop");
       expect(listener.stopped).toBe(1);
     });
 
-    it("a DM to the Owner and a mention of the Owner reach the handler as received by the Owner; the rest of a channel does not", async () => {
-      const { listener, next, inbound } = await started({}, noopPublish, DEFAULT_INTAKE);
+    it("a DM to the Owner and a mention of the Owner reach the handler as received by the Owner; unaddressed messages also reach the router", async () => {
+      const { listener, next, inbound } = await started({}, noopPublish, );
       const dm = next();
       listener.message({ channel: "D-owner", user: "U7", text: "are you around?", ts: "1700.1" });
       expect(await dm).toMatchObject({
@@ -152,12 +146,13 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
       expect(inbound.map((message) => message.facts.eventId)).toEqual([
         "1700.1",
         "1700.2",
+        "1700.3",
         SENTINEL.ts,
       ]);
     });
 
     it("the account's own messages are never an outside event, in a DM or a channel", async () => {
-      const { listener, next, inbound } = await started({}, noopPublish, DEFAULT_INTAKE);
+      const { listener, next, inbound } = await started({}, noopPublish, );
       listener.message({ channel: "D-owner", user: "U-owner", text: "my own note", ts: "1700.4" });
       listener.message({
         channel: "C-general",
@@ -169,7 +164,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     });
 
     it("a top-level mention of the Owner opens no thread root (the bot's copy carries none); an in-thread message keeps its thread", async () => {
-      const { listener, next } = await started({}, noopPublish, DEFAULT_INTAKE);
+      const { listener, next } = await started({}, noopPublish, );
       const topLevel = next();
       listener.message({ channel: "C-general", user: "U7", text: "<@U-owner> look", ts: "1700.6" });
       expect((await topLevel).facts.reply).toBeUndefined();
@@ -185,7 +180,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     });
 
     it("a reaction is not intake: the router routes a reaction only as the answer to a request", async () => {
-      const { listener, next, inbound } = await started({}, noopPublish, DEFAULT_INTAKE);
+      const { listener, next, inbound } = await started({}, noopPublish, );
       listener.reaction({
         user: "U7",
         reaction: "eyes",
@@ -197,10 +192,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     });
 
     it("under `all` everything the account can see is intake, still never its own echo", async () => {
-      const { listener, next, inbound } = await started({}, noopPublish, {
-        intake: "all",
-        autoReply: false,
-      });
+      const { listener, next, inbound } = await started({}, noopPublish, );
       listener.message({
         channel: "C-general",
         user: "U7",
@@ -215,7 +207,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     });
 
     it("a frame the listener repeats is handed off once", async () => {
-      const { listener, next, inbound } = await started({}, noopPublish, DEFAULT_INTAKE);
+      const { listener, next, inbound } = await started({}, noopPublish, );
       listener.message({ channel: "D-owner", user: "U7", text: "once", ts: "1700.12" });
       listener.message({ channel: "D-owner", user: "U7", text: "once", ts: "1700.12" });
       const sentinel = next();
@@ -234,7 +226,6 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
       const fake = fakeSlackOwnerSdk({}, refusing);
       const adapter = new SlackOwnerAdapter(
         CREDENTIALS,
-        DEFAULT_INTAKE,
         noopPublish,
         injectedOptions(),
         fake.sdk,
@@ -252,8 +243,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
           if (event.name === Operational.Events.Error.name)
             errors.push(z.object({ msg: z.string() }).parse(data).msg);
         },
-        DEFAULT_INTAKE,
-      );
+        );
       listener.emit(
         "error",
         new SlackOwnerError("An API error occurred: account_inactive", "account_inactive"),
@@ -266,7 +256,6 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
       const fake = fakeSlackOwnerSdk();
       const adapter = new SlackOwnerAdapter(
         CREDENTIALS,
-        DEFAULT_INTAKE,
         noopPublish,
         injectedOptions(),
         fake.sdk,
@@ -436,7 +425,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
       provider.owner?.credentials.safeParse({ botToken: "xoxb-1", appToken: "xapp-1" }).success,
     ).toBe(false);
     expect(provider.owner?.credentials.safeParse({ ...CREDENTIALS, extra: 1 }).success).toBe(false);
-    const runtime = provider.owner?.create(CREDENTIALS, SEND_ONLY, noopPublish, injectedOptions());
+    const runtime = provider.owner?.create(CREDENTIALS, noopPublish, injectedOptions());
     expect(runtime?.surface.id).toBe("channel:test:main");
     expect(runtime?.deliveryRoute).toBeDefined();
     expect(runtime?.voiceRoute).toBeDefined();
@@ -449,7 +438,6 @@ it("#1600: a Slack Owner instance names no account before it started", () => {
   const fake = fakeSlackOwnerSdk({});
   const adapter = new SlackOwnerAdapter(
     CREDENTIALS,
-    DEFAULT_INTAKE,
     noopPublish,
     injectedOptions(),
     fake.sdk,

@@ -6,7 +6,6 @@ import { type DeliveryReceipt, DeliveryReconciliation, isNotSent } from "../../s
 import { instanceHandler, requireHandler } from "../../support/handler-frame";
 import { newTraceId } from "../../support/trace";
 import type { EffectRunner, PublishPort } from "../../types";
-import type { OwnerPosture } from "../contract";
 import { LinearClient } from "./client";
 import { type LinearOwnerCredentials, LinearWebhookEnvelope, LinearWebhookPayloadSchemas } from "./types";
 
@@ -102,10 +101,7 @@ type WebhookPreparation = PreparedWebhook | Readonly<{ response: Response }>;
  * instance — a personal API key is a person's, so there is no bot account
  * to declare. Ingress is the workspace webhook for new issues and comments
  * (signed, within Linear's own minute of replay window, deduplicated by
- * delivery) under the declared posture: `all` reads every
- * new issue and comment; `mentions_and_dms` reads the comments that mention
- * the Owner (the platform has no DMs, and a new issue is intake only under
- * `all`); `none` answers without reading. The account's own actions are
+ * delivery). The account's own actions are
  * never an outside event — the key's user, read from `viewer` at start
  * (the start fails closed when a key cannot say who it is), else the
  * declared `ownerUserId`. A perimeter refusal is answered 200 (Linear must
@@ -115,7 +111,6 @@ type WebhookPreparation = PreparedWebhook | Readonly<{ response: Response }>;
  */
 export class LinearAdapter implements Channel.Surface {
   get id(): string { return this.options.instance; }
-  /** The surface contract's config: an Owner instance carries its posture instead. */
   readonly config: Channel.Config = {};
   private readonly client: LinearClient;
   private readonly dedupe: Dedupe;
@@ -126,7 +121,6 @@ export class LinearAdapter implements Channel.Surface {
 
   constructor(
     private readonly credentials: LinearOwnerCredentials,
-    readonly posture: OwnerPosture,
     private readonly publish: PublishPort,
     private readonly options: { readonly instance: string; readonly now: () => number; readonly id: () => string; readonly run: EffectRunner },
   ) {
@@ -175,18 +169,17 @@ export class LinearAdapter implements Channel.Surface {
       this.ownerUserId = this.credentials.ownerUserId ?? me.id;
       this.ownerNames = [me.name, me.displayName].flatMap((name) => (name === undefined || name === "" ? [] : [name]));
     }
-    // #1600 lane R3: under the default posture only a mention of the Owner is intake; with nothing naming the Owner the instance would mount deaf.
-    if (this.ownerUserId === undefined && this.posture.intake === "mentions_and_dms")
+    if (this.ownerUserId === undefined)
       throw new ChannelsFailure({
         operation: "linear.owner.start",
-        cause: "no api key and no ownerUserId: under mentions_and_dms nothing can name the Owner",
+        cause: "no api key and no ownerUserId: the account identity is required",
       });
     this.publish(Operational.Events.Info, {
       traceId,
       time: this.options.now(),
       component: "server",
       msg: "linear owner instance started",
-      context: { ownerUserId: this.ownerUserId ?? "unknown", intake: this.posture.intake },
+      context: { ownerUserId: this.ownerUserId },
     });
   }
 
@@ -205,7 +198,6 @@ export class LinearAdapter implements Channel.Surface {
     if (envelope === undefined) return new Response("Invalid payload", { status: 400 });
     if (Math.abs(this.options.now() - envelope.webhookTimestamp) > LINEAR_REPLAY_WINDOW_MS)
       return new Response("Stale timestamp", { status: 401 });
-    if (this.posture.intake === "none") return new Response("Intake off", { status: 200 });
     const preparation = this.prepareWebhook(request, envelope, traceId);
     if ("response" in preparation) return preparation.response;
     return this.dispatchWebhook(preparation);
@@ -249,8 +241,6 @@ export class LinearAdapter implements Channel.Surface {
     if (this.ownerUserId !== undefined && content.sender === this.ownerUserId)
       return { response: new Response("Own action", { status: 200 }) };
     const mentioned = this.mentionsOwner(content.text);
-    if (this.posture.intake !== "all" && !(content.kind === "comment" && mentioned))
-      return { response: new Response("Not addressed to the Owner", { status: 200 }) };
     this.publish(Operational.Events.Info, {
       traceId,
       time: this.options.now(),

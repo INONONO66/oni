@@ -9,7 +9,7 @@ import { type ListenerCustody, listenerCustody } from "../../support/sdk-listene
 import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
 import type { PublishPort } from "../../types";
-import type { AccountIdentity, OwnerPosture, ProviderOptions } from "../contract";
+import type { AccountIdentity, ProviderOptions } from "../contract";
 import type { PcmVoiceHandle, ProviderVoiceRoute, VoiceEvent } from "../voice";
 import { slackEmojiName } from "./emoji";
 import { SLACK_RENDER } from "./format";
@@ -68,12 +68,8 @@ function conversation(channelId: string): boolean {
  * Slack as the Owner's own account (#1569 lanes 5 and 6): the declared
  * instance, logged in with the vault-opened `{token xoxc, cookie d}` the QR
  * login produced. Delivery posts where an authenticated Owner-origin turn
- * said `as: owner` and the instance's declaration grants outbound. Intake is
- * the account's RTM listener under the declared posture: by default a DM to
- * the Owner or a mention of the Owner reaches the Resident, received by the
- * Owner; the account's own messages never do. Reactions are not intake: the
- * router routes a reaction only as the answer to a request, and nothing
- * the Owner's account receives is one. Custody is the bot surface's: one
+ * said `as: owner` and the instance's declaration grants outbound. The RTM
+ * listener emits message facts for the router's rules. Custody is the bot surface's: one
  * physical attempt per idempotency key on a pinned inner client,
  * `sent | not_sent | unknown` from the SDK's error shapes.
  */
@@ -90,7 +86,6 @@ export class SlackOwnerAdapter implements Channel.Surface {
 
   constructor(
     private readonly credentials: { readonly token: string; readonly cookie: string },
-    readonly posture: OwnerPosture,
     private readonly publish: PublishPort,
     private readonly options: ProviderOptions,
     sdk: SlackOwnerSdk = slackOwnerSdk(),
@@ -100,7 +95,6 @@ export class SlackOwnerAdapter implements Channel.Surface {
     this.dedupe = new Dedupe(options.now);
   }
 
-  /** The surface contract's config: an Owner instance carries its posture instead. */
   readonly config: Channel.Config = {};
 
   onMessage(handler: Channel.MessageHandler): void {
@@ -122,7 +116,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
 
   /**
    * The account identity is verified before the instance counts as mounted;
-   * a refused login fails this start. Under an intake posture the RTM
+   * a refused login fails this start. The RTM
    * listener then opens, settling on the SDK's first `connected` (hello) and
    * failing this start on an error before it.
    */
@@ -143,7 +137,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
       this.team = identity.team_id;
       this.userId = identity.user_id;
       this.normalizer = new SlackNormalizer({ botUserId: identity.user_id, team: identity.team_id });
-      const listens = this.posture.intake !== "none" && this.handler !== null;
+      const listens = this.handler !== null;
       if (listens) await this.listen();
       requireCurrent();
       this.readyGeneration = generation;
@@ -155,7 +149,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
         context: {
           userId: identity.user_id,
           team: identity.team_id,
-          listener: listens ? this.posture.intake : "none",
+          listener: listens,
         },
       });
       started = true;
@@ -326,7 +320,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
     const inbound = slackCall(event, {
       team, ownerUserId, channelId: channel, dm: channel.startsWith("D"),
     });
-    if (inbound === null || this.posture.intake === "none") return;
+    if (inbound === null) return;
     void handoffInbound({
       dedupe: this.dedupe, key: inbound.facts.eventId,
       traceId: newTraceId(this.options.id), now: this.options.now,
@@ -422,9 +416,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
   }
 
   /**
-   * One frame under the posture: the normalizer keeps the account's own
-   * messages out and names a mention of the Owner; `mentions_and_dms` then
-   * admits a DM or that mention. A top-level mention of the Owner opens no
+   * One normalized frame. A top-level mention of the Owner opens no
    * thread root of its own. Its conversation stays under the receiving
    * instance; observing the same physical message on a bot does not
    * transfer this conversation to that bot.
@@ -444,7 +436,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
       handle: async () => {
         const frame = SlackMessageEventSchema.parse(event);
         const inbound = normalizer.normalize(frame);
-        if (inbound === null || !this.admits(inbound)) return;
+        if (inbound === null) return;
         const { reply, ...facts } = inbound.facts;
         await requireHandler(this.handler, this.id)({
           ...inbound,
@@ -456,11 +448,6 @@ export class SlackOwnerAdapter implements Channel.Surface {
         });
       },
     });
-  }
-
-  private admits(inbound: Channel.InboundMessage): boolean {
-    if (this.posture.intake === "all") return true;
-    return inbound.facts.dm || inbound.facts.event === "mention";
   }
 
   /**

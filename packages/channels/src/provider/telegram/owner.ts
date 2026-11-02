@@ -7,7 +7,7 @@ import { handoffInbound } from "../../support/inbound-handoff.js";
 import { newTraceId } from "../../support/trace.js";
 import { translate } from "../../support/translate.js";
 import type { AttachmentBounds, MediaStream, PublishPort } from "../../types.js";
-import type { AccountIdentity, OwnerPosture, OwnerWithdrawal, ProviderOptions } from "../contract.js";
+import type { AccountIdentity, OwnerWithdrawal, ProviderOptions } from "../contract.js";
 import type { ProviderHistoryResult } from "../history.js";
 import { ownerSession } from "./owner-custody.js";
 import type { TelegramOwnerCredentials, TelegramOwnerSurface } from "./owner-contract.js";
@@ -115,7 +115,6 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
 
   constructor(
     private readonly credentials: TelegramOwnerCredentials,
-    private readonly posture: OwnerPosture,
     private readonly publish: PublishPort,
     private readonly options: ProviderOptions,
     private readonly sdk: TelegramOwnerSdk = telegramOwnerSdk(),
@@ -191,11 +190,8 @@ export class TelegramOwnerAdapter implements TelegramOwnerSurface {
   }
 
   private accept(message: TelegramOwnerMessage): void {
-    if (this.posture.intake === "none") return;
     const userId = this.identity;
     if (userId === undefined) return;
-    if (this.posture.intake !== "all" && !message.dm && !message.mentionedUserIds.includes(userId))
-      return;
     const inbound = ownerInbound(message, userId);
     if (inbound === null) return;
     if (message.threadId !== undefined && message.botThreadId !== undefined)

@@ -51,8 +51,8 @@ export function createTelegramProvider(
         history: true,
         media: TELEGRAM_MEDIA_LIMITS,
       },
-      create(credentials, posture, publish, options) {
-        const surface = new TelegramOwnerAdapter(credentials, posture, publish, options, ownerSdk);
+      create(credentials, publish, options) {
+        const surface = new TelegramOwnerAdapter(credentials, publish, options, ownerSdk);
         return {
           surface,
           account: () => surface.accountIdentity(),

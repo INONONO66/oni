@@ -11,7 +11,7 @@ import { type ListenerCustody, listenerCustody, RECONNECT_ATTEMPT_BOUND } from "
 import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
 import type { PublishPort } from "../../types";
-import type { AccountIdentity, OwnerPosture, ProviderOptions } from "../contract";
+import type { AccountIdentity, ProviderOptions } from "../contract";
 import { INSTAGRAM_RENDER } from "./format";
 import {
   type InstagramMessage,
@@ -46,12 +46,10 @@ function instagramCode(error: Error): string | undefined {
 
 /**
  * Instagram as the Owner's own account (#1569 lane 7): the declared
- * instance — the platform has no bot account. Intake is the account's inbox
+ * instance — the platform has no bot account. Messages arrive from the account's inbox
  * through the SDK's hybrid listener (realtime, polling fallback: a realtime
  * failure at boot hands over to polling, whose `connected` settles the
- * start) under the declared posture: every inbox message is a DM to the
- * Owner, so `mentions_and_dms` and `all` both read the whole inbox and
- * `none` mounts no listener; the account's own messages (`is_outgoing`) are
+ * start). The account's own messages (`is_outgoing`) are
  * never an outside event. The SDK reports a session the platform no longer
  * honours and an inbox outage with one code, so a streak of refused reads as
  * long as custody's own bound, with no message or reconnect between, is the
@@ -64,7 +62,6 @@ function instagramCode(error: Error): string | undefined {
  */
 export class InstagramOwnerAdapter implements Channel.Surface {
   get id(): string { return this.options.instance; }
-  /** The surface contract's config: an Owner instance carries its posture instead. */
   readonly config: Channel.Config = {};
 
   private readonly client: InstagramOwnerApi;
@@ -79,7 +76,6 @@ export class InstagramOwnerAdapter implements Channel.Surface {
 
   constructor(
     private readonly credentials: InstagramOwnerCredentials,
-    readonly posture: OwnerPosture,
     private readonly publish: PublishPort,
     private readonly options: ProviderOptions,
     sdk: InstagramOwnerSdk = instagramOwnerSdk(),
@@ -96,8 +92,8 @@ export class InstagramOwnerAdapter implements Channel.Surface {
   /**
    * Restores the vault-opened session through a file the SDK reads once
    * (removed before anything else runs) and clears the session path so the
-   * SDK persists nothing; the session must name the account. Under an
-   * intake posture the inbox listener then opens.
+   * SDK persists nothing; the session must name the account before the
+   * inbox listener opens.
    */
   /** The account's Instagram user pk (#1600), the shape an Instagram endpoint takes. */
   account(): AccountIdentity | undefined {
@@ -110,14 +106,14 @@ export class InstagramOwnerAdapter implements Channel.Surface {
     if (userId === null)
       throw new ChannelsFailure({ operation: "instagram.owner.start", cause: "the session names no account" });
     this.userId = userId;
-    const listens = this.posture.intake !== "none" && this.handler !== null;
+    const listens = this.handler !== null;
     if (listens) await this.listen();
     this.publish(Operational.Events.Info, {
       traceId,
       time: this.options.now(),
       component: "server",
       msg: "instagram owner instance started",
-      context: { userId, listener: listens ? this.posture.intake : "none" },
+      context: { userId, listener: listens },
     });
   }
 

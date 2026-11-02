@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
-import type { OwnerPosture } from "../src/provider/contract";
 import { InstagramOwnerAdapter } from "../src/provider/instagram/owner";
 import { InstagramOwnerError, instagramOwnerSdk } from "../src/provider/instagram/owner-sdk";
 import { createInstagramProvider } from "../src/provider/instagram/provider";
@@ -22,12 +21,9 @@ import {
 } from "./helpers/instagram-owner-sdk";
 
 const noopPublish: PublishPort = () => undefined;
-const DEFAULT_INTAKE: OwnerPosture = { intake: "mentions_and_dms", autoReply: false };
-const SEND_ONLY: OwnerPosture = { intake: "none", autoReply: false };
 
 /** One started Owner instance over the scripted SDK, with an inbound queue. */
 async function started(
-  posture: OwnerPosture = DEFAULT_INTAKE,
   script: InstagramScript = {},
   publish: PublishPort = noopPublish,
   listener?: FakeInstagramOwnerListener,
@@ -35,7 +31,6 @@ async function started(
   const fake = fakeInstagramOwnerSdk(script, listener);
   const adapter = new InstagramOwnerAdapter(
     { session: INSTAGRAM_SESSION },
-    posture,
     publish,
     injectedOptions(),
     fake.sdk,
@@ -54,7 +49,7 @@ const SENTINEL = { id: "ig-sentinel", thread_id: "t-sentinel", from: "900", text
 describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner instance (#1569 lane 7)", () => {
   it("restores the vault session through a file it removes, leaves the SDK nothing to persist, and opens the inbox listener", async () => {
     const { infos, publish } = infoCollector();
-    const { client, listener, adapter } = await started(DEFAULT_INTAKE, {}, publish);
+    const { client, listener, adapter } = await started({}, publish);
     expect(adapter.id).toBe("channel:test:main");
     expect(client.loaded).toEqual({ existed: true, session: INSTAGRAM_SESSION });
     // The file is gone and the SDK has no path to write a session back to.
@@ -63,7 +58,7 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     expect(listener.pollInterval).toBe(5_000);
     expect(infos.at(-1)).toEqual({
       msg: "instagram owner instance started",
-      context: { userId: INSTAGRAM_OWNER_ID, listener: "mentions_and_dms" },
+      context: { userId: INSTAGRAM_OWNER_ID, listener: true },
     });
     adapter.stop("stop");
     expect(listener.stopped).toBe(1);
@@ -73,7 +68,6 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     const fake = fakeInstagramOwnerSdk();
     const adapter = new InstagramOwnerAdapter(
       { session: JSON.stringify({ cookies: "sessionid=abc", device: {} }) },
-      SEND_ONLY,
       noopPublish,
       injectedOptions(),
       fake.sdk,
@@ -138,17 +132,15 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     expect(inbound.map((message) => message.facts.eventId)).toEqual(["ig-1", "ig-5", SENTINEL.id]);
   });
 
-  it("under `none` no listener opens; under `all` the inbox reads the same", async () => {
-    const sendOnly = await started(SEND_ONLY);
-    expect(sendOnly.listener.started).toBe(0);
-    const everything = await started({ intake: "all", autoReply: false });
+  it("the inbox emits DM facts without a policy filter", async () => {
+    const everything = await started();
     const dm = everything.next();
     everything.listener.message({ id: "ig-6", thread_id: "t-2", from: "501", text: "hi" });
     expect((await dm).facts.dm).toBe(true);
   });
 
   it("delivers into the person's thread, or opens the direct thread with them cold; a platform refusal is not_sent, a lost response unknown", async () => {
-    const { adapter, client } = await started(SEND_ONLY);
+    const { adapter, client } = await started();
     expect(
       await adapter.deliver("500", Outbound.payload("into the thread"), "k-1", {
         channelId: "t-1",
@@ -163,20 +155,20 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     });
     expect(client.of("sendMessage").map((call) => call.args)).toEqual([["t-1", "into the thread"]]);
     expect(client.of("sendMessageToUser").map((call) => call.args)).toEqual([["500", "cold"]]);
-    const limited = await started(SEND_ONLY, {
+    const limited = await started({
       sendMessage: new InstagramOwnerError("Rate limited", "rate_limited"),
     });
     expect(
       (await limited.adapter.deliver("500", Outbound.payload("x"), "k-3", { channelId: "t-1" }))
         .value,
     ).toBe("not_sent");
-    const refused = await started(SEND_ONLY, {
+    const refused = await started({
       sendMessageToUser: new InstagramOwnerError("Failed to send message", "send_failed"),
     });
     expect((await refused.adapter.deliver("500", Outbound.payload("x"), "k-4")).value).toBe(
       "not_sent",
     );
-    const lost = await started(SEND_ONLY, { sendMessage: new Error("socket hang up") });
+    const lost = await started({ sendMessage: new Error("socket hang up") });
     expect(
       (await lost.adapter.deliver("500", Outbound.payload("x"), "k-5", { channelId: "t-1" })).value,
     ).toBe("unknown");
@@ -197,7 +189,7 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
       self.emit("error", new Error("MQTToT CONNACK timed out"));
       self.emit("connected", { userId: INSTAGRAM_OWNER_ID, transport: "polling" });
     });
-    const { listener, next } = await started(DEFAULT_INTAKE, {}, publish, hybrid);
+    const { listener, next } = await started({}, publish, hybrid);
     expect(listener.stopped).toBe(0);
     expect(seen).toEqual([
       `${Operational.Events.Warn.name}: instagram inbox error, sdk falling back`,
@@ -239,7 +231,6 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
       const fake = fakeInstagramOwnerSdk({}, refusing);
       const adapter = new InstagramOwnerAdapter(
         { session: INSTAGRAM_SESSION },
-        DEFAULT_INTAKE,
         noopPublish,
         injectedOptions(),
         fake.sdk,
@@ -272,7 +263,6 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     ).toBe(false);
     const runtime = provider.owner?.create(
       { session: INSTAGRAM_SESSION },
-      SEND_ONLY,
       noopPublish,
       injectedOptions(),
     );
@@ -289,7 +279,6 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     if (arm === undefined) throw new Error("instagram owner arm missing");
     const runtime = arm.create(
       { session: INSTAGRAM_SESSION },
-      SEND_ONLY,
       noopPublish,
       injectedOptions(),
     );

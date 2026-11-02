@@ -12,7 +12,7 @@ export function ownerRuntime(sdk: TelegramOwnerSdk, telegramDataDir: string) {
   if (arm === undefined) throw new Error("missing Owner arm");
   return arm.create(
     { apiId: "123", apiHash: "a".repeat(32) },
-    { intake: "all", autoReply: false }, () => undefined,
+    () => undefined,
     { ...injectedOptions(), telegramDataDir },
   );
 }

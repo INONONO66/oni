@@ -13,7 +13,7 @@
  */
 
 import type { AccountIdentity, AttachmentFetch, AttachmentFetchWithStream, ChannelProvider, EffectRunner, MediaResolver, OwnerArm, OwnerWithdrawal, ProviderDeliveryRoute, ProviderHistoryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
-import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider, OwnerPosture } from "@oni/channels";
+import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider } from "@oni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@oni/protocol";
 import { Result } from "effect";
 
@@ -203,16 +203,16 @@ function ownerRow(
   }
   const parsed = arm.credentials.safeParse(decoded.success);
   if (!parsed.success) return { invalid: parsed.error.message };
-  const posture = OwnerPosture.safeParse(settings);
-  if (!posture.success) return { invalid: `settings: ${posture.error.message}` };
+  const parsedSettings = provider.settings.safeParse(settings);
+  if (!parsedSettings.success) return { invalid: `settings: ${parsedSettings.error.message}` };
   return providerRow(
     provider.id,
     "owner",
-    arm.listen && posture.data.intake !== "none",
-    (options) => arm.create(parsed.data, posture.data, deps.publish, options),
+    arm.listen,
+    (options) => arm.create(parsed.data, deps.publish, options),
     deps,
     outbound,
-    posture.data.autoReply,
+
   );
 }
 
@@ -364,8 +364,9 @@ export function validateProviderSettings(
   if (!isRegisteredProvider(provider)) {
     return `unknown provider ${provider}`;
   }
-  // #1569 lane 6: an Owner instance's knobs are its intake posture.
-  const schema = identity === "owner" ? OwnerPosture : ChannelProviders[provider].settings;
+  if (identity === "owner" && ChannelProviders[provider].owner === undefined)
+    return `${provider} has no Owner-account arm`;
+  const schema = ChannelProviders[provider].settings;
   const parsed = schema.safeParse(settings);
   return parsed.success ? undefined : parsed.error.message;
 }

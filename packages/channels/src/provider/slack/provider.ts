@@ -25,7 +25,7 @@ interface SlackOwnerCredentials {
  * The Owner-identity arm (#1569 lanes 5 and 6): delivery as the Owner's
  * account through the user SDK, mounted by declaration id (a delivery route
  * only when the declaration grants outbound), and the account's RTM listener
- * under the declared intake posture. No media upload through the account.
+ * emitting facts for the router. No media upload through the account.
  */
 function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<SlackOwnerCredentials> {
   return {
@@ -39,12 +39,12 @@ function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<Sla
       "Owner session from the Slack QR login, sealed into the vault (the login helper lands with its own lane): client token xoxc- plus the d cookie",
       "the Owner accepts automation under their own account (declared outbound grant)",
       "live huddles require Linux Chromium, PipeWire-Pulse devices and an active room that the Owner account can join without switching away from its existing device",
-      "automatic huddle intake requires the Owner RTM room-to-conversation association and an ingress grant that admits unaddressed call facts",
+      "automatic huddle handling requires the RTM room-to-conversation association and a rule that admits unaddressed call facts",
     ],
     capabilities: { deliver: true, react: true, media: false, typing: false, voice: true },
     listen: true,
-    create(credentials, posture, publish, options) {
-      const surface = new SlackOwnerAdapter(credentials, posture, publish, options, sdk);
+    create(credentials, publish, options) {
+      const surface = new SlackOwnerAdapter(credentials, publish, options, sdk);
       return {
         surface,
         account: () => surface.account(),

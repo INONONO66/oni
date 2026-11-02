@@ -3,7 +3,7 @@ export type { WsConnection } from "./websocket.js";
 export { AttachmentRefused, RuleConfigurationError, ChannelsFailure, decodeChannelFailure, MediaTooLarge, SendAdmissionConflict, VoiceJoinRefused } from "./errors.js";
 export type { ChannelError } from "./errors.js";
 export type { AccountIdentity, ChannelProvider, OwnerArm, OwnerWithdrawal, ProviderDeliveryRoute, ProviderTypingRoute } from "./provider/contract.js";
-export { OwnerPosture } from "./provider/contract.js";
+
 export type { PcmVoiceHandle, ProviderVoiceRoute, VoiceEvent } from "./provider/voice.js";
 export { OwnerLogins, type OwnerLogin } from "./provider/owner-login.js";
 export type { OwnerLoginWithTelegram } from "./provider/owner-login.js";

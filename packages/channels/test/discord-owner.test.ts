@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
-import type { OwnerPosture } from "../src/provider/contract";
 import { DiscordOwnerAdapter } from "../src/provider/discord/owner";
 import { createDiscordProvider } from "../src/provider/discord/provider";
 import { discordOwnerSdk } from "../src/provider/discord/owner-sdk";
@@ -18,17 +17,14 @@ import { injectedOptions } from "./helpers/injected";
 import { recordHttp } from "./helpers/http";
 
 const noopPublish: PublishPort = () => undefined;
-const DEFAULT_INTAKE: OwnerPosture = { intake: "mentions_and_dms", autoReply: false };
 /** One started Owner instance over the scripted user SDK, with an inbound queue. */
 async function started(
-  posture: OwnerPosture = DEFAULT_INTAKE,
   publish: PublishPort = noopPublish,
   listener?: FakeDiscordOwnerListener,
 ) {
   const fake = fakeDiscordOwnerSdk(listener);
   const adapter = new DiscordOwnerAdapter(
     { token: "owner-token" },
-    posture,
     publish,
     injectedOptions(),
     fake.sdk,
@@ -52,21 +48,21 @@ const SENTINEL = {
 describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner instance (#1569 lane 6)", () => {
   it("logs in with the account token, verifies identity through the Owner SDK, and opens the gateway listener under the default posture", async () => {
     const { infos, publish } = infoCollector();
-    const { client, listener, adapter } = await started(DEFAULT_INTAKE, publish);
+    const { client, listener, adapter } = await started(publish);
     expect(adapter.id).toBe("channel:test:main");
     expect(client.logins).toEqual(["owner-token"]);
     expect(client.calls.map(({ method }) => method)).toEqual(["testAuth"]);
     expect(listener.started).toBe(1);
     expect(infos.at(-1)).toEqual({
       msg: "discord owner instance started",
-      context: { userId: OWNER_READY.user.id, username: "owner", listener: "mentions_and_dms" },
+      context: { userId: OWNER_READY.user.id, username: "owner", listener: true },
     });
     adapter.stop("stop");
     expect(listener.stopped).toBe(1);
     expect(infos.at(-1)?.msg).toBe("discord owner instance stopped");
   });
 
-  it("a DM to the Owner and a mention of the Owner reach the handler as received by the Owner; other guild messages, own echo and reactions do not", async () => {
+  it("a DM to the Owner and a mention of the Owner reach the handler as received by the Owner; other guild messages also reach it; own echo and reactions do not", async () => {
     const { listener, next, inbound } = await started();
     const dm = next();
     listener.dispatch("MESSAGE_CREATE", {
@@ -123,12 +119,13 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
     expect(inbound.map((message) => message.facts.eventId)).toEqual([
       "m-dm",
       "m-mention",
+      "m-other",
       SENTINEL.id,
     ]);
   });
 
-  it("under `all` every guild message is intake; under `none` no listener opens", async () => {
-    const everything = await started({ intake: "all", autoReply: false });
+  it("every guild message reaches the handler", async () => {
+    const everything = await started();
     everything.listener.dispatch("MESSAGE_CREATE", {
       id: "m-all",
       channel_id: "C1",
@@ -143,8 +140,6 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
       "m-all",
       SENTINEL.id,
     ]);
-    const sendOnly = await started({ intake: "none", autoReply: false });
-    expect(sendOnly.listener.started).toBe(0);
   });
 
   it("an error before READY fails start; a non-recoverable close after it is a typed dead surface", async () => {
@@ -154,7 +149,6 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
     const fake = fakeDiscordOwnerSdk(refusing);
     const adapter = new DiscordOwnerAdapter(
       { token: "owner-token" },
-      DEFAULT_INTAKE,
       noopPublish,
       injectedOptions(),
       fake.sdk,
@@ -162,7 +156,7 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
     adapter.onMessage(async () => undefined);
     await expect(adapter.start("boot")).rejects.toThrow("Discord gateway refused: 401");
     const errors: string[] = [];
-    const { listener } = await started(DEFAULT_INTAKE, (event, data) => {
+    const { listener } = await started((event, data) => {
       if (event.name === Operational.Events.Error.name)
         errors.push(z.object({ msg: z.string() }).parse(data).msg);
     });
@@ -183,7 +177,6 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
     expect(arm.credentials.safeParse({ token: "abc", extra: 1 }).success).toBe(false);
     const runtime = arm.create(
       { token: "owner-token" },
-      { intake: "none", autoReply: false },
       noopPublish,
       injectedOptions(),
     );
@@ -219,7 +212,6 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
       if (arm === undefined) throw new Error("discord owner arm missing");
       const runtime = arm.create(
         { token: "owner-private-credential" },
-        { intake: "none", autoReply: false },
         noopPublish,
         injectedOptions(),
       );
@@ -264,7 +256,7 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
   });
 
   it("types as the Owner: a DM channel is opened once per turn, a named conversation is reused, every pulse posts typing", async () => {
-    const { adapter, client } = await started({ intake: "none", autoReply: false });
+    const { adapter, client } = await started();
     expect(await adapter.openTyping("U7", { channelId: "C1" })).toEqual({ channelId: "C1" });
     expect(await adapter.openTyping("U7")).toEqual({ channelId: "D-owner" });
     await adapter.typing({ channelId: "D-owner" });
@@ -278,7 +270,7 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
   });
 
   it("replaces a reaction through the Owner SDK and anchors its message", async () => {
-    const { adapter } = await started({ intake: "none", autoReply: false });
+    const { adapter } = await started();
     expect(
       await adapter.deliver(
         "U7",
@@ -299,7 +291,6 @@ it("#1600: a Discord Owner instance names its account once started, never before
   const fake = fakeDiscordOwnerSdk();
   const adapter = new DiscordOwnerAdapter(
     { token: "owner-token" },
-    DEFAULT_INTAKE,
     noopPublish,
     injectedOptions(),
     fake.sdk,
