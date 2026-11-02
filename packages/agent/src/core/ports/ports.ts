@@ -70,7 +70,11 @@ export class SessionLayer extends Context.Service<
 
 export class ToolCatalog extends Context.Service<
   ToolCatalog,
-  { readonly definitions: readonly ToolDispatchDefinition[] }
+  {
+    readonly definitions: readonly ToolDispatchDefinition[];
+    /** Complete declared faces for integrity checks when execution is narrowed. */
+    readonly declared?: readonly SessionGeneration.Tool[];
+  }
 >()("@oni/agent/ToolCatalog") {}
 
 export class Ledger extends Context.Service<Ledger, LedgerHost>()("@oni/agent/core/Ledger") {}

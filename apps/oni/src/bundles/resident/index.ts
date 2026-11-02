@@ -551,7 +551,7 @@ export function createResident(options: ResidentOptions) {
         role,
         agent: agent.id,
         runner,
-        tools: composedFaces(role).filter((tool) => agent.tools.includes(tool.name)),
+        tools: composedFaces(role),
         bundles: composed?.generation.bundles ?? [],
         preset: options.prompt(agent),
         at: options.clock(),
@@ -581,8 +581,9 @@ export function createResident(options: ResidentOptions) {
     },
     /**
      * The rotation adoption face (#1255 S3): `SessionRuntimeOptions.composed.current()`.
-     * Tools are the role union — the dispatcher still filters per role at
-     * capture, and `manifestHash` equality keeps unchanged sessions append-free.
+     * Journaled faces are a declared-capability superset. At capture the core
+     * loadout fold intersects them with lineage visibility and the profile
+     * allowlist; `manifestHash` equality keeps unchanged sessions append-free.
      */
     adoption(): Core.ComposedManifest | undefined {
       const composed = options.composed?.current();

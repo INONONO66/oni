@@ -40,8 +40,10 @@ export function admit(policy: PolicyBinding, input: PolicyEvaluationInput): Effe
 
 export function filterLoadout<T extends Pick<AnyToolDefinition, "name" | "visibility">>(
   definitions: readonly T[], offered: ReadonlySet<string>, role: LedgerSession.Role,
+  allowlist?: ReadonlySet<string>,
 ): readonly T[] {
   return Object.freeze(definitions.filter((tool) => offered.has(tool.name)
+    && (allowlist === undefined || allowlist.has(tool.name))
     && (tool.visibility.model.includes(role) || tool.visibility.cell.includes(role))));
 }
 
