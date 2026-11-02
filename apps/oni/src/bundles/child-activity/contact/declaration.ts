@@ -5,9 +5,11 @@ import { z } from "zod";
 /**
  * The `cli:` contact's declaration (#1512): a `channel:cli:<id>` row the Owner
  * declared through `provision channel_add` with provider `cli` and settings
- * `{dialect, machine, cwd?}`. The address carries no vendor literal — the
- * dialect names a machine-client agent driver and the machine an enrolled or
- * self machine.
+ * `{dialect, machine, cwd?, attach?, sessionId?}`. The address carries no
+ * vendor literal — the dialect names a machine-client agent driver and the
+ * machine an enrolled or self machine. `attach: "existing"` names a session
+ * the Owner ran by hand (#1779, an id from `agent.session.list`): the contact
+ * imports its transcript instead of launching, and a letter resumes it.
  */
 const CLI_PROVIDER = "cli";
 
@@ -17,6 +19,10 @@ const CliContactSettings = z.strictObject({
   machine: z.string().min(1),
   /** Where the child runs on that machine; inside an offered export. */
   cwd: Machine.AbsolutePath.optional(),
+  attach: z.literal("existing").optional(),
+  sessionId: Machine.AgentSessionOpenRequest.shape.sessionId,
+}).refine((settings) => (settings.attach === "existing") === (settings.sessionId !== undefined), {
+  message: 'attach: "existing" and sessionId are declared together',
 });
 
 function cliContactRowId(id: string): string {
@@ -34,7 +40,8 @@ export function validateCliContactSettings(
   context: CliDeclarationContext,
 ): string | undefined {
   const parsed = CliContactSettings.safeParse(settings);
-  if (!parsed.success) return `cli contact settings must be {dialect, machine, cwd?}: ${parsed.error.message}`;
+  if (!parsed.success)
+    return `cli contact settings must be {dialect, machine, cwd?, attach?: "existing", sessionId?}: ${parsed.error.message}`;
   if (!context.machineKnown(parsed.data.machine))
     return `unknown machine ${parsed.data.machine}; enroll it through machine_add first`;
   return undefined;
@@ -46,6 +53,8 @@ export interface CliContact {
   readonly dialect: z.infer<typeof CliContactSettings>["dialect"];
   readonly machine: string;
   readonly cwd: string;
+  /** The hand-run session this contact attaches to; absent when the contact launches its own. */
+  readonly session?: string;
 }
 
 export interface CliContactRefusal {
@@ -67,5 +76,8 @@ export function resolveCliContact(id: string, deps: CliContactResolution): CliCo
   });
   if (refused !== undefined) return { reason: `cli contact ${id}: ${refused}` };
   const settings = CliContactSettings.parse(row.settings);
-  return { id, dialect: settings.dialect, machine: settings.machine, cwd: settings.cwd ?? "/" };
+  return {
+    id, dialect: settings.dialect, machine: settings.machine, cwd: settings.cwd ?? "/",
+    ...(settings.sessionId === undefined ? {} : { session: settings.sessionId }),
+  };
 }

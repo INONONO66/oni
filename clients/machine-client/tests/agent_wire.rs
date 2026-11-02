@@ -406,6 +406,16 @@ async fn tail_refuses_foreign_rotated_or_truncated_cursors_and_bounds_reads() {
             "{id}"
         );
     }
+    // A registry row whose CLI no dialect names cannot be resumed either.
+    assert_eq!(
+        fixture
+            .call(
+                "agent.session.send",
+                json!({"sessionId": "unknown-cli", "text": "hi"}),
+            )
+            .await,
+        refusal("session_not_available")
+    );
 
     append(&fixture.transcript, "{not json\n");
     let malformed = tail(json!({"cursor": cursor})).await;
@@ -628,6 +638,9 @@ async fn owned_sessions_send_stop_and_relay_permission_to_the_host() {
                     ..observed(project, "pi", SESSION, base.join("transcript.jsonl"))
                 })
                 .expect("live seed");
+            registry
+                .observe(observed(project, "pi", "gone", base.join("gone.jsonl")))
+                .expect("missing transcript");
         },
     )
     .await;
@@ -659,7 +672,28 @@ async fn owned_sessions_send_stop_and_relay_permission_to_the_host() {
             .await["sessions"][0]["state"],
         "running"
     );
+    let listed = |id: &'static str| {
+        let fixture = &fixture;
+        async move {
+            fixture
+                .call("agent.session.list", json!({"project": fixture.project()}))
+                .await["sessions"]
+                .as_array()
+                .expect("sessions")
+                .iter()
+                .find(|session| session["sessionId"] == id)
+                .cloned()
+        }
+    };
+    // A transcript the Owner's own run left on disk is listed before any open.
+    assert_eq!(
+        listed("found").await,
+        Some(json!({
+            "sessionId": "found", "project": fixture.project(), "cli": "pi", "state": "stopped",
+        }))
+    );
     assert_eq!(open(Some("found"), "pi").await["status"], "ok");
+    assert_eq!(listed("found").await.expect("adopted")["state"], "stopped");
     assert_eq!(
         open(Some("absent"), "codex").await,
         refusal("session_not_available")
@@ -675,7 +709,26 @@ async fn owned_sessions_send_stop_and_relay_permission_to_the_host() {
     let send =
         |id: &str| fixture.call("agent.session.send", json!({"sessionId": id, "text": "hi"}));
     assert_eq!(send(SESSION).await, json!({"status": "ok"}));
-    assert_eq!(send("found").await, refusal("session_not_available"));
+    // The wire caps the text at 4096 characters, the terminal at 16384 bytes
+    // per write: four-byte characters pass the first and hit the second, and
+    // the send reports the terminal's refusal.
+    let wide = "\u{1F600}".repeat(4096);
+    assert_eq!(
+        fixture
+            .call(
+                "agent.session.send",
+                json!({"sessionId": SESSION, "text": wide}),
+            )
+            .await,
+        refusal("session_not_available")
+    );
+    // `found` was adopted, not launched: the send first resumes it in a
+    // fresh terminal, which the list state shows. No CLI binary exists on
+    // this machine, so whether the text still lands before that terminal
+    // exits is a race the send's own answer would expose; it is not asserted.
+    send("found").await;
+    assert_eq!(listed("found").await.expect("resumed")["state"], "running");
+    assert_eq!(send("gone").await, refusal("session_not_available"));
     assert_eq!(send("missing").await, refusal("session_not_found"));
 
     assert_eq!(
@@ -735,6 +788,7 @@ async fn owned_sessions_send_stop_and_relay_permission_to_the_host() {
     );
 
     let stop = |id: &str| fixture.call("agent.session.stop", json!({"sessionId": id}));
+    assert_eq!(stop("found").await, json!({"status": "ok"}));
     assert_eq!(stop("found").await, refusal("session_not_available"));
     assert_eq!(stop(SESSION).await, json!({"status": "ok"}));
     assert_eq!(stop(SESSION).await, refusal("session_not_available"));

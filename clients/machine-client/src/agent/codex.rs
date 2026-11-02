@@ -7,13 +7,18 @@ use std::{
 use oni_protocol::AgentTranscriptRecord;
 use serde_json::Value;
 
-use super::launcher::LaunchCommand;
+use super::launcher::{LaunchCommand, LaunchContext};
 use super::{tool_call, tool_result, turn, unsupported};
 
-pub fn command() -> LaunchCommand {
+/// Codex mints its own session id; a resumed session is named to `resume`.
+pub fn command(context: &LaunchContext<'_>) -> LaunchCommand {
+    let args = match (context.resume, context.session_id) {
+        (Some(_), Some(id)) => vec!["resume".to_owned(), id.to_owned()],
+        _ => Vec::new(),
+    };
     LaunchCommand {
         executable: "codex".to_owned(),
-        args: Vec::new(),
+        args,
         env: Vec::new(),
         requires: None,
     }

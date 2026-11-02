@@ -347,6 +347,7 @@ async fn launch_argv_and_hooks_stay_in_dialect_data() {
     let context = LaunchContext {
         session_id: Some("chosen"),
         hook: &hook,
+        resume: None,
     };
     let claude = dialect("claude-code").command(&context);
     assert_eq!(claude.executable, "claude");
@@ -364,6 +365,14 @@ async fn launch_argv_and_hooks_stay_in_dialect_data() {
     );
     assert_eq!(claude.args[2..], ["--session-id", "chosen"]);
     assert_eq!(claude.requires, None);
+    // Without an id the settings pair is the whole argv; `assigns_id` is what
+    // keeps the launcher from handing claude-code this shape.
+    let unassigned = LaunchContext {
+        session_id: None,
+        hook: &hook,
+        resume: None,
+    };
+    assert_eq!(dialect("claude-code").command(&unassigned).args.len(), 2);
 
     let codex = dialect("codex").command(&context);
     assert_eq!((codex.executable.as_str(), codex.args.len()), ("codex", 0));
@@ -396,6 +405,24 @@ async fn launch_argv_and_hooks_stay_in_dialect_data() {
     }
     assert!(dialect("claude-code").assigns_id());
     assert_eq!(dialect("pi").name(), "pi");
+
+    let transcript = world.home.join("existing.jsonl");
+    let resume = LaunchContext {
+        session_id: Some("chosen"),
+        hook: &hook,
+        resume: Some(&transcript),
+    };
+    assert_eq!(
+        dialect("claude-code").command(&resume).args[2..],
+        ["--resume", "chosen"]
+    );
+    assert_eq!(dialect("codex").command(&resume).args, ["resume", "chosen"]);
+    for cli in ["pi", "omp"] {
+        assert_eq!(
+            dialect(cli).command(&resume).args[2..],
+            ["--session".to_owned(), transcript.display().to_string()]
+        );
+    }
 }
 
 #[test]
@@ -484,6 +511,72 @@ async fn attach_adopts_existing_transcript_without_launching_or_owning() {
         Err(LaunchError::NotOwned)
     ));
     assert!(launcher.spawner().log().is_empty());
+}
+
+#[tokio::test]
+async fn resume_relaunches_an_adopted_session_on_its_transcript() {
+    let world = World::new();
+    let project = world.project("resume");
+    let claude = dialect("claude-code");
+    let existing = transcript(claude, &world.home, &project, "existing");
+    fs::create_dir_all(existing.parent().expect("layout")).expect("layout");
+    fs::write(&existing, "{}\n").expect("transcript");
+    let mut launcher = world.launcher(Fake::silent());
+    assert_eq!(
+        launcher.discovered(&claude, &project),
+        [Session {
+            project: project.clone(),
+            cli: "claude-code".to_owned(),
+            session_id: "existing".to_owned(),
+            transcript: existing.clone(),
+            terminal: None,
+        }]
+    );
+    assert!(matches!(
+        launcher.resume(&claude, &project, "absent").await,
+        Err(LaunchError::SessionNotAvailable)
+    ));
+
+    let resumed = launcher
+        .resume(&claude, &project, "existing")
+        .await
+        .expect("resume");
+    assert!(resumed.owned && resumed.launched);
+    assert_eq!(resumed.session.transcript, existing);
+    assert_eq!(resumed.session.terminal.as_deref(), Some("fake-1"));
+    let launches = launcher.spawner().launches();
+    assert_eq!(launches.len(), 1);
+    assert_eq!(launches[0].args[2..], ["--resume", "existing"]);
+    assert_eq!(
+        launches[0].env,
+        [(
+            oni_machine_client::config::AGENT_HOOK_SOCKET_VARIABLE.to_owned(),
+            world.hooks.join("hook.sock").display().to_string()
+        )]
+    );
+    launcher
+        .send(&project, claude.cli, "existing", "hi")
+        .await
+        .expect("send after resume");
+    assert_eq!(
+        launcher.registry().find(&project, claude.cli, "existing"),
+        Some(&resumed.session)
+    );
+
+    let again = launcher
+        .resume(&claude, &project, "existing")
+        .await
+        .expect("resume an owned session");
+    assert_eq!(
+        again,
+        Opened {
+            session: resumed.session.clone(),
+            owned: true,
+            launched: false,
+        }
+    );
+    assert_eq!(launcher.spawner().launches().len(), 1);
+    assert_eq!(launcher.spawner().log(), ["send fake-1 hi"]);
 }
 
 #[tokio::test]
@@ -1061,6 +1154,14 @@ async fn pty_spawner_launches_reclaims_and_stops_real_terminals() {
         script: script(&base, "mute", "#!/bin/sh\nexec cat\n"),
         transcripts: transcripts.clone(),
     };
+    let brief = ScriptCli {
+        script: script(
+            &base,
+            "brief",
+            "#!/bin/sh\nprintf '{}\\n' > \"$1/$2.jsonl\"\necho ready\nread line\nexit 0\n",
+        ),
+        transcripts: transcripts.clone(),
+    };
     let socket = format!(
         "oni-p4-{}-{}",
         std::process::id(),
@@ -1117,6 +1218,31 @@ async fn pty_spawner_launches_reclaims_and_stops_real_terminals() {
         .await
         .expect("kill after grace");
 
+    // An owned occupant that exits on its own takes its terminal with it
+    // before anything lists it; stop still closes the record instead of
+    // refusing the session over the screen it can no longer capture.
+    let exited = restarted
+        .start(&brief, &project, None)
+        .await
+        .expect("brief launch");
+    let gone = exited.session.terminal.clone().expect("brief terminal");
+    restarted
+        .send(&project, "script", &exited.session.session_id, "bye")
+        .await
+        .expect("release the occupant");
+    let screen = oni_protocol::decode(json!({"name": gone, "source": "screen"})).expect("screen");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while pty.screen(&screen).await.is_ok() {
+        assert!(Instant::now() < deadline, "occupant never exited");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let closed = restarted
+        .stop(&project, "script", &exited.session.session_id)
+        .await
+        .expect("stop after exit");
+    assert_eq!(closed.terminal, None);
+    assert!(!terminals(&pty).await.to_string().contains(&gone));
+
     let mut hurried = Launcher::new(registry(), spawner(), settings(Duration::ZERO));
     assert!(matches!(
         hurried.start(&mute, &project, None).await,
@@ -1129,6 +1255,7 @@ async fn pty_spawner_launches_reclaims_and_stops_real_terminals() {
     let narrow = PtySpawner::new(pty.clone(), vec![transcripts.clone()], Duration::ZERO);
     let command = cli.command(&LaunchContext {
         session_id: Some("x"),
+        resume: None,
         hook: &HookTarget {
             program: PathBuf::new(),
             modules: PathBuf::new(),
