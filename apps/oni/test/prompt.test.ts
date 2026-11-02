@@ -1,12 +1,11 @@
 import type { Model } from "@oni/protocol";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildAgentPrompt } from "../src/bundles/prompt/build";
 import { Outbound } from "@oni/protocol";
 import { loadPromptCatalog, PromptDataError } from "../src/bundles/prompt/data";
-import { roleText } from "../src/bundles/prompt/embed";
 import { CHILD_PRESET, parseRolePreset, RESIDENT_PRESET, type RolePreset } from "../src/bundles/prompt/roles";
 
 const residentBase = [
@@ -133,7 +132,8 @@ describe("role files", () => {
   });
 
   test("the inlined role text equals the shipped file", () => {
-    expect(parseRolePreset(roleText("resident"), "resident.md").identity).toBe(RESIDENT_PRESET.identity);
+    const text = readFileSync(new URL("../prompts/roles/resident.md", import.meta.url), "utf8");
+    expect(parseRolePreset(text, "resident.md")).toEqual(RESIDENT_PRESET);
   });
 
   test("a role with text before its first section refuses typed", () => {

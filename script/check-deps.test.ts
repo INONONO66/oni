@@ -140,6 +140,20 @@ test("a former deep-relative edge is no longer exempt", async () => {
   );
 });
 
+test("text assets are data edges while missing assets and executable imports still refuse", async () => {
+  const root = fixture({
+    [audit]: 'import text from "../../../prompts/role.md" with { type: "text" }; export { text };',
+    "apps/oni/prompts/role.md": 'import "../other-bundle";',
+  });
+  expect(await checkBundleImports(root)).toEqual([]);
+  expect(await validateDeepRelativeImports(root)).toEqual([]);
+  writeFileSync(join(root, audit), 'import text from "../../../prompts/missing.md" with { type: "text" };');
+  expect(await checkBundleImports(root)).toContainEqual(expect.objectContaining({ code: "BUNDLE_UNRESOLVED_IMPORT" }));
+  writeFileSync(join(root, audit),
+    'import text from "../../../prompts/role.md" with { type: "text" }; import executable from "../../../prompts/role.md";');
+  expect(await validateDeepRelativeImports(root)).toHaveLength(1);
+});
+
 test("refuses tsconfig aliases inherited by the app", async () => {
   const root = fixture({
     "tsconfig.base.json": JSON.stringify({

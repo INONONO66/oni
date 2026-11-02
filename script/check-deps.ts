@@ -3,7 +3,7 @@
 // from inventory wiring, import cycles and dead exports.
 import { Glob } from "bun";
 import { existsSync, readdirSync, realpathSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { z } from "zod";
 import { PlainValueSchema } from "../packages/protocol/src/json.js";
@@ -338,6 +338,7 @@ function moduleArgument(node: ts.Node, checker: ts.TypeChecker): ts.Node | undef
 function moduleEdges(source: ts.SourceFile, checker: ts.TypeChecker): readonly ModuleEdge[] {
   const edges: ModuleEdge[] = [];
   function visit(node: ts.Node): void {
+    if (textAssetImport(node) !== undefined) return;
     const argument = moduleArgument(node, checker);
     if (argument) {
       edges.push({
@@ -349,6 +350,17 @@ function moduleEdges(source: ts.SourceFile, checker: ts.TypeChecker): readonly M
   }
   visit(source);
   return edges;
+}
+
+/** Text assets are data, not module dependencies; missing assets still fail resolution. */
+function textAssetImport(node: ts.Node): string | undefined {
+  if (!ts.isImportDeclaration(node) || !ts.isStringLiteralLike(node.moduleSpecifier)) return undefined;
+  if (!node.moduleSpecifier.text.startsWith(".")) return undefined;
+  const text = node.attributes?.elements.some((attribute) =>
+    attribute.name.text === "type" && ts.isStringLiteral(attribute.value) && attribute.value.text === "text",
+  );
+  if (!text || !ts.sys.fileExists(resolve(dirname(node.getSourceFile().fileName), node.moduleSpecifier.text))) return undefined;
+  return node.moduleSpecifier.text;
 }
 
 function bundleCompilerOptions(root: string, findings: BundleImportFinding[]): ts.CompilerOptions {
@@ -1641,9 +1653,15 @@ async function* scannedImports(pattern: RegExp, root = "."): AsyncGenerator<{
   line: number;
 }, void, void> {
   for await (const { filePath, source } of scanRepositorySources("**/*.{ts,tsx}", root)) {
+    const parsed = ts.createSourceFile(join(root, filePath), source, ts.ScriptTarget.Latest, true);
+    const assets = parsed.statements.flatMap((node) => {
+      const specifier = textAssetImport(node);
+      return specifier === undefined ? [] : [{ specifier, start: node.getStart(parsed), end: node.end }];
+    });
     for (const match of source.matchAll(pattern)) {
       const importPath = match[1];
       if (importPath === undefined) continue;
+      if (assets.some((asset) => asset.specifier === importPath && match.index >= asset.start && match.index < asset.end)) continue;
       yield { filePath, importPath, line: lineNumberForOffset(source, match.index) };
     }
   }
