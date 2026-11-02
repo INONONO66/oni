@@ -49,7 +49,8 @@ export function createAutomationDelivery(
       if (!parsed.success) return yield* deliver(input);
       const { rule: automation } = parsed.data;
       const exists = deps.plane.read.sessions.list().some((row) => row.id === input.sessionId);
-      if (!automation.newSession && !exists) {
+      // The app-reserved main session is created on its first alarm delivery.
+      if (!automation.newSession && input.sessionId !== "main" && !exists) {
         // The app records the refusal through the channels store; channels never learns why.
         return yield* refuse(input.id, "target_not_found");
       }

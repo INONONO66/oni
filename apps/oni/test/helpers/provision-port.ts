@@ -1,4 +1,4 @@
-import { createAutomationStore, Vault } from "@oni/channels";
+import { createRuleStore, Vault } from "@oni/channels";
 import type { TestLedgerPlane as AppLedgerPlane } from "./ledger";
 import type { ProvisionPort } from "../../src/bundles/provision/channels";
 import { testPlane } from "./ledger";
@@ -6,7 +6,7 @@ import { testPlane } from "./ledger";
 /** Real durable stores under a quiet supervisor: enough for address-book authority tests. */
 export function provisionPort(plane: AppLedgerPlane = testPlane()): ProvisionPort {
   return {
-    automations: { store: createAutomationStore(plane.channel), id: () => crypto.randomUUID() },
+    rules: { store: createRuleStore(plane.channel), id: () => crypto.randomUUID() },
     persons: plane.stores.persons,
     instances: plane.stores.instances,
     secrets: plane.stores.secrets,

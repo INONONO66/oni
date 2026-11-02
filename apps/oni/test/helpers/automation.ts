@@ -16,11 +16,11 @@ export const automationFacts = Gateway.IngressFacts.parse({
   author: { externalId: "source", isBot: false }, payload: {}, render: "BUILD_SENTINEL",
 });
 
-export function automationRecord(changes: Partial<Ingress.Automation> = {}) {
-  return Ingress.Automation.parse({
-    id: "build", name: "Build", enabled: true, createdBy: "owner",
-    triggers: [{ type: "message", surface: "discord", event: "message" }],
-    target: "new", kind: "action", ...changes,
+export function automationRecord(changes: Partial<Ingress.Rule> = {}) {
+  return Ingress.Rule.parse({
+    id: "build", position: 0, enabled: true, createdBy: "owner",
+    when: { instance: "discord" },
+    then: { target: "new", kind: "action", reply: "none" }, ...changes,
   });
 }
 
@@ -71,8 +71,8 @@ export async function automationFixture(suite: ResidentSuite, judgeText = "yes")
   };
 }
 
-export async function automationRequest(socket: WebSocket, request: Ingress.AutomationRequest) {
+export async function automationRequest(socket: WebSocket, request: Ingress.RuleRequest) {
   const response = nextFrame(socket, (frame) => frame.requestId === request.requestId);
   socket.send(JSON.stringify(request));
-  return Ingress.AutomationResponse.parse(await response);
+  return Ingress.RuleResponse.parse(await response);
 }

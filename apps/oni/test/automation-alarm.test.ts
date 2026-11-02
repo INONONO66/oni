@@ -33,8 +33,9 @@ test.each(["action", "prompt"] as const)("cron tick routes %s to the same entity
   const target = await f.target();
   f.time.now = FIXTURE_BASE;
   const kernel = f.plane.openKernel(target);
-  f.stores.automations.add(automationRecord({
-    triggers: [{ type: "schedule", cron: cron.expr, tz: "UTC" }], target: `session:${target}`, kind,
+  f.stores.rules.add(automationRecord({
+    when: { instance: "alarm", channel: `cron:${cron.expr}` },
+    then: { target: `session:${target}`, kind, reply: "none" },
   }));
   const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
     purpose: CRON_TICK, at: 0, alarmId: "watch", sourceKey: source, payload: cron, ts: f.time.now,
@@ -43,25 +44,27 @@ test.each(["action", "prompt"] as const)("cron tick routes %s to the same entity
   expect(result.outcome).toBe("delivered");
   expect(kernel.actionById(armed.occurrenceId)?.kind).toBe(kind);
   expect(kernel.actionById(`${armed.occurrenceId}:prompt`)).toBeUndefined();
-  expect(f.stores.automations.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({
+  expect(f.stores.rules.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({
     decision: "matched", surface: "alarm", inboundId: armed.occurrenceId,
     time: f.time.now, target: `session:${target}`,
   })]);
 });
 
-test("a monitor tick matches no schedule record, even one whose cron is the alarm id", async () => {
+test("a monitor tick falls through a channel-restricted cron rule to the main alarm rule", async () => {
   const f = await automationFixture(suite);
   const target = await f.target();
   f.time.now = FIXTURE_BASE;
   const kernel = f.plane.openKernel(target);
-  f.stores.automations.add(automationRecord({
-    triggers: [{ type: "schedule", cron: "watch", tz: "UTC" }], target: `session:${target}`,
+  f.stores.rules.add(automationRecord({
+    when: { instance: "alarm", channel: "cron:watch" },
+    then: { target: `session:${target}`, kind: "action", reply: "none" },
   }));
   const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
     purpose: Bundle.MONITOR_HIT, at: 0, alarmId: "watch", sourceKey: "monitor", payload: monitor, ts: f.time.now,
   });
   await fireAlarm(f, target, armed, Bundle.MONITOR_HIT, "monitor", monitor);
-  expect(f.stores.automations.decisions(armed.occurrenceId)).toEqual([]);
+  expect(f.stores.rules.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({ by: "rule/seed:alarm", target: "session:main", decision: "matched" })]);
+  expect(f.plane.read.session("main").actionById(armed.occurrenceId)?.kind).toBe("action");
 });
 
 test("a filtered schedule tick writes no local prompt shortcut", async () => {
@@ -69,10 +72,11 @@ test("a filtered schedule tick writes no local prompt shortcut", async () => {
   const target = await f.target();
   f.time.now = FIXTURE_BASE;
   const kernel = f.plane.openKernel(target);
-  f.stores.automations.add(automationRecord({
-    triggers: [{ type: "schedule", cron: cron.expr, tz: "UTC" }],
-    target: `session:${target}`, conditions: { contains: ["ABSENT"] },
+  f.stores.rules.add(automationRecord({
+    when: { instance: "alarm", from: ["ABSENT"] },
+    then: { target: `session:${target}`, kind: "action", reply: "none" },
   }));
+  f.stores.rules.disable("seed:alarm");
   const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
     purpose: CRON_TICK, at: 0, alarmId: "filtered", sourceKey: "cron", payload: cron, ts: f.time.now,
   });
@@ -84,7 +88,7 @@ test("a filtered schedule tick writes no local prompt shortcut", async () => {
   })));
   expect(kernel.actionById(armed.occurrenceId)).toBeUndefined();
   expect(kernel.actionById(`${armed.occurrenceId}:prompt`)).toBeUndefined();
-  expect(f.stores.automations.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({ decision: "filtered" })]);
+  expect(f.stores.rules.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({ decision: "filtered" })]);
 });
 
 function wakeInput(sessionId: string, payload: string, occurrenceId: string) {
@@ -115,7 +119,8 @@ test("the alarm sender is registered on the first tick only", async () => {
   for (const occurrenceId of ["direct:fire:1", "direct:fire:2"]) {
     const { fired, ctx, prompts } = wakeInput("ticking", JSON.stringify(cron), occurrenceId);
     await runAppEffect(f.app.runtime, ingress(fired, ctx, { content: "TICK_SENTINEL" }));
-    expect(prompts).toEqual(["TICK_SENTINEL"]);
+    expect(prompts).toEqual([]);
+    expect(f.plane.read.session("main").actionById(occurrenceId)?.kind).toBe("action");
   }
   expect(registrations).toEqual(["alarm:ticking"]);
 });
