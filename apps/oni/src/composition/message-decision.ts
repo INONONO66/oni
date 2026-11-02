@@ -1,6 +1,6 @@
 import { AppInvariantError } from "../invariant";
 import { canonicalDigest } from "@oni/protocol";
-import type { createGatewayRouter } from "@oni/channels";
+import { type createGatewayRouter } from "../bundles/messaging/index.js";
 import type { SessionReadModel } from "./cluster-runtime";
 
 type Request = Parameters<Parameters<typeof createGatewayRouter>[0]["run"]>[1];

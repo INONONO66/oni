@@ -1,10 +1,7 @@
 import { composedHolder } from "./helpers/bundle-fixture";
 import { describe, expect, test } from "bun:test";
-import type {
-  ChannelDeliveryRoute,
-  ProviderDeliveryRoute,
-  ProviderTypingRoute,
-} from "@oni/channels";
+import { type ProviderDeliveryRoute, type ProviderTypingRoute } from "@oni/channels";
+import { type ChannelDeliveryRoute } from "../src/bundles/messaging/message-ports.js";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -4,7 +4,7 @@ import { APPROVAL_POLICY } from "./policy";
 const createExecutor = Core.createExecutor;
 const AgentFailure = Core.AgentFailure;
 type SessionRuntimeOptions = Core.SessionRuntimeOptions;
-import type { GatewayRouter } from "@oni/channels";
+import { type GatewayRouter } from "../bundles/messaging/message-ports.js";
 import type { LedgerAction } from "@oni/protocol";
 import type { SessionReadModel } from "./cluster-runtime";
 

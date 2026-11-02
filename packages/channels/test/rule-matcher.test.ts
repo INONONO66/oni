@@ -35,38 +35,38 @@ const cases: readonly { name: string; message: Ingress.Message; rules: readonly 
 ];
 
 test.each(cases)("matches the first rule for $name", async ({ message, rules, expected }) => {
-  const matched = await runEffect(match(rules, message));
-  expect(matched?.id).toBe(expected);
-  if (expected === "owner-draft") expect(matched?.outcome).toMatchObject({ reply: "draft", as: "owner" });
-  if (expected === "alarm") expect(matched?.outcome).toEqual({ kind: "deliver", target: "session:main", deliveryKind: "action", reply: "none" });
+  const matched = await runEffect(match(message, rules));
+  expect(matched?.rule.id).toBe(expected);
+  if (expected === "owner-draft") expect(matched?.rule.outcome).toMatchObject({ reply: "draft", as: "owner" });
+  if (expected === "alarm") expect(matched?.rule.outcome).toEqual({ kind: "deliver", target: "session:main", deliveryKind: "action", reply: "none" });
 });
 
 test.each(["yes", "no", "unknown"] as const)("judge %s selects only a yes answer", async (verdict) => {
-  const matched = await runEffect(match([{ ...record, judge: "Urgent?" }], input, () => Effect.succeed(verdict)));
-  expect(matched?.id).toBe(verdict === "yes" ? "addressed" : undefined);
+  const matched = await runEffect(match(input, [{ ...record, judge: "Urgent?" }], () => Effect.succeed(verdict)));
+  expect(matched?.rule.id).toBe(verdict === "yes" ? "addressed" : undefined);
 });
 
 test("only structurally matching rows invoke the judge and matching stops immediately", async () => {
   const questions: string[] = [];
-  const matched = await runEffect(match([
+  const matched = await runEffect(match(input, [
     { ...record, id: "disabled", position: 0, enabled: false, judge: "disabled" },
     { ...record, id: "other", position: 1, when: { instance: "other" }, judge: "other" },
     { ...record, position: 2, judge: "match" },
     { ...record, id: "later", position: 3, judge: "later" },
-  ], input, (question) => { questions.push(question); return Effect.succeed("yes"); }));
-  expect(matched?.id).toBe(record.id);
+  ], (question) => { questions.push(question); return Effect.succeed("yes"); }));
+  expect(matched?.rule.id).toBe(record.id);
   expect(questions).toEqual(["match"]);
 });
 
 test("a missing judge falls through to the next eligible rule", async () => {
-  const matched = await runEffect(match([{ ...record, judge: "Unavailable?" }, { ...dm, position: 2, when: { instance: "chat" } }], input));
-  expect(matched?.id).toBe("dm");
+  const matched = await runEffect(match(input, [{ ...record, judge: "Unavailable?" }, { ...dm, position: 2, when: { instance: "chat" } }]));
+  expect(matched?.rule.id).toBe("dm");
 });
 
 test.each([
   { channel: "other" }, { dm: true }, { event: "reaction" }, { from: ["other"] }, { addressed: false }, { isBot: true },
 ] satisfies Partial<Ingress.Rule["when"]>[]) ("every supplied when field constrains matching %#", async (fields) => {
-  expect(await runEffect(match([{ ...record, when: { instance: "chat", ...fields } }], input))).toBeUndefined();
+  expect(await runEffect(match(input, [{ ...record, when: { instance: "chat", ...fields } }]))).toBeUndefined();
 });
 
 test("no match records one decision without a delivery route", () => {

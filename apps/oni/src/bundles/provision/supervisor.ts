@@ -1,4 +1,5 @@
-import type { AccountIdentity, ChannelDeliveryRoute, OwnerWithdrawal, ProviderHistoryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
+import { type AccountIdentity, type OwnerWithdrawal, type ProviderHistoryRoute, type ProviderTypingRoute, type ProviderVoiceRoute } from "@oni/channels";
+import { type ChannelDeliveryRoute } from "../messaging/message-ports.js";
 import { ThrownError } from "../../thrown";
 import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../../channels";
 

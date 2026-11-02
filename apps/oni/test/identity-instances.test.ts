@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { ChannelProviders, type ChannelDeliveryRoute, type ProviderTypingRoute } from "@oni/channels";
+import { ChannelProviders, type ProviderTypingRoute } from "@oni/channels";
+import { type ChannelDeliveryRoute } from "../src/bundles/messaging/message-ports.js";
 import type { Provisioning } from "@oni/protocol";
 import { bindOwnerAccount, ownerAccountBinder } from "../src/bundles/provision/declared";
 import {

@@ -9,7 +9,8 @@ const AgentFailure = Core.AgentFailure;
 type AgentFailure = Core.AgentFailure;
 type SessionError = Core.SessionError;
 type SessionHostRuntime = Core.SessionHostRuntime;
-import { createChannelStores, createGatewayRouter, decodeChannelFailure } from "@oni/channels";
+import { createChannelStores, decodeChannelFailure } from "@oni/channels";
+import { createGatewayRouter } from "./bundles/messaging/index.js";
 import { Effect, Logger } from "effect";
 import {
   acquireAppResource,

@@ -1,5 +1,6 @@
 import { Bundle, Core } from "@oni/agent";
-import { activeBudgetFor, type PersonStore } from "@oni/channels";
+import { type PersonStore } from "@oni/channels";
+import { activeBudgetFor } from "../admission.js";
 import { Gateway, type Ingress, Outbound } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";

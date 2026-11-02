@@ -1,4 +1,5 @@
-import { type ChannelDeliveryRoute, ChannelProviders } from "@oni/channels";
+import { ChannelProviders } from "@oni/channels";
+import { type ChannelDeliveryRoute } from "../bundles/messaging/message-ports.js";
 import type { Provisioning } from "@oni/protocol";
 import { isRegisteredProvider } from "../channels";
 

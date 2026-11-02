@@ -1,5 +1,7 @@
 import { Bundle, type Core } from "@oni/agent";
-import { ingressSurfaceKey, scheduleTickChannel, type GatewayRouter, type ChannelStores } from "@oni/channels";
+import { scheduleTickChannel, type ChannelStores } from "@oni/channels";
+import { ingressSurfaceKey } from "../bundles/messaging/automation/input.js";
+import { type GatewayRouter } from "../bundles/messaging/message-ports.js";
 import { Ingress, PlainValueSchema } from "@oni/protocol";
 import { Context, Effect } from "effect";
 import { CauseText } from "../thrown";

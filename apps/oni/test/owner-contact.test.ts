@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { type ChannelDeliveryRoute, ChannelProviders } from "@oni/channels";
+import { ChannelProviders } from "@oni/channels";
+import { type ChannelDeliveryRoute } from "../src/bundles/messaging/message-ports.js";
 import type { Provisioning } from "@oni/protocol";
 import { ownerContactFor } from "../src/composition/owner-contact";
 

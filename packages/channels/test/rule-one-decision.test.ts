@@ -14,9 +14,9 @@ test("an event held by the first rule cannot fire a later rule", async () => {
     id: "group", position: 0, enabled: true, createdBy: "owner", when: { instance: "telegram" },
     group: { by: "thread", windowSeconds: 10 }, outcome: { kind: "deliver", target: "session:one", deliveryKind: "action", reply: "none" },
   };
-  const selected = await runEffect(match([first, { ...first, id: "immediate", position: 1, group: undefined }], input));
-  const held = routeRule(selected, input, { now: 0, pending: [], matchedToday: () => 0 });
-  expect(selected?.id).toBe("group");
+  const selected = await runEffect(match(input, [first, { ...first, id: "immediate", position: 1, group: undefined }]));
+  const held = routeRule(selected?.rule, input, { now: 0, pending: [], matchedToday: () => 0 });
+  expect(selected?.rule.id).toBe("group");
   expect(held.route).toBeUndefined();
   expect(held.pending).toHaveLength(1);
   expect(held.rows).toEqual([expect.objectContaining({ inboundId: "one", decision: "grouped", by: "rule/group" })]);

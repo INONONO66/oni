@@ -55,20 +55,8 @@ type SessionHostRuntime = Core.SessionHostRuntime;
 const AgentFailure = Core.AgentFailure;
 const ExecutionApprovalError = Core.ExecutionApprovalError;
 import { canonicalJson, SessionTransition, type PlainValue } from "@oni/protocol";
-import {
-  type ChannelDeliveryRoute,
-  type ChannelProviders,
-  type ProviderTypingRoute,
-  type ProviderVoiceRoute,
-  type ProviderHistoryRoute,
-  type GatewayRouter,
-  createChannelStores,
-  decodeChannelFailure,
-  ChannelsFailure,
-  WebSocketHandler,
-  createWebhookSender,
-  A2AClient,
-} from "@oni/channels";
+import { type ChannelProviders, type ProviderTypingRoute, type ProviderVoiceRoute, type ProviderHistoryRoute, createChannelStores, decodeChannelFailure, ChannelsFailure, WebSocketHandler, createWebhookSender, A2AClient } from "@oni/channels";
+import { type ChannelDeliveryRoute, type GatewayRouter } from "./bundles/messaging/message-ports.js";
 
 import {
   createFileGenerationStore,

@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
-import { ChannelsFailure, type createGatewayRouter } from "@oni/channels";
+import { ChannelsFailure } from "@oni/channels";
+import { type createGatewayRouter } from "../bundles/messaging/index.js";
 import { type Gateway, Machine } from "@oni/protocol";
 import { Effect } from "effect";
 import { type DrainAnswer, DrainRequest, type HostStatus } from "../cli/supervise-wire";
