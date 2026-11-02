@@ -139,7 +139,8 @@ function outputFixture() {
     plane.close();
     rmSync(dir, { recursive: true, force: true });
   };
-  return { png, outputId, dir, session, reads, fetched, resolve, sender, close, name: `${outputId.slice(7, 19)}.png` };
+  // The upload name is the digest's first twelve hex digits plus the mime's extension: a literal, so a drifting slice fails here.
+  return { png, outputId, dir, session, reads, fetched, resolve, sender, close, name: "fa79bc31c670.png" };
 }
 
 test("a machine path is read whole through the daemon's bounded reads; name and mime follow the part or the path", async () => {
@@ -389,89 +390,95 @@ test("a stored output's upload extension inverts the mime table, first-listed ex
 
 test("a sha256 ref attaches the sender session's stored output: bytes, mime and a digest-named file reach the Telegram and Slack bots (#1783)", async () => {
   const fixture = outputFixture();
-  const part: Outbound.Part = { kind: "image", ref: fixture.outputId, caption: "the frame" };
-  // The resolver alone: the stored row's media type names the mime and the extension; a part's own name wins.
-  expect(await fixture.resolve(part, fixture.sender("session-a"))).toEqual({
-    bytes: fixture.png, name: fixture.name, mime: "image/png",
-  });
-  expect(await fixture.resolve({ kind: "file", ref: fixture.outputId, name: "frame.bin", mime: "application/x-frame" }, fixture.sender("session-a")))
-    .toEqual({ bytes: fixture.png, name: "frame.bin", mime: "application/x-frame" });
-
-  // Telegram bot: the upload carries the stored bytes under the digest-named PNG.
-  const wire = recordHttp(() => Response.json({ ok: true, result: { message_id: 17 } }));
   try {
-    const telegram = createTelegramProvider().create(
-      { token: "tg-test" }, {}, () => undefined, { ...injectedOptions(), media: fixture.resolve },
-    );
-    expect(await telegram.deliveryRoute?.("123", { kind: "message", parts: [part] }, "upload-output", undefined, fixture.sender("session-a")))
-      .toEqual({ value: "accepted", externalMessageId: "17" });
-    expect(wire.requests).toHaveLength(1);
-    const request = wire.requests[0];
-    if (request === undefined) throw new Error("missing request");
-    expect(request.url).toEndWith("/sendPhoto");
-    const form = await request.formData();
-    expect(form.get("caption")).toBe("the frame");
-    const file = form.get("photo");
-    if (!(file instanceof File)) throw new Error("missing file");
-    expect(file.name).toBe(fixture.name);
-    expect(file.type).toBe("image/png");
-    expect(new Uint8Array(await file.arrayBuffer())).toEqual(fixture.png);
-  } finally {
-    wire.restore();
-  }
+    const part: Outbound.Part = { kind: "image", ref: fixture.outputId, caption: "the frame" };
+    // The resolver alone: the stored row's media type names the mime and the extension; a part's own name wins.
+    expect(await fixture.resolve(part, fixture.sender("session-a"))).toEqual({
+      bytes: fixture.png, name: fixture.name, mime: "image/png",
+    });
+    expect(await fixture.resolve({ kind: "file", ref: fixture.outputId, name: "frame.bin", mime: "application/x-frame" }, fixture.sender("session-a")))
+      .toEqual({ bytes: fixture.png, name: "frame.bin", mime: "application/x-frame" });
 
-  // Slack bot: the same letter uploads the same bytes under the same name.
-  const slack = fakeSlackSdk();
-  const runtime = createSlackProvider(slack.sdk).create(
-    { botToken: "xoxb-test", appToken: "xapp-test" }, {}, () => undefined, { ...injectedOptions(), media: fixture.resolve },
-  );
-  expect(await runtime.deliveryRoute?.("T1:U1", { kind: "message", parts: [part] }, "upload-output-slack", { channelId: "C1" }, fixture.sender("session-a")))
-    .toEqual({ value: "accepted" });
-  expect(slack.client.calls).toEqual([
-    { method: "uploadFile", args: ["C1", [...fixture.png], fixture.name, { initial_comment: "the frame" }] },
-  ]);
-  // Neither door behind the output door was entered.
-  expect(fixture.reads).toEqual([]);
-  expect(fixture.fetched).toEqual([]);
-  fixture.close();
+    // Telegram bot: the upload carries the stored bytes under the digest-named PNG.
+    const wire = recordHttp(() => Response.json({ ok: true, result: { message_id: 17 } }));
+    try {
+      const telegram = createTelegramProvider().create(
+        { token: "tg-test" }, {}, () => undefined, { ...injectedOptions(), media: fixture.resolve },
+      );
+      expect(await telegram.deliveryRoute?.("123", { kind: "message", parts: [part] }, "upload-output", undefined, fixture.sender("session-a")))
+        .toEqual({ value: "accepted", externalMessageId: "17" });
+      expect(wire.requests).toHaveLength(1);
+      const request = wire.requests[0];
+      if (request === undefined) throw new Error("missing request");
+      expect(request.url).toEndWith("/sendPhoto");
+      const form = await request.formData();
+      expect(form.get("caption")).toBe("the frame");
+      const file = form.get("photo");
+      if (!(file instanceof File)) throw new Error("missing file");
+      expect(file.name).toBe(fixture.name);
+      expect(file.type).toBe("image/png");
+      expect(new Uint8Array(await file.arrayBuffer())).toEqual(fixture.png);
+    } finally {
+      wire.restore();
+    }
+
+    // Slack bot: the same letter uploads the same bytes under the same name.
+    const slack = fakeSlackSdk();
+    const runtime = createSlackProvider(slack.sdk).create(
+      { botToken: "xoxb-test", appToken: "xapp-test" }, {}, () => undefined, { ...injectedOptions(), media: fixture.resolve },
+    );
+    expect(await runtime.deliveryRoute?.("T1:U1", { kind: "message", parts: [part] }, "upload-output-slack", { channelId: "C1" }, fixture.sender("session-a")))
+      .toEqual({ value: "accepted" });
+    expect(slack.client.calls).toEqual([
+      { method: "uploadFile", args: ["C1", [...fixture.png], fixture.name, { initial_comment: "the frame" }] },
+    ]);
+    // Neither door behind the output door was entered.
+    expect(fixture.reads).toEqual([]);
+    expect(fixture.fetched).toEqual([]);
+  } finally {
+    fixture.close();
+  }
 });
 
 test("a sha256 ref another session holds, a never-stored digest, an unindexed sender or a letter without a session sender is refused output_missing before any URL or machine read (#1783)", async () => {
   const fixture = outputFixture();
-  const part: Outbound.Part = { kind: "image", ref: fixture.outputId };
-  const unknown = `sha256:${"00".repeat(32)}`;
-  // Session B exists (it holds its own, different output) but not this digest.
-  fixture.session("session-b").putToolOutput({ outputId: unknown, bytes: new Uint8Array([1]), mediaType: "image/png" });
-  expect(await refusal(fixture.resolve, part, fixture.sender("session-b"))).toBe("output_missing");
-  expect(await refusal(fixture.resolve, { kind: "image", ref: unknown }, fixture.sender("session-a"))).toBe("output_missing");
-  expect(await refusal(fixture.resolve, part)).toBe("output_missing");
-  expect(await refusal(fixture.resolve, part, { kind: "external", surface: "telegram", externalId: "u1" })).toBe("output_missing");
-  // A sender id the catalog never indexed is refused without opening a session: the read mints no session file.
-  expect(await refusal(fixture.resolve, part, fixture.sender("session-ghost"))).toBe("output_missing");
-  expect(readdirSync(fixture.dir).filter((file) => file.startsWith("session-ghost"))).toEqual([]);
-  const error = await fixture.resolve(part, fixture.sender("session-b")).then(() => undefined, (caught: Error) => caught);
-  expect(error instanceof MediaRefused ? error.data : undefined).toEqual({
-    code: "output_missing", ref: fixture.outputId, detail: "not a stored tool output of session session-b",
-  });
-  // A composition without an outputs port refuses the same way rather than reading a path named like a digest.
-  const portless = createMediaResolver(ports(machineWith({ [fixture.outputId]: fixture.png }, Number.POSITIVE_INFINITY, fixture.reads)));
-  expect(await refusal(portless, part, fixture.sender("session-a"))).toBe("output_missing");
-
-  // Through the Telegram bot the refusal is the letter's receipt, not an upload.
-  const wire = recordHttp(() => Response.json({ ok: true, result: { message_id: 17 } }));
   try {
-    const telegram = createTelegramProvider().create(
-      { token: "tg-test" }, {}, () => undefined, { ...injectedOptions(), media: fixture.resolve },
-    );
-    expect(await telegram.deliveryRoute?.("123", { kind: "message", parts: [part] }, "upload-foreign", undefined, fixture.sender("session-b")))
-      .toMatchObject({ value: "rejected" });
-    expect(wire.requests).toHaveLength(0);
+    const part: Outbound.Part = { kind: "image", ref: fixture.outputId };
+    const unknown = `sha256:${"00".repeat(32)}`;
+    // Session B exists (it holds its own, different output) but not this digest.
+    fixture.session("session-b").putToolOutput({ outputId: unknown, bytes: new Uint8Array([1]), mediaType: "image/png" });
+    expect(await refusal(fixture.resolve, part, fixture.sender("session-b"))).toBe("output_missing");
+    expect(await refusal(fixture.resolve, { kind: "image", ref: unknown }, fixture.sender("session-a"))).toBe("output_missing");
+    expect(await refusal(fixture.resolve, part)).toBe("output_missing");
+    expect(await refusal(fixture.resolve, part, { kind: "external", surface: "telegram", externalId: "u1" })).toBe("output_missing");
+    // A sender id the catalog never indexed is refused without opening a session: the read mints no session file.
+    expect(await refusal(fixture.resolve, part, fixture.sender("session-ghost"))).toBe("output_missing");
+    expect(readdirSync(fixture.dir).filter((file) => file.startsWith("session-ghost"))).toEqual([]);
+    const error = await fixture.resolve(part, fixture.sender("session-b")).then(() => undefined, (caught: Error) => caught);
+    expect(error instanceof MediaRefused ? error.data : undefined).toEqual({
+      code: "output_missing", ref: fixture.outputId, detail: "not a stored tool output of session session-b",
+    });
+    // A composition without an outputs port refuses the same way rather than reading a path named like a digest.
+    const portless = createMediaResolver(ports(machineWith({ [fixture.outputId]: fixture.png }, Number.POSITIVE_INFINITY, fixture.reads)));
+    expect(await refusal(portless, part, fixture.sender("session-a"))).toBe("output_missing");
+
+    // Through the Telegram bot the refusal is the letter's receipt, not an upload.
+    const wire = recordHttp(() => Response.json({ ok: true, result: { message_id: 17 } }));
+    try {
+      const telegram = createTelegramProvider().create(
+        { token: "tg-test" }, {}, () => undefined, { ...injectedOptions(), media: fixture.resolve },
+      );
+      expect(await telegram.deliveryRoute?.("123", { kind: "message", parts: [part] }, "upload-foreign", undefined, fixture.sender("session-b")))
+        .toMatchObject({ value: "rejected" });
+      expect(wire.requests).toHaveLength(0);
+    } finally {
+      wire.restore();
+    }
+    expect(fixture.reads).toEqual([]);
+    expect(fixture.fetched).toEqual([]);
   } finally {
-    wire.restore();
+    fixture.close();
   }
-  expect(fixture.reads).toEqual([]);
-  expect(fixture.fetched).toEqual([]);
-  fixture.close();
 });
 
 test.each([

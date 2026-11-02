@@ -29,7 +29,8 @@ describe("tool_outputs storage (#1305)", () => {
     expect(raw).toEqual({ kind: "output", outputId: id, mediaType: "image/png", bytes: png });
     expect(toolOutputBytes(stores.kernel, OTHER_ID)).toEqual({ kind: "unknown_output", outputId: OTHER_ID });
     const decoded = inspectToolOutput(stores.kernel, id);
-    expect(decoded.kind === "output" && new TextEncoder().encode(decoded.text)).not.toEqual(png);
+    if (decoded.kind !== "output") throw new Error(`inspection was ${decoded.kind}`);
+    expect(new TextEncoder().encode(decoded.text)).not.toEqual(png);
     const untyped = `sha256:${"12".repeat(32)}`;
     stores.kernel.putToolOutput({ outputId: untyped, bytes: bytesOf("no hint") });
     expect(toolOutputBytes(stores.kernel, untyped)).toEqual({ kind: "output", outputId: untyped, bytes: bytesOf("no hint") });

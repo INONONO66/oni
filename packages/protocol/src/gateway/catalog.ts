@@ -44,7 +44,7 @@ const definitions = {
   },
   File: {
     props: FileProps,
-    description: "Use to offer a downloadable file. A ref is an /absolute path on the attached machine (machineId:/path) or an https URL; the channel uploads it where it can.",
+    description: "Use to offer a downloadable file. A ref is an /absolute path on the attached machine (machineId:/path), an https URL, or the sha256:<hex> output id of one of your own tool outputs; the channel uploads it where it can.",
   },
   Audio: {
     props: AudioProps,
