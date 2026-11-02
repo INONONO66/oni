@@ -16,8 +16,8 @@ use oni_machine_client::{
     screen::{Display, Fault, Screen, Source, Window},
 };
 use oni_protocol::{
-    InputKeyRequest, InputPointerRequest, InputTextRequest, InputWriteRequest,
-    PeerScreenCapture, ScreenCaptureRequest,
+    InputKeyRequest, InputPointerRequest, InputTextRequest, InputWriteRequest, PeerScreenCapture,
+    ScreenCaptureRequest,
 };
 use serde_json::{json, Value};
 
