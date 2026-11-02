@@ -448,31 +448,29 @@ async fn launch_argv_and_hooks_stay_in_dialect_data() {
     assert_eq!((codex.executable.as_str(), codex.args.len()), ("codex", 0));
     assert_eq!(dialect("codex").permission(), Permission::CliPrompt);
 
-    for (cli, flag) in [("pi", "--extension"), ("omp", "--hook")] {
-        let command = dialect(cli).command(&context);
-        let module = world.hooks.join(PERMISSION_FILE);
-        assert_eq!(command.executable, cli);
-        assert_eq!(
-            command.args,
-            [flag.to_owned(), module.display().to_string()]
-        );
-        assert_eq!(
-            command.requires.expect("hook module"),
-            HookModule {
-                path: module,
-                source: PERMISSION_MODULE,
-            }
-        );
-        assert_eq!(
-            command.env,
-            [
-                ("ONI_MCLIENT".to_owned(), "/opt/it's/mclient".to_owned()),
-                ("ONI_MCLIENT_CLI".to_owned(), cli.to_owned()),
-            ]
-        );
-        assert_eq!(dialect(cli).permission(), Permission::Hook);
-        assert!(!dialect(cli).assigns_id());
-    }
+    let command = dialect("pi").command(&context);
+    let module = world.hooks.join(PERMISSION_FILE);
+    assert_eq!(command.executable, "pi");
+    assert_eq!(
+        command.args,
+        ["--extension".to_owned(), module.display().to_string()]
+    );
+    assert_eq!(
+        command.requires.expect("hook module"),
+        HookModule {
+            path: module,
+            source: PERMISSION_MODULE,
+        }
+    );
+    assert_eq!(
+        command.env,
+        [
+            ("ONI_MCLIENT".to_owned(), "/opt/it's/mclient".to_owned()),
+            ("ONI_MCLIENT_CLI".to_owned(), "pi".to_owned()),
+        ]
+    );
+    assert_eq!(dialect("pi").permission(), Permission::Hook);
+    assert!(!dialect("pi").assigns_id());
     assert!(dialect("claude-code").assigns_id());
     assert_eq!(dialect("pi").name(), "pi");
 
@@ -716,27 +714,25 @@ async fn launch_refusals_are_typed_and_never_leave_a_process() {
     fs::remove_file(&world.hooks).expect("unblock hooks");
     fs::create_dir(&world.hooks).expect("hooks directory");
     let installed = world.hooks.join(PERMISSION_FILE);
-    for cli in ["pi", "omp"] {
-        // A stale or foreign module at the path is replaced, never trusted.
-        fs::write(&installed, "export {}\n").expect("stale module");
-        assert!(matches!(
-            silent.start(&dialect(cli), &project, None).await,
-            Err(LaunchError::SessionNotAvailable)
-        ));
-        assert_eq!(
-            fs::read_to_string(&installed).expect("installed"),
-            PERMISSION_MODULE
-        );
-        assert_eq!(
-            fs::metadata(&installed)
-                .expect("installed")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
-    }
-    assert_eq!(silent.spawner().launches().len(), 3);
+    // A stale or foreign module at the path is replaced, never trusted.
+    fs::write(&installed, "export {}\n").expect("stale module");
+    assert!(matches!(
+        silent.start(&dialect("pi"), &project, None).await,
+        Err(LaunchError::SessionNotAvailable)
+    ));
+    assert_eq!(
+        fs::read_to_string(&installed).expect("installed"),
+        PERMISSION_MODULE
+    );
+    assert_eq!(
+        fs::metadata(&installed)
+            .expect("installed")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert_eq!(silent.spawner().launches().len(), 2);
     assert!(matches!(
         silent.start(&dialect("pi"), &project, None).await,
         Err(LaunchError::SessionNotAvailable)
@@ -745,11 +741,11 @@ async fn launch_refusals_are_typed_and_never_leave_a_process() {
     fs::write(&installed, "export {}\n").expect("stale module");
     fs::set_permissions(&world.hooks, fs::Permissions::from_mode(0o500)).expect("seal hooks");
     assert!(matches!(
-        silent.start(&dialect("omp"), &project, None).await,
+        silent.start(&dialect("pi"), &project, None).await,
         Err(LaunchError::HookUnavailable(module)) if module == installed
     ));
     fs::set_permissions(&world.hooks, fs::Permissions::from_mode(0o700)).expect("unseal hooks");
-    assert_eq!(silent.spawner().launches().len(), 4);
+    assert_eq!(silent.spawner().launches().len(), 3);
 
     let mut broken = Fake::silent();
     broken.fail_changed = true;
