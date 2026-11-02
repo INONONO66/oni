@@ -82,74 +82,8 @@ export namespace Actor {
   });
   export type ResolvedEndpoint = z.infer<typeof ResolvedEndpoint>;
 
-  export const BlacklistKind = z.enum(["actor", "endpoint", "channel", "pattern"]);
-  export type BlacklistKind = z.infer<typeof BlacklistKind>;
-
-  export const BlacklistEntry = z.object({
-    id: z.string().min(1),
-    kind: BlacklistKind,
-    value: z.string().min(1),
-    reason: z.string().min(1).optional(),
-    expiresAt: EpochMs.optional(),
-    createdBy: z.string().min(1),
-    createdAt: EpochMs.optional(),
-    updatedAt: EpochMs.optional(),
-  });
-  export type BlacklistEntry = z.infer<typeof BlacklistEntry>;
-
-  export const ChannelGrantKind = z.enum([
-    "trusted_channel",
-    "broadcast_channel",
-    "blocked_channel",
-  ]);
-  export type ChannelGrantKind = z.infer<typeof ChannelGrantKind>;
-
   export const InboundTreatment = z.enum(["full_access", "evidence_only", "drop"]);
   export type InboundTreatment = z.infer<typeof InboundTreatment>;
-
-  /**
-   * #P3 (§3.1/§8.12): the Owner's opt-in mint policy for a trusted channel.
-   * Absent means NO provisional contacts are minted on this channel —
-   * zero-default, fail-closed. `max` bounds mints inside each rolling
-   * `windowMs`, so a flood of unknown senders creates bounded sweepable
-   * rows and nothing else.
-   */
-  export const ProvisionalMintPolicy = z
-    .object({
-      windowMs: z.number().int().positive(),
-      max: z.number().int().positive(),
-    })
-    .strict();
-  export type ProvisionalMintPolicy = z.infer<typeof ProvisionalMintPolicy>;
-
-  export const ChannelGrant = z.object({
-    id: z.string().min(1),
-    surface: z.string().min(1),
-    workspace: z.string().min(1).optional(),
-    channel: z.string().min(1).optional(),
-    kind: ChannelGrantKind,
-    defaultTier: TrustTier.optional(),
-    inboundTreatment: InboundTreatment.optional(),
-    // Owner-scoped sender allowlist: when present, the grant exists only for
-    // senders whose external id is listed — for everyone else resolution
-    // finds no grant and the perimeter blocks fail-closed. Absent = the grant
-    // covers every sender on the surface (the loopback-ws posture).
-    allowedSenders: z.array(z.string().min(1)).optional(),
-    // Owner-scoped posture: when true, a channel (non-DM) message on this
-    // grant reaches a session only when it addresses the Resident — a
-    // mention, a reply to its own message, or a thread it already answers
-    // in. DMs always route. Absent = every admitted message routes.
-    mentionOnly: z.boolean().optional(),
-    // #1569 lane 6: an Owner instance of this platform reads under this
-    // grant, so a mention of the Owner addresses the Resident whichever
-    // instance observed it — a fact of the message, not of the observer.
-    ownerIntake: z.boolean().optional(),
-    provisionalMint: ProvisionalMintPolicy.optional(),
-    createdBy: z.string().min(1),
-    createdAt: EpochMs.optional(),
-    updatedAt: EpochMs.optional(),
-  });
-  export type ChannelGrant = z.infer<typeof ChannelGrant>;
 
   const budgetLimit = z
     .number()
@@ -201,8 +135,7 @@ export namespace Actor {
    * #498 A3 — THE canonical actor profile, replacing the retired
    * `AgentProfile` namespace. Two halves of one actor:
    *
-   *   - authority: the trust tier plus id-refs into the grant/blacklist
-   *     stores (refs only — the rows live where their lifecycles are owned);
+   *   - authority: the declared trust tier;
    *   - executable: what the actor runs with (prompt, tools, model, budget).
    *
    * `budget` speaks this vocabulary (`Actor.Profile.Budget`, the former
@@ -211,8 +144,6 @@ export namespace Actor {
   export const Profile = Object.assign(
     z.object({
       trustTier: TrustTier,
-      blacklistEntryId: z.string().min(1).optional(),
-      channelGrantIds: z.array(z.string().min(1)).optional(),
       systemPrompt: z.string().optional(),
       tools: z.array(Tool.Spec).optional(),
       model: Model.Ref.optional(),

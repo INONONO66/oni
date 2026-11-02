@@ -6,7 +6,7 @@ import { channelRequests } from "../helpers/channel-requests";
 import { channelTransaction } from "../helpers/channel-transaction";
 import { originalAction, requestPort } from "../helpers/requests";
 import { messageExecutionReceipt } from "../helpers/message-execution";
-import { Channel, Ingress, Gateway, type Delivery } from "@oni/protocol";
+import { Ingress, Gateway, type Delivery } from "@oni/protocol";
 import { Core } from "@oni/agent";
 import { z } from "zod";
 const KERNEL_POLICY_REGISTRY = Core.KERNEL_POLICY_REGISTRY;
@@ -19,6 +19,7 @@ import {
   type GatewayRouterPorts,
 } from "../../src/router/index.js";
 import type { ConversationBinding } from "../../src/router/messaging/reply";
+import { ingressSurfaceKey } from "../../src/router/automation/input";
 
 export const ownerSender = {
   kind: "external",
@@ -112,6 +113,7 @@ const CommittedOrigin = z
     externalId: z.string().min(1),
     actorId: z.string(),
     receivedBy: z.enum(["bot", "owner"]).optional(),
+    rule: z.object({ reply: z.enum(["auto", "draft", "none"]), as: z.string().optional() }).optional(),
     conversation: z
       .object({
         channelId: z.string().min(1),
@@ -140,9 +142,10 @@ function originBinding(
   );
   const origin = CommittedOrigin.safeParse(prompt?.origin.value);
   if (!origin.success) return undefined;
-  const { surface, instance, externalId, actorId, conversation, receivedBy } = origin.data;
+  const { surface, instance, externalId, actorId, conversation, receivedBy, rule } = origin.data;
   return {
     surface,
+    ...(rule === undefined ? {} : { reply: rule.reply, ...(rule.as === undefined ? {} : { as: rule.as }) }),
     ...(instance === undefined ? {} : { instance }),
     externalId,
     actorId,
@@ -353,25 +356,19 @@ export function registerOwnerDm(): void {
     externalId: ownerSender.externalId,
     workspace: ownerFacts.workspaceId,
   });
-  ledger().stores.channelGrants.put({
-    id: "grant-owner-dm",
-    surface: ownerFacts.surface,
-    workspace: ownerFacts.workspaceId,
-    channel: ownerFacts.channelId,
-    kind: "trusted_channel",
-    createdBy: "actor-owner",
-  });
+  for (const [position, field] of ["dm", "addressed"].entries()) {
+    ledger().stores.rules.add({
+      id: `seed-owner-${field}`, position, enabled: true, createdBy: "owner",
+      when: { instance: ownerFacts.surface, [field]: true, isBot: false },
+      then: { target: "conversation", kind: "prompt", reply: "auto" },
+    });
+  }
 }
 
 export function createMappedOwnerSession(): { readonly id: string } {
   const id = nextFixtureId("mapped-session");
   ledger().stores.surfaceKeys.claim(
-    Channel.SurfaceKey.fromChannel({
-      surface: ownerFacts.surface,
-      namespace: "owner-workspace",
-      kind: "dm",
-      id: ownerFacts.channelId,
-    }),
+    ingressSurfaceKey(ownerFacts, ownerSender.externalId),
     id,
   );
   return { id };

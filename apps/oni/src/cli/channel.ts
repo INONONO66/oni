@@ -38,13 +38,11 @@ const CHANNEL_CREDENTIALS: Readonly<Record<string, readonly { readonly key: stri
   ],
 };
 const OWNER_ONLY = new Set(["linear"]);
-const TIERS = ["owner", "co_owner", "manager", "collaborator", "observer", "assigned_worker"] as const;
-type Tier = (typeof TIERS)[number];
 const INTAKES = ["mentions_and_dms", "all", "none"] as const;
 type Intake = (typeof INTAKES)[number];
 
 export const CHANNEL_ADD_USAGE = `usage: oni channel add <slack|discord|telegram|github|webhook|a2a|linear> [--id channel:<provider>:<slug>]
-                            [--tier ${TIERS.join("|")}] [--allow <platform-id>[,...]] [--mention-only]
+                            [--from <platform-id>[,...]]
                             [--intake ${INTAKES.join("|")}] [--outbound] [--auto-reply]   (linear: the Owner's account)
                             [--print]`;
 
@@ -52,9 +50,7 @@ export interface ChannelAddOptions {
   readonly provider: string;
   readonly instanceId: string;
   readonly identity: "bot" | "owner";
-  readonly tier?: Tier;
-  readonly allow?: readonly string[];
-  readonly mentionOnly: boolean;
+  readonly from?: readonly string[];
   readonly intake?: Intake;
   readonly outbound: boolean;
   readonly autoReply: boolean;
@@ -62,18 +58,13 @@ export interface ChannelAddOptions {
   readonly print: boolean;
 }
 
-function isTier(value: string): value is Tier {
-  return TIERS.some((tier) => tier === value);
-}
 function isIntake(value: string): value is Intake {
   return INTAKES.some((intake) => intake === value);
 }
 
 interface ParsedFlags {
   instanceId: string;
-  tier?: Tier;
-  allow?: string[];
-  mentionOnly: boolean;
+  from?: string[];
   intake?: Intake;
   outbound: boolean;
   autoReply: boolean;
@@ -86,21 +77,12 @@ function applyFlag(options: ParsedFlags, flag: string, takes: (name: string) => 
     case "--id":
       options.instanceId = takes("--id");
       break;
-    case "--tier": {
-      const tier = takes("--tier");
-      if (!isTier(tier)) throw new CliError(`--tier needs one of ${TIERS.join(", ")}\n${CHANNEL_ADD_USAGE}`);
-      options.tier = tier;
+    case "--from": {
+      const ids = takes("--from").split(",").map((id) => id.trim()).filter((id) => id.length > 0);
+      if (ids.length === 0) throw new CliError(`--from needs at least one platform id\n${CHANNEL_ADD_USAGE}`);
+      options.from = ids;
       break;
     }
-    case "--allow": {
-      const ids = takes("--allow").split(",").map((id) => id.trim()).filter((id) => id.length > 0);
-      if (ids.length === 0) throw new CliError(`--allow needs at least one platform id\n${CHANNEL_ADD_USAGE}`);
-      options.allow = ids;
-      break;
-    }
-    case "--mention-only":
-      options.mentionOnly = true;
-      break;
     case "--intake": {
       const intake = takes("--intake");
       if (!isIntake(intake)) throw new CliError(`--intake needs ${INTAKES.join(", ")}\n${CHANNEL_ADD_USAGE}`);
@@ -121,10 +103,8 @@ function applyFlag(options: ParsedFlags, flag: string, takes: (name: string) => 
   }
 }
 
-/** The flags that contradict the platform: a peer row takes no grant block, a bot has no Owner posture, auto-reply needs outbound. */
+/** The flags that contradict the platform: a peer row takes no sender restriction, a bot has no Owner posture, auto-reply needs outbound. */
 function refuseIncoherent(provider: string, owner: boolean, options: ParsedFlags): void {
-  if (provider === "a2a" && (options.tier !== undefined || options.allow !== undefined || options.mentionOnly))
-    throw new CliError(`an a2a peer is admitted through the one door at its contact's tier (contact_add); a peer row takes no grant block\n${CHANNEL_ADD_USAGE}`);
   if (!owner && (options.intake !== undefined || options.outbound || options.autoReply))
     throw new CliError(`--intake, --outbound and --auto-reply describe the Owner's own account; ${provider} is declared as the bot (sign the account in with oni login)\n${CHANNEL_ADD_USAGE}`);
   if (options.autoReply && !options.outbound)
@@ -137,7 +117,7 @@ export function parseChannelAddArgs(args: readonly string[]): ChannelAddOptions 
   if (provider === undefined || CHANNEL_CREDENTIALS[provider] === undefined)
     throw new CliError(`channel add needs a platform\n${CHANNEL_ADD_USAGE}`);
   const owner = OWNER_ONLY.has(provider);
-  const options: ParsedFlags = { instanceId: `channel:${provider}:${owner ? "owner" : "main"}`, mentionOnly: false, outbound: false, autoReply: false, print: false };
+  const options: ParsedFlags = { instanceId: `channel:${provider}:${owner ? "owner" : "main"}`, outbound: false, autoReply: false, print: false };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index] ?? "";
     applyFlag(options, flag, (name) => {
@@ -164,20 +144,12 @@ export async function askCredential(provider: string, ask: Ask): Promise<Record<
   return credential;
 }
 
-/** The declaration as the Owner's socket carries it: the grant block is the Owner's consent by the call itself (#1600 lane R1). */
+/** The declaration as the Owner's socket carries it: the sender restriction is the Owner's consent by the call itself (#1600 lane R1). */
 export function channelDeclaration(
   options: ChannelAddOptions,
   credential: Record<string, string>,
   requestId: string,
 ): Provisioning.ChannelDeclareRequest {
-  const grant =
-    options.tier === undefined && options.allow === undefined && !options.mentionOnly
-      ? undefined
-      : {
-          ...(options.tier === undefined ? {} : { defaultTier: options.tier }),
-          ...(options.allow === undefined ? {} : { allowedSenders: [...options.allow] }),
-          ...(options.mentionOnly ? { mentionOnly: true } : {}),
-        };
   return {
     type: "channel_add",
     requestId,
@@ -188,7 +160,7 @@ export function channelDeclaration(
       ? { settings: { intake: options.intake ?? "mentions_and_dms", autoReply: options.autoReply } }
       : {}),
     ...(options.outbound ? { outbound: true } : {}),
-    ...(grant === undefined ? {} : { grant }),
+    ...(options.from === undefined ? {} : { from: [...options.from] }),
     credential,
   };
 }
@@ -202,7 +174,7 @@ interface ChannelIo {
 /**
  * `oni channel add <platform>` (#1600 lane R4): declares a bot
  * instance — or Linear's Owner instance — over the Owner's socket with its
- * grant block, the credential asked for here and sealed into the vault by
+ * sender restriction, the credential asked for here and sealed into the vault by
  * the daemon, never written on this side. `--print` shows the declaration
  * instead, for an Owner declaring through the Resident's provision tool.
  */

@@ -1,5 +1,5 @@
 import { Core } from "@oni/agent";
-import type { createAutomationStore } from "@oni/channels";
+import type { createRuleStore } from "@oni/channels";
 import { Provisioning, type Delivery } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -10,7 +10,7 @@ import { AutomationWake } from "./automation-alarm";
 import type { createResident } from "./resident";
 
 const AutomationOrigin = z.object({
-  automation: z.object({ id: z.string(), newSession: z.boolean(), instructions: z.string().optional(), agent: z.string().min(1).optional() }),
+  rule: z.object({ id: z.string(), newSession: z.boolean(), instructions: z.string().optional(), agent: z.string().min(1).optional() }),
 });
 
 /** A new session's instructions open its prompt: merged into a leading text part, or set before leading media. */
@@ -24,7 +24,7 @@ function withInstructions(instructions: string, content: Delivery.Content): Deli
 /** Genesis and both inputs use the core create/Deliver doors; channels alone owns receipts. */
 export function createAutomationDelivery(
   deps: MessageDeliveryDeps,
-  store: ReturnType<typeof createAutomationStore>,
+  store: ReturnType<typeof createRuleStore>,
   genesis: ReturnType<typeof createResident>["genesis"],
 ) {
   const commit = createMessageDeliveryCommit(deps);
@@ -47,7 +47,7 @@ export function createAutomationDelivery(
     Effect.gen(function* () {
       const parsed = AutomationOrigin.safeParse(input.origin.value);
       if (!parsed.success) return yield* deliver(input);
-      const { automation } = parsed.data;
+      const { rule: automation } = parsed.data;
       const exists = deps.plane.read.sessions.list().some((row) => row.id === input.sessionId);
       if (!automation.newSession && !exists) {
         // The app records the refusal through the channels store; channels never learns why.

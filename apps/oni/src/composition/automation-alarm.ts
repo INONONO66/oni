@@ -16,6 +16,10 @@ export type AlarmIngress = (
 
 /** The alarm occurrence is already authenticated by the session writer and chain guard. */
 export function automationAlarm(router: GatewayRouter, stores: ChannelStores): AlarmIngress {
+  if (stores.rules.get("seed:alarm") === undefined) stores.rules.add({
+    id: "seed:alarm", position: stores.rules.list().length, enabled: true, createdBy: "owner", seed: true,
+    when: { instance: "alarm" }, then: { target: "session:main", kind: "action", reply: "none" },
+  }, true);
   // One alarm sender per session, registered on its first tick rather than on every tick.
   const registered = new Set<string>();
   const register = (sessionId: string, externalId: string) => {
@@ -33,7 +37,7 @@ export function automationAlarm(router: GatewayRouter, stores: ChannelStores): A
       ? payload.expr : undefined;
     const input = yield* Effect.try({
       try: () => Ingress.Input.parse({
-        surface: "alarm", event: "schedule", eventId: fired.occurrenceId,
+        surface: "alarm", instance: "alarm", event: "schedule", eventId: fired.occurrenceId,
         channelId: typeof expr === "string" ? scheduleTickChannel(expr) : `monitor:${fired.alarmId}`,
         threadId: ctx.sessionId, author: { externalId: `session:${ctx.sessionId}`, isBot: true },
         dm: false, mentionsBot: false, body: prompt.content, receivedAt: ctx.now,
@@ -41,10 +45,10 @@ export function automationAlarm(router: GatewayRouter, stores: ChannelStores): A
       catch: (error) => malformed(CauseText.parse(error)),
     });
     register(ctx.sessionId, input.author.externalId);
-    const result = yield* router.ingest(
+    yield* router.ingest(
       { kind: "external", surface: input.surface, externalId: input.author.externalId },
       {
-        eventId: input.eventId, surface: input.surface, event: input.event,
+        eventId: input.eventId, surface: input.surface, instance: input.instance, event: input.event,
         channelId: input.channelId ?? `monitor:${fired.alarmId}`, author: input.author,
         reply: { chain: [], threadId: input.threadId }, dm: input.dm, addressees: [],
         render: input.body, payload: { receivedAt: input.receivedAt },
@@ -53,10 +57,5 @@ export function automationAlarm(router: GatewayRouter, stores: ChannelStores): A
       Effect.provideService(AutomationWake, ctx),
       Effect.mapError((error) => new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: error._tag })),
     );
-    // Existing self-addressed alarms retain their prompt when no automation
-    // governs the tick. A filtered/refused/grouped record never takes this path.
-    if (result.status === "blocked_pre" && result.reasonCode === "message.external.grant_tier" &&
-        stores.automations.decisions(input.eventId).length === 0)
-      yield* ctx.prompt(prompt);
   });
 }

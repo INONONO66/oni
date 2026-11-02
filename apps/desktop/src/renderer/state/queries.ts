@@ -24,7 +24,7 @@ export const queryKeys = {
   session: (sessionId: string) => ["gateway", "session", sessionId] as const,
   automations: ["gateway", "automations"] as const,
   machines: ["gateway", "machines"] as const,
-  automationLedger: (filter: Partial<Ingress.AutomationLedgerFilter>) => ["gateway", "automation-ledger", filter] as const,
+  automationLedger: (filter: Partial<Ingress.RuleLedgerFilter>) => ["gateway", "automation-ledger", filter] as const,
 };
 
 export function machineListOptions(transport: Pick<GatewayChatTransport, "machineList"> | null) {
@@ -51,7 +51,7 @@ export function automationListOptions(transport: GatewayChatTransport | null) {
   });
 }
 
-export function automationLedgerOptions(transport: GatewayChatTransport | null, filter: Partial<Ingress.AutomationLedgerFilter>) {
+export function automationLedgerOptions(transport: GatewayChatTransport | null, filter: Partial<Ingress.RuleLedgerFilter>) {
   return queryOptions({
     queryKey: queryKeys.automationLedger(filter),
     enabled: transport !== null,

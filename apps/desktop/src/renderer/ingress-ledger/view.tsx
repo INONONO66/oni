@@ -11,7 +11,7 @@ export function IngressLedgerView({ transport, now, onOpenSession }: {
   readonly now: number;
   readonly onOpenSession: (id: string) => void;
 }) {
-  const [filter, setFilter] = useState<Partial<Ingress.AutomationLedgerFilter>>({});
+  const [filter, setFilter] = useState<Partial<Ingress.RuleLedgerFilter>>({});
   const [error, setError] = useState<string | null>(null);
   const ledger = useQuery(automationLedgerOptions(transport, filter));
   return <ConsoleContent>
@@ -22,7 +22,7 @@ export function IngressLedgerView({ transport, now, onOpenSession }: {
         const data = new FormData(event.currentTarget);
         const since = String(data.get("since") ?? "");
         const until = String(data.get("until") ?? "");
-        const parsed = Ingress.AutomationLedgerFilter.safeParse({
+        const parsed = Ingress.RuleLedgerFilter.safeParse({
           surface: data.get("surface") || undefined,
           decision: data.get("decision") || undefined,
           recordId: data.get("recordId") || undefined,
@@ -37,7 +37,7 @@ export function IngressLedgerView({ transport, now, onOpenSession }: {
         setFilter(parsed.data);
       }}>
         <Field label="Surface"><Input name="surface" placeholder="All surfaces" /></Field>
-        <Field label="Decision"><Select name="decision" defaultValue=""><option value="">All decisions</option>{Ingress.AutomationLedgerFilter.shape.decision.unwrap().options.map((decision) => <option key={decision} value={decision}>{decision}</option>)}</Select></Field>
+        <Field label="Decision"><Select name="decision" defaultValue=""><option value="">All decisions</option>{Ingress.RuleLedgerFilter.shape.decision.unwrap().options.map((decision) => <option key={decision} value={decision}>{decision}</option>)}</Select></Field>
         <Field label="Record ID"><Input name="recordId" placeholder="All records" /></Field>
         <Field label="Since"><Input name="since" type="datetime-local" /></Field>
         <Field label="Until"><Input name="until" type="datetime-local" /></Field>

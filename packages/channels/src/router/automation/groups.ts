@@ -1,6 +1,6 @@
 import { Cause, Effect } from "effect";
 import { advanceGroups, type MatchDecision } from "../../automation/matcher.js";
-import type { StoredGroup } from "../../store/automation/group.js";
+import type { StoredGroup } from "../../store/rule/group.js";
 import type { ChannelStores } from "../stores.js";
 import { type ChannelError, decodeChannelFailure } from "../../errors.js";
 import { Ingress, type BusEvent, type Gateway } from "@oni/protocol";
@@ -22,15 +22,15 @@ export function advanceAutomationGroups(stores: ChannelStores, now: number,
   dispatch: (group: StoredGroup, route: NonNullable<MatchDecision["route"]>) =>
     Effect.Effect<Gateway.IngestResult, ChannelError>) {
   return Effect.gen(function* () {
-    yield* stores.automations.ready;
-    for (const group of stores.automations.groups()) {
-      const record = stores.automations.get(group.pending.automationId)?.record;
+    yield* stores.rules.ready;
+    for (const group of stores.rules.groups()) {
+      const record = stores.rules.get(group.pending.ruleId)?.record;
       const closed = advanceGroups(record === undefined ? [] : [record], [group.pending], now);
       const decision = closed.decisions[0];
       if (decision === undefined) continue;
       const route = decision.route;
-      const limited = record?.limits !== undefined &&
-        stores.automations.matchedToday(record.id, now) >= record.limits.maxRunsPerDay;
+      const limited = record?.then.maxRunsPerDay !== undefined &&
+        stores.rules.matchedToday(record.id, now) >= record.then.maxRunsPerDay;
       const result: Gateway.IngestResult | undefined = limited
         ? { status: "blocked_pre", reasonCode: "limit" }
         : route === undefined ? undefined : yield* Effect.suspend(() => dispatch(group, route)).pipe(
@@ -38,7 +38,7 @@ export function advanceAutomationGroups(stores: ChannelStores, now: number,
             : Effect.succeed({ status: "blocked_pre" as const, reasonCode: `dispatch:${Cause.pretty(cause)}` })),
         );
       const rows = yield* Effect.try({
-        try: () => stores.automations.closeGroup(group.id, now, result?.status === "executed",
+        try: () => stores.rules.closeGroup(group.id, now, result?.status === "executed",
           closeRows(group, decision, result)),
         catch: decodeChannelFailure("automation.close"),
       });

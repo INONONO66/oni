@@ -94,7 +94,7 @@ function originConversation(
       messageId: facts.postback?.messageRef ?? facts.eventId,
       dm: facts.dm,
       ...(facts.workspaceId === undefined ? {} : { workspaceId: facts.workspaceId }),
-      ...(facts.reply?.threadId === undefined ? {} : { threadId: facts.reply.threadId }),
+      ...(facts.dm ? {} : { threadId: facts.reply?.threadId ?? facts.eventId }),
     },
   };
 }
@@ -157,10 +157,12 @@ function deliveryAdmission(
         ...(external === undefined ? {} : { inboundTreatment: external.route.decision.inboundTreatment ?? "full_access" }),
         ...(external?.automation?.kind === "action"
           ? { source: external.automation.source, handlerRef: external.automation.handlerRef } : {}),
-        ...(external?.automation?.automationId === undefined ||
-          external.automation.automationId.startsWith("granted-direct:") ? {} : {
-          automation: {
-            id: external.automation.automationId,
+        ...(external?.automation === undefined ? {} : {
+          rule: {
+            id: external.automation.ruleId,
+            reply: external.automation.reply,
+            ...(external.automation.as === undefined ? {} : { as: external.automation.as }),
+            ...(external.automation.agent === undefined ? {} : { agent: external.automation.agent }),
             newSession: external.automation.newSession ?? false,
             ...(external.automation.instructions === undefined ? {} : { instructions: external.automation.instructions }),
           },
@@ -186,8 +188,7 @@ function admitExternal(context: MessageContext, content: string) {
     const decision = requireRoutedDecision(external.route.decision);
     yield* executeRequestRoute(context.stores, external.route, decision,
       context.ports.requests, content, context.clock());
-    if (external.automation?.automationId === undefined ||
-        external.automation.automationId.startsWith("granted-direct:"))
+    if (external.automation?.conversation === true)
       context.stores.surfaceKeys.claim(external.surfaceKey, context.prepared.target);
     return external.route.requestExecution.kind === "request";
   });

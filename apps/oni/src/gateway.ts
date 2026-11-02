@@ -1,5 +1,6 @@
 import type { ComputerHandle, MachineHost } from "@oni/machines";
 import { machineWire } from "./composition/machine-wire";
+import { seedChannelRules } from "./bundles/provision/channels";
 import { createStreamProbe } from "./composition/stream-probe";
 import { channelHistoryWire, type ChannelHistoryLookup } from "./composition/channel-history";
 import type { WsParts } from "./composition/ws-parts";
@@ -11,14 +12,12 @@ import {
   type ChannelStores,
   createGatewayRouter,
   type GatewayRouter,
-  webSocketSenderTier,
   type WebSocketHandler,
   type WsConnection,
 } from "@oni/channels";
 import { type ChannelError, decodeChannelFailure, type ChannelStoreSource } from "@oni/channels";
 import { Core, type Bundle, Inspect } from "@oni/agent";
-import type { ChannelGrantStore } from "@oni/channels";
-import type { Actor, Gateway, Ingress, LedgerAction } from "@oni/protocol";
+import type { Gateway, Ingress, LedgerAction } from "@oni/protocol";
 const Entropy = Core.Entropy;
 const GenerationLayers = Core.GenerationLayers;
 const ObservationSink = Core.ObservationSink;
@@ -368,8 +367,8 @@ export function webSocketCallbacks(
   openSession?: (sessionId: string) => Core.SessionReadModel | undefined,
   fork?: (request: SessionFork.Request) => Effect.Effect<SessionFork.Response>,
   automation?: {
-    readonly respond: (request: Ingress.AutomationRequest, caller: "owner" | `session:${string}`) =>
-      Effect.Effect<Ingress.AutomationResponse>;
+    readonly respond: (request: Ingress.RuleRequest, caller: "owner" | `session:${string}`) =>
+      Effect.Effect<Ingress.RuleResponse>;
     readonly stores: ChannelStores;
   },
   machines?: Pick<MachineHost, "list"> & {
@@ -446,10 +445,10 @@ export function webSocketCallbacks(
     });
     send();
   }
-  // #1456: the same fact chat admits the Owner by (registered identity,
-  // else the ws bootstrap grant), without registering one.
+  // The app trusts loopback/token-gated chat; a declared actor retains its identity.
   const wsCaller = (externalId: string): "owner" | `session:${string}` =>
-    automation !== undefined && webSocketSenderTier(automation.stores, externalId) === "owner"
+    automation !== undefined &&
+      (automation.stores.actors.resolveEndpoint("ws", externalId)?.identity.trustTier ?? "owner") === "owner"
       ? "owner"
       : `session:ws:${externalId}`;
   // #1569 lane 5b: the Owner's channel declaration is answered by the composed
@@ -516,12 +515,12 @@ export function webSocketCallbacks(
                   );
                 }
                 if ("type" in outcome &&
-                    (outcome.type === "automation_add" || outcome.type === "automation_remove" ||
-                     outcome.type === "automation_enable" || outcome.type === "automation_disable" ||
-                     outcome.type === "automation_list" || outcome.type === "automation_ledger")) {
+                    (outcome.type === "rule_add" || outcome.type === "rule_remove" ||
+                     outcome.type === "rule_enable" || outcome.type === "rule_disable" ||
+                     outcome.type === "rule_list" || outcome.type === "rule_ledger" || outcome.type === "rule_move")) {
                   return Effect.map(
                     automation?.respond(outcome, wsCaller(ws.data.externalId)) ??
-                      Effect.succeed<Ingress.AutomationResponse>({
+                      Effect.succeed<Ingress.RuleResponse>({
                         type: `${outcome.type}_refused`, requestId: outcome.requestId,
                         reason: "store_unconfigured", detail: "Automation store is not configured",
                       }),
@@ -620,102 +619,6 @@ export async function createMonitorPorts(
   });
 }
 
-/**
- * The tier a named channel surface mounts with when no Owner decision
- * declares one (#931): the least authority the protocol tier vocabulary
- * carries. Mounting is not an authority decision — a surface that merely
- * exists grants the weakest standing there is, and every raise above it is
- * an explicit declaration (`ChannelInstance.grant.defaultTier`).
- */
-export const MOUNTED_CHANNEL_DEFAULT_TIER: Actor.TrustTier = "assigned_worker";
-
-/**
- * The one owner-tier decision this app makes (#931): the loopback `ws`
- * bootstrap surface (docs/provisioning-and-providers.md §6), token-gated off
- * loopback by `assertWsExposure`. It is named here so the single call site
- * that holds it is greppable and no other caller can inherit it.
- */
-const LOOPBACK_BOOTSTRAP_TIER: Actor.TrustTier = "owner";
-
-/** The authority one surface's trusted-channel grant materializes. */
-export interface TrustedChannelGrant {
-  readonly surface: string;
-  /**
-   * The tier senders on this surface resolve to when they carry no registered
-   * identity. Always explicit: owner authority exists only where a call site
-   * names it (the loopback `ws` bootstrap).
-   */
-  readonly defaultTier: Actor.TrustTier;
-  readonly allowedSenders?: readonly string[];
-  /** Channel messages route only when they address the Resident; DMs always do. */
-  readonly mentionOnly?: boolean;
-  /** An Owner instance reads this platform (#1569 lane 6): a mention of the Owner addresses the Resident. */
-  readonly ownerIntake?: boolean;
-}
-
-/**
- * Registers the Resident's trusted-channel authority for one surface and
- * returns the revoker. A channel component holds this while mounted: the
- * grant exists exactly as long as the component serves the surface, so an
- * unmounted channel's inbound traffic loses `trusted_channel` treatment and
- * the perimeter refuses it fail-closed. Grants are current authority, not
- * history — revoking one erases no recorded fact.
- */
-export function registerTrustedChannelGrant(
-  grants: ChannelGrantStore,
-  grant: TrustedChannelGrant,
-): () => void {
-  const id = `oni-resident-${grant.surface}`;
-  grants.put({
-    id,
-    surface: grant.surface,
-    kind: "trusted_channel",
-    defaultTier: grant.defaultTier,
-    // An allowlisted grant materializes this tier for the listed senders
-    // alone — everyone else on the surface finds no grant and is blocked.
-    ...(grant.allowedSenders === undefined ? {} : { allowedSenders: [...grant.allowedSenders] }),
-    ...(grant.mentionOnly === undefined ? {} : { mentionOnly: grant.mentionOnly }),
-    ...(grant.ownerIntake === undefined ? {} : { ownerIntake: grant.ownerIntake }),
-    createdBy: "local-owner",
-  });
-  return () => {
-    grants.remove(id);
-  };
-}
-
-/**
- * THE grant seam the composition root hands the channel supervisor (#931):
- * the surface's tier is whatever its desired row declared, the configured
- * allowlist pins the grant to its listed senders (an unlisted surface keeps
- * the open posture), and a surface listed as mention-only routes channel
- * messages only when they address the Resident. Owner authority cannot enter
- * here — this function names no tier of its own, so no mounted named surface
- * can acquire one.
- */
-export function createMountedChannelGrantRegistrar(
-  grants: ChannelGrantStore,
-  allowedSendersBySurface: Readonly<Record<string, readonly string[]>> | undefined,
-  mentionOnlySurfaces: readonly string[] | undefined = undefined,
-): (
-  surfaceId: string,
-  defaultTier: Actor.TrustTier,
-  ownerIntake?: boolean,
-  /** #1600: what the declarations themselves say; an env list stands only where no declaration speaks. */
-  policy?: { readonly allowedSenders?: readonly string[]; readonly mentionOnly?: boolean },
-) => () => void {
-  return (surfaceId, defaultTier, ownerIntake, policy) => {
-    const allowedSenders = policy?.allowedSenders ?? allowedSendersBySurface?.[surfaceId];
-    const mentionOnly = policy?.mentionOnly ?? (mentionOnlySurfaces?.includes(surfaceId) === true ? true : undefined);
-    return registerTrustedChannelGrant(grants, {
-      surface: surfaceId,
-      defaultTier,
-      ...(allowedSenders === undefined ? {} : { allowedSenders }),
-      ...(mentionOnly === true ? { mentionOnly: true } : {}),
-      ...(ownerIntake === true ? { ownerIntake: true } : {}),
-    });
-  };
-}
-
 export interface OutboundMessaging {
   readonly deliveryRoutes: ReadonlyMap<string, ChannelDeliveryRoute>;
   readonly grants: () => readonly Gateway.SenderTargetGrant[];
@@ -744,9 +647,7 @@ export function channelStoreSource(plane: AppLedgerPlane, now: () => number): Ch
   return {
     now,
     actorRegistry: plane.channel.actorRegistry,
-    automation: plane.channel.automation,
-    blacklist: plane.channel.blacklist,
-    channelGrant: plane.channel.channelGrant,
+    rule: plane.channel.rule,
     egressBudget: plane.channel.egressBudget,
     surfaceKey: plane.channel.surfaceKey,
     get decisionFacts() {
@@ -788,12 +689,9 @@ export function createResidentGateway(
     const plane = yield* AppLedger;
     const observations = yield* ObservationSink;
     const stamp = { now: ports.now, id: ports.id };
-    registerTrustedChannelGrant(plane.stores.channelGrants, {
-      surface: "ws",
-      defaultTier: LOOPBACK_BOOTSTRAP_TIER,
-    });
+    seedChannelRules(ports.stores.rules, "ws", "bot");
     const externalRun = yield* createIngressExecutor(plane, approvalPolicy);
-    return createGatewayRouter({
+    const router = createGatewayRouter({
       ...ports,
       transaction: channelTransaction(plane),
       sink: scopeObservation(observations, { sessionId: "gateway-ingress" }, stamp).publish,
@@ -826,5 +724,17 @@ export function createResidentGateway(
             },
           }),
     });
+    return {
+      advance: router.advance,
+      ingest: (sender, message, context) => Effect.suspend(() => {
+        if (sender.kind === "external" && sender.surface === "ws" &&
+            ports.stores.actors.resolveEndpoint("ws", sender.externalId) === undefined) {
+          const actorId = `ws:owner:${sender.externalId}`;
+          ports.stores.actors.registerIdentity({ id: actorId, kind: "human", trustTier: "owner" });
+          ports.stores.actors.registerEndpoint({ id: `ws:${sender.externalId}`, actorId, channel: "ws", externalId: sender.externalId });
+        }
+        return router.ingest(sender, message, context);
+      }),
+    };
   });
 }

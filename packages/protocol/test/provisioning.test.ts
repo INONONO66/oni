@@ -55,7 +55,7 @@ describe("Provisioning.ChannelInstance", () => {
       enabled: true,
       settings: { pollIntervalMs: 500 },
       credentialRef: "secret:channel-telegram-main",
-      grant: { defaultTier: "observer", provisionalMint: true },
+      grant: { outbound: true },
       revision: 1,
       createdBy: "person:ino",
       updatedAt: NOW,

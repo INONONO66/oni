@@ -1,4 +1,4 @@
-import { type ChannelError, type ChannelStores, decodeChannelFailure, webSocketSenderTier } from "@oni/channels";
+import { type ChannelError, type ChannelStores, decodeChannelFailure } from "@oni/channels";
 import type { Gateway, SessionTransition } from "@oni/protocol";
 import { Effect } from "effect";
 
@@ -14,8 +14,8 @@ export interface OwnerAnswerDeps {
  * Who may answer a request (#1245; #1600 lane R3): with a token configured,
  * the token, as before. On a tokenless loopback boot nothing could ever
  * present one, so the socket is the evidence under the one rule chat already
- * admits it by (`webSocketSenderTier`: the ws bootstrap grant makes every
- * loopback socket the Owner, which `assertWsExposure` confines to loopback);
+ * admits it by (the app trusts undeclared loopback sockets as the Owner,
+ * which `assertWsExposure` confines to loopback);
  * a sender on any other surface still goes to the token rule and is refused.
  * The in-process approvals facade (`authorizeApproval`, reached by tests
  * alone) keeps the token rule.
@@ -31,7 +31,7 @@ export function ownerAnswerAuthentication(
   return (sender, credential, requestId) =>
     Effect.try({
       try: () =>
-        tokenless && sender.surface === "ws" && webSocketSenderTier(deps.stores, sender.externalId) === "owner"
+        tokenless && sender.surface === "ws" && (deps.stores.actors.resolveEndpoint("ws", sender.externalId)?.identity.trustTier ?? "owner") === "owner"
           ? { kind: "owner" as const, principalId: "owner", evidenceId: `ws-loopback:${sender.externalId}:${requestId}` }
           : deps.byToken(credential, requestId),
       catch: decodeChannelFailure("answer.authenticate"),

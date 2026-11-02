@@ -1,6 +1,6 @@
 export { WebSocketHandler } from "./websocket.js";
 export type { WsConnection } from "./websocket.js";
-export { AttachmentRefused, AutomationConfigurationError, ChannelsFailure, decodeChannelFailure, MediaTooLarge, SendAdmissionConflict, VoiceJoinRefused } from "./errors.js";
+export { AttachmentRefused, RuleConfigurationError, ChannelsFailure, decodeChannelFailure, MediaTooLarge, SendAdmissionConflict, VoiceJoinRefused } from "./errors.js";
 export type { ChannelError } from "./errors.js";
 export type { AccountIdentity, ChannelProvider, OwnerArm, OwnerWithdrawal, ProviderDeliveryRoute, ProviderTypingRoute } from "./provider/contract.js";
 export { OwnerPosture } from "./provider/contract.js";
@@ -24,7 +24,6 @@ export { A2AClient, type A2AAnswer, type A2ACardRead, type A2AFetch } from "./pr
 export { A2ACredentials, textOf as textOfA2A } from "./provider/a2a/types.js";
 export { createA2AProvider, type A2ACardFacts, type PeerResolver } from "./provider/a2a/provider.js";
 export { createGatewayRouter } from "./router/index.js";
-export { resolveChannelGrant, webSocketSenderTier } from "./router/channel-grant.js";
 export type { ChannelDeliveryRoute, GatewayRouter } from "./router/index.js";
 // #1569: the reply door's binding is folded by the composing app from the
 // prompt's recorded origin and verified here; the shape is the contract.
@@ -38,10 +37,8 @@ export {
 // #1246: the channel-facing ledger stores live here now; the app composes
 // them through this barrel instead of the retired ledger package root.
 export { createActorRegistry, type ActorRegistry } from "./store/actor/index.js";
-export { createAutomationStore, AutomationEnableRefused } from "./store/automation/index.js";
+export { createRuleStore, RuleEnableRefused } from "./store/rule/index.js";
 export { scheduleTickChannel } from "./automation/matcher.js";
-export { createBlacklistStore } from "./store/blacklist/index.js";
-export { createChannelGrantStore, type ChannelGrantStore } from "./store/channel-grant/index.js";
 export { createEgressBudgetStore } from "./store/egress/index.js";
 export {
   createChannelInstanceStore,

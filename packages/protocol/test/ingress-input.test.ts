@@ -4,6 +4,7 @@ import { Ingress } from "../src/ingress/index.js";
 const input = {
   eventId: "event-1",
   surface: "discord",
+  instance: "channel:discord:main",
   channelId: "alerts",
   threadId: "thread-1",
   workspaceId: "workspace-1",

@@ -9,8 +9,6 @@ import { actorTarget, executeMessage } from "./message-execution";
 import { createExistingAgentMessaging } from "./messaging/send";
 import { createReplyMessaging } from "./messaging/reply";
 import { externalMessage, replayExternal } from "./external-message";
-import { filterAutomationRules } from "./automation-rules";
-import { mentionOnlyPosture } from "./automation/mention-only.js";
 import { answerOwnerRequest } from "./request/owner-answer";
 import type { GatewayRouter, GatewayRouterPorts } from "./message-ports";
 
@@ -173,7 +171,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       const facts = Gateway.IngressFacts.parse(envelope);
       if (sender.surface !== facts.surface)
         throw new ChannelsFailure({ operation: "message.ingress", cause: "authenticated surface mismatch" });
-      yield* stores.automations.ready;
+      yield* stores.rules.ready;
       const replay = automationReplay(stores, inboundIdOf(facts));
       const input = ingressInput(stores, sender, facts, at);
       if (replay !== undefined) {
@@ -181,15 +179,11 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
           messagingPorts?.budgets?.() ?? [], input);
         return { external, filtered: external === undefined ? replay : undefined };
       }
-      const filtered = filterAutomationRules(stores, input.input, ports.sink, at,
-        mentionOnlyPosture(stores, facts, input));
-      const external = filtered === undefined
-        ? yield* externalMessage(stores, sender, facts, ports, at,
-            messagingPorts?.budgets?.() ?? [], stores.automations.groups().map((group) => group.pending), input)
-        : undefined;
+      const external = yield* externalMessage(stores, sender, facts, ports, at,
+        messagingPorts?.budgets?.() ?? [], stores.rules.groups().map((group) => group.pending), input);
       if (external?.disposition !== undefined)
         yield* recordAutomation(stores, ports, external, sender);
-      return { filtered, external };
+      return { filtered: undefined, external };
     });
   }
 
@@ -227,7 +221,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
         : { kind: "message.admitted", messageId, matchedRuleIds: [...result.matchedRuleIds],
             ingestMs: clock() - startedAt, verdict: "allow" });
       if (progress.committed !== undefined) {
-        if (external !== undefined) stores.automations.completeDelivery(external.event.id);
+        if (external !== undefined) stores.rules.completeDelivery(external.event.id);
         observe(sender, { kind: "message.committed", messageId, commitMs: progress.commitMs });
         ports.committed?.(progress.committed);
       }
@@ -253,7 +247,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       const startedAt = clock();
       const sender = Gateway.IngestSender.parse(rawSender);
       if ("kind" in envelope && envelope.kind === "request_answer")
-        return yield* answerOwnerRequest(stores, ports, sender, envelope, startedAt, context);
+        return yield* answerOwnerRequest(ports, sender, envelope, startedAt, context);
       const inbound = yield* resolveExternal(sender, envelope, startedAt);
       if (inbound.filtered !== undefined) return inbound.filtered;
       const external = inbound.external;

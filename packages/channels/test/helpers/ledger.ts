@@ -51,9 +51,7 @@ function createTestLedger(paths?: TestLedgerPaths): TestLedger {
   };
   const stores = createChannelStores({
     actorRegistry: channel.actorRegistry,
-    automation: channel.automation,
-    blacklist: channel.blacklist,
-    channelGrant: channel.channelGrant,
+    rule: channel.rule,
     egressBudget: channel.egressBudget,
     surfaceKey: channel.surfaceKey,
     get decisionFacts() {

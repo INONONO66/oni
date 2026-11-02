@@ -1,30 +1,29 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { Ingress } from "@oni/protocol";
-import { createAutomationStore, AutomationEnableRefused } from "../src/store/automation/index.js";
+import { createRuleStore, RuleEnableRefused } from "../src/store/rule/index.js";
 import { openChannelStore } from "../src/store/sqlite/index.js";
-import { AutomationConfigurationError } from "../src/errors.js";
-import { compiledPattern } from "../src/automation/regex.js";
+import { RuleConfigurationError } from "../src/errors.js";
 import { effectFailure } from "./helpers/effect-failure.js";
-import { StoredGroup } from "../src/store/automation/group.js";
+import { StoredGroup } from "../src/store/rule/group.js";
 
-const record = Ingress.Automation.parse({
-  id: "daily", name: "Daily", enabled: false, createdBy: "session:x",
-  triggers: [{ type: "message", surface: "telegram", event: "message" }],
-  target: "session:x", limits: { maxRunsPerDay: 2 },
+const record = Ingress.Rule.parse({
+  id: "daily", position: 0, enabled: false, createdBy: "session:x",
+  when: { instance: "telegram" },
+  then: { target: "session:x", kind: "action", reply: "none", maxRunsPerDay: 2 },
 });
 
 function fixture() {
   const db = new Database(":memory:");
-  const store = createAutomationStore(openChannelStore(db, () => 0));
+  const store = createRuleStore(openChannelStore(db, () => 0));
   return { db, store };
 }
 
-describe("automation store", () => {
+describe("rule store", () => {
   test("an unapproved session record cannot be enabled", () => {
     const { db, store } = fixture();
     store.add(record);
-    expect(() => store.enable(record.id)).toThrow(AutomationEnableRefused);
+    expect(() => store.enable(record.id)).toThrow(RuleEnableRefused);
     expect(store.get(record.id)?.record.enabled).toBe(false);
     store.approve(record.id);
     expect(store.enable(record.id).record.enabled).toBe(true);
@@ -37,7 +36,7 @@ describe("automation store", () => {
     const row = Ingress.Events.RoutingDecision.schema.parse({
       traceId: "trace", time: 86_400_000, inboundId: "event-1", surface: "telegram",
       mode: "direct", stage: "automation", outcome: "record", decision: "matched",
-      by: "automation/daily", reason: "matched", factsUsed: ["event"], factsDigest: "digest",
+      by: "rule/daily", reason: "matched", factsUsed: ["event"], factsDigest: "digest",
     });
     store.record(row);
     store.record({ ...row, time: 86_400_001, inboundId: "event-2" });
@@ -48,53 +47,24 @@ describe("automation store", () => {
     db.close();
   });
 
-  test("migrates a granted surface to one prompt record without duplicates", () => {
-    const { db, store } = fixture();
-    const grant = { surfaceKey: "telegram:dm:user", surface: "telegram", channelId: "dm:user",
-      users: ["user"], sessionId: "resident" };
-    const first = store.migrateGrantedDirect(grant);
-    expect(first).toMatchObject({ kind: "prompt", enabled: true, target: "session:resident",
-      conditions: { channels: ["dm:user"], includeBots: false } });
-    expect(first.conditions?.users).toBeUndefined();
-    expect(store.migrateGrantedDirect(grant)).toEqual(first);
-    expect(store.list()).toHaveLength(1);
-    // A bot-authored surface's granted-direct automation admits its authors (#1569 lane 9c: an A2A peer is an agent).
-    expect(store.migrateGrantedDirect({ surfaceKey: "a2a:a2a:dm:ctx-1", surface: "a2a", channelId: "ctx-1", sessionId: "resident" }))
-      .toMatchObject({ conditions: { channels: ["ctx-1"], includeBots: true } });
-    expect(store.list()).toHaveLength(2);
-    db.close();
-  });
 });
 
-test("invalid regex configuration is refused before persistence and valid patterns are cached", () => {
-  const { db, store } = fixture();
-  try {
-    for (const pattern of ["[", "x".repeat(513)]) {
-      expect(() => store.add({ ...record, conditions: { regex: [pattern] } }))
-        .toThrow(AutomationConfigurationError);
-      expect(store.get(record.id)).toBeUndefined();
-    }
-    store.add({ ...record, conditions: { regex: ["^deploy"] } });
-    expect(compiledPattern("^deploy")).toBe(compiledPattern("^deploy"));
-    expect(compiledPattern("^deploy").test("deploy now")).toBe(true);
-  } finally { db.close(); }
-});
 
-test("unconfigured automation storage fails through the typed Effect channel", async () => {
-  const store = createAutomationStore({});
+test("unconfigured rule storage fails through the typed Effect channel", async () => {
+  const store = createRuleStore({});
   expect(await effectFailure(store.ready)).toMatchObject({
-    _tag: "AutomationConfigurationError", reason: "store_unconfigured",
+    _tag: "RuleConfigurationError", reason: "store_unconfigured",
   });
-  expect(() => store.list()).toThrow(AutomationConfigurationError);
+  expect(() => store.list()).toThrow(RuleConfigurationError);
 });
 
 test("owner approval and enable disable remove operations retain their stored state", () => {
   const { db, store } = fixture();
   try {
-    expect(() => store.add({ ...record, enabled: true })).toThrow(AutomationEnableRefused);
+    expect(() => store.add({ ...record, enabled: true })).toThrow(RuleEnableRefused);
     expect(store.list()).toEqual([]);
     for (const operate of [store.enable, store.disable, store.approve])
-      expect(() => operate("missing")).toThrow(AutomationEnableRefused);
+      expect(() => operate("missing")).toThrow(RuleEnableRefused);
     store.add({ ...record, createdBy: "owner", enabled: true });
     expect(store.disable(record.id).record.enabled).toBe(false);
     expect(store.enable(record.id).record.enabled).toBe(true);
@@ -107,16 +77,16 @@ test("group closure records member facts atomically and cannot close twice", () 
   const { db, store } = fixture();
   const held = Ingress.Events.RoutingDecision.schema.parse({
     traceId: "member", time: 0, inboundId: "member", surface: "telegram", mode: "direct",
-    stage: "automation", outcome: "record", decision: "grouped", by: "automation/daily",
+    stage: "automation", outcome: "record", decision: "grouped", by: "rule/daily",
     reason: "grouped", factsUsed: ["grouping"], factsDigest: "digest",
   });
   const group = StoredGroup.parse({
     id: "group", target: "session:x", sender: { kind: "external", surface: "telegram", externalId: "owner" },
     facts: { eventId: "member", surface: "telegram", channelId: "room", addressees: [],
       dm: false, payload: "hello", render: "hello" },
-    pending: { automationId: "daily", key: "room", openedAt: 0, windowSeconds: 10,
-      trigger: { type: "message", surface: "telegram", event: "message" },
-      inputs: [{ eventId: "member", surface: "telegram", event: "message", channelId: "room",
+    pending: { ruleId: "daily", key: "room", openedAt: 0, windowSeconds: 10,
+      when: { instance: "telegram" },
+      inputs: [{ eventId: "member", instance: "telegram", surface: "telegram", event: "message", channelId: "room",
         author: { externalId: "owner", isBot: false }, dm: false, mentionsBot: false,
         body: "hello", receivedAt: 0 }] },
   });
@@ -125,7 +95,7 @@ test("group closure records member facts atomically and cannot close twice", () 
   });
   try {
     store.record(held, group);
-    db.exec("CREATE TRIGGER fail_close BEFORE INSERT ON automation_group_close BEGIN SELECT RAISE(ABORT, 'close unavailable'); END");
+    db.exec("CREATE TRIGGER fail_close BEFORE INSERT ON rule_group_close BEGIN SELECT RAISE(ABORT, 'close unavailable'); END");
     expect(() => store.closeGroup(group.id, 10_000, false, [closed])).toThrow("close unavailable");
     expect(store.groups()).toEqual([group]);
     expect(store.decisions("member")).toEqual([held]);
@@ -135,5 +105,26 @@ test("group closure records member facts atomically and cannot close twice", () 
     expect(store.groups()).toEqual([]);
     expect(store.decisions("member")).toEqual([held, closed]);
     expect(store.matchedToday("daily", 20_000)).toBe(0);
+  } finally { db.close(); }
+});
+
+test("move reorders atomically and seeded rows cannot be deleted or unprotected", () => {
+  const { db, store } = fixture();
+  try {
+    store.add({ ...record, id: "seed", position: 0, createdBy: "owner", seed: true });
+    store.add({ ...record, id: "first", position: 1 });
+    store.add({ ...record, id: "second", position: 2 });
+    expect(store.move("second", 0).record.position).toBe(0);
+    expect(store.list().map(({ record: row }) => [row.id, row.position]))
+      .toEqual([["second", 0], ["seed", 1], ["first", 2]]);
+    expect(() => store.remove("seed")).toThrow(RuleEnableRefused);
+    expect(() => store.add({ ...record, id: "seed", position: 1, seed: false })).toThrow(RuleEnableRefused);
+    expect(store.disable("seed").record.enabled).toBe(false);
+    expect(() => store.move("missing", 0)).toThrow(RuleEnableRefused);
+    expect(() => store.move("first", -1)).toThrow(RuleEnableRefused);
+    expect(() => store.move("first", 3)).toThrow(RuleEnableRefused);
+    expect(store.list().map(({ record: row }) => row.id)).toEqual(["second", "seed", "first"]);
+    store.remove("second");
+    expect(store.list().map(({ record: row }) => row.position)).toEqual([0, 1]);
   } finally { db.close(); }
 });

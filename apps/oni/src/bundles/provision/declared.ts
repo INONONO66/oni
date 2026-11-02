@@ -2,7 +2,6 @@ import { Result } from "effect";
 import { ChannelProviders, Vault, type AccountIdentity, type ActorRegistry, type ChannelInstanceStore, type PersonStore, type SecretStore } from "@oni/channels";
 import type { Provisioning } from "@oni/protocol";
 import { a2aRoster, type ChannelRuntimeDeps, type CredentialReader, declaredChannelProfile } from "../../channels";
-import { MOUNTED_CHANNEL_DEFAULT_TIER } from "../../gateway";
 import type { DesiredChannels } from "./supervisor";
 import type { KekResolution } from "./vault-key";
 
@@ -71,12 +70,6 @@ export function desiredChannels(
         instanceId: row.instanceId,
         key: `${instance?.revision ?? 0}:${rotation}`,
         component: row.component,
-        // §3.2 grant block: the declaration is where the Owner raises a
-        // surface's tier; absent, the row mounts at the mount tier (#931).
-        defaultTier: instance?.grant?.defaultTier ?? MOUNTED_CHANNEL_DEFAULT_TIER,
-        // #1600: the declaration's allowlist and mention-only posture ride the row to the grant.
-        ...(instance?.grant?.allowedSenders === undefined ? {} : { allowedSenders: instance.grant.allowedSenders }),
-        ...(instance?.grant?.mentionOnly === undefined ? {} : { mentionOnly: instance.grant.mentionOnly }),
       };
     }),
     statuses,

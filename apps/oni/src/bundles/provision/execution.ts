@@ -22,7 +22,6 @@ import {
 } from "./channels";
 import { executeBundleDisable, executeBundleEnable } from "./bundles";
 import { executeProvisionStatus } from "./status";
-import { automationApproval, executeApprovedAutomation, executeAutomationTool } from "./automation";
 import { executeApprovedMachine, executeMachine, machineDomainRevisions } from "./machines";
 import type { MachineOperation } from "./machine-schema";
 import { computerApproval, executeComputer } from "./computer";
@@ -65,13 +64,6 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
       case "machine_remove":
       case "machine_list":
         return executeMachine(port?.machines, operation, `session:${context.sessionId}`);
-      case "automation_add":
-      case "automation_enable":
-        return executeApprovedAutomation(port?.automations, operation, context);
-      case "automation_remove":
-      case "automation_disable":
-      case "automation_list":
-        return executeAutomationTool(port?.automations, operation, `session:${context.sessionId}`);
     }
     if (operation.op === "contact_promote" || operation.op === "contact_merge") {
       if (port === undefined) return refusal("provision", "provisioning is not composed");
@@ -113,16 +105,13 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
 }
 
 export function provisionApproval(port: ProvisionPort | undefined) {
-  const automation = automationApproval(port?.automations);
   const computerPort = port?.computer;
   const machineEnrollments = port?.machines?.enrollments;
-  return ({ operation }: z.output<typeof ProvisionInput>, context?: ToolExecutionContext, prepare = false) => {
+  return ({ operation }: z.output<typeof ProvisionInput>, context?: ToolExecutionContext) => {
     const computer = ComputerOperation.safeParse(operation);
     if (computer.success) return computerApproval(computerPort, computer.data, context);
     if (machineConsent(operation))
       return { required: true, domainRevisions: machineDomainRevisions(machineEnrollments, operation.args.machineId) };
-    if ((operation.op === "automation_add" || operation.op === "automation_enable") && context !== undefined)
-      return automation(operation, context, prepare);
     if (operation.op === "contact_promote" || operation.op === "contact_merge") {
       if (port === undefined) return { required: false, domainRevisions: {} };
       return { required: false, domainRevisions: contactDomainRevisions(port.actors, operation) };

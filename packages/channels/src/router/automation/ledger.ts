@@ -1,7 +1,7 @@
 import { type Gateway, Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { decodeChannelFailure } from "../../errors.js";
-import type { StoredGroup } from "../../store/automation/group.js";
+import type { StoredGroup } from "../../store/rule/group.js";
 import type { externalMessage } from "../external-message.js";
 import type { GatewayRouterPorts } from "../message-ports.js";
 import type { ChannelStores } from "../stores.js";
@@ -14,12 +14,12 @@ export function recordAutomationDuplicate(stores: ChannelStores, sink: GatewayRo
       (original.decision !== "matched" && original.decision !== "superseded" && original.decision !== "deduped"))
     return;
   const deduped = { ...original, decision: "deduped" as const, reason: "event_id_dedupe" };
-  stores.automations.record(deduped);
+  stores.rules.record(deduped);
   sink(Ingress.Events.RoutingDecision, deduped);
 }
 
 export function automationReplay(stores: ChannelStores, eventId: string): Gateway.IngestResult | undefined {
-  const recorded = stores.automations.decisions(eventId)[0];
+  const recorded = stores.rules.decisions(eventId)[0];
   if (recorded?.stage !== "automation") return undefined;
   switch (recorded.decision) {
     case "matched":
@@ -39,12 +39,12 @@ function heldGroup(stores: ChannelStores, ports: GatewayRouterPorts,
   const pending = external.pending.find((group) =>
     group.inputs.some((member) => member.eventId === external.event.id));
   if (pending === undefined) return undefined;
-  const previous = stores.automations.groups().find((group) =>
+  const previous = stores.rules.groups().find((group) =>
     group.pending.inputs[0]?.eventId === pending.inputs[0]?.eventId);
-  const target = stores.automations.get(pending.automationId)?.record.target;
+  const target = stores.rules.get(pending.ruleId)?.record.then.target;
   return {
-    id: JSON.stringify([pending.automationId, pending.key, pending.inputs[0]?.eventId]),
-    target: previous?.target ?? (target === "new" ? `session:${ports.id()}` : target ?? `session:${external.target}`),
+    id: JSON.stringify([pending.ruleId, pending.key, pending.inputs[0]?.eventId]),
+    target: previous?.target ?? (target === "new" ? `session:${ports.id()}` : target === "conversation" ? `session:${external.target}` : target ?? `session:${external.target}`),
     pending, sender, facts: external.facts,
   };
 }
@@ -65,7 +65,7 @@ export function recordAutomation(stores: ChannelStores, ports: GatewayRouterPort
       };
       const route = refusal === undefined && external.automation !== undefined
         ? { ...external.automation, target: `session:${external.target}` } : undefined;
-      stores.automations.record(decision, group, route);
+      stores.rules.record(decision, group, route);
       ports.sink(Ingress.Events.RoutingDecision, decision);
     },
     catch: decodeChannelFailure("automation.record"),

@@ -116,20 +116,6 @@ export namespace Storage {
     countProvisionalSince(channel: string, workspace: string | undefined, since: number): number;
   }
 
-  export interface BlacklistSubAdapter {
-    get(id: string): Actor.BlacklistEntry | undefined;
-    set(entry: Actor.BlacklistEntry): void;
-    list(): Actor.BlacklistEntry[];
-    remove(id: string): boolean;
-  }
-
-  export interface ChannelGrantSubAdapter {
-    get(id: string): Actor.ChannelGrant | undefined;
-    set(grant: Actor.ChannelGrant): void;
-    list(): Actor.ChannelGrant[];
-    remove(id: string): boolean;
-  }
-
   /**
    * Provisioning declarations (docs/provisioning-and-providers.md §3):
    * Person manifests, ChannelInstance declarations, and vault Secret rows.

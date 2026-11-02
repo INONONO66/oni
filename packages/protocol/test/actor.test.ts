@@ -81,8 +81,6 @@ describe("Actor.Profile (#498 A3)", () => {
   test("parses a full profile: authority half + executable half", () => {
     const profile = Actor.Profile.parse({
       trustTier: "assigned_worker",
-      blacklistEntryId: "bl_1",
-      channelGrantIds: ["cg_1", "cg_2"],
       systemPrompt: "You are a coder.",
       tools: [
         {
@@ -96,15 +94,13 @@ describe("Actor.Profile (#498 A3)", () => {
     });
 
     expect(profile.trustTier).toBe("assigned_worker");
-    expect(profile.channelGrantIds).toEqual(["cg_1", "cg_2"]);
     expect(profile.model?.provider).toBe("anthropic");
     expect(profile.budget.maxTurns).toBe(10);
   });
 
-  test("parses a minimal profile — grant refs and executable fields are optional", () => {
+  test("parses a minimal profile — executable fields are optional", () => {
     const profile = Actor.Profile.parse({ trustTier: "observer", budget: {} });
     expect(profile.trustTier).toBe("observer");
-    expect(profile.blacklistEntryId).toBeUndefined();
     expect(profile.tools).toBeUndefined();
   });
 

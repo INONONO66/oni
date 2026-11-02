@@ -35,7 +35,7 @@ function DecisionDetails({ row, rows, visibleIds, onOpenSession }: {
       <dt className="text-fg-muted">Reason</dt><dd className="whitespace-pre-wrap break-words">{row.reason}</dd>
       <dt className="text-fg-muted">Facts used</dt><dd><ul className="list-inside list-disc">{[...new Set(row.factsUsed)].map((fact) => <li className="break-all" key={fact}>{fact}</li>)}</ul></dd>
       <dt className="text-fg-muted">Digest</dt><dd className="break-all font-mono text-label">{row.factsDigest}</dd>
-      {row.runWhen && <><dt className="text-fg-muted">Run when</dt><dd data-verdict={row.runWhen.verdict}><strong>{VERDICT[row.runWhen.verdict]}</strong><p className="break-words">{row.runWhen.reason}</p></dd></>}
+      {row.verdict && <><dt className="text-fg-muted">Judge</dt><dd data-verdict={row.verdict}><strong>{VERDICT[row.verdict]}</strong></dd></>}
       {group && <><dt className="text-fg-muted">Grouping window key</dt><dd className="break-all">{group.slice(6)}</dd></>}
       {firing && <><dt className="text-fg-muted">Delivered message</dt><dd className="break-all">{firing}</dd></>}
       {firingRow && <><dt className="text-fg-muted">Firing event</dt><dd className="break-all">

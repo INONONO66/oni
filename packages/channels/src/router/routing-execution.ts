@@ -52,30 +52,12 @@ function recordRouteNotDelivered(
 
 type RoutedDecision = Extract<Ingress.RoutingDecisionPayload, { readonly outcome: "route" }>;
 
-function factValue(decision: Ingress.RoutingDecisionPayload, prefix: string): string | undefined {
-  const fact = decision.factsUsed.find((candidate) => candidate.startsWith(prefix));
-  return fact?.slice(prefix.length);
-}
-
-function terminalMessage(decision: Ingress.RoutingDecisionPayload): string {
-  if (decision.stage === "channel_ceiling") {
-    if (decision.factsUsed.includes("channel:missing")) return "channel_grant.missing";
-    const kind = factValue(decision, "channel.kind:");
-    const treatment = factValue(decision, "channel.treatment:");
-    if (kind !== undefined && treatment !== undefined) return `channel_grant.${kind}.${treatment}`;
-  }
-  if (decision.stage === "actor_identity") {
-    return "actor is not authorized to create top-level inbound work";
-  }
-  return decision.reason;
-}
-
 export function requireRoutedDecision(decision: Ingress.RoutingDecisionPayload): RoutedDecision {
   if (decision.outcome === "route") return decision;
   if (decision.outcome === "ambiguous") {
     throw new IngressRoutingError("route_ambiguous", decision.reason, decision);
   }
-  throw new IngressRoutingError("route_blocked", terminalMessage(decision), decision);
+  throw new IngressRoutingError("route_blocked", decision.reason, decision);
 }
 
 export function executeRequestRoute<Event extends Gateway.DeliveredEvent>(

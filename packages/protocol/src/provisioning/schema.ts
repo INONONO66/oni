@@ -92,38 +92,8 @@ export const Person = z
   .strict();
 export type Person = z.infer<typeof Person>;
 
-/**
- * §3.2 perimeter policy block: replaces the hardcoded trusted-channel grant —
- * boot materializes the ChannelGrant row from this declaration.
- */
-const GrantPolicy = z
-  .object({
-    defaultTier: Actor.TrustTier.optional(),
-    /** The platform ids the surface admits; absent, every sender (an empty list would admit nobody and is refused). */
-    allowedSenders: z.array(z.string().min(1)).min(1).optional(),
-    provisionalMint: z.boolean().optional(),
-    /** #1600: a channel surface routes a channel message only when it addresses the Resident (a DM or a mention always does). */
-    mentionOnly: z.boolean().optional(),
-    /**
-     * #1569: an Owner-identity instance may send on the Owner's behalf only
-     * when the Owner declared it here; absent or false, the instance mounts
-     * without a delivery route and `send_message … as: owner` is refused as
-     * `identity_not_granted`. Meaningless on a bot instance.
-     */
-    outbound: z.boolean().optional(),
-  })
-  .strict();
-
-/**
- * #1600: the part of the grant block a declaration writes — who the surface
- * admits and at what tier. The block is the Owner's perimeter decision: a
- * declaration carrying one takes Owner consent and replaces the stored
- * block's three fields (a field left out is cleared), so a tier, an
- * allowlist or a posture is never widened, narrowed or dropped without the
- * Owner. A declaration without the block keeps what was consented to.
- */
-export const ChannelGrantDeclaration = GrantPolicy.pick({ defaultTier: true, allowedSenders: true, mentionOnly: true });
-export type ChannelGrantDeclaration = z.infer<typeof ChannelGrantDeclaration>;
+/** Outbound account authority is independent of inbound rule matching. */
+const GrantPolicy = z.object({ outbound: z.boolean().optional() }).strict();
 
 /**
  * §3.2: the Owner's declaration that a channel exists and how it is mounted.

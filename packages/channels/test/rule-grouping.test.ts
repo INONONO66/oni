@@ -1,25 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import { Ingress } from "@oni/protocol";
-import { advanceGroups, match } from "../src/automation/matcher.js";
+import { advanceGroups, routeRule } from "../src/automation/matcher.js";
 
-const record = Ingress.Automation.parse({
-  id: "digest", name: "Digest", enabled: true, createdBy: "owner",
-  triggers: [{ type: "message", surface: "telegram", event: "message" }],
-  target: "session:one", grouping: { by: "channel", windowSeconds: 10 },
+const record = Ingress.Rule.parse({
+  id: "digest", position: 0, enabled: true, createdBy: "owner",
+  when: { instance: "telegram" },
+  then: { target: "session:one", kind: "action", reply: "none" }, group: { by: "thread", windowSeconds: 10 },
 });
 const input = Ingress.Input.parse({
-  eventId: "one", surface: "telegram", event: "message", channelId: "room",
+  eventId: "one", instance: "telegram", surface: "telegram", event: "message", channelId: "room",
   author: { externalId: "user", isBot: false }, dm: false, mentionsBot: false,
   body: "hello", receivedAt: 0,
 });
 
 describe("automation grouping", () => {
   test("three events close once on injected clock advance", () => {
-    const first = match([record], input, { now: 0 });
-    const second = match([record], { ...input, eventId: "two", receivedAt: 3000 },
-      { now: 3000, pending: first.pending });
-    const third = match([record], { ...input, eventId: "three", receivedAt: 6000 },
-      { now: 6000, pending: second.pending });
+    const first = routeRule(record, input, { pending: [], matchedToday: () => 0, now: 0 });
+    const second = routeRule(record, { ...input, eventId: "two", receivedAt: 3000 },
+      { matchedToday: () => 0, now: 3000, pending: first.pending });
+    const third = routeRule(record, { ...input, eventId: "three", receivedAt: 6000 },
+      { matchedToday: () => 0, now: 6000, pending: second.pending });
     expect([first.route, second.route, third.route]).toEqual([undefined, undefined, undefined]);
     expect(advanceGroups([record], third.pending, 9999).decisions).toHaveLength(0);
     const closed = advanceGroups([record], third.pending, 10000);
@@ -33,25 +33,25 @@ describe("automation grouping", () => {
   });
 
   test("a disabled record closes without firing", () => {
-    const opened = match([record], input, { now: 0 });
+    const opened = routeRule(record, input, { pending: [], matchedToday: () => 0, now: 0 });
     const closed = advanceGroups([{ ...record, enabled: false }], opened.pending, 10000);
     expect(closed.decisions[0]?.route).toBeUndefined();
     expect(closed.decisions[0]?.rows[0]).toMatchObject({ decision: "filtered", reason: "disabled" });
   });
 
   test("capacity closes at 64 without dropping the 65th member", () => {
-    let pending = match([record], input, { now: 0 }).pending;
+    let pending = routeRule(record, input, { pending: [], matchedToday: () => 0, now: 0 }).pending;
     for (let n = 2; n < 64; n++) {
-      pending = match([record], { ...input, eventId: String(n) }, { now: 0, pending }).pending;
+      pending = routeRule(record, { ...input, eventId: String(n) }, { matchedToday: () => 0, now: 0, pending }).pending;
     }
-    const full = match([record], { ...input, eventId: "64" }, { now: 0, pending });
+    const full = routeRule(record, { ...input, eventId: "64" }, { matchedToday: () => 0, now: 0, pending });
     expect(full.rows).toEqual([expect.objectContaining({ inboundId: "64", decision: "grouped" })]);
     const closed = advanceGroups([record], full.pending, 0);
     expect(closed.decisions[0]?.route?.kind).toBe("action");
     const route = closed.decisions[0]?.route;
     if (route?.kind === "action") expect(route.body.event.messages).toHaveLength(64);
     expect(closed.pending).toHaveLength(0);
-    const next = match([record], { ...input, eventId: "65" }, { now: 0, pending: closed.pending });
+    const next = routeRule(record, { ...input, eventId: "65" }, { matchedToday: () => 0, now: 0, pending: closed.pending });
     expect(next.pending[0]?.inputs).toHaveLength(1);
     expect(advanceGroups([record], next.pending, 10000).decisions[0]?.rows).toHaveLength(1);
   });

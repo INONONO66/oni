@@ -9,7 +9,7 @@ import type { LocalSession } from "../state/store";
 import { AutomationEditor } from "./editor";
 
 type Change =
-  | { readonly type: "save"; readonly record: Ingress.Automation }
+  | { readonly type: "save"; readonly record: Ingress.Rule }
   | { readonly type: "enable" | "disable" | "remove"; readonly id: string };
 
 export function AutomationView({ transport, sessions, id }: {
@@ -19,7 +19,7 @@ export function AutomationView({ transport, sessions, id }: {
 }) {
   const client = useQueryClient();
   const records = useQuery(automationListOptions(transport));
-  const [editing, setEditing] = useState<Ingress.Automation | null>(null);
+  const [editing, setEditing] = useState<Ingress.Rule | null>(null);
   const change = useMutation({
     mutationFn: async (change: Change) => {
       if (transport === null) throw new GatewayUnavailableError("gateway not configured");
@@ -37,7 +37,7 @@ export function AutomationView({ transport, sessions, id }: {
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.automations }),
     retry: false,
   });
-  const begin = (record: Ingress.Automation) => {
+  const begin = (record: Ingress.Rule) => {
     change.reset();
     setEditing(record);
   };
@@ -51,7 +51,7 @@ export function AutomationView({ transport, sessions, id }: {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div><Text as="h1" level="display">Automations</Text><p className="mt-2 text-body text-fg-muted">Decide what arrives, when it runs, and where it goes.</p></div>
         {editing === null && <ActionButton variant="primary" disabled={transport === null || busy} onClick={() => begin({
-          id: id(), name: "", enabled: true, createdBy: "owner", triggers: [{ type: "on_demand" }], target: "new", kind: "action",
+          id: id(), position: records.data?.length ?? 0, enabled: true, createdBy: "owner", when: { instance: "" }, then: { target: "conversation", kind: "prompt", reply: "auto" },
         })}>New automation</ActionButton>}
       </header>
       {transport === null ? <p role="status">Connect the gateway to manage automations.</p> : (
@@ -61,7 +61,7 @@ export function AutomationView({ transport, sessions, id }: {
           {change.error && <p role="alert" className="whitespace-pre-wrap break-words rounded-md bg-raised p-4 text-body">{fieldRefusal?.detail ?? change.error.message}</p>}
           {editing !== null ? <>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <Text as="h2" level="title">{editing.name || "New automation"}</Text>
+              <Text as="h2" level="title">{editing.id}</Text>
               <RecordStatus record={editing} />
             </div>
             {pending && <aside aria-label="Approval required" className="rounded-md bg-raised p-4 text-body">
@@ -80,25 +80,25 @@ export function AutomationView({ transport, sessions, id }: {
   </ConsoleContent>;
 }
 
-function RecordStatus({ record }: { readonly record: Ingress.Automation }) {
+function RecordStatus({ record }: { readonly record: Ingress.Rule }) {
   const approval = record.createdBy.startsWith("session:") && !record.enabled;
   return <span className="text-fg-muted text-label">{approval ? "Pending approval" : record.enabled ? "Enabled" : "Disabled"}</span>;
 }
 
 function RecordRow({ record, busy, onEdit, onChange }: {
-  readonly record: Ingress.Automation;
+  readonly record: Ingress.Rule;
   readonly busy: boolean;
-  readonly onEdit: (record: Ingress.Automation) => void;
+  readonly onEdit: (record: Ingress.Rule) => void;
   readonly onChange: (change: Change) => void;
 }) {
   const [removing, setRemoving] = useState(false);
   const approval = record.createdBy.startsWith("session:") && !record.enabled;
   return <li className="flex min-w-0 flex-col gap-3 border-line border-b py-4" data-record-id={record.id}>
     <div className="flex flex-wrap items-start justify-between gap-2">
-      <h2 className="min-w-0 break-words font-medium text-title">{record.name || record.id}</h2>
+      <h2 className="min-w-0 break-words font-medium text-title">{record.id}</h2>
       <RecordStatus record={record} />
     </div>
-    <p className="break-words text-body text-fg-muted">{record.triggers.length} triggers · {record.target === "new" ? "New session" : record.target} · {record.kind}</p>
+    <p className="break-words text-body text-fg-muted">{record.position} · {record.when.instance} · {record.then.target === "new" ? "New session" : record.then.target} · {record.then.kind}</p>
     {approval && <p role="status" className="text-body">Proposed by {record.createdBy}. Approval is required before it can run.</p>}
     {removing ? <div className="flex flex-wrap items-center gap-3">
       <p className="text-body">Remove this automation?</p>
@@ -109,7 +109,7 @@ function RecordRow({ record, busy, onEdit, onChange }: {
       <ActionButton disabled={busy} onClick={() => onChange({ type: record.enabled ? "disable" : "enable", id: record.id })}>
         {approval ? "Approve and enable" : record.enabled ? "Disable" : "Enable"}
       </ActionButton>
-      <ActionButton variant="destructive" disabled={busy} onClick={() => setRemoving(true)}>Remove</ActionButton>
+      <ActionButton variant="destructive" disabled={busy || record.seed === true} onClick={() => setRemoving(true)}>Remove</ActionButton>
     </div>}
   </li>;
 }

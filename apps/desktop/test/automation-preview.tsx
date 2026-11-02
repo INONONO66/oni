@@ -10,7 +10,7 @@ import "../src/renderer/styles.css";
 const rows = [...ledgerRows];
 const fixture = createAutomationFixture([
   automationRecord,
-  { ...automationRecord, id: "pending", name: "Triage support mentions", enabled: false, createdBy: "session:resident" },
+  { ...automationRecord, id: "pending", position: 1, enabled: false, createdBy: "session:resident" },
 ], rows);
 const client = new QueryClient();
 const sessions = [{
@@ -33,9 +33,9 @@ function AutomationPreview() {
           rows.unshift({
             traceId: "preview", inboundId: `fixture-${record.id}`, time: 900, surface: "fixture",
             mode: "internal", stage: "automation", outcome: "record", decision: "matched",
-            by: `automation/${record.id}`, factsDigest: "sha256:fixture", factsUsed: [`kind:${record.kind}`],
-            reason: `Fixture ${record.kind} delivered`, actionSeq: 4,
-            target: record.target === "new" ? `session:created-${record.id}` : record.target,
+            by: `rule/${record.id}`, factsDigest: "sha256:fixture", factsUsed: [`kind:${record.then.kind}`],
+            reason: `Fixture ${record.then.kind} delivered`, actionSeq: 4,
+            target: record.then.target === "new" || record.then.target === "conversation" ? `session:created-${record.id}` : record.then.target,
           });
           void client.invalidateQueries();
           setLedger(true);
