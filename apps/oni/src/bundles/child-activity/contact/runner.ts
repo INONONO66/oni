@@ -1,6 +1,6 @@
 import type { ChannelInstanceStore } from "@oni/channels";
 import type { MachineError, MachineHandle } from "@oni/machines";
-import { L0Observation, type ObservationSink } from "@oni/protocol";
+import { L0Observation, type Machine, type ObservationSink } from "@oni/protocol";
 import { Effect } from "effect";
 import type { ChildWatch } from "../index";
 import { type ChildRow, contactCursor } from "../reconcile";
@@ -83,6 +83,9 @@ interface Active {
 const refused = (reason: string, landed?: boolean): CliRefusal =>
   landed === undefined ? { reason } : { reason, landed };
 
+/** The turn label of the rows an attached session's transcript held before a live turn; no live turn carries it. */
+export const IMPORTED_TURN = "imported";
+
 const machineFailure = (operation: string) => (error: MachineError): CliRefusal =>
   refused(`${operation}: ${error instanceof Error ? error.message : String(error)}`);
 
@@ -163,6 +166,21 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
     });
   }
 
+  /**
+   * Admits every record the attached session's transcript holds from `spec.cursor`
+   * (byte zero on the first letter, the persisted cursor afterwards, so what the
+   * Owner typed by hand between letters is history too) under the `imported`
+   * label, page by page until the file end, and returns the persisted cursor the
+   * live turn starts from. The hand-run history can then never end the live turn.
+   */
+  function imported(spec: ChildWatch): Effect.Effect<Machine.AgentSessionCursor, CliRefusal> {
+    return Effect.gen(function* () {
+      yield* deps.watch.install({ ...spec, turn: IMPORTED_TURN });
+      yield* deps.watch.close(spec.id);
+      return contactCursor(deps.watch.rows(spec.sessionId, 0).rows, spec.contact) ?? spec.cursor;
+    });
+  }
+
   /** Opens a session for a new contact or re-arms the watch of its ended one; either way the child is watched for this turn. */
   function attach(
     contact: CliContact,
@@ -175,8 +193,11 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       let cursor = saved;
       let childId = previous?.child;
       if (previous === undefined) {
-        const opened = yield* session.open({ project: contact.cwd, cli: contact.dialect })
-          .pipe(Effect.mapError(machineFailure("agent.open")), Effect.flatMap((result) => accepted(result, "agent.open")));
+        // With a hand-run session the open adopts it at byte zero and launches nothing; the letter's send resumes it.
+        const opened = yield* session.open({
+          project: contact.cwd, cli: contact.dialect,
+          ...(contact.session === undefined ? {} : { sessionId: contact.session }),
+        }).pipe(Effect.mapError(machineFailure("agent.open")), Effect.flatMap((result) => accepted(result, "agent.open")));
         childId = opened.cursor.sessionId;
         cursor = saved?.sessionId === childId ? saved : opened.cursor;
       } else {
@@ -188,12 +209,14 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
         contact, child: childId, sender: input.sender, key: input.key,
         watchId: `cli:${childId}`, interrupted: false, ended: false,
       };
-      active.set(contact.id, child);
-      byChild.set(child.child, child);
-      yield* deps.watch.install({
+      const spec: ChildWatch = {
         id: child.watchId, sessionId: input.sender, contact: contact.id,
         child: child.child, turn: input.key, machine: contact.machine, cursor,
-      });
+      };
+      const live = contact.session === undefined ? spec : { ...spec, cursor: yield* imported(spec) };
+      active.set(contact.id, child);
+      byChild.set(child.child, child);
+      yield* deps.watch.install(live);
       return child;
     });
   }

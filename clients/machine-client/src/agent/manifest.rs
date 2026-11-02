@@ -120,7 +120,7 @@ impl Cli for Dialect {
     fn command(&self, context: &LaunchContext<'_>) -> LaunchCommand {
         match self.format {
             Format::ClaudeJsonl => super::claude::command(context, self.permission_hook),
-            Format::CodexRolloutJsonl => super::codex::command(),
+            Format::CodexRolloutJsonl => super::codex::command(context),
             Format::PiJsonlV3 => super::pi::command(context),
             Format::OmpJsonlV3 => super::omp::command(context),
         }

@@ -23,7 +23,12 @@ pub fn command(context: &LaunchContext<'_>, hook: &str) -> LaunchCommand {
     }]}]}});
     let mut args = vec!["--settings".to_owned(), settings.to_string()];
     if let Some(id) = context.session_id {
-        args.extend(["--session-id".to_owned(), id.to_owned()]);
+        let flag = if context.resume.is_some() {
+            "--resume"
+        } else {
+            "--session-id"
+        };
+        args.extend([flag.to_owned(), id.to_owned()]);
     }
     LaunchCommand {
         executable: "claude".to_owned(),

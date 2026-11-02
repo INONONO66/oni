@@ -57,6 +57,8 @@ impl HookTarget {
 pub struct LaunchContext<'a> {
     pub session_id: Option<&'a str>,
     pub hook: &'a HookTarget,
+    /// The transcript of the session this launch resumes; `None` starts a fresh session.
+    pub resume: Option<&'a Path>,
 }
 
 /// The one permission module every script-hook dialect loads; it asks
@@ -71,12 +73,20 @@ pub const CLI_VARIABLE: &str = "ONI_MCLIENT_CLI";
 
 impl LaunchContext<'_> {
     /// Launch `executable` loading the shared permission module through
-    /// `flag`, with `cli` as the module's `--cli` selector.
+    /// `flag`, with `cli` as the module's `--cli` selector; a resumed
+    /// session's transcript is passed as `--session`.
     pub fn script_hook(&self, cli: &str, executable: &str, flag: &str) -> LaunchCommand {
         let module = self.hook.modules.join(PERMISSION_FILE);
+        let mut args = vec![flag.to_owned(), module.to_string_lossy().into_owned()];
+        if let Some(transcript) = self.resume {
+            args.extend([
+                "--session".to_owned(),
+                transcript.to_string_lossy().into_owned(),
+            ]);
+        }
         LaunchCommand {
             executable: executable.to_owned(),
-            args: vec![flag.to_owned(), module.to_string_lossy().into_owned()],
+            args,
             env: vec![
                 (
                     PROGRAM_VARIABLE.to_owned(),
@@ -463,6 +473,81 @@ impl<P: ProcessSpawner> Launcher<P> {
         }))
     }
 
+    /// The sessions of `cli` found on disk for a confined `project`, newest
+    /// first, as unowned observations; nothing is recorded.
+    pub fn discovered(&self, cli: &impl Cli, project: &Path) -> Vec<Session> {
+        let mut found = discover(cli, &self.settings.home, project);
+        found.sort_by_key(|found| std::cmp::Reverse(found.modified));
+        found
+            .into_iter()
+            .map(|found| Session {
+                project: project.to_owned(),
+                cli: cli.name().to_owned(),
+                session_id: found.id,
+                transcript: found.path,
+                terminal: None,
+            })
+            .collect()
+    }
+
+    /// Relaunch a session this client observed but does not own, with the
+    /// CLI resuming its existing transcript; an owned session is returned as
+    /// is. The transcript must already exist, so no readiness wait applies.
+    pub async fn resume(
+        &mut self,
+        cli: &impl Cli,
+        project: &Path,
+        session_id: &str,
+    ) -> Result<Opened, LaunchError> {
+        let project = self.confine(project)?;
+        self.reap().await?;
+        let Some(opened) = self.existing(cli, &project, Some(session_id)).await? else {
+            return Err(LaunchError::SessionNotAvailable);
+        };
+        if opened.owned {
+            return Ok(opened);
+        }
+        let mut command = cli.command(&LaunchContext {
+            session_id: Some(session_id),
+            hook: &self.settings.hook,
+            resume: Some(&opened.session.transcript),
+        });
+        self.prepare(&mut command)?;
+        let handle = self.spawner.launch(&project, &command).await?;
+        self.launching.push(handle);
+        let terminal = self
+            .spawner
+            .terminal(self.launching.last().expect("pushed above"));
+        let session = Session {
+            terminal: Some(terminal),
+            ..opened.session
+        };
+        // On failure the process stays in `launching` for the next reap.
+        self.registry.observe(session.clone())?;
+        let handle = self.launching.pop().expect("pushed above");
+        self.own(cli, session.clone(), handle);
+        Ok(Opened {
+            session,
+            owned: true,
+            launched: true,
+        })
+    }
+
+    /// Point the command at this client's hook socket and install the module
+    /// it requires.
+    fn prepare(&self, command: &mut LaunchCommand) -> Result<(), LaunchError> {
+        command.env.push((
+            crate::config::AGENT_HOOK_SOCKET_VARIABLE.to_owned(),
+            self.settings.hook.socket.to_string_lossy().into_owned(),
+        ));
+        if let Some(module) = &command.requires {
+            module
+                .install()
+                .map_err(|_| LaunchError::HookUnavailable(module.path.clone()))?;
+        }
+        Ok(())
+    }
+
     fn own(&mut self, cli: &impl Cli, session: Session, handle: P::Handle) {
         let key = key(session.project.clone(), &session.cli, &session.session_id);
         let permission = cli.permission();
@@ -490,16 +575,9 @@ impl<P: ProcessSpawner> Launcher<P> {
         let mut command = cli.command(&LaunchContext {
             session_id: session_id.as_deref(),
             hook: &self.settings.hook,
+            resume: None,
         });
-        command.env.push((
-            crate::config::AGENT_HOOK_SOCKET_VARIABLE.to_owned(),
-            self.settings.hook.socket.to_string_lossy().into_owned(),
-        ));
-        if let Some(module) = &command.requires {
-            module
-                .install()
-                .map_err(|_| LaunchError::HookUnavailable(module.path.clone()))?;
-        }
+        self.prepare(&mut command)?;
         let before: HashSet<PathBuf> = discover(cli, &self.settings.home, &project)
             .into_iter()
             .map(|found| found.path)
@@ -710,13 +788,18 @@ impl ProcessSpawner for PtySpawner {
     }
 
     async fn stop(&self, handle: PtyHandle) -> io::Result<()> {
-        let screen = wire(json!({"name": handle.name, "source": "screen"}))?;
-        let screen = value(self.pty.screen(&screen).await)?;
-        let pid = screen["occupant"]["pid"]
-            .as_i64()
-            .and_then(|pid| i32::try_from(pid).ok());
-        if let Some(pid) = pid {
-            terminate(Pid::from_raw(pid), self.grace).await;
+        // An occupant that already exited (a resumed CLI whose binary is
+        // absent on this machine) leaves a lost terminal with no screen to
+        // capture; only a live one is signalled before its record is closed.
+        if self.reclaim(&handle.name).await?.is_some() {
+            let screen = wire(json!({"name": handle.name, "source": "screen"}))?;
+            let screen = value(self.pty.screen(&screen).await)?;
+            let pid = screen["occupant"]["pid"]
+                .as_i64()
+                .and_then(|pid| i32::try_from(pid).ok());
+            if let Some(pid) = pid {
+                terminate(Pid::from_raw(pid), self.grace).await;
+            }
         }
         value(self.pty.close(&wire(json!({"name": handle.name}))?).await).map(drop)
     }

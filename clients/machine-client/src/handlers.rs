@@ -640,9 +640,22 @@ impl Service {
             Err(refusal) => return Ok(refusal),
         };
         let launcher = agents.launcher.read().await;
-        let sessions: Vec<Value> = launcher
-            .registry()
-            .sessions(&project)
+        let mut sessions: Vec<Observed> = launcher.registry().sessions(&project).cloned().collect();
+        // Sessions the Owner ran by hand are on disk but in no registry.
+        for dialect in &manifest::DIALECTS {
+            let fresh: Vec<Observed> = launcher
+                .discovered(dialect, &project)
+                .into_iter()
+                .filter(|found| {
+                    !sessions
+                        .iter()
+                        .any(|known| known.session_id == found.session_id)
+                })
+                .collect();
+            sessions.extend(fresh);
+        }
+        let sessions: Vec<Value> = sessions
+            .iter()
             .map(|session| info(session, launcher.owns(session)))
             .collect();
         checked::<AgentSessionListResult>(json!({
@@ -734,16 +747,24 @@ impl Service {
         }
     }
 
-    /// `Err` carries the refusal the caller answers with.
+    /// `Err` carries the refusal the caller answers with. A session this
+    /// client does not own is resumed in a fresh terminal before the send.
     async fn agent_send(
         &self,
         request: AgentSessionSendRequest,
     ) -> Result<Result<Value, String>, Value> {
         let (agents, session) = self.owned(&request.session_id).await?;
-        let sent = agents
-            .launcher
-            .read()
-            .await
+        let Some(dialect) = manifest::select(&session.cli) else {
+            return Err(refused("session_not_available"));
+        };
+        let mut launcher = agents.launcher.write().await;
+        let resumed = launcher
+            .resume(&dialect, &session.project, &session.session_id)
+            .await;
+        if resumed.is_err() {
+            return Err(refused("session_not_available"));
+        }
+        let sent = launcher
             .send(
                 &session.project,
                 &session.cli,
