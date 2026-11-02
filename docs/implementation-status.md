@@ -45,7 +45,6 @@ the existing sink, and `apps/oni/src/config.ts` exposes `speechRows` and
 `imageRows` beside `transcriptionRows`. No speech or image tool ships here
 (#1785, #1786). Receipts: the PR Verification section.
 
-||||||| parent of 276a66888 (docs: stamp and implementation status for #1783 (PR #1819))
 ## #1794 one Message
 
 PR #1814 removes `OwnerPosture` and provider-side admission branches.
