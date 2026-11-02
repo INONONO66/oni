@@ -1,5 +1,9 @@
 # Implementation Status
 
+## #1781 speech/image explicit model selection
+
+On `feat/1781-model-ref-selection` (PR #1824). `makeTts` and `makeImage` (`packages/ai/src/tts.ts`, `image.ts`) take `model?: Model.Ref` at construction, mirroring `makeStt`: explicit selects that provider's row with that id and refuses `ModelResolutionError` `provider_not_found` when no row carries the provider (the speech/image SDK surface gate still applies); absent keeps the first row naming the modality. A per-call `model` id stays on the selected row. An explicit row without `speech` defaults takes the SDK voice default and `mp3`. `apps/oni` composition still passes rows only (no config field yet), as for transcription.
+
 ## #1781 gate-review follow-ups (docs)
 
 On `docs/1781-gate-followups` (PR #1823), docs only. The #1786 section below and `docs/agents-stamps/1786-image.md` now count thirteen model-door tools (the #1785 and #1786 lanes each added one over the twelve of `docs/kernel-contract.md` before them); the five historical mentions of the pre-#1784 package name read `@oni/ai` (then `llm`); `docs/compaction-design.md` refers to its reference harness generically. No code changed. The 25 MiB caps of the speech and image tools guard the session output store, not transport: the AI SDK returns materialized bytes, and the check runs before any byte is persisted or enters the model context.

@@ -95,6 +95,21 @@ describe("Tts", () => {
     expect(requests.map((request) => request.body)).toEqual([{ model: "gpt-4o-mini-tts", input: "hello there", voice: "alloy", response_format: "mp3" }]);
   });
 
+  test("an explicit model picks its provider row and id over the first speech row, with that row's defaults", async () => {
+    const { requests } = recording(() => audioResponse(ogg));
+    const gateway = ProviderRow.parse({ id: "gateway", npm: "@ai-sdk/openai" });
+    const explicit = tts({ authFilePath: await authFile("gateway"), rows: [openai, gateway], model: { provider: "gateway", id: "gw-tts" } });
+    expect(await runTestExit(explicit.speak(call))).toEqual(Exit.succeed({ bytes: ogg, mediaType: "audio/ogg" }));
+    expect(await runTestExit(explicit.speak({ ...call, voice: "echo" }))).toEqual(Exit.succeed({ bytes: ogg, mediaType: "audio/ogg" }));
+    expect(requests.map((request) => [request.body.model, request.body.response_format])).toEqual([["gw-tts", "mp3"], ["gw-tts", "mp3"]]);
+    expect(requests[1]?.body.voice).toBe("echo");
+  });
+
+  test("an explicit model refuses typed when its provider row is absent", async () => {
+    const absent = await runEffect(Effect.flip(tts({ authFilePath: await authFile(), rows: [openai], model: { provider: "gateway", id: "gw-tts" } }).speak(call)));
+    expect(absent).toMatchObject({ _tag: "ModelResolutionError", reason: "provider_not_found", provider: "gateway", model: "gw-tts" });
+  });
+
   test("refuses typed when no row names a speech model, or the first one lacks the speech surface", async () => {
     const authFilePath = await authFile("anthropic", "gateway");
     const voiceless = ProviderRow.parse({ id: "gateway", npm: "@ai-sdk/openai" });
