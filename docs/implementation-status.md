@@ -1,5 +1,47 @@
 # Implementation Status
 
+## #1741 live session driver over the turn dispatcher
+
+`apps/oni/src/composition/live-session.ts` is a `Core.SessionRunner` for a
+realtime model: `createLiveSessionRunner(live, runtime)` builds the same
+`Bundle.createTurnDispatcher` a text turn uses, then consumes a realtime port
+`{events: AsyncIterable<LiveEvent>, send(part)}` where `LiveEvent` is
+`utterance_start | utterance_delta | utterance_end | tool_call | audio_out`.
+The loop, gate and store learn nothing new: a `tool_call` runs through
+`dispatcher.execute` (evidence-only input refuses it exactly as the text
+runner does), so a policy denial is the executor's own `policy.decision` row
+(`hook: "tool.pre"`, `verdict: deny`, `terminal: blocked_pre`) with zero tool
+rows, the tool part sent back through the port carries the refusal text, and
+the stream continues. The ledger commits only at turn boundaries: one
+`message/assistant` executor request per `utterance_end` holding the whole
+message (text, audio file parts, tool parts in arrival order), tool rows as
+today, and nothing from a delta, so no streaming byte reaches the ledger and
+the assistant policy gate sees a complete message. After every tool call the
+runner drains the `after_tools` boundary and after every utterance the
+`after_llm` boundary: a drained steer reaches the model through the port as
+user text and file parts, and an interrupt ends the run with the ordinary
+`Interrupted` seal. An overlapping utterance, an event outside one, an
+unfinished utterance at stream end, an invalid event, a failed port, or a
+failing stream seal an error turn without persisting partial speech. The
+entity `runTurn` port selects the runner for any kernel turn whose
+`startOni({liveSession})` hook returns a transport, otherwise the model
+runner owns the turn; the ws-door receipt proves the selection end to end.
+
+Port adapters own bytes and socket lifetime. `ai@7.0.93` exposes only the
+experimental client-side `AbstractRealtimeSession` scaffolding (token/setup
+endpoint, browser `MediaStream` capture), not a server-side realtime provider,
+so no SDK adapter is adopted; the hand-written `packages/llm` realtime
+WebSocket (`makeRealtime`, PR #1656) stays the Discord voice bridge and is not
+yet mapped onto this port. The only production adapter is the scripted
+fixture `apps/oni/test/helpers/scripted-live.ts`.
+
+Live run: a desktop session (mic → model → speaker) needs the token-hub
+realtime lane [ino] #1641 and is not exercised here; the fixture proves one
+utterance → one assistant row, an admitted tool call → tool rows, a denied
+tool call → the denial row with the stream continuing, and the ws door
+selecting the runner. Receipts:
+`apps/oni/test/{live-session,live-session-ws}.test.ts`.
+
 ## #1604 child current-state frame
 
 A console or `cli:` contact sends `{type: "child_state", requestId, sessionId,
