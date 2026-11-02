@@ -7,7 +7,7 @@
  * deliver's idempotency replay, and the `action`-off cascade that takes
  * delegation-policy with it.
  */
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Bundle, Core } from "@oni/agent";
 import type { Gateway, Outbound } from "@oni/protocol";
 const eraseTool = Core.eraseTool;
@@ -26,7 +26,13 @@ import {
   type WebhookContactPort,
   webhookConnector,
 } from "../src/bundles/messaging/send-message/index";
-import { assistantMessage } from "./helpers/assistant-message";
+import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
+import * as CliRunner from "../src/bundles/child-activity/contact/runner";
+import { receivedMessages } from "./helpers/received-messages";
+import { admit } from "../src/bundles/child-activity/admit";
+import { reconcile } from "../src/bundles/child-activity/reconcile";
+import { spec } from "./helpers/child-activity";
+import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { runEffect } from "./helpers/effect";
 import { runAppEffect } from "../src/gateway";
 import { localDelivery, planeOf, testPlane } from "./helpers/ledger";
@@ -44,6 +50,81 @@ const context = {
   callId: "call-1",
   signal: new AbortController().signal,
 } as const;
+
+test("the boot-composed CLI reply records an explicit no-reply origin", async () => {
+  const runner = spyOn(CliRunner, "createCliRunner").mockReturnValue({
+    run: (input) => Effect.succeed({ child: "child-policy", turn: input.key, facts: 1 }),
+    interrupt: () => Effect.void,
+    owner: () => undefined,
+    close: () => Effect.void,
+  });
+  let requested = false;
+  try {
+    const app = await suite.boot({
+      config: suite.config("cli-origin-policy-"),
+      llm: {
+        resolveModel: fakeProviderModel,
+        run: (input, sink) => Effect.sync(() => {
+          if (!requested) {
+            requested = true;
+            requestToolStep(input, sink, {
+              id: "cli-origin-call", tool: "send_message",
+              input: { to: { kind: "contact", id: "cli:reviewer" }, message: "review", kind: "prompt" },
+            });
+            return { type: "stop" };
+          }
+          sink.onMessage(assistantMessage(input, { text: "done" }));
+          return { type: "stop" };
+        }),
+      },
+    });
+    const plane = await planeOf(app.runtime);
+    const terminal = nextResidentTurn(plane);
+    await ownerStart(app, "review");
+    await terminal;
+    const session = plane.listSessions()[0];
+    if (session === undefined) throw new Error("missing resident session");
+    expect(receivedMessages(plane, session.id).map((row) => row.origin.value)).toContainEqual(
+      expect.objectContaining({ kind: "contact", contact: "cli:reviewer", reply: "none" }),
+    );
+  } finally {
+    runner.mockRestore();
+  }
+});
+
+test("child activity reaches the real session entity with an explicit no-reply origin", async () => {
+  const app = await suite.boot({
+    config: suite.config("child-origin-policy-"),
+    llm: {
+      resolveModel: fakeProviderModel,
+      run: (input, sink) => Effect.sync(() => {
+        sink.onMessage(assistantMessage(input, { text: "done" }));
+        return { type: "stop" };
+      }),
+    },
+  });
+  const plane = await planeOf(app.runtime);
+  const terminal = nextResidentTurn(plane);
+  await ownerStart(app, "observe child");
+  await terminal;
+  const session = plane.listSessions()[0];
+  if (session === undefined) throw new Error("missing resident session");
+  const rows = reconcile({
+    machine: spec.machine, contact: spec.contact, child: spec.child, turn: spec.turn,
+    records: [{ kind: "turn", role: "assistant", text: "done" }],
+    cursor: { ...spec.cursor, byteOffset: 96, recordHash: "b".repeat(64) },
+    previous: spec.cursor, observedAt: 7,
+  }, []);
+  const admitted = await runAppEffect(app.runtime, Effect.gen(function* () {
+    const client = yield* Core.sessionClient;
+    return yield* admit(client, session.id, rows);
+  }));
+  expect(admitted).toEqual(rows);
+  const recorded = sessionTree(session.id, plane.sessionStore(session.id).actions)
+    .filter((row) => row.kind === "action" && row.id === rows[0]?.key);
+  expect(recorded).toHaveLength(1);
+  expect(recorded[0]?.intent.value).toEqual({ kind: "child_activity", reply: "none" });
+});
 
 test("a Slack Owner call uses the same call port rather than the message gateway", async () => {
   const starts: object[] = [];
