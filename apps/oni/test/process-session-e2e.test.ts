@@ -220,6 +220,7 @@ test("process entry logs committed sessions and disposes its runtime", async () 
       "send-message",
       "provision",
       "speech",
+      "image",
       "completion",
       "compaction-summarizer",
       "compaction-strategy",

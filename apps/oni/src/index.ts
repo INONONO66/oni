@@ -112,6 +112,7 @@ import {
   type OniConfig,
 } from "./config";
 import { createCompletionPort } from "./composition/completion";
+import { composeImage, createImagePort } from "./composition/image";
 import { processEntryPath } from "./process-entry-path";
 import { createProcessSessionTransport } from "./composition/process-session";
 import { commitDeliverPayload, prepareMessage } from "./composition/message-session";
@@ -842,6 +843,7 @@ export async function startOni(options: StartOptions = {}) {
       { ...config.model, ...(transport === undefined ? {} : { transport }) },
       { now: services.now, id: services.entropy.id },
     );
+    const image = composeImage(config.model, services);
     cells = await acquireAppResource(
       runtime,
       // #1305: the prelude's tool_output resolves against the tenant session's own file.
@@ -864,6 +866,10 @@ export async function startOni(options: StartOptions = {}) {
       completion: llmPort,
       speech: speechPort(config, transport, { events: services.observations, now: services.now }),
       putOutput: (sessionId, write) => plane.session(sessionId).putOutput(write),
+      image: {
+        generate: createImagePort(image, config.model, services.entropy.id),
+        putOutput: (sessionId, write) => plane.session(sessionId).putOutput(write),
+      },
       messages,
       now: services.now,
       id: services.entropy.id,

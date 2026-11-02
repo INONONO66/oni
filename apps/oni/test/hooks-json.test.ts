@@ -307,7 +307,7 @@ test("no hooks config composes the bundle with zero rows and the action input ad
   const generation = await composed();
   expect(generation.bundles).toEqual([
     "file", "bash", "eval", "monitor", "cron", "hooks-json", "delegation-policy", "approval-policy",
-    "send-message", "provision", "speech", "completion", "compaction-summarizer", "compaction-strategy",
+    "send-message", "provision", "speech", "image", "completion", "compaction-summarizer", "compaction-strategy",
   ]);
   expect(generation.rows.filter((row) => row.id.startsWith("hooks-json/"))).toEqual([]);
   expect(generation.inputs).toEqual(["action"]);
@@ -377,7 +377,7 @@ test("off cascades: action roots hook and hooks-json off; hook roots hooks-json 
   ]);
   expect(offHook.bundles).toEqual([
     "file", "bash", "eval", "monitor", "cron", "delegation-policy", "approval-policy",
-    "send-message", "provision", "speech", "completion", "compaction-summarizer", "compaction-strategy",
+    "send-message", "provision", "speech", "image", "completion", "compaction-summarizer", "compaction-strategy",
   ]);
 });
 
@@ -548,7 +548,7 @@ async function offCascadeConfigureRows(prefix: string) {
   const adopted = plane.openKernel(sessionId).latestGenerationFor(sessionId);
   expect([...adopted.bundles].sort()).toEqual([
     "approval-policy", "bash", "child-activity", "compaction-strategy", "compaction-summarizer", "completion", "cron",
-    "delegation-policy", "eval", "file", "monitor", "provision", "send-message", "speech",
+    "delegation-policy", "eval", "file", "image", "monitor", "provision", "send-message", "speech",
   ]);
   if (config.sessionsDir === undefined) throw new Error("suite config always sets sessionsDir");
   const database = new Database(join(config.sessionsDir, `${sessionId}.sqlite`), {

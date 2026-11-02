@@ -18,7 +18,7 @@ import type { AnyToolDefinition, PlainValue } from "@oni/protocol";
 import { appManifest } from "../src/manifest";
 import { alarmDefinition } from "./helpers/alarm-definition";
 
-// #1561: every tool is bundle-owned; the sealed 12-tool surface is the
+// #1561: every tool is bundle-owned; the sealed 13-tool surface is the
 // composed product manifest's tools, in manifest order.
 const generation = Bundle.composeSync(appManifest({
   alarm: await alarmDefinition(),
@@ -42,6 +42,7 @@ const MODEL_DOOR = [
   "send_message",
   "provision",
   "speech",
+  "image",
 ];
 const CELL_ONLY = ["completion"];
 const FILE_TOOLS = ["read", "write", "edit", "ls", "find", "grep", "bash"];

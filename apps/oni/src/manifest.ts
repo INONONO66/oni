@@ -14,6 +14,7 @@ import { bashBundle } from "./bundles/tools/bash/index";
 import { completionBundle } from "./bundles/tools/completion/index";
 import { evalBundle } from "./bundles/tools/eval/index";
 import { fileBundle } from "./bundles/tools/file/index";
+import { imageBundle } from "./bundles/tools/image/index";
 import { speechBundle } from "./bundles/tools/speech/index";
 import { AppInvariantError } from "./invariant";
 import type { ToolPorts } from "./composition/catalog";
@@ -84,6 +85,7 @@ export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition 
     sendMessageBundle(input.tools),
     provisionBundle(input.tools),
     speechBundle(input.tools),
+    imageBundle(input.tools),
     completionBundle(input.tools),
     compactionSummarizerBundle(),
     compactionBundle(),

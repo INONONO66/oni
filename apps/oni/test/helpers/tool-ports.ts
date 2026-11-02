@@ -9,6 +9,7 @@ import { bashBundle } from "../../src/bundles/tools/bash/index";
 import { completionBundle } from "../../src/bundles/tools/completion/index";
 import { evalBundle } from "../../src/bundles/tools/eval/index";
 import { fileBundle } from "../../src/bundles/tools/file/index";
+import { imageBundle } from "../../src/bundles/tools/image/index";
 import { speechBundle } from "../../src/bundles/tools/speech/index";
 import { toolCapability } from "../../src/manifest";
 import { testIds } from "./test-entropy";
@@ -21,6 +22,7 @@ export const testToolPorts: ToolPorts = {
   llm: undefined,
   speech: undefined,
   putOutput: undefined,
+  image: undefined,
   provisioning: undefined,
   clock: () => 0,
   id: testIds("tool"),
@@ -39,6 +41,7 @@ function sourcedToolBundles(source: () => ToolPorts | undefined): readonly Bundl
     speechBundle(source),
     completionBundle(source),
     provisionBundle(source),
+    imageBundle(source),
     sendMessageBundle(source),
   ];
 }

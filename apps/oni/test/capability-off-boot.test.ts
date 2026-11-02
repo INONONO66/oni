@@ -122,6 +122,7 @@ const ROWS: readonly OffRow[] = [
       { name: "send-message", because: "tool" },
       { name: "provision", because: "tool" },
       { name: "speech", because: "tool" },
+      { name: "image", because: "tool" },
       { name: "completion", because: "tool" },
     ],
     absentPoints: ["tool.pre", "tool.post"],
