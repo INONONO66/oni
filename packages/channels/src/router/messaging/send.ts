@@ -6,6 +6,7 @@ import {
   MessagingEvents,
   canonicalKey,
   type BusEvent,
+  type Channel,
   type Outbound,
   type SessionTransition,
 } from "@oni/protocol";
@@ -38,8 +39,8 @@ type MessagingPorts = Readonly<{
   transaction: GatewayRouterPorts["transaction"];
   /** Delivery owners reconcile retries using the stable idempotency key. */
   deliver: (message: OutboundMessage) => KernelDeliveryReceipt | Promise<KernelDeliveryReceipt>;
-  /** The mounted delivery routes by instance surface id (`<channel>:<identity>`, or a bare platform id); absent = no Owner instance anywhere. */
-  routes?: () => ReadonlySet<string>;
+  /** The mounted delivery instances, including their platform and account identity. */
+  routes: () => ReadonlyMap<string, Channel.Instance>;
   publish: BusEvent.Sink["publish"];
 }> &
   Pick<NonNullable<GatewayRouterPorts["messaging"]>, "grants" | "budgets">;
@@ -192,7 +193,7 @@ export function createExistingAgentMessaging(ports: MessagingPorts): ExistingAge
   function send(rawInput: SendInput): Effect.Effect<SendReceipt, ChannelError> {
     return Effect.gen(function* () {
     const input = SendInput.parse(rawInput);
-    const checked = authorizeSend(ports.stores, input, ports.grants(), ports.routes?.() ?? new Set());
+    const checked = authorizeSend(ports.stores, input, ports.grants(), ports.routes());
     if (!checked.ok) return deny(input, checked.code, checked.reason);
     const authorization = { input, target: checked.target, grant: checked.grant };
     const { target } = authorization;
@@ -210,7 +211,7 @@ export function createExistingAgentMessaging(ports: MessagingPorts): ExistingAge
 
   return {
     preflight(input) {
-      const checked = authorizeSend(ports.stores, input, ports.grants(), ports.routes?.() ?? new Set());
+      const checked = authorizeSend(ports.stores, input, ports.grants(), ports.routes());
       if (!checked.ok) return checked.code;
       // A granted cold send to a target with no active budget is the Owner's to approve (#1569 lane 8) — unless the target is the Owner (#1600 lane R2).
       if (

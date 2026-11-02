@@ -84,7 +84,7 @@ export interface SupervisorDeps {
   readonly voiceRoutes?: Map<string, ProviderVoiceRoute>;
   readonly historyRoutes?: Map<string, ProviderHistoryRoute>;
   readonly webhookHandlers: Map<string, (request: Request) => Promise<Response>>;
-  /** #1569 lane 7: the `<platform>:owner` surfaces whose declaration lets the reply door answer through the account. */
+  /** Owner instance ids whose declaration lets the reply door answer through the account. */
   readonly autoReplies?: Set<string>;
   readonly traceId: () => string;
   /** Consecutive start failures before the breaker pauses the instance. */
@@ -239,10 +239,8 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
 
   async function mountRow(row: DesiredChannelRow, epoch: number): Promise<void> {
     const built = deps.build(row.component);
-    // Routes key by the instance surface id (`<platform>:<identity>`, #1569).
-    // Bot and Owner readers share the grant for the inbound facts' platform,
-    // each under its declared posture. Webhooks use the declaration's own
-    // instance key when supplied, otherwise the platform key.
+    // Routes key by the channel_instance row id. Bot and Owner readers
+    // still share the grant for the inbound facts' platform.
     const surfaceId = built.surface.id;
     if (surfaces.has(surfaceId)) throw new ChannelSurfaceBusy();
     surfaces.add(surfaceId);
@@ -284,7 +282,9 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
         return;
       }
       revokers.push(
-        registerRoute(deps.deliveryRoutes, surfaceId, built.deliveryRoute),
+        registerRoute(deps.deliveryRoutes, surfaceId, built.deliveryRoute === undefined ? undefined : {
+          platform, identity: row.component.identity, deliver: built.deliveryRoute,
+        }),
         registerRoute(deps.typingRoutes, surfaceId, built.typingRoute),
         registerRoute(deps.voiceRoutes, surfaceId, built.voiceRoute),
         registerRoute(deps.webhookHandlers, webhookKey, built.webhookHandler),
@@ -317,7 +317,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     if (epoch !== generation) return;
     if (failure === undefined) {
       failures.delete(row.instanceId);
-      // A mounted stage reports the surface it mounted under (`<platform>:<identity>`, #1569), first time and after.
+      // A mounted stage reports its instance surface id, first time and after.
       const running = mounted.get(row.instanceId);
       statuses.push(running === undefined
         ? { id: row.instanceId, surface: row.component.id, state: "mounted" }

@@ -1,6 +1,6 @@
 import { Effect, Semaphore } from "effect";
 import { ChannelsFailure, DeliveryNotSent } from "../errors";
-import { Channel, Gateway, Outbound } from "@oni/protocol";
+import { Gateway, Outbound } from "@oni/protocol";
 import { advanceAutomationGroups } from "./automation/groups.js";
 import { ingressInput } from "./automation/input.js";
 import { inboundIdOf } from "./inbound-id.js";
@@ -42,26 +42,20 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     ((_sender: Gateway.IngestSender, observation: Gateway.MessageObservation) =>
       ports.sink(Gateway.MessageObserved, observation));
   const messagingPorts = ports.messaging;
-  // A delivery leaves through one instance, `<channel>:<identity>` (#1569);
-  // an identity-less surface (ws, github, webhook) is keyed by its platform
-  // id alone and is reached as the bot.
-  const routeFor = (channel: string, identity: Channel.Identity) =>
-    messagingPorts?.deliveryRoutes.get(Channel.instanceId(channel, identity)) ??
-    (identity === "bot" ? messagingPorts?.deliveryRoutes.get(channel) : undefined);
   const deliver = (message: {
     readonly target: Gateway.DeliveryTarget;
     readonly payload: Outbound.Payload;
     readonly idempotencyKey: string;
   }) => {
-    const route = routeFor(message.target.channel, message.target.identity);
+    const route = messagingPorts?.deliveryRoutes.get(message.target.instance);
     if (route === undefined)
       throw new DeliveryNotSent({
         operation: "message.deliver",
-        cause: `no delivery route: ${Channel.instanceId(message.target.channel, message.target.identity)}`,
+        cause: `no delivery route: ${message.target.instance}`,
       });
-    return route(message.target.externalId, message.payload, message.idempotencyKey, message.target.conversation);
+    return route.deliver(message.target.externalId, message.payload, message.idempotencyKey, message.target.conversation);
   };
-  const routes = () => new Set(messagingPorts?.deliveryRoutes.keys() ?? []);
+  const routes = () => messagingPorts?.deliveryRoutes ?? new Map();
   const messaging =
     messagingPorts === undefined
       ? undefined
@@ -130,7 +124,8 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     const actorSendAllowed =
       send.to.kind === "origin"
         ? replyRefusal === undefined || replyRefusal === "draft"
-        : refusal === undefined || refusal === "identity_not_granted" || refusal === "approval_required";
+        : refusal === undefined || refusal === "identity_not_granted" || refusal === "approval_required" || refusal === "target_ambiguous";
+    const targetUnique = refusal !== "target_ambiguous";
     const identityGranted = refusal !== "identity_not_granted";
     const consentGranted = refusal !== "approval_required";
     const replyAutoAllowed = replyRefusal !== "draft";
@@ -141,7 +136,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
             eventIdUnique: prepared.message.sender === "external" && prepared.message.eventIdUnique,
           }
         : prepared.message.sender === "session"
-          ? { ...prepared.message, actorSendAllowed, identityGranted, consentGranted, replyAutoAllowed }
+          ? { ...prepared.message, actorSendAllowed, targetUnique, identityGranted, consentGranted, replyAutoAllowed }
           : undefined;
     if (message === undefined)
       throw new ChannelsFailure({

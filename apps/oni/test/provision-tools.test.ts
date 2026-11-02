@@ -763,17 +763,22 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     );
     // #1569: a mounted stage reports its instance surface; the bot's checklist is the platform's, the Owner's is the arm's.
     const instancePort = portWith();
+    for (const identity of ["bot", "owner"] as const) instancePort.port.instances.put({
+      id: `channel:slack:${identity === "bot" ? "hq" : "personal"}`,
+      provider: "slack", identity, enabled: true, settings: {},
+      revision: 0, createdBy: "owner", updatedAt: NOW,
+    });
     instancePort.supervisor.statuses = [
-      { id: "channel:slack:hq", surface: "slack:bot", state: "mounted" },
-      { id: "channel:slack:owner", surface: "slack:owner", state: "mounted" },
+      { id: "channel:slack:hq", surface: "channel:slack:hq", state: "mounted" },
+      { id: "channel:slack:personal", surface: "channel:slack:personal", state: "mounted" },
     ];
     const instanceStatus = await provisionStatus(instancePort.port)({});
-    expect(instanceStatus).toContain("channel:slack:owner [slack:owner] → mounted");
+    expect(instanceStatus).toContain("channel:slack:personal [channel:slack:personal] → mounted");
     expect(instanceStatus).toContain(
-      "slack:bot precondition: Socket Mode enabled with an app-level token granted connections:write",
+      "channel:slack:hq precondition: Socket Mode enabled with an app-level token granted connections:write",
     );
-    expect(instanceStatus).toContain("slack:owner precondition: Owner session from the Slack QR login");
-    expect(instanceStatus).not.toContain("slack:owner precondition: Socket Mode");
+    expect(instanceStatus).toContain("channel:slack:personal precondition: Owner session from the Slack QR login");
+    expect(instanceStatus).not.toContain("channel:slack:personal precondition: Socket Mode");
 
     const locked = portWith({ kek: { kind: "locked", reason: "no ONI_VAULT_KEY" } });
     expect(await provisionStatus(locked.port)({})).toContain(

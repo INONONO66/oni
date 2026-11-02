@@ -20,7 +20,7 @@ interface DiscordOwnerCredentials {
 /**
  * The Owner-identity arm (#1569 lane 6): the account's gateway listener
  * under the declared intake posture, delivery and typing as the Owner's
- * account through the package's REST client, mounted as `discord:owner`
+ * account through the package's REST client, mounted by declaration id
  * (a delivery route only when the declaration grants outbound).
  */
 function createDiscordOwnerArm(sdk: DiscordOwnerSdk = discordOwnerSdk()): OwnerArm<DiscordOwnerCredentials> {
@@ -70,6 +70,7 @@ export function createDiscordProvider(
     owner: createDiscordOwnerArm(ownerSdk),
     capabilities: {
       deliver: true,
+      direct: true,
       webhook: false,
       render: DISCORD_RENDER,
       media: DISCORD_MEDIA_LIMITS,

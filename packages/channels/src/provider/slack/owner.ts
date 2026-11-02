@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { ChannelsFailure, DeliveryNotSent, SlackEndpointKeyError, VoiceJoinRefused } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
-import { requireHandler } from "../../support/handler-frame";
+import { instanceHandler, requireHandler } from "../../support/handler-frame";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { newTraceId } from "../../support/trace";
@@ -36,14 +36,14 @@ const JOIN_REASONS: Record<SlackHuddleError["code"], VoiceJoinRefused["reason"]>
   voice_join_failed: "join_failed",
 };
 
-function voiceRefused(reason: VoiceJoinRefused["reason"], detail: string): VoiceJoinRefused {
-  return new VoiceJoinRefused({ reason, surface: "slack:owner", detail });
+function voiceRefused(surface: string, reason: VoiceJoinRefused["reason"], detail: string): VoiceJoinRefused {
+  return new VoiceJoinRefused({ reason, surface, detail });
 }
 
-function joinRefusal(error: Error): VoiceJoinRefused {
+function joinRefusal(surface: string, error: Error): VoiceJoinRefused {
   return error instanceof SlackHuddleError
-    ? voiceRefused(JOIN_REASONS[error.code], safeVoiceReason(error.detail, "voice_join_failed"))
-    : voiceRefused("join_failed", "voice_join_failed");
+    ? voiceRefused(surface, JOIN_REASONS[error.code], safeVoiceReason(error.detail, "voice_join_failed"))
+    : voiceRefused(surface, "join_failed", "voice_join_failed");
 }
 
 function safeVoiceReason(reason: string, fallback: string): string {
@@ -65,7 +65,7 @@ function conversation(channelId: string): boolean {
 }
 
 /**
- * Slack as the Owner's own account (#1569 lanes 5 and 6): the `slack:owner`
+ * Slack as the Owner's own account (#1569 lanes 5 and 6): the declared
  * instance, logged in with the vault-opened `{token xoxc, cookie d}` the QR
  * login produced. Delivery posts where an authenticated Owner-origin turn
  * said `as: owner` and the instance's declaration grants outbound. Intake is
@@ -78,7 +78,7 @@ function conversation(channelId: string): boolean {
  * `sent | not_sent | unknown` from the SDK's error shapes.
  */
 export class SlackOwnerAdapter implements Channel.Surface {
-  readonly id = "slack:owner";
+  get id(): string { return this.options.instance; }
 
   private readonly client: SlackOwnerApi;
   private readonly sdk: SlackOwnerSdk;
@@ -104,7 +104,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
   readonly config: Channel.Config = {};
 
   onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    this.handler = instanceHandler(this.id, handler);
   }
 
   /** The workspace the authenticated session belongs to; every endpoint this instance delivers to must name it. */
@@ -332,26 +332,26 @@ export class SlackOwnerAdapter implements Channel.Surface {
       traceId: newTraceId(this.options.id), now: this.options.now,
       publish: this.publish, errorMessage: "slack owner huddle handling failed",
       rethrowFailure: false,
-      handle: () => requireHandler(this.handler, "slack:owner")(inbound),
+      handle: () => requireHandler(this.handler, this.id)(inbound),
     });
   }
 
   async joinVoice(input: Parameters<ProviderVoiceRoute>[0]): Promise<PcmVoiceHandle> {
     if (input.surface !== this.id || !conversation(input.channelId) ||
         !input.speakerExternalId || input.workspaceId !== undefined && input.workspaceId !== this.team)
-      throw voiceRefused("address_incomplete", "voice_address_invalid");
+      throw voiceRefused(this.id, "address_incomplete", "voice_address_invalid");
     const team = this.team;
     const userId = this.userId;
     if (team === null || userId === null || this.readyGeneration !== this.generation)
-      throw voiceRefused("not_started", "owner_not_started");
+      throw voiceRefused(this.id, "not_started", "owner_not_started");
     const speaker = input.speakerExternalId.split(":");
     if (speaker.length !== 2 || speaker[0] !== team || !speaker[1] ||
         (input.mode !== "call" && input.speakerExternalId !== `${team}:${userId}`))
-      throw voiceRefused("address_incomplete", "speaker_mismatch");
+      throw voiceRefused(this.id, "address_incomplete", "speaker_mismatch");
     if (input.signal?.aborted)
-      throw voiceRefused("aborted", "join_aborted");
+      throw voiceRefused(this.id, "aborted", "join_aborted");
     if (this.joining !== null || this.live !== null)
-      throw voiceRefused("busy", "voice_busy");
+      throw voiceRefused(this.id, "busy", "voice_busy");
     const generation = this.generation;
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -364,14 +364,14 @@ export class SlackOwnerAdapter implements Channel.Surface {
     try {
       const raw = await this.sdk.joinHuddle(team, input.channelId, {
         credentials: this.credentials, speakerId: speaker[1], mode: input.mode ?? "join", signal: controller.signal,
-      }).catch((error: Error) => { throw joinRefusal(error); });
+      }).catch((error: Error) => { throw joinRefusal(this.id, error); });
       if (this.generation !== generation || controller.signal.aborted) {
         await Promise.resolve().then(() => raw.leave()).catch((error: Error) => {
-          const refusal = joinRefusal(error);
+          const refusal = joinRefusal(this.id, error);
           finished.reject(refusal);
           throw refusal;
         });
-        throw voiceRefused(controller.signal.aborted ? "aborted" : "not_started", "join_stopped");
+        throw voiceRefused(this.id, controller.signal.aborted ? "aborted" : "not_started", "join_stopped");
       }
       const handle = this.adaptVoice(raw, team, speaker[1]);
       this.live = handle;
@@ -425,9 +425,9 @@ export class SlackOwnerAdapter implements Channel.Surface {
    * One frame under the posture: the normalizer keeps the account's own
    * messages out and names a mention of the Owner; `mentions_and_dms` then
    * admits a DM or that mention. A top-level mention of the Owner opens no
-   * thread root of its own: the bot's copy of the same message carries
-   * none, and one physical message binds to one conversation whichever
-   * instance observed it.
+   * thread root of its own. Its conversation stays under the receiving
+   * instance; observing the same physical message on a bot does not
+   * transfer this conversation to that bot.
    */
   private handleFrame(event: PlainValue, key: string): void {
     const normalizer = this.normalizer;
@@ -446,7 +446,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
         const inbound = normalizer.normalize(frame);
         if (inbound === null || !this.admits(inbound)) return;
         const { reply, ...facts } = inbound.facts;
-        await requireHandler(this.handler, "slack:owner")({
+        await requireHandler(this.handler, this.id)({
           ...inbound,
           facts: {
             ...facts,

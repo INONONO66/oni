@@ -331,7 +331,7 @@ describe("Discord bot voice route and call facts", () => {
     expect(await first).toEqual({
       sender: { kind: "external", surface: "discord", externalId: "owner" },
       facts: {
-        eventId: "call:guild:owner:session:42", event: "call", surface: "discord",
+        eventId: "call:guild:owner:session:42", event: "call", surface: "discord", instance: "channel:test:main",
         workspaceId: "guild", channelId: "voice-one",
         author: { externalId: "owner", isBot: false }, addressees: [{ externalId: "bot" }],
         dm: false, payload: joined, render: "joined voice channel voice-one",

@@ -46,6 +46,7 @@ const session = {
   depth: 1,
   withinParentDeadline: true,
   actorSendAllowed: true,
+  targetUnique: true,
 } as const;
 
 test.each([
@@ -81,6 +82,7 @@ test.each([
   [{ kind: "depth", max: 1 }, { depth: 2 }],
   [{ kind: "deadline", withinParent: true }, { withinParentDeadline: false }],
   [{ kind: "actor_send" }, { actorSendAllowed: false }],
+  [{ kind: "target" }, { targetUnique: false }],
 ] as const)("B %j refuses at its boundary and matches all routing dimensions", (check, violation) => {
   const rule = Gateway.RuleTableB.parse({
     id: "rule",

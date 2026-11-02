@@ -39,19 +39,20 @@ export const ProvisionStatusOutput = z
   })
   .strict();
 
-/** The operator checklist behind one reported surface: the platform's for its bot, the Owner arm's for `<platform>:owner` (#1569). */
-function surfacePreconditions(surface: string): readonly string[] {
-  const [platform, identity] = surface.split(":");
-  if (platform === undefined || !isRegisteredProvider(platform)) return [];
+/** Account identity comes from the declaration, never from the surface id's slug. */
+function surfacePreconditions(status: ChannelRuntimeStatus, port: ProvisionPort): readonly string[] {
+  const instance = port.instances.get(status.id);
+  const platform = instance?.provider ?? status.surface;
+  if (!isRegisteredProvider(platform)) return [];
   const provider = ChannelProviders[platform];
-  return identity === "owner" ? (provider.owner?.preconditions ?? []) : provider.preconditions;
+  return instance?.identity === "owner" ? (provider.owner?.preconditions ?? []) : provider.preconditions;
 }
 
 export function executeProvisionStatus(port: ProvisionPort) {
   return async (_input: z.output<typeof EMPTY_INPUT>) => {
     const statuses = port.supervisor.status();
-    const preconditions = [...new Set(statuses.map((status) => status.surface))].flatMap((surface) =>
-      surfacePreconditions(surface).map((text) => ({ surface, text })),
+    const preconditions = statuses.flatMap((status) =>
+      surfacePreconditions(status, port).map((text) => ({ surface: status.surface, text })),
     );
     return {
       source: port.supervisor.source(),

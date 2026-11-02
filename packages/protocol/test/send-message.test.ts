@@ -307,6 +307,7 @@ describe("rule table shapes", () => {
       { kind: "deadline", withinParent: true },
       { kind: "type" },
       { kind: "actor_send" },
+      { kind: "target" },
     ] as const) {
       expect(Gateway.RuleTableB.parse({ ...rowB, check }).check).toEqual(check);
     }

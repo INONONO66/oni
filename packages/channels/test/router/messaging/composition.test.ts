@@ -51,7 +51,7 @@ const MARKET_KEY = Channel.SurfaceKey.fromChannel({
   id: "market",
 });
 
-const capturing: ChannelDeliveryRoute = async (
+const capturing: ChannelDeliveryRoute = { platform: "discord", identity: "bot", deliver: async (
   externalId,
   payload,
   idempotencyKey,
@@ -59,7 +59,7 @@ const capturing: ChannelDeliveryRoute = async (
 ) => {
   delivered.push({ externalId, body: Outbound.text(payload), idempotencyKey, conversation });
   return { value: "accepted", externalMessageId: `platform-${delivered.length}` };
-};
+} };
 
 function makeRouter(
   routes: ReadonlyMap<string, ChannelDeliveryRoute> = new Map([["discord", capturing]]),
@@ -156,6 +156,29 @@ test("the session the conversation was routed to answers it through the reply do
   } finally {
     stop();
   }
+});
+
+test("two instances keep identical conversation and event ids separate and reply through the receiving instance", async () => {
+  const selected: string[] = [];
+  const routes = new Map<string, ChannelDeliveryRoute>(["east", "west"].map((slug) => [
+    `channel:discord:${slug}`,
+    { platform: "discord", identity: "bot", deliver: async () => {
+      selected.push(slug);
+      return { value: "accepted" };
+    } },
+  ]));
+  const router = makeRouter(routes);
+  const east = await runEffect(router.ingest(sender, { ...facts, instance: "channel:discord:east" }));
+  const west = await runEffect(router.ingest(sender, { ...facts, instance: "channel:discord:west" }));
+  if (east.status !== "executed" || west.status !== "executed") throw new Error("instances not admitted");
+  expect(west.handle.target).not.toBe(east.handle.target);
+  expect((await replyFrom(router, west.handle.target, west.handle.messageId)).status).toBe("executed");
+  expect(selected).toEqual(["west"]);
+  routes.delete("channel:discord:west");
+  expect(await replyFrom(router, west.handle.target, west.handle.messageId)).toMatchObject({
+    status: "blocked_pre", reasonCode: "message.resident.reply_unbound",
+  });
+  expect(selected).toEqual(["west"]);
 });
 
 test("a session that never received the prompt binds nothing (the fold refuses), as does an unknown prompt", async () => {
@@ -330,7 +353,7 @@ test("a reply is never throttled: a do-not-contact budget stops the standing-gra
   expect(delivered).toHaveLength(1);
 });
 
-test("an actor send under a standing grant whose surface has no delivery route fails closed at transport", async () => {
+test("an actor send under a standing grant whose surface has no delivery route fails closed at admission", async () => {
   const router = makeFixtureRouter({
     messaging: {
       deliveryRoutes: new Map(),
@@ -344,28 +367,49 @@ test("an actor send under a standing grant whose surface has no delivery route f
       ],
     },
   });
-  // The grant and the endpoint resolve at preflight; the missing route is the delivery owner's refusal.
   expect(
-    await effectFailure(
+    await runEffect(
       router.ingest(
         { kind: "session", id: "persona-owner" },
         { to: { kind: "actor", actorId: "actor-buyer" }, type: "message", content: "yes" },
       ),
     ),
-  ).toMatchObject({ _tag: "ChannelsFailure", operation: "message.deliver" });
+  ).toEqual({ status: "blocked_pre", reasonCode: "message.resident.actor_grant" });
+  expect(delivered).toEqual([]);
+});
+
+test("a route revoked after admission never falls through to another instance", async () => {
+  const routes = new Map([["channel:discord:west", capturing], ["channel:discord:east", capturing]]);
+  const router = makeFixtureRouter({
+    messaging: {
+      deliveryRoutes: routes,
+      grants: () => [{
+        id: "grant", senderId: "persona-owner", targetActorId: "actor-buyer", operations: ["fire_and_forget"],
+      }],
+    },
+    transaction: (operation) => operation.pipe(Effect.tap(() => Effect.sync(() => {
+      routes.delete("channel:discord:west");
+    }))),
+  });
+  expect(await effectFailure(router.ingest(
+    { kind: "session", id: "persona-owner" },
+    { to: { kind: "actor", actorId: "actor-buyer", surface: "channel:discord:west" }, type: "message", content: "yes" },
+  ))).toMatchObject({ _tag: "ChannelsFailure", operation: "message.deliver" });
   expect(delivered).toEqual([]);
 });
 
 test("a surface reached only through the Owner's account: the reply is a draft unless the declaration auto-replies (#1569 lane 7)", async () => {
   const ownerDelivered: string[] = [];
-  const ownerRoute: ChannelDeliveryRoute = async (externalId, payload) => {
+  const ownerRoute: ChannelDeliveryRoute = { platform: "discord", identity: "owner", deliver: async (externalId, payload) => {
     ownerDelivered.push(`${externalId}:${Outbound.text(payload)}`);
     return { value: "accepted" };
-  };
+  } };
   const routes = new Map([["discord:owner", ownerRoute]]);
   // The Owner instance does not auto-reply: the answer stays the Owner's to send.
   const drafting = makeFixtureRouter({ messaging: { deliveryRoutes: routes, grants: () => [] } });
-  const prompt = await admitFirstContact(drafting);
+  const inbound = await runEffect(drafting.ingest(sender, { ...facts, receivedBy: "owner", instance: "discord:owner" }));
+  if (inbound.status !== "executed") throw new Error("Owner contact was not admitted");
+  const prompt = inbound.handle;
   expect(await replyFrom(drafting, prompt.target, prompt.messageId)).toMatchObject({
     status: "blocked_pre",
     reasonCode: "message.resident.reply_draft",
@@ -377,7 +421,7 @@ test("a surface reached only through the Owner's account: the reply is a draft u
   });
   expect((await replyFrom(answering, prompt.target, prompt.messageId, "as the Owner")).status).toBe("executed");
   expect(ownerDelivered).toEqual(["buyer-external:as the Owner"]);
-  // A bot instance of the surface always answers as the bot, auto-reply or not.
+  // Adding a bot never moves the Owner instance's conversation to that bot.
   const withBot = makeFixtureRouter({
     messaging: {
       deliveryRoutes: new Map([["discord:bot", capturing], ["discord:owner", ownerRoute]]),
@@ -385,17 +429,17 @@ test("a surface reached only through the Owner's account: the reply is a draft u
       autoReplies: () => new Set(["discord:owner"]),
     },
   });
-  expect((await replyFrom(withBot, prompt.target, prompt.messageId, "as the bot")).status).toBe("executed");
-  expect(delivered.map((entry) => entry.body)).toEqual(["as the bot"]);
-  expect(ownerDelivered).toEqual(["buyer-external:as the Owner"]);
+  expect((await replyFrom(withBot, prompt.target, prompt.messageId, "still the Owner")).status).toBe("executed");
+  expect(delivered).toEqual([]);
+  expect(ownerDelivered).toEqual(["buyer-external:as the Owner", "buyer-external:still the Owner"]);
 });
 
 test("a DM the Owner's account received is answered through the Owner's instance, never the bot (#1600 lane R2)", async () => {
   const ownerDelivered: string[] = [];
-  const ownerRoute: ChannelDeliveryRoute = async (externalId, payload) => {
+  const ownerRoute: ChannelDeliveryRoute = { platform: "discord", identity: "owner", deliver: async (externalId, payload) => {
     ownerDelivered.push(`${externalId}:${Outbound.text(payload)}`);
     return { value: "accepted" };
-  };
+  } };
   const routes = new Map([["discord:bot", capturing], ["discord:owner", ownerRoute]]);
   registerOwnerDm();
   // The bot cannot reach a DM the Owner's account read: without the declaration's auto-reply the answer is the Owner's draft.
@@ -468,7 +512,7 @@ test.each([
   "rejected",
   "unknown",
 ] as const)("the surface's %s receipt survives the composed reply door", async (value) => {
-  const router = makeRouter(new Map([["discord", async () => ({ value })]]));
+  const router = makeRouter(new Map([["discord", { platform: "discord", identity: "bot", deliver: async () => ({ value }) }]]));
   const prompt = await admitFirstContact(router);
   expect(await replyFrom(router, prompt.target, prompt.messageId)).toMatchObject({
     status: "executed",
@@ -479,6 +523,7 @@ test.each([
 test("the reply admission records one budget-free fact per message id: a replay matches, different content conflicts", () => {
   makeRouter();
   const target: Gateway.DeliveryTarget = {
+    instance: "discord",
     actorId: "actor-buyer",
     endpointId: "ep-buyer",
     channel: "discord",

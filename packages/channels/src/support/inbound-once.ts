@@ -1,6 +1,6 @@
 import type { Channel } from "@oni/protocol";
 
-/** The physical message key two instances of one platform share: platform, workspace, channel, event. */
+/** Bot and Owner copies of one platform message share its workspace/channel/event key. */
 function inboundKey(message: Channel.InboundMessage): string {
   const { facts } = message;
   return [facts.surface, facts.workspaceId ?? "", facts.channelId, facts.eventId]
@@ -9,14 +9,11 @@ function inboundKey(message: Channel.InboundMessage): string {
 }
 
 /**
- * Two instances of one platform (#1569 lane 6: the bot and the Owner's own
- * account) can both observe one message — a mention of the Owner in a
- * channel the bot is in. The composition hands each physical message to the
- * routing handler once: a copy that arrives while another copy is in flight
+ * The composition hands each physical message to the routing
+ * handler once: a copy that arrives while another copy is in flight
  * waits for that outcome and is dropped only when the first copy was
  * admitted; a refused or failed handoff lets the next copy carry the message
- * (the bot's copy of an Owner mention is refused by a mention-only posture,
- * the Owner's copy then routes). Admitted keys are kept in a bounded window.
+ * from another receiving account. Admitted keys are kept in a bounded window.
  */
 export function inboundOnce(handler: Channel.MessageHandler, capacity = 4096): Channel.MessageHandler {
   const admitted = new Set<string>();

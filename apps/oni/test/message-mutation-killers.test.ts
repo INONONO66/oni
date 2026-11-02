@@ -36,7 +36,7 @@ function promptActions(plane: AppLedgerPlane, sessionId: string) {
 function awaitedActorFixture() {
   const fixture = messageFixture("resident", {
     deliveryRoutes: new Map([
-      ["ws", async () => ({ value: "accepted" as const, externalMessageId: "platform-reply" })],
+      ["ws", { platform: "ws", identity: "bot", deliver: async () => ({ value: "accepted" as const, externalMessageId: "platform-reply" }) }],
     ]),
     grants: () => [
       { id: "grant", senderId: "sender", targetActorId: "alice", operations: ["awaited"] },

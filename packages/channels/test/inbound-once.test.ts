@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Channel } from "@oni/protocol";
 import { inboundOnce } from "../src/support/inbound-once";
+import { bounded } from "./helpers/bounded";
 
 function message(eventId: string, receivedBy: "bot" | "owner", channelId = "C1"): Channel.InboundMessage {
   return {
@@ -8,6 +9,7 @@ function message(eventId: string, receivedBy: "bot" | "owner", channelId = "C1")
     facts: {
       eventId,
       surface: "slack",
+      instance: `channel:slack:${receivedBy}`,
       workspaceId: "T1",
       channelId,
       addressees: [],
@@ -20,6 +22,16 @@ function message(eventId: string, receivedBy: "bot" | "owner", channelId = "C1")
 }
 
 describe("inboundOnce: one physical message reaches routing once across instances (#1569 lane 6)", () => {
+  test("equal event ids in different workspaces are independent, but a workspace redelivery is deduplicated", async () => {
+    const seen: string[] = [];
+    const once = inboundOnce(async (inbound) => { seen.push(inbound.facts.instance ?? "missing"); });
+    for (const workspaceId of ["east", "west", "west"]) {
+      const inbound = message("same-event", "bot");
+      await once({ ...inbound, facts: { ...inbound.facts, workspaceId, instance: `channel:slack:${workspaceId}` } });
+    }
+    expect(seen).toEqual(["channel:slack:east", "channel:slack:west"]);
+  });
+
   test("the second instance's copy of an admitted message is dropped; a different message or channel is not", async () => {
     const seen: string[] = [];
     const once = inboundOnce(async (inbound) => {
@@ -48,9 +60,11 @@ describe("inboundOnce: one physical message reaches routing once across instance
     const carried: string[] = [];
     const outcomes = new Map<string, Promise<void>>();
     const gates = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+    const ownerEntered = Promise.withResolvers<void>();
     const once = inboundOnce(async (inbound) => {
       const gate = Promise.withResolvers<void>();
       gates.set(inbound.facts.receivedBy ?? "bot", gate);
+      if (inbound.facts.receivedBy === "owner") ownerEntered.resolve();
       await gate.promise;
       carried.push(inbound.facts.receivedBy ?? "bot");
     });
@@ -61,7 +75,7 @@ describe("inboundOnce: one physical message reaches routing once across instance
     // The bot's copy is refused (a mention-only posture): the Owner's copy now carries the message.
     gates.get("bot")?.reject(new Error("mention_only"));
     await expect(outcomes.get("bot")).rejects.toThrow("mention_only");
-    await Promise.resolve();
+    await bounded(ownerEntered.promise);
     expect(gates.has("owner")).toBe(true);
     gates.get("owner")?.resolve();
     await outcomes.get("owner");

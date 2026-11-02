@@ -21,8 +21,8 @@ const SessionJson = z.string().min(1).refine(
 
 /**
  * The Owner-identity arm (#1569 lane 7): the account's inbox listener under
- * the declared posture and delivery into threads as the Owner, mounted as
- * `instagram:owner` (a delivery route only when the declaration grants
+ * the declared posture and delivery into threads as the Owner, mounted by
+ * declaration id (a delivery route only when the declaration grants
  * outbound).
  */
 function createInstagramOwnerArm(sdk: InstagramOwnerSdk = instagramOwnerSdk()): OwnerArm<InstagramOwnerCredentials> {
@@ -59,6 +59,7 @@ export function createInstagramProvider(
     ingest: "socket",
     capabilities: {
       deliver: true,
+      direct: false,
       webhook: false,
       render: INSTAGRAM_RENDER,
       media: false,

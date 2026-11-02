@@ -104,6 +104,7 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
   let world: Effect.Success<ReturnType<typeof toolTurnWorld>>;
   const driver = createLiveVoice({
     routes, realtime, persons: plane.stores.persons,
+    instances: new Map([[surface, { platform: surface.split(":")[0] ?? surface, identity: surface.endsWith(":owner") ? "owner" : "bot" }]]),
     role: (id) => id === sessionId ? "resident" : "child",
     id: () => "call-1",
     run: (effect, signal) => signal === undefined ? runEffect(effect) : runAbortableEffect(effect, signal),
@@ -488,7 +489,7 @@ test("child, unknown and unreachable contact calls are refused before any voice 
   })).rejects.toThrow("call_contact_missing:");
   await expect(f.driver.call.start({
     contact: "person:owner", surface: "slack:bot", channelId: "voice", sessionId: f.sessionId, turnId: "turn",
-  })).rejects.toThrow("call_contact_unreachable:");
+  })).rejects.toThrow("call_unrouted:");
   f.plane.stores.persons.put({
     id: "person:soju", displayName: "Soju", kind: "human", trustTier: "observer",
     endpoints: [{ channel: "telegram", externalId: "soju" }],

@@ -54,6 +54,7 @@ interface ReplyTarget {
   readonly externalId: string;
   /** The channel the person wrote on: a person on several channels is answered where they asked (#1485). */
   readonly surface: string;
+  readonly instance?: string;
   /** The delivered prompt the reply door answers (#1569): the gateway folds the conversation from its recorded origin. */
   readonly messageId: string;
   /** The chat and thread they wrote in; a group message is answered there, not in a DM (#1490). */
@@ -102,6 +103,7 @@ function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget |
       actorId: origin.actorId,
       externalId: origin.externalId,
       surface: origin.surface,
+      ...(typeof origin.instance === "string" ? { instance: origin.instance } : {}),
       messageId: message.id,
       ...(conversation === undefined ? {} : { conversation }),
       ...(rawConversation.success
@@ -227,7 +229,7 @@ function reactionPlan(
   const conversation = target?.reactionConversation;
   const messageId = conversation?.replyToMessageId;
   if (target === undefined || conversation === undefined || messageId === undefined) return undefined;
-  return { door, executor, sessionId: input.sessionId, actorId: target.actorId, surface: target.surface, conversation, messageId, ack };
+  return { door, executor, sessionId: input.sessionId, actorId: target.actorId, surface: target.instance ?? target.surface, conversation, messageId, ack };
 }
 
 /** One reaction through the gateway's send door, so grants, budget and the sent audit apply as to any letter. */
@@ -294,7 +296,7 @@ function sameConversation(call: Tool.Call, target: ReplyTarget | undefined): boo
   const contact = contactOf(call);
   if (target === undefined || contact === undefined || call.input.react !== undefined) return false;
   if (contact.id !== target.actorId) return false;
-  if (contact.surface !== undefined && contact.surface !== target.surface) return false;
+  if (contact.surface !== undefined && contact.surface !== target.surface && contact.surface !== target.instance) return false;
   const recorded = target.reactionConversation;
   const conversation = contact.conversation;
   if (conversation === undefined) return true;
@@ -346,7 +348,7 @@ function typingFor(
   typingRoute: ((surface: string) => ProviderTypingRoute | undefined) | undefined,
 ): Effect.Effect<void> | undefined {
   if (role !== "resident" || input.authority === "evidence_only") return undefined;
-  const route = target === undefined ? undefined : typingRoute?.(target.surface);
+  const route = target === undefined ? undefined : typingRoute?.(target.instance ?? target.surface);
   return route === undefined || target === undefined ? undefined : typingPulse(route, target.externalId, target.conversation);
 }
 

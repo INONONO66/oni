@@ -63,9 +63,9 @@ test("busy second declaration preserves the incumbent's usable delivery and hist
       { state: "mounted" }, { state: "start_failed", detail: "session_in_use" },
     ]);
     expect(fakes[1]?.calls).toEqual([]);
-    expect(await delivery.get("telegram:owner")?.("33", Outbound.payload("hello"), "one"))
+    expect(await delivery.get("channel:test:main")?.deliver("33", Outbound.payload("hello"), "one"))
       .toEqual({ value: "accepted", externalMessageId: "ack-1" });
-    expect(await history.get("telegram:owner")?.({ chatId: "33", limit: 1 }))
+    expect(await history.get("channel:test:main")?.({ chatId: "33", limit: 1 }))
       .toEqual({ status: "ok", page: { messages: [] } });
   } finally {
     await supervisor.stopAll();

@@ -55,7 +55,7 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
   it("restores the vault session through a file it removes, leaves the SDK nothing to persist, and opens the inbox listener", async () => {
     const { infos, publish } = infoCollector();
     const { client, listener, adapter } = await started(DEFAULT_INTAKE, {}, publish);
-    expect(adapter.id).toBe("instagram:owner");
+    expect(adapter.id).toBe("channel:test:main");
     expect(client.loaded).toEqual({ existed: true, session: INSTAGRAM_SESSION });
     // The file is gone and the SDK has no path to write a session back to.
     expect(client.sessionPath).toBe("");
@@ -276,7 +276,7 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
       noopPublish,
       injectedOptions(),
     );
-    expect(runtime?.surface.id).toBe("instagram:owner");
+    expect(runtime?.surface.id).toBe("channel:test:main");
     expect(runtime?.deliveryRoute).toBeDefined();
     expect(runtime?.typingRoute).toBeUndefined();
     expect(provider.credentials.safeParse({ session: INSTAGRAM_SESSION }).success).toBe(false);

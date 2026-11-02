@@ -53,7 +53,7 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
   it("logs in with the account token, verifies identity through the Owner SDK, and opens the gateway listener under the default posture", async () => {
     const { infos, publish } = infoCollector();
     const { client, listener, adapter } = await started(DEFAULT_INTAKE, publish);
-    expect(adapter.id).toBe("discord:owner");
+    expect(adapter.id).toBe("channel:test:main");
     expect(client.logins).toEqual(["owner-token"]);
     expect(client.calls.map(({ method }) => method)).toEqual(["testAuth"]);
     expect(listener.started).toBe(1);
@@ -187,7 +187,7 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
       noopPublish,
       injectedOptions(),
     );
-    expect(runtime.surface.id).toBe("discord:owner");
+    expect(runtime.surface.id).toBe("channel:test:main");
     expect(runtime.typingRoute).toBeDefined();
     await runtime.surface.start("boot");
     expect(await runtime.deliveryRoute?.("U7", Outbound.payload("as the Owner"), "k-1")).toEqual({

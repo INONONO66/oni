@@ -15,9 +15,10 @@ const ExternalOrigin = z
   .object({
     kind: z.literal("external"),
     surface: z.string().min(1),
+    instance: z.string().min(1).optional(),
     externalId: z.string().min(1),
     actorId: z.string(),
-    /** #1600 lane R2: the instance that observed the prompt. */
+    /** The account identity that observed the prompt. */
     receivedBy: z.enum(["bot", "owner"]).optional(),
     conversation: z
       .object({
@@ -44,9 +45,10 @@ function originBinding(
   if (send.to.kind !== "origin") return undefined;
   const origin = ExternalOrigin.safeParse(kernel.actionById(send.to.inReplyTo)?.intent.value);
   if (!origin.success || origin.data.surface === "ws") return undefined;
-  const { surface, externalId, actorId, conversation, receivedBy } = origin.data;
+  const { surface, instance, externalId, actorId, conversation, receivedBy } = origin.data;
   return {
     surface,
+    ...(instance === undefined ? {} : { instance }),
     externalId,
     actorId,
     channelId: conversation.channelId,

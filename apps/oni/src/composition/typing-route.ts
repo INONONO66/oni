@@ -1,19 +1,17 @@
 import type { ProviderTypingRoute } from "@oni/channels";
+import type { Channel } from "@oni/protocol";
 
 /**
- * The route a turn's typing pulse rides (#1569; #1600 lane R3): the
- * platform's bot instance, else its identity-less surface, else — where the
- * platform is reached only through an Owner account whose declaration
- * auto-replies, so the answer will leave as that account — the Owner
- * instance. An Owner instance that does not auto-reply never pulses: the
- * answer is a draft, and a pulse would promise one.
+ * Typing follows the originating instance. An Owner instance that does not
+ * auto-reply never pulses: the answer is a draft, and a pulse would promise one.
  */
 export function typingRouteFor(
   routes: ReadonlyMap<string, ProviderTypingRoute>,
   autoReplies: ReadonlySet<string>,
+  instances: ReadonlyMap<string, Channel.Instance>,
 ): (surface: string) => ProviderTypingRoute | undefined {
-  return (surface) =>
-    routes.get(`${surface}:bot`) ??
-    routes.get(surface) ??
-    (autoReplies.has(`${surface}:owner`) ? routes.get(`${surface}:owner`) : undefined);
+  return (surface) => {
+    const instance = instances.get(surface);
+    return instance?.identity === "bot" || autoReplies.has(surface) ? routes.get(surface) : undefined;
+  };
 }

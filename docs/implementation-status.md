@@ -21,6 +21,30 @@ existing child facts and receipts. TypeScript dialect packs, hook spool
 scripts, and local transcript parsers are removed. The machine-originated
 permission bridge remains separate work under #1665.
 
+## #1792 channel instance surface ids
+
+Declared providers mount under their `channel_instance.id`
+(`channel:<provider>:<slug>`), with platform and bot/Owner identity retained
+as route metadata. Delivery, typing, voice and history routes have independent
+instance keys. The WebSocket surface and shared A2A door keep their own ids.
+Provider construction stamps `Gateway.IngressFacts.instance` before shared
+intake; ledger ids, attachment storage keys and conversation bindings retain it.
+The shared intake dedupe key remains platform/workspace/channel/event so a bot
+and Owner account observing the same physical message cause only one admission.
+Replies and typing return through that receiving instance, never a sibling.
+An Owner instance still needs its outbound grant and auto-reply declaration.
+
+An actor/contact target's `surface` can name the instance directly. A platform
+target selects the sole mounted route with the requested identity; two or more
+refuse with `target_ambiguous`, projected by the app's policy row as
+`message.resident.target_ambiguous`. Missing or mismatched routes fail closed.
+Any surface name other than the endpoint's platform is an exact instance id;
+revoked instances never fall through to sibling accounts. Draft delivery to the
+Owner reads the provider's declared `capabilities.direct`, not a platform list.
+`Channel.instanceId(platform, identity)` is removed. Platform-based ingress
+grants and translation remain unchanged; rule-table and Message consolidation
+are separate work.
+
 ## #1720 leased clipboard access
 
 Machine clipboard read/write runs through the captured computer-use lease gate; the client retains bounded previous contents locally for conditional lease-end restoration, and ledger facts expose only format and byte counts.
@@ -2131,7 +2155,7 @@ issue). The agent-messenger fork dist pin `de49e8fb` (source `914ea5be`) gives
 and forum topics, staged byte sends settled per chat that report a definite
 `not_sent` apart from an ambiguous outcome, one awaited native close, and an
 account-state stream in which TDLib parameter setup is not a login step.
-`packages/channels` adds the `telegram:owner` arm behind `owner-sdk.ts` (the
+`packages/channels` adds the Telegram Owner arm behind `owner-sdk.ts` (the
 only importer of `agent-messenger/telegram`). It subscribes to account state
 before it starts and withdraws once, with a latched reason, on
 `login_action_required` or `session_lost`; an optional `onWithdrawn` hears it.
@@ -2458,7 +2482,7 @@ joins the registry as a hand-rolled, Owner-only provider, not an
 agent-messenger module: a personal API key is a person's — the Owner's —
 so there is no bot account; the bot arm refuses every declaration
 (`identity_unsupported`) and the platform is reached through its `owner`
-arm alone, mounted as `linear:owner` under the identity axis
+arm alone, mounted by its channel instance id under the identity axis
 (`packages/channels/src/provider/linear/{types,client,surface,provider}.ts`).
 The Owner arm's credential is `{ secret, token?, ownerUserId? }` — the
 webhook's signing secret, the Owner's personal API key for commenting back
@@ -2576,8 +2600,7 @@ gains `unknown`; a reaction to a connector contact is refused. Not in this lane:
 Person contacts on the webhook surface (the provider's `deliver`
 capability stays false), an HTTP route for the inbound generic `webhook`
 provider (it has none today: a declared row mounts a handler nothing
-serves, as before this lane), more than one webhook instance mounted per
-daemon (surface ids are still per platform), durable custody across a
+serves, as before this lane), durable custody across a
 restart, retries (none, by custody), a contact answer delivered later as a
 prompt (that is lane 9c's, with A2A). These corrections — the answer on
 the result instead of an uncomposed reply port, 5xx as `unknown`, no
@@ -2719,12 +2742,12 @@ re-runs a thrown send once when the session died under it — and an
 `unknown` key is never re-sent; typing rides the same chats. The SDK
 keeps the LOCO sync state (no secret) under `AGENT_MESSENGER_CONFIG_DIR`.
 The reply door through an Owner instance (`OwnerPosture.autoReply`, default
-false): a conversation reachable only through `<platform>:owner` is answered
+false): a conversation received through an Owner instance is answered
 as the Owner when the declaration auto-replies (and grants outbound);
 otherwise the reply door refuses `message.resident.reply_draft` — the new
 Table B check `reply_auto` (`Gateway.RuleTableB`, gate `replyAutoAllowed`,
 policy row) — and the Resident's answer stays a draft the Owner sends; a bot
-instance of the surface always answers as the bot. `ReplyPorts.autoReplies`,
+instance answers its own inbound conversations as the bot. `ReplyPorts.autoReplies`,
 `GatewayRouterPorts.messaging.autoReplies` and the app's
 `OutboundMessaging.autoReplies` carry the set the supervisor keeps with the
 routes (`BuiltChannel.autoReply`, from the posture and the outbound grant).
@@ -2789,8 +2812,8 @@ typing ride the package's REST client under the bare account token
 are not intake on either platform: the router routes a reaction only as the
 answer to a request (`reaction_unrouted` is the one layer), and nothing the
 Owner's account receives is one. `Gateway.IngressFacts.receivedBy`
-(optional; absent is the bot) records the instance that observed a message
-and gives the Owner's copy its own inbound id (`…:owner`), so the bot's
+(optional; absent is the bot) records the account identity that observed a message.
+`Gateway.IngressFacts.instance` now namespaces its inbound id (#1792), so another instance's
 recorded refusal of the same message is never replayed against it.
 Addressing is a fact of the message, not of the observer: the platform's
 channel grant carries `ownerIntake` while an Owner instance reads it, and
@@ -2798,7 +2821,7 @@ channel grant carries `ownerIntake` while an Owner instance reads it, and
 endpoint on that platform) as addressed to the Resident under such a grant,
 whichever instance observed it — a mention-only grant admits both copies,
 and the Slack Owner surface opens no thread root for a top-level Owner
-mention so both copies bind to the same conversation. The app:
+mention; each copy now binds within its receiving instance (#1792). The app:
 `ChannelComponent.listens` (every bot row; an Owner row only when its arm
 listens under a posture other than `none`); the platform's one ingress
 grant is held by every reading instance and revoked with the last
@@ -2849,9 +2872,8 @@ Merged to main as PR #1590 (2026-10-16). A mounted
 channel is one `(platform, identity)` instance, `Channel.Identity` being
 `bot | owner`: `Provisioning.ChannelInstance.identity` (default `bot`, so
 every row declared before the axis is a bot instance) names it, and the
-messenger surfaces mount under the instance id (`slack:bot`, `discord:bot`,
-`telegram:bot`; the identity-less ws, github and webhook surfaces keep their
-platform id and are reached as the bot). Delivery and typing routes key by
+declared surfaces now mount under their channel instance row id (#1792);
+the WebSocket surface and shared A2A door retain their own ids. Delivery and typing routes key by
 instance surface id; the ingress trusted-channel grant and the webhook path
 key by the platform the inbound facts name, and only a bot instance
 registers an ingress grant (`provision/supervisor.ts`) — the Owner listener
@@ -2869,13 +2891,13 @@ when the declaration's `grant.outbound` is true. `classifySlackFailure` and
 SDK's `SlackError` whose own `ok:false` check names the Slack error as the
 code). The send door carries the identity: `send_message` contacts take
 `as: bot | owner` (default bot) → `Gateway.MessageTarget.identity` →
-`Gateway.DeliveryTarget.identity` → the `<channel>:<identity>` route
-(`router/index.ts`, bare platform fallback for identity-less surfaces);
-`messaging.sent` journals `identity`; the reply door always leaves as the
-bot. `as: owner` is admitted only when the app's authenticated
+`Gateway.DeliveryTarget.identity`, alongside the resolved `instance` route
+(`router/index.ts`; platform targets require a single matching mounted instance);
+`messaging.sent` journals `identity`; the reply door leaves through its
+receiving instance. `as: owner` is admitted only when the app's authenticated
 `ownerOrigin` fact holds — `prepareMessage` reads the open turn's consumed
 deliveries off the sender's ledger and the actor registry (`trustTier:
-owner`), never message text — and a `<channel>:owner` route is mounted;
+owner`), never message text — and the selected Owner route is mounted;
 otherwise `authorizeSend` refuses with the new `identity_not_granted`
 denial, projected onto the new `identity` policy check under
 `message.resident.identity_not_granted` (the grant row keeps its own
@@ -2897,7 +2919,7 @@ hold (no actor) decides `false` even when an older Owner prompt shares the
 turn. The Slack Owner surface binds the authenticated workspace at start
 and refuses (`not_sent`, nothing attempted) an endpoint of another
 workspace. Mounted stages report their instance surface
-(`slack:bot`/`slack:owner`) and `provision status` lists the Owner arm's
+(`channel:<provider>:<slug>`) and `provision status` lists the Owner arm's
 preconditions under it. Conformance snapshots regenerated (additive). Not in this PR: the QR-login
 CLI helper that seals the Owner session into the vault (its own branch
 next), the Owner listener (lane 6). Receipts:
@@ -2907,7 +2929,7 @@ classification over both error shapes, the owner arm's runtime),
 `test/provider-owner-arm.test.ts`, `test/provider-contract.test.ts`
 (instance ids), `test/channel-band-boundary.test.ts` (`agent-messenger/slack`
 home), `test/router/messaging/identity.test.ts` (bot default and bare
-platform fallback, `as: owner` journaled through `slack:owner`, the three
+platform resolution, `as: owner` journaled through its instance, the three
 `identity_not_granted` refusals before transport, a bot send never leaving
 through the Owner's account), `apps/oni/test/identity-door.test.ts`
 (the real gateway: Owner-origin turn + outbound-granted instance, non-Owner

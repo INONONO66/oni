@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { ChannelDeliveryRoute } from "@oni/channels";
+import { type ChannelDeliveryRoute, ChannelProviders } from "@oni/channels";
 import type { Provisioning } from "@oni/protocol";
 import { ownerContactFor } from "../src/composition/owner-contact";
 
@@ -18,8 +18,11 @@ const person = (
   updatedAt: 0,
 });
 
-const route: ChannelDeliveryRoute = async () => ({ value: "accepted" });
-const routes = (...keys: readonly string[]) => new Map(keys.map((key) => [key, route] as const));
+const routes = (...keys: readonly string[]) => new Map(keys.map((key) => [key, {
+  platform: key.split(":")[0] ?? key,
+  identity: key.endsWith(":owner") ? "owner" : "bot",
+  deliver: async () => ({ value: "accepted" }),
+} satisfies ChannelDeliveryRoute] as const));
 
 test("#1600 lane R2: a drafted answer goes to the owner-tier Person on a platform whose bot writes a person cold, a live platform before ws", () => {
   const owner = person("person:owner", "owner", [
@@ -47,6 +50,22 @@ test("#1600 lane R2: a platform where the Owner holds two endpoints is skipped â
   ]);
   expect(ownerContactFor([owner], routes("slack:bot", "telegram:bot"))).toEqual({ actorId: "person:owner", surface: "telegram" });
   expect(ownerContactFor([owner], routes("slack:bot"))).toBeUndefined();
+});
+
+test("draft delivery follows the provider's declared direct-delivery capability", () => {
+  const owner = person("person:owner", "owner", [
+    { channel: "slack", externalId: "T1:U1" },
+    { channel: "telegram", externalId: "7" },
+  ]);
+  const direct = ChannelProviders.slack.capabilities.direct;
+  Object.defineProperty(ChannelProviders.slack.capabilities, "direct", { value: false });
+  try {
+    expect(ownerContactFor([owner], routes("slack:bot", "telegram:bot"))).toEqual({
+      actorId: "person:owner", surface: "telegram",
+    });
+  } finally {
+    Object.defineProperty(ChannelProviders.slack.capabilities, "direct", { value: direct });
+  }
 });
 
 test("#1600 lane R2: no owner-tier Person, or none the bot can write to, keeps the draft in the session", () => {

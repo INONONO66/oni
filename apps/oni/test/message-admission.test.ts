@@ -30,10 +30,10 @@ test.each([
     deliveryRoutes: new Map([
       [
         "ws",
-        async (_id, _body, key) => {
+        { platform: "ws", identity: "bot", deliver: async (_id, _body, key) => {
           keys.push(key);
           return { value };
-        },
+        } },
       ],
     ]),
     grants: () => [

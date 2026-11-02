@@ -86,6 +86,8 @@ interface ProviderCapabilities {
   readonly history?: boolean;
   /** The runtime exposes `deliveryRoute` — the Resident can message into it. */
   readonly deliver: boolean;
+  /** Bot delivery can open a person's direct conversation from an endpoint id. */
+  readonly direct: boolean;
   /** The runtime exposes `webhookHandler` — ingress arrives over HTTP. */
   readonly webhook: boolean;
   /** Outbound text policy the surface applies (dialect + chunk limit). */
@@ -114,6 +116,7 @@ interface ProviderCapabilities {
  */
 export const WEBHOOK_TEXT_CAPABILITIES: ProviderCapabilities = {
   deliver: true,
+  direct: false,
   webhook: true,
   render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null },
   media: false,
@@ -169,7 +172,7 @@ export interface ProviderRuntime {
  * The Owner-identity arm of a provider (#1569): the same platform spoken as
  * the Owner's own account. Its credential is the account session the QR (or
  * remote-auth) login produced, never the bot's; its runtime mounts under
- * `<platform>:owner`. Only the capabilities an account can carry are
+ * its channel_instance row id. Only the capabilities an account can carry are
  * declared — there is no webhook arm, and typing is the platform's own.
  */
 export interface OwnerArm<TCredentials> {
@@ -257,6 +260,8 @@ export interface ChannelProvider<TCredentials, TId extends string = string, TOwn
 
 /** The injected sources every driver constructs from. */
 export interface ProviderOptions {
+  /** The channel_instance row this runtime is built from. */
+  readonly instance: string;
   /** App-resolved host directory; credentials still come only from the vault. */
   readonly telegramDataDir?: string;
   readonly now: () => number;

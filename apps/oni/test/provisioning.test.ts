@@ -102,7 +102,7 @@ describe("declared channel profile", () => {
     expect(rows[0]?.component.id).toBe("telegram");
     const built = rows[0]?.component.build(() => Promise.resolve());
     expect(built?.surface.config).toEqual({});
-    expect(built?.surface.id).toBe("telegram:bot");
+    expect(built?.surface.id).toBe("channel:telegram:main");
   });
 
   test("disabled, unknown-provider, and credential-less rows are statuses, not mounts", () => {

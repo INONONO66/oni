@@ -54,6 +54,7 @@ for (const at of [1, 1.5]) {
     });
     let deliveries = 0;
     const messaging = createExistingAgentMessaging({
+      routes: () => new Map([["qa", { platform: "qa", identity: "bot" }]]),
       requests: channelRequests(seededRequests()),
       stores: ledger().stores,
     transaction: channelTransaction,

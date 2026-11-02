@@ -125,7 +125,7 @@ test("local Owner login, mounted ingress stream and two CLI history pages share 
   expect(output).toEqual([
     "Signed in to Telegram as owner-1",
     "channel:telegram:owner [telegram] → ready",
-    "channel:telegram:owner [telegram:owner] → mounted",
+    "channel:telegram:owner [channel:telegram:owner] → mounted",
   ]);
   expect(JSON.stringify(output)).not.toContain("a".repeat(32));
   const instance = plane.stores.instances.get("channel:telegram:owner");
@@ -188,14 +188,14 @@ test("local Owner login, mounted ingress stream and two CLI history pages share 
   expect(observations.filter((kind) => kind === "message.admitted")).toHaveLength(1);
   expect(fake.sends).toEqual([]);
   output.length = 0;
-  expect(await runCli(["channel", "history", "telegram:owner", "chat-1", "--limit", "2"], deps)).toBe(0);
+  expect(await runCli(["channel", "history", "channel:telegram:owner", "chat-1", "--limit", "2"], deps)).toBe(0);
   const first = Channel.HistoryPage.parse(JSON.parse(output.pop() ?? ""));
   expect(first.messages.map((message) => message.messageId)).toEqual(["102", "101"]);
   expect(first.before).toBe("101");
   if (first.before === undefined) throw new Error("first history page omitted its cursor");
   expect(first.messages[0]?.attachments[0]).toMatchObject({ voice: true, bytes: size });
   output.length = 0;
-  expect(await runCli(["channel", "history", "telegram:owner", "chat-1", "--limit", "2", "--before", first.before], deps)).toBe(0);
+  expect(await runCli(["channel", "history", "channel:telegram:owner", "chat-1", "--limit", "2", "--before", first.before], deps)).toBe(0);
   const second = Channel.HistoryPage.parse(JSON.parse(output.pop() ?? ""));
   expect(second.messages.map((message) => message.messageId)).toEqual(["100"]);
   expect(fake.calls.filter((call) => call === "history")).toHaveLength(2);

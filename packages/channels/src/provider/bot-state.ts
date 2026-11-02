@@ -1,8 +1,10 @@
 import type { Channel } from "@oni/protocol";
 import { Dedupe } from "../support/dedupe";
 import { DeliveryReconciliation } from "../support/deliver";
+import { instanceHandler } from "../support/handler-frame";
 
 export abstract class BotState {
+  abstract readonly id: string;
   protected readonly dedupe: Dedupe;
   protected readonly outbound = new DeliveryReconciliation();
   protected handler: Channel.MessageHandler | null = null;
@@ -12,7 +14,7 @@ export abstract class BotState {
   }
 
   onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    this.handler = instanceHandler(this.id, handler);
   }
 }
 

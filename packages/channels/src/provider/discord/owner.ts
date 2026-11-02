@@ -2,7 +2,7 @@ import { type Channel, type Gateway, Operational, type Outbound } from "@oni/pro
 import type { z } from "zod";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation } from "../../support/deliver";
-import { requireHandler } from "../../support/handler-frame";
+import { instanceHandler, requireHandler } from "../../support/handler-frame";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { newTraceId } from "../../support/trace";
@@ -20,7 +20,7 @@ import {
 import { type DiscordMessage, DiscordMessageSchema } from "./types";
 
 /**
- * Discord as the Owner's own account (#1569 lane 6): the `discord:owner`
+ * Discord as the Owner's own account (#1569 lane 6): the declared
  * instance, logged in with the vault-opened account token the remote-auth
  * login produced. Delivery and typing ride the SDK client under the bare
  * token with retries disabled; intake is the
@@ -31,7 +31,7 @@ import { type DiscordMessage, DiscordMessageSchema } from "./types";
  * the Owner's account receives is one.
  */
 export class DiscordOwnerAdapter implements Channel.Surface {
-  readonly id = "discord:owner";
+  get id(): string { return this.options.instance; }
   /** The surface contract's config: an Owner instance carries its posture instead. */
   readonly config: Channel.Config = {};
 
@@ -59,7 +59,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
   }
 
   onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    this.handler = instanceHandler(this.id, handler);
   }
 
   /**
@@ -151,7 +151,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
       handle: async () => {
         const inbound = normalizer.normalize(message);
         if (inbound === null || !this.admits(inbound)) return;
-        await requireHandler(this.handler, "discord:owner")({
+        await requireHandler(this.handler, this.id)({
           ...inbound,
           facts: { ...inbound.facts, receivedBy: "owner" },
         });

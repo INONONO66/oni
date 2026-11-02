@@ -43,14 +43,14 @@ test("router opens the immutable original message action before real Telegram de
     observedRequestId = request?.requestId;
     return Response.json({ ok: true, result: { message_id: 77 } });
   }) as typeof fetch;
-  const driver = new TelegramAdapter("token", {}, () => undefined, { now: () => 10, id: () => "driver-id", random: () => 0, run: testRun });
+  const driver = new TelegramAdapter("token", {}, () => undefined, { instance: "channel:telegram:main", now: () => 10, id: () => "driver-id", random: () => 0, run: testRun });
   const router = makeRouter({
     now: () => 10,
     messaging: {
       grants: () => [
         { id: "grant", senderId: "source", targetActorId: "target", operations: ["awaited"] },
       ],
-      deliveryRoutes: new Map<string, ChannelDeliveryRoute>([["telegram", (externalId, body, key) => driver.deliver(externalId, body, key).then(kernelDeliveryReceipt)]]),
+      deliveryRoutes: new Map<string, ChannelDeliveryRoute>([["channel:telegram:main", { platform: "telegram", identity: "bot", deliver: (externalId, body, key) => driver.deliver(externalId, body, key).then(kernelDeliveryReceipt) }]]),
     },
   });
   const result = await runEffect(router.ingest(
@@ -96,9 +96,10 @@ test.each([
     posted += 1;
     return Response.json({ ok: true, result: { message_id: 77 } });
   }) as typeof fetch;
-  const driver = new TelegramAdapter("token", {}, () => undefined, { now: () => 10, id: () => "driver-id", random: () => 0, run: testRun });
+  const driver = new TelegramAdapter("token", {}, () => undefined, { instance: "channel:telegram:main", now: () => 10, id: () => "driver-id", random: () => 0, run: testRun });
   const requests = channelRequests(requestPort(() => 10));
   const messaging = createExistingAgentMessaging({
+    routes: () => new Map([["channel:telegram:main", { platform: "telegram", identity: "bot" }]]),
     stores: ledger().stores,
     transaction: channelTransaction,
     requests,
@@ -189,6 +190,7 @@ test.each([
   let attempts = 0;
   const requests = channelRequests(requestPort());
   const messaging = createExistingAgentMessaging({
+    routes: () => new Map([["channel:telegram:main", { platform: "telegram", identity: "bot" }]]),
     stores: ledger().stores,
     transaction: channelTransaction,
     requests,

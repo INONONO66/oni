@@ -81,10 +81,11 @@ function transformedContent(
 /** The external origin's channel facts: the instance that observed the message and the conversation it came from. */
 function originConversation(
   external: MessageContext["external"],
-): { readonly receivedBy?: "bot" | "owner"; readonly conversation?: PlainValue } {
+): { readonly instance?: string; readonly receivedBy?: "bot" | "owner"; readonly conversation?: PlainValue } {
   if (external === undefined) return {};
   const { facts } = external;
   return {
+    ...(facts.instance === undefined ? {} : { instance: facts.instance }),
     // #1600 lane R2: which instance observed the message decides which one answers a DM.
     ...(facts.receivedBy === undefined ? {} : { receivedBy: facts.receivedBy }),
     conversation: {

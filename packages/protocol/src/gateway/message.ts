@@ -99,6 +99,8 @@ const IngressFacts = z
   .object({
     eventId: Id,
     surface: Id,
+    /** Declared channel instance; non-channel sources keep their own surface id. */
+    instance: Id.optional(),
     event: Input.shape.event.optional(),
     secretRef: Input.shape.secretRef,
     githubEvent: Input.shape.githubEvent,
@@ -108,7 +110,7 @@ const IngressFacts = z
     addressees: z.array(z.object({ externalId: Id }).strict()),
     dm: z.boolean(),
     /**
-     * #1569: the instance of the platform that observed this message —
+     * #1569: the account identity that observed this message —
      * `Channel.Identity`; absent means the bot. Through the Owner's own
      * account a mention of the Owner addresses the Resident.
      */
@@ -190,6 +192,7 @@ const RuleTableB = RuleBase.extend({
     z.object({ kind: z.literal("deadline"), withinParent: z.literal(true) }).strict(),
     z.object({ kind: z.literal("type") }).strict(),
     z.object({ kind: z.literal("actor_send") }).strict(),
+    z.object({ kind: z.literal("target") }).strict(),
     // #1569: the sending identity is granted — the Owner's account only on an
     // Owner-origin turn through an outbound-granted Owner instance.
     z.object({ kind: z.literal("identity") }).strict(),

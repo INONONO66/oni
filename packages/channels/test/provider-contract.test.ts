@@ -221,7 +221,7 @@ describe("provider conformance", () => {
       imageBytes: 10_000_000, fileBytes: 50_000_000,
       audioBytes: 50_000_000, videoBytes: 50_000_000, captionLength: 1024,
     });
-    expect(runtime.surface.id).toBe("telegram:owner");
+    expect(runtime.surface.id).toBe("channel:test:main");
     expect(runtime.deliveryRoute).toBeDefined();
     expect(runtime.historyRoute).toBeDefined();
     expect(runtime.streamingAttachments).toBeDefined();
@@ -271,10 +271,10 @@ describe("provider conformance", () => {
         expect(kase.provider.capabilities.webhook).toBe(kase.webhook ?? false);
         expect(kase.provider.settings.safeParse({ knob: "x" }).success).toBe(false);
       });
-      test("the owner arm's seams match its declared capabilities and mount as <platform>:owner", () => {
+      test("the owner arm's seams match its capabilities and declared instance", () => {
         const arm = ownerArmOf(kase.provider);
         const runtime = kase.build(noopPublish);
-        expect(runtime.surface.id).toBe(`${kase.provider.id}:owner`);
+        expect(runtime.surface.id).toBe("channel:test:main");
         expect(runtime.deliveryRoute !== undefined).toBe(arm.capabilities.deliver);
         expect(runtime.typingRoute !== undefined).toBe(arm.capabilities.typing);
         expect(runtime.voiceRoute !== undefined).toBe(arm.capabilities.voice);
@@ -312,7 +312,7 @@ describe("provider conformance", () => {
       test("runtime seams match declared capabilities", () => {
         const runtime = kase.build(noopPublish);
         expect(runtime.surface.id).toBe(
-          CONVERSATION_SURFACES.has(kase.provider.id) ? `${kase.provider.id}:bot` : kase.provider.id,
+          kase.provider.id === "a2a" ? "a2a" : "channel:test:main",
         );
         expect(runtime.deliveryRoute !== undefined).toBe(kase.provider.capabilities.deliver);
         expect(runtime.webhookHandler !== undefined).toBe(kase.provider.capabilities.webhook);

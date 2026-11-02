@@ -720,7 +720,7 @@ export interface OutboundMessaging {
   readonly deliveryRoutes: ReadonlyMap<string, ChannelDeliveryRoute>;
   readonly grants: () => readonly Gateway.SenderTargetGrant[];
   readonly budgets?: () => readonly Gateway.SocialBudget[];
-  /** #1569 lane 7: the `<platform>:owner` surfaces whose declaration lets the reply door answer through the account. */
+  /** Owner instance ids whose declaration lets the reply door answer through the account. */
   readonly autoReplies?: () => ReadonlySet<string>;
 }
 

@@ -64,6 +64,7 @@ function sessionCheck(
     case "depth": return context.depth <= check.max;
     case "deadline": return context.withinParentDeadline;
     case "actor_send": return context.actorSendAllowed === true;
+    case "target": return context.targetUnique === true;
     case "identity": return context.identityGranted === true;
     case "reply_auto": return context.replyAutoAllowed === true;
     case "consent": return context.consentGranted === true;

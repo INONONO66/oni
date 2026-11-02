@@ -1,7 +1,7 @@
 import { Core } from "@oni/agent";
 import { VoiceJoinRefused, type PersonStore, type ProviderVoiceRoute, type PcmVoiceHandle } from "@oni/channels";
 import type { Realtime, RealtimeSession, RealtimeToolCall } from "@oni/llm";
-import { toolResultText, type PlainValue, type Tool } from "@oni/protocol";
+import { toolResultText, type Channel, type PlainValue, type Tool } from "@oni/protocol";
 import { Effect, Fiber, Stream } from "effect";
 import { createDownsampler, createUpsampler } from "./live-pcm";
 import { ThrownError } from "../thrown";
@@ -37,6 +37,7 @@ interface LiveCallEnd {
 
 export interface LiveVoiceInputs {
   readonly routes: ReadonlyMap<string, ProviderVoiceRoute>;
+  readonly instances: ReadonlyMap<string, Channel.Instance>;
   readonly realtime: Realtime;
   readonly persons: Pick<PersonStore, "get">;
   readonly role: (sessionId: string) => string | undefined;
@@ -171,7 +172,9 @@ export function createLiveVoice(input: LiveVoiceInputs): {
     const person = input.persons.get(request.contact);
     if (person === undefined)
       throw refused("call_contact_missing", `contact ${request.contact} does not exist`);
-    const platform = request.surface.split(":")[0] ?? request.surface;
+    const platform = input.instances.get(request.surface)?.platform;
+    if (platform === undefined)
+      throw refused("call_unrouted", `no mounted voice instance ${request.surface}`);
     const endpoint = person.endpoints.find((candidate) => candidate.channel === platform);
     if (endpoint === undefined)
       throw refused("call_contact_unreachable", `the contact has no ${platform} endpoint`);

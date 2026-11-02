@@ -65,7 +65,7 @@ type VoiceStateRecord = {
  * SDK client with retries disabled.
  */
 export class DiscordAdapter extends BotState implements Channel.Surface {
-  readonly id = "discord:bot";
+  get id(): string { return this.options.instance; }
   private readonly bot: DiscordBotApi;
   private readonly ready: Promise<void>;
   private custody: ListenerCustody | null = null;

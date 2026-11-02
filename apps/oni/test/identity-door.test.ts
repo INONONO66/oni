@@ -26,10 +26,11 @@ function fixtureWith(routes: readonly string[]) {
     deliveryRoutes: new Map(
       routes.map((route) => [
         route,
-        async (externalId: string, payload: Outbound.Payload) => {
+        { platform: "slack", identity: route.endsWith(":owner") ? "owner" as const : "bot" as const,
+        deliver: async (externalId: string, payload: Outbound.Payload) => {
           delivered.push({ route, externalId, body: Outbound.text(payload) });
           return { value: "accepted" as const };
-        },
+        } },
       ]),
     ),
     grants: () => [
@@ -154,6 +155,22 @@ test("a send with no identity leaves through the bot instance whatever the turn'
     );
     expect(sent.isError).not.toBe(true);
     expect(delivered).toEqual([{ route: "slack:bot", externalId: "T1:U2", body: "from the bot" }]);
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("ambiguous account selection is refused by the shipped policy row before delivery", async () => {
+  const { fixture, delivered } = fixtureWith(["account/east", "account/west"]);
+  try {
+    const refused = await fixture.send(
+      { to: { kind: "actor", actorId: "person:friend", surface: "slack" }, type: "message", content: "ambiguous" },
+      undefined,
+      promptFrom("person:owner"),
+    );
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toContain("message.resident.target_ambiguous");
+    expect(delivered).toEqual([]);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }

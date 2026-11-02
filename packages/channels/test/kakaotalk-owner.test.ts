@@ -90,7 +90,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
   it("logs the account in, reads its profile, and opens the push listener under the default posture", async () => {
     const { infos, publish } = infoCollector();
     const { client, listener, adapter } = await started(DEFAULT_INTAKE, { chats: CHATS }, publish);
-    expect(adapter.id).toBe("kakaotalk:owner");
+    expect(adapter.id).toBe("channel:test:main");
     expect(client.calls.map((call) => call.method)).toEqual(["login", "getProfile"]);
     expect(client.calls[0]?.args).toEqual(["oauth-1", "1001", "dev-1", "tablet"]);
     expect(listener.started).toBe(1);
@@ -543,7 +543,7 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
       provider.owner?.credentials.safeParse({ ...CREDENTIALS, deviceType: "phone" }).success,
     ).toBe(false);
     const runtime = provider.owner?.create(CREDENTIALS, SEND_ONLY, noopPublish, injectedOptions());
-    expect(runtime?.surface.id).toBe("kakaotalk:owner");
+    expect(runtime?.surface.id).toBe("channel:test:main");
     expect(runtime?.deliveryRoute).toBeDefined();
     expect(runtime?.typingRoute).toBeDefined();
     expect(provider.credentials.safeParse(CREDENTIALS).success).toBe(false);

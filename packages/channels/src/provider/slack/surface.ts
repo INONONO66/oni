@@ -1,6 +1,6 @@
 import { type Channel, type Gateway, Operational, type Outbound } from "@oni/protocol";
 import { Dedupe } from "../../support/dedupe";
-import { requireHandler } from "../../support/handler-frame";
+import { instanceHandler, requireHandler } from "../../support/handler-frame";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
 import { type ListenerCustody, listenerCustody, stopBotListener } from "../../support/sdk-listener";
@@ -45,7 +45,7 @@ const THREAD_HISTORY_LIMIT = 20;
  * at-least-once remainder.
  */
 export class SlackAdapter implements Channel.Surface {
-  readonly id = "slack:bot";
+  get id(): string { return this.options.instance; }
 
   async download(fileId: string, bounds: AttachmentBounds): Promise<MediaBytes> {
     const { buffer, file } = await attachmentDownload(bounds, () => this.client.downloadFile(fileId, bounds));
@@ -72,7 +72,7 @@ export class SlackAdapter implements Channel.Surface {
   }
 
   onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    this.handler = instanceHandler(this.id, handler);
   }
 
   /**

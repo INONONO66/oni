@@ -7,7 +7,7 @@ import type { LinearOwnerCredentials } from "./types.js";
 
 /**
  * The Owner-identity arm (#1569 lane 9b): the workspace webhook under the
- * declared posture and comments as the Owner, mounted as `linear:owner` (a
+ * declared posture and comments as the Owner, mounted by declaration id (a
  * delivery route only when the declaration grants outbound; the reply door
  * answers through it only when the declaration auto-replies).
  */
@@ -27,6 +27,7 @@ const LinearOwnerArm: OwnerArm<LinearOwnerCredentials> = {
   listen: true,
   create(credentials, posture, publish, options) {
     const surface = new LinearAdapter(credentials, posture, publish, {
+      instance: options.instance,
       now: options.now,
       id: options.id,
       run: options.run,

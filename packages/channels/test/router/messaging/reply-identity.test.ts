@@ -20,18 +20,18 @@ const binding: ConversationBinding = {
  */
 describe("the reply door's instance", () => {
   test("a surface whose only route left between preflight and send is an admission conflict", async () => {
-    let routes = new Set(["instagram:owner"]);
+    let routes = new Map([["channel:instagram:main", { platform: "instagram", identity: "owner" as const }]]);
     const door = createReplyMessaging({
       stores: unconfiguredChannelStores(() => 1),
       transaction: (effect) => effect,
       routes: () => routes,
-      autoReplies: () => new Set(["instagram:owner"]),
+      autoReplies: () => new Set(["channel:instagram:main"]),
       deliver: () => {
         throw new Error("never reached");
       },
       publish: () => undefined,
     });
-    routes = new Set();
+    routes = new Map();
     expect(
       await effectFailure(
         door.send({ messageId: "m-1", traceId: "t", senderId: "resident", binding, payload: Outbound.payload("hi"), at: 1 }),

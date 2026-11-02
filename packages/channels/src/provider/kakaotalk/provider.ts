@@ -9,7 +9,7 @@ import { type KakaoTalkOwnerSdk, kakaoTalkOwnerSdk } from "./owner-sdk.js";
 /**
  * The Owner-identity arm (#1569 lane 7): the account's LOCO push listener
  * under the declared posture, delivery and typing into chats as the Owner,
- * mounted as `kakaotalk:owner` (a delivery route only when the declaration
+ * mounted by declaration id (a delivery route only when the declaration
  * grants outbound).
  */
 function createKakaoTalkOwnerArm(sdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk()): OwnerArm<KakaoTalkOwnerCredentials> {
@@ -59,6 +59,7 @@ export function createKakaoTalkProvider(
     ingest: "socket",
     capabilities: {
       deliver: true,
+      direct: false,
       webhook: false,
       render: KAKAOTALK_RENDER,
       media: false,

@@ -297,7 +297,7 @@ test.each([{ attachments: undefined }, { attachments: [] }])("missing or empty a
   expect(received[0]).toBe(message);
 });
 
-test("the claim precedes storage: a duplicate copy waits, then one download, one write and one admission carry the stored reference", async () => {
+test("a bot and Owner copy of one workspace mention cause one download, one write and one routing admission", async () => {
   const { written, inbox, received, handler } = harness();
   const machines = inbox.files.machines;
   if (machines === undefined) throw new Error("inbox test requires a machine");
@@ -313,9 +313,16 @@ test("the claim precedes storage: a duplicate copy waits, then one download, one
     return download(ref, bounds);
   };
   const attachment: Attachment = { kind: "file", ref: "shared" };
-  const bot = routing.inbox(botDownload, routing.handler)(inboundWith([attachment], { receivedBy: "bot" }));
+  const copy = (receivedBy: "bot" | "owner"): Channel.InboundMessage => ({
+    ...inboundWith([attachment], {
+      surface: "slack", workspaceId: "T1", event: "mention",
+      instance: `channel:slack:${receivedBy}`, receivedBy,
+    }),
+    sender: { kind: "external", surface: "slack", externalId: "T1:u1" },
+  });
+  const bot = routing.inbox(botDownload, routing.handler)(copy("bot"));
   await entered.promise;
-  const owner = routing.inbox(undefined, routing.handler)(inboundWith([attachment], { receivedBy: "owner" }));
+  const owner = routing.inbox(undefined, routing.handler)(copy("owner"));
   release.resolve();
   await Promise.all([bot, owner]);
   const [path] = written.keys();

@@ -208,7 +208,8 @@ fake-tested only.
 ## Telegram account history
 
 After the account is ready, configure `ONI_WS_TOKEN` and use
-`oni channel history telegram:owner <chat-id> [--before <cursor>] [--limit <1..100>]`.
+`oni channel history channel:telegram:owner <chat-id> [--before <cursor>] [--limit <1..100>]`.
+Use the declared instance id if its slug is not `owner`.
 The default limit is 50. Use the page's `before` cursor for the next,
 exclusive older page; an empty page ends the walk. This read needs the
 authenticated Owner socket and does not ingest messages or download media.

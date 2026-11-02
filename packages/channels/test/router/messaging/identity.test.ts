@@ -31,9 +31,13 @@ const GRANT = {
 };
 
 function route(name: string): ChannelDeliveryRoute {
-  return async (externalId, payload) => {
-    delivered.push({ route: name, externalId, body: Outbound.text(payload) });
-    return { value: "accepted" as const };
+  return {
+    platform: name.split(":")[name.startsWith("channel:") ? 1 : 0] ?? name,
+    identity: name.endsWith(":owner") ? "owner" : "bot",
+    deliver: async (externalId, payload) => {
+      delivered.push({ route: name, externalId, body: Outbound.text(payload) });
+      return { value: "accepted" };
+    },
   };
 }
 
@@ -168,5 +172,29 @@ test.each([
 test("a bot send whose platform has only an Owner instance is refused before transport, never through the Owner's account (#1600 lane R3)", async () => {
   const router = makeRouter(["slack:owner"], true);
   expect(await send(router, undefined)).toMatchObject({ status: "blocked_pre", reasonCode: "message.resident.identity_not_granted" });
+  expect(delivered).toEqual([]);
+});
+
+test("a platform-only target refuses two mounted accounts with target_ambiguous", async () => {
+  const router = makeRouter(["channel:slack:east", "channel:slack:west"], undefined);
+  expect(await send(router, "bot")).toEqual({ status: "blocked_pre", reasonCode: "message.resident.target_ambiguous" });
+  expect(delivered).toEqual([]);
+});
+
+test("an explicit instance target selects its route among two accounts", async () => {
+  const router = makeRouter(["channel:slack:east", "channel:slack:west"], undefined);
+  expect(await runEffect(router.ingest(
+    { kind: "session", id: "resident" },
+    { to: { kind: "actor", actorId: "actor-owner", surface: "channel:slack:west" }, type: "message", content: "west" },
+  ))).toMatchObject({ status: "executed" });
+  expect(delivered).toEqual([{ route: "channel:slack:west", externalId: "T1:U1", body: "west" }]);
+});
+
+test("an explicit Owner instance cannot be selected by a bot-identity send", async () => {
+  const router = makeRouter(["channel:slack:east", "channel:slack:owner"], true);
+  expect(await runEffect(router.ingest(
+    { kind: "session", id: "resident" },
+    { to: { kind: "actor", actorId: "actor-owner", surface: "channel:slack:owner" }, type: "message", content: "wrong account" },
+  ))).toEqual({ status: "blocked_pre", reasonCode: "message.resident.identity_not_granted" });
   expect(delivered).toEqual([]);
 });

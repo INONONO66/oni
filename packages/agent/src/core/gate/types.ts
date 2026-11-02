@@ -61,6 +61,7 @@ export type MessagePolicyContext =
       readonly depth: number;
       readonly withinParentDeadline: boolean;
       readonly actorSendAllowed?: boolean;
+      readonly targetUnique?: boolean;
       readonly identityGranted?: boolean;
       readonly replyAutoAllowed?: boolean;
       readonly consentGranted?: boolean;

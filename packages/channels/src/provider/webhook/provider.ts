@@ -12,6 +12,7 @@ export function createWebhookProvider(
     ingest: "webhook",
     capabilities: {
       deliver: false,
+      direct: false,
       webhook: true,
       render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null },
       media: false,

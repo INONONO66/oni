@@ -178,6 +178,7 @@ describe("send kernel active-egress gate (#219 seam)", () => {
 
   function messaging(withGate = true) {
     return createExistingAgentMessaging({
+      routes: () => new Map([["qa", { platform: "qa", identity: "bot" }]]),
       ...sendPorts(),
       deliver: (message: Parameters<Parameters<typeof createExistingAgentMessaging>[0]["deliver"]>[0]) => {
         deliveries.push(message.messageId);
