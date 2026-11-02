@@ -1,7 +1,7 @@
-import { ledger, resetLedger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger, resetLedger } from "../helpers/ledger.js";
 import { Cause, Effect, Exit } from "effect";
 import { channelRequests } from "../helpers/channel-requests.js";
-import { channelTransaction } from "../../../../../packages/channels/test/helpers/channel-transaction.js";
+import { channelTransaction } from "../helpers/channel-transaction.js";
 import { effectFailure } from "../../../../../packages/channels/test/helpers/effect-failure.js";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -9,7 +9,7 @@ import { Delivery, Gateway } from "@oni/protocol";
 import { z } from "zod";
 import { createGatewayRouter, type GatewayRouterPorts } from "../../../src/bundles/messaging/index.js";
 import { resetStores } from "./_router-fixture.js";
-import { requestPort } from "../../../../../packages/channels/test/helpers/requests.js";
+import { requestPort } from "../helpers/requests.js";
 import { messageExecutionReceipt } from "../../../../../packages/channels/test/helpers/message-execution.js";
 import { recordingDelivery } from "../../../../../packages/channels/test/router/_recording-delivery.js";
 

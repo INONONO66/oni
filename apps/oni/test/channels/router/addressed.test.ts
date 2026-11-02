@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Delivery, type Ingress } from "@oni/protocol";
-import { ledger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../helpers/ledger.js";
 import { ingressInput, ingressSurfaceKey } from "../../../src/bundles/messaging/automation/input.js";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
 import { commits, makeRouter, resetRouterState, routingDecisions } from "./_router-fixture.js";
@@ -41,7 +41,7 @@ function mount(requireAddressed: boolean): void {
     id: "addressed", position: 0, enabled: true, createdBy: "owner",
     when: { instance: "slack", ...(requireAddressed ? { addressed: true } : {}) },
     outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
-  });
+  }, true);
 }
 
 async function ingest(facts: Ingress.Message) {

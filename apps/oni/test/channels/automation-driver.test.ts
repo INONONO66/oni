@@ -7,7 +7,7 @@ import { inboundIdOf } from "../../src/bundles/messaging/inbound-id.js";
 import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 import { signedWebhook } from "../../../../packages/channels/test/helpers/github.js";
 import { injectedOptions } from "../../../../packages/channels/test/helpers/injected.js";
-import { ledger } from "../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "./helpers/ledger.js";
 import { commits, makeRouter, resetRouterState, routingDecisions } from "./router/_router-fixture.js";
 
 // Signed drivers and the real router share the same instance rule contract.
@@ -65,7 +65,7 @@ function addRules(scenario: Scenario): void {
       id, position, enabled: true, createdBy: "owner",
       when: { instance: id === "selected" ? "channel:test:main" : "other", channel: scenario.channelId, from: [scenario.sender.externalId] },
       outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" },
-    }));
+    }), true);
   }
 }
 

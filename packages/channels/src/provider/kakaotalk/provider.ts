@@ -1,18 +1,18 @@
 import { z } from "zod";
 import { ChannelsFailure } from "../../errors.js";
-import type { ChannelProvider, OwnerArm } from "../contract.js";
+import type { ChannelProvider, AccountArm } from "../contract.js";
 import { kernelDeliveryRoute } from "../delivery-route.js";
 import { KAKAOTALK_MEDIA_LIMITS, KAKAOTALK_RENDER } from "./format.js";
-import { type KakaoTalkOwnerCredentials, KakaoTalkOwnerAdapter } from "./owner.js";
-import { type KakaoTalkOwnerSdk, kakaoTalkOwnerSdk } from "./owner-sdk.js";
+import { type KakaoTalkAccountCredentials, KakaoTalkAccountAdapter } from "./account.js";
+import { type KakaoTalkAccountSdk, kakaoTalkAccountSdk } from "./account-sdk.js";
 
 /**
- * The Owner-identity arm (#1569 lane 7): the account's LOCO push listener
- * emitting facts, delivery and typing into chats as the Owner,
+ * The Account-identity arm (#1569 lane 7): the account's LOCO push listener
+ * emitting facts, delivery and typing into chats as the Account,
  * mounted by declaration id (a delivery route only when the declaration
  * grants outbound).
  */
-function createKakaoTalkOwnerArm(sdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk()): OwnerArm<KakaoTalkOwnerCredentials> {
+function createKakaoTalkAccountArm(sdk: KakaoTalkAccountSdk = kakaoTalkAccountSdk()): AccountArm<KakaoTalkAccountCredentials> {
   return {
     credentials: z
       .object({
@@ -23,14 +23,14 @@ function createKakaoTalkOwnerArm(sdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk()): 
       })
       .strict(),
     preconditions: [
-      "Owner session from the KakaoTalk passcode login (a registered device's OAuth token, user id and device uuid), sealed into the vault (the login helper lands with its own lane)",
-      "the Owner accepts automation under their own account: one session per device slot, a second login on the same slot kicks this one",
+      "Account session from the KakaoTalk passcode login (a registered device's OAuth token, user id and device uuid), sealed into the vault (the login helper lands with its own lane)",
+      "the Account accepts automation under their own account: one session per device slot, a second login on the same slot kicks this one",
       "AGENT_MESSENGER_CONFIG_DIR names where the SDK keeps the LOCO sync state (no secret)",
     ],
     capabilities: { deliver: true, react: false, media: KAKAOTALK_MEDIA_LIMITS, typing: true, voice: false },
     listen: true,
     create(credentials, publish, options) {
-      const surface = new KakaoTalkOwnerAdapter(credentials, publish, options, sdk);
+      const surface = new KakaoTalkAccountAdapter(credentials, publish, options, sdk);
       return {
         surface,
         account: () => surface.account(),
@@ -46,13 +46,13 @@ function createKakaoTalkOwnerArm(sdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk()): 
 }
 
 /**
- * KakaoTalk (#1569 lane 7): an Owner-only platform — a person's chats have
+ * KakaoTalk (#1569 lane 7): an Account-only platform — a person's chats have
  * no bot account, so the provider's bot arm refuses every declaration and
- * the platform is reached through its `owner` arm alone (`identity: owner`).
+ * the platform is reached through its `account` arm alone (`identity: account`).
  */
 export function createKakaoTalkProvider(
-  ownerSdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk(),
-): ChannelProvider<never, "kakaotalk", KakaoTalkOwnerCredentials> {
+  accountSdk: KakaoTalkAccountSdk = kakaoTalkAccountSdk(),
+): ChannelProvider<never, "kakaotalk", KakaoTalkAccountCredentials> {
   return {
     id: "kakaotalk",
     ingest: "socket",
@@ -66,19 +66,19 @@ export function createKakaoTalkProvider(
       typing: true,
       voice: false,
     },
-    owner: createKakaoTalkOwnerArm(ownerSdk),
+    account: createKakaoTalkAccountArm(accountSdk),
     credentials: z.custom<never>(() => false, {
-      message: "kakaotalk has no bot account; declare the instance with identity: owner",
+      message: "kakaotalk has no bot account; use the account arm",
     }),
-    preconditions: ["KakaoTalk has no bot account: declare the instance with identity: owner"],
+    preconditions: ["KakaoTalk has no bot account: use the account arm"],
     create() {
       throw new ChannelsFailure({
         operation: "kakaotalk.create",
-        cause: "kakaotalk has no bot account; declare the instance with identity: owner",
+        cause: "kakaotalk has no bot account; use the account arm",
       });
     },
   };
 }
 
-export const KakaoTalkProvider: ChannelProvider<never, "kakaotalk", KakaoTalkOwnerCredentials> =
+export const KakaoTalkProvider: ChannelProvider<never, "kakaotalk", KakaoTalkAccountCredentials> =
   createKakaoTalkProvider();

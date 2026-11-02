@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Delivery, type Gateway, Ingress } from "@oni/protocol";
-import { ledger, resetLedger } from "../../../../packages/channels/test/helpers/ledger.js";
-import { openRequest } from "../../../../packages/channels/test/helpers/requests.js";
+import { ledger, resetLedger } from "./helpers/ledger.js";
+import { openRequest } from "./helpers/requests.js";
 import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 import { commits, makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState, routingDecisions } from "./router/_router-fixture.js";
 
@@ -16,7 +16,7 @@ function trigger(extras: Partial<Ingress.Rule> = {}) {
     id: "admission", position: 0, enabled: true, createdBy: "owner",
     when: { instance: "discord" },
     outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, ...extras,
-  }));
+  }), true);
 }
 const facts = { ...ownerFacts, dm: false, reply: { chain: [], threadId: "root" } };
 const id = "discord:owner-workspace:owner-dm:inbound-owner-dm";

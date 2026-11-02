@@ -2,15 +2,15 @@ export { WebSocketHandler } from "./websocket.js";
 export type { WsConnection } from "./websocket.js";
 export { AttachmentRefused, RuleConfigurationError, ChannelsFailure, decodeChannelFailure, MediaTooLarge, SendAdmissionConflict, VoiceJoinRefused } from "./errors.js";
 export type { ChannelError } from "./errors.js";
-export type { AccountIdentity, ChannelProvider, OwnerArm, OwnerWithdrawal, ProviderDeliveryRoute, ProviderTypingRoute } from "./provider/contract.js";
+export type { AccountIdentity, ChannelProvider, AccountArm, AccountWithdrawal, ProviderDeliveryRoute, ProviderTypingRoute } from "./provider/contract.js";
 
 export type { PcmVoiceHandle, ProviderVoiceRoute, VoiceEvent } from "./provider/voice.js";
-export { OwnerLogins, type OwnerLogin } from "./provider/owner-login.js";
-export type { OwnerLoginWithTelegram } from "./provider/owner-login.js";
+export { AccountLogins, type AccountLogin } from "./provider/account-login.js";
+export type { AccountLoginWithTelegram } from "./provider/account-login.js";
 export type { ProviderHistoryResult, ProviderHistoryRoute } from "./provider/history.js";
-export { TelegramOwnerCredentials } from "./provider/telegram/owner-contract.js";
-export type { TelegramOwnerProviderFactory, TelegramOwnerSurface } from "./provider/telegram/owner-contract.js";
-export type { TelegramOwnerLogin, TelegramOwnerLoginInput, TelegramOwnerSdk } from "./provider/telegram/owner-sdk.js";
+export { TelegramAccountCredentials } from "./provider/telegram/account-contract.js";
+export type { TelegramAccountProviderFactory, TelegramAccountSurface } from "./provider/telegram/account-contract.js";
+export type { TelegramAccountLogin, TelegramAccountLoginInput, TelegramAccountSdk } from "./provider/telegram/account-sdk.js";
 export { inboundOnce } from "./support/inbound-once.js";
 
 export { typingPulse } from "./support/typing-pulse.js";
@@ -59,7 +59,7 @@ export { StoredEndpoint, StoredIdentity } from "./store/sqlite/actor-schema.js";
 
 export { Route, type PendingGroup } from "./automation/matcher.js";
 
-export { type StoredGroup } from "./store/rule/group.js";
+export type { StoredGroup } from "./store/rule/group.js";
 
 export { DeliveryNotSent, IngressRoutingError } from "./errors.js";
 
@@ -67,6 +67,6 @@ export { match } from "./router/automation/match.js";
 
 export { newTraceId } from "./support/trace.js";
 
-export { type KernelDeliveryReceipt } from "./support/deliver.js";
+export type { KernelDeliveryReceipt } from "./support/deliver.js";
 
 export { findRequestCandidates } from "./router/request/correlation.js";

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { LoginDeps } from "../src/cli/login";
 import { login, parseLoginArgs } from "../src/cli/login";
 import { telegramSignIn } from "../src/cli/telegram-login";
-import { OwnerLogins } from "@oni/channels";
+import { AccountLogins } from "@oni/channels";
 import { CliError } from "../src/cli/errors";
 
 const apiHash = "a".repeat(32);
@@ -12,7 +12,7 @@ const signedOwner = async () => ({ userId: "owner-42" });
 function refusedLogin(isTTY = true) {
   let starts = 0;
   const deps: LoginDeps = {
-    logins: { ...OwnerLogins, telegram: async () => { starts += 1; return { userId: "1" }; } },
+    logins: { ...AccountLogins, telegram: async () => { starts += 1; return { userId: "1" }; } },
     declare: async () => { throw new Error("unexpected declaration"); },
     id: () => "req-1", telegram: { ...environment, isTTY },
   };
@@ -78,7 +78,7 @@ describe("private Telegram login", () => {
     ["unreachable", "daemon socket unavailable"],
   ] as const)("Telegram %s seal failure prints no credential", async (kind, expected) => {
     const deps: LoginDeps = {
-      logins: { ...OwnerLogins, telegram: async ({ credentials, dataDir }) => {
+      logins: { ...AccountLogins, telegram: async ({ credentials, dataDir }) => {
         expect(dataDir).toBe(environment.dataDir);
         expect(credentials).toEqual({ apiId: "1234", apiHash });
         return { userId: "owner-42" };
@@ -100,7 +100,7 @@ describe("private Telegram login", () => {
 
   test("a sealed Telegram declaration reports the verified account without its credential", async () => {
     const deps: LoginDeps = {
-      logins: { ...OwnerLogins, telegram: signedOwner },
+      logins: { ...AccountLogins, telegram: signedOwner },
       declare: async (request) => ({
         type: "channel_declared", requestId: request.requestId, id: request.id,
         statuses: [{ id: request.id, surface: "telegram:owner", state: "mounted" }],

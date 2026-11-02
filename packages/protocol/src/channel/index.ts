@@ -16,6 +16,7 @@
 import { z } from "zod";
 import { NamedError } from "../error/index.js";
 import * as History from "./history.js";
+import { GitHubWebhookPayloadSchemas } from "./github.js";
 
 /**
  * Typed refusal for a malformed or empty surface key: the wire-format
@@ -29,6 +30,7 @@ export const SurfaceKeyError = NamedError.create(
 export type SurfaceKeyError = InstanceType<typeof SurfaceKeyError>;
 
 export namespace Channel {
+  export const GitHubPayloads = GitHubWebhookPayloadSchemas;
   export const HistoryAttachment = History.HistoryAttachment;
   export type HistoryAttachment = History.HistoryAttachment;
   export const HistoryMessage = History.HistoryMessage;

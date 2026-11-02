@@ -359,7 +359,7 @@ describe("Oni Resident WebSocket", () => {
 
   it("mounts a declared Linear Owner instance on the same HTTP server", async () => {
     const declared = suite.config("declared-linear-", { wsToken: WS_TOKEN });
-    const kek = declareChannel(statePath(declared.catalogPath), "linear", { secret: "linear-signing-secret", ownerUserId: "user-owner" }, { settings: {} });
+    const kek = declareChannel(statePath(declared.catalogPath), "linear", { secret: "linear-signing-secret", accountUserId: "user-owner" }, { settings: {} });
     const app = await bootWithConfig({ ...declared, kek });
 
     const response = await fetch(`http://127.0.0.1:${app.port}/linear/webhook`, {
@@ -406,7 +406,7 @@ describe("Oni Resident WebSocket", () => {
     createRuleStore((await planeOf(app.runtime)).channel).add({
       id: "planner", position: 0, enabled: true, createdBy: "owner", when: { instance: "a2a", from: ["planner"] },
       outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
-    });
+    }, true);
 
     const card = await fetch(`http://127.0.0.1:${app.port}/.well-known/agent-card.json`);
     expect(card.status).toBe(200);

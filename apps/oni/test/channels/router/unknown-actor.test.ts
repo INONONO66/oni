@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ledger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../helpers/ledger.js";
 import { resolveIngressActor } from "../../../src/bundles/messaging/actor-resolver.js";
 import { makeEvent, setupIngressActorResolverTest } from "./_actor-resolver-fixture.js";
 

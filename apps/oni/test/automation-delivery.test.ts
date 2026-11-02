@@ -12,7 +12,7 @@ test("a matched call fact delivers one action without joining a voice route", as
   f.stores.rules.add(automationRecord({
     when: { instance: "discord" },
     outcome: { kind: "deliver", target: `session:${target}`, deliveryKind: "action", reply: "none" },
-  }));
+  }), true);
   const result = await f.ingest({ ...automationFacts, event: "call" });
   expect(result.status).toBe("executed");
   if (result.status !== "executed") throw new Error("call automation refused");
@@ -25,7 +25,7 @@ test("a matched call fact delivers one action without joining a voice route", as
 
 test("a media-only prompt into a new session leads with the instructions text part", async () => {
   const f = await automationFixture(suite);
-  f.stores.rules.add(automationRecord({ outcome: { kind: "deliver", target: "new", deliveryKind: "prompt", reply: "none", instructions: "INSTRUCTIONS_SENTINEL" } }));
+  f.stores.rules.add(automationRecord({ outcome: { kind: "deliver", target: "new", deliveryKind: "prompt", reply: "none", instructions: "INSTRUCTIONS_SENTINEL" } }), true);
   const result = await f.ingest({
     ...automationFacts, render: "",
     attachments: [{ kind: "image", ref: "self:/photo.png", mime: "image/png" }],
@@ -47,7 +47,7 @@ for (const target of ["new", "session"] as const) {
       f.stores.rules.add(automationRecord({
         outcome: { kind: "deliver", target: existing === undefined ? "new" : `session:${existing}`, deliveryKind: kind,
           reply: "none", instructions: "INSTRUCTIONS_SENTINEL" },
-      }));
+      }), true);
       const result = await f.ingest();
       expect(result.status).toBe("executed");
       if (result.status !== "executed") throw new Error("automation refused");
@@ -85,7 +85,7 @@ for (const target of ["new", "session"] as const) {
 
 test("an unknown judge verdict filters without a session or daily run debit", async () => {
   const f = await automationFixture(suite, "garbage");
-  f.stores.rules.add(automationRecord({ judge: "Is the build ready?", outcome: { kind: "deliver", target: "new", deliveryKind: "action", reply: "none", maxRunsPerDay: 1 } }));
+  f.stores.rules.add(automationRecord({ judge: "Is the build ready?", outcome: { kind: "deliver", target: "new", deliveryKind: "action", reply: "none", maxRunsPerDay: 1 } }), true);
   const before = f.plane.listSessions().map((row) => row.id);
   expect(await f.ingest()).toMatchObject({ status: "blocked_pre", reasonCode: "none" });
   expect(f.plane.listSessions().map((row) => row.id)).toEqual(before);
@@ -97,7 +97,7 @@ test("an unknown judge verdict filters without a session or daily run debit", as
 
 test("a grouped firing uses the injected clock and backfills the delivered action sequence", async () => {
   const f = await automationFixture(suite);
-  f.stores.rules.add(automationRecord({ group: { by: "thread", windowSeconds: 5 } }));
+  f.stores.rules.add(automationRecord({ group: { by: "thread", windowSeconds: 5 } }), true);
   expect(await f.ingest({ ...automationFacts, reply: { chain: [], threadId: "root" } })).toMatchObject({ reasonCode: "grouped" });
   f.time.now += 2000;
   expect(await f.ingest({ ...automationFacts, eventId: "second", render: "SECOND_SENTINEL", reply: { chain: [], threadId: "root" } }))
@@ -118,7 +118,7 @@ test("a grouped firing uses the injected clock and backfills the delivered actio
 test("an explicit conversation rule can materialize its first session", async () => {
   const f = await automationFixture(suite);
   f.stores.actors.registerIdentity({ id: "source", kind: "human", trustTier: "owner" });
-  f.stores.rules.add(automationRecord({ outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } }));
+  f.stores.rules.add(automationRecord({ outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } }), true);
   const result = await f.ingest();
   expect(result.status).toBe("executed");
   if (result.status !== "executed") throw new Error("granted delivery refused");
@@ -127,7 +127,7 @@ test("an explicit conversation rule can materialize its first session", async ()
 
 test("a disabled conversation rule leaves the message recorded only", async () => {
   const f = await automationFixture(suite);
-  f.stores.rules.add(automationRecord({ enabled: false, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } }));
+  f.stores.rules.add(automationRecord({ enabled: false, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } }), true);
   const before = f.plane.listSessions().map((row) => row.id);
   expect(await f.ingest()).toMatchObject({
     status: "blocked_pre", reasonCode: "none",
@@ -137,7 +137,7 @@ test("a disabled conversation rule leaves the message recorded only", async () =
 
 test("a sender restriction refuses an unknown sender before session creation", async () => {
   const f = await automationFixture(suite);
-  f.stores.rules.add(automationRecord({ when: { instance: "discord", from: ["someone-else"] } }));
+  f.stores.rules.add(automationRecord({ when: { instance: "discord", from: ["someone-else"] } }), true);
   f.stores.actors.removeIdentity("source");
   const before = f.plane.listSessions().map((row) => row.id);
   expect(await f.ingest()).toMatchObject({ status: "blocked_pre" });
@@ -148,7 +148,7 @@ test("the earlier rule wins over a seeded Owner DM and delivers one action", asy
   const f = await automationFixture(suite);
   f.stores.rules.add(automationRecord({
     when: { instance: "ws" },
-  }));
+  }), true);
   const target = await f.target();
   const rows = f.plane.openKernel(target).historyPage(target, { afterRevision: 0 }).actions;
   expect(rows.filter((row) => row.id === "ws::room:seed")).toHaveLength(1);
@@ -160,7 +160,7 @@ test("the earlier rule wins over a seeded Owner DM and delivers one action", asy
 
 test("a missing session target records a refused ledger row instead of a dangling match", async () => {
   const f = await automationFixture(suite);
-  f.stores.rules.add(automationRecord({ outcome: { kind: "deliver", target: "session:missing", deliveryKind: "action", reply: "none" } }));
+  f.stores.rules.add(automationRecord({ outcome: { kind: "deliver", target: "session:missing", deliveryKind: "action", reply: "none" } }), true);
   const before = f.plane.listSessions().map((row) => row.id);
   await f.ingest().then(() => undefined, () => undefined);
   expect(f.plane.listSessions().map((row) => row.id)).toEqual(before);

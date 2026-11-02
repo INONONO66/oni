@@ -1,9 +1,9 @@
-import { ledger } from "../../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../../helpers/ledger.js";
 import { channelRequests } from "../../helpers/channel-requests.js";
-import { channelTransaction } from "../../../../../../packages/channels/test/helpers/channel-transaction.js";
-import { seededRequests } from "../../../../../../packages/channels/test/helpers/requests.js";
+import { channelTransaction } from "../../helpers/channel-transaction.js";
+import { seededRequests } from "../../helpers/requests.js";
 import { Bus } from "../../../../../../packages/channels/test/helpers/observation.js";
-import { registerAgentFixture } from "../../../../../../packages/channels/test/helpers/messaging.js";
+import { registerAgentFixture } from "../../helpers/messaging.js";
 
 export function sendPorts() {
   return {

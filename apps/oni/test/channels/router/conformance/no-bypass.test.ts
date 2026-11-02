@@ -1,6 +1,6 @@
 import { runEffect } from "../../../../../../packages/channels/test/helpers/effect.js";
 import { beforeEach, expect, test } from "bun:test";
-import { registerRule } from "../../../../../../packages/channels/test/helpers/rule.js";
+import { registerRule } from "../../helpers/rule.js";
 import {
   commits,
   kernelRouter,

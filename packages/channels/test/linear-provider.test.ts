@@ -8,15 +8,15 @@ import type { PublishPort } from "../src/types";
 import { FIXED_NOW, injectedOptions } from "./helpers/injected";
 
 const SECRET = "linear-signing-secret";
-const OWNER = { id: "user-owner", name: "ino", displayName: "Ino" };
+const ACCOUNT = { id: "user-account", name: "ino", displayName: "Ino" };
 
 const arm = () => {
-  const owner = LinearProvider.owner;
-  if (owner === undefined) throw new Error("linear has no owner arm");
-  return owner;
+  const account = LinearProvider.account;
+  if (account === undefined) throw new Error("linear has no account arm");
+  return account;
 };
 
-/** Every GraphQL call recorded; the viewer answered as the Owner, the rest scripted. */
+/** Every GraphQL call recorded; the viewer answered as the Account, the rest scripted. */
 function linearApi(script: { readonly comment?: () => Response; readonly lookup?: () => Response; readonly viewer?: () => Response } = {}) {
   const requests: { query: string; variables: Record<string, { id?: string; issueId?: string; body?: string } | string> }[] = [];
   const realFetch = globalThis.fetch;
@@ -24,7 +24,7 @@ function linearApi(script: { readonly comment?: () => Response; readonly lookup?
     async (_input: string | URL | Request, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body));
       requests.push(request);
-      if (request.query.includes("viewer")) return script.viewer?.() ?? Response.json({ data: { viewer: OWNER } });
+      if (request.query.includes("viewer")) return script.viewer?.() ?? Response.json({ data: { viewer: ACCOUNT } });
       if (request.query.includes("comment(id")) return script.lookup?.() ?? Response.json({ data: { comment: null }, errors: [{ message: "Entity not found", extensions: { code: "ENTITY_NOT_FOUND" } }] });
       return script.comment?.() ?? Response.json({ data: { commentCreate: { success: true, comment: { id: "comment-new" } } } });
     },
@@ -66,7 +66,7 @@ function signed(body: string, headers: Record<string, string> = {}) {
 }
 
 async function started(
-  credentials: { secret: string; token?: string; ownerUserId?: string } = { secret: SECRET, token: "lin_api_key" },
+  credentials: { secret: string; token?: string; accountUserId?: string } = { secret: SECRET, token: "lin_api_key" },
   publish: PublishPort = () => undefined,
   handler?: Channel.MessageHandler,
 ) {
@@ -82,7 +82,7 @@ async function started(
   return { runtime, received };
 }
 
-describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner instance", () => {
+describe("Linear as a user account (#1569 lane 9b): the linear:account instance", () => {
   it("emits integration authors and mention facts without provider admission", async () => {
     const api = linearApi();
     try {
@@ -91,7 +91,7 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
         actor: { id: "integration", type: "integration" },
       }))));
       expect(received[0]?.facts).toMatchObject({
-        account: OWNER.id, addressees: [{ externalId: OWNER.id }], dm: false,
+        account: ACCOUNT.id, addressees: [{ externalId: ACCOUNT.id }], dm: false,
         author: { externalId: "integration", isBot: true },
       });
       expect(received[0]?.facts.quotes).toBeUndefined();
@@ -99,7 +99,7 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
       api.restore();
     }
   });
-  it("under mentions_and_dms a comment naming the Owner is a mention received by the Owner; one that does not, and a new issue, are not intake", async () => {
+  it("under mentions_and_dms a comment naming the Account is a mention received by the Account; one that does not, and a new issue, are not ingress", async () => {
     const api = linearApi();
     try {
       const { runtime, received } = await started();
@@ -115,13 +115,12 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
         workspaceId: "org-1",
         channelId: "issue-1",
         author: { externalId: "user-1", isBot: false },
-        addressees: [{ externalId: "user-owner" }],
+        addressees: [{ externalId: "user-account" }],
         dm: false,
-        receivedBy: "owner",
         reply: { chain: [], threadId: "issue-1", externalConversationId: "linear:issue-1" },
         render: "@Ino please look at this",
       });
-      const byId = envelope({ data: { id: "comment-2", body: "cc user-owner", issueId: "issue-1", userId: "user-2" } });
+      const byId = envelope({ data: { id: "comment-2", body: "cc user-account", issueId: "issue-1", userId: "user-2" } });
       expect(await (await runtime.webhookHandler?.(signed(JSON.stringify(byId), { "linear-delivery": "delivery-2" })))?.text()).toBe("OK");
       const aside = envelope({ data: { id: "comment-3", body: "unrelated chatter", issueId: "issue-1", userId: "user-2" } });
       expect(await (await runtime.webhookHandler?.(signed(JSON.stringify(aside), { "linear-delivery": "delivery-3" })))?.text()).toBe("OK");
@@ -133,7 +132,7 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
     }
   });
 
-  it("under all every new issue and comment is intake, nulls and all; the Owner's own actions never are; under none the door answers without reading", async () => {
+  it("under all every new issue and comment is ingress, nulls and all; the Account's own actions never are; under none the door answers without reading", async () => {
     const api = linearApi();
     try {
       const { runtime, received } = await started();
@@ -144,7 +143,7 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
       const described = envelope({ type: "Issue", actor: null, data: { id: "issue-4", identifier: "ENG-44", title: "Dark mode", description: "Please add it.", creatorId: "user-2" } });
       expect((await runtime.webhookHandler?.(signed(JSON.stringify(described), { "linear-delivery": "delivery-2" })))?.status).toBe(200);
       expect(received[1]?.facts).toMatchObject({ render: "Dark mode\n\nPlease add it.", author: { externalId: "user-2" } });
-      const own = envelope({ actor: { id: "user-owner" }, data: { id: "comment-9", body: "my own reply", issueId: "issue-1", userId: "user-owner" } });
+      const own = envelope({ actor: { id: "user-account" }, data: { id: "comment-9", body: "my own reply", issueId: "issue-1", userId: "user-account" } });
       expect(await (await runtime.webhookHandler?.(signed(JSON.stringify(own), { "linear-delivery": "delivery-own" })))?.text()).toBe("Own action");
       expect(received).toHaveLength(2);
     } finally {
@@ -210,7 +209,7 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
     }
   });
 
-  it("a reply lands as the Owner's comment on the issue the conversation names, once per key — a re-run finds the comment it already posted; refusals and unconfirmed answers are evidence-based receipts", async () => {
+  it("a reply lands as the Account's comment on the issue the conversation names, once per key — a re-run finds the comment it already posted; refusals and unconfirmed answers are evidence-based receipts", async () => {
     const api = linearApi();
     try {
       const { runtime } = await started();
@@ -276,14 +275,14 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
       if (event.name === Operational.Events.Warn.name) warns.push(z.object({ msg: z.string() }).parse(data).msg);
     };
     try {
-      const keyless = await started({ secret: SECRET, ownerUserId: "user-owner" }, publish);
+      const keyless = await started({ secret: SECRET, accountUserId: "user-account" }, publish);
       expect(api.requests).toEqual([]);
       expect((await keyless.runtime.deliveryRoute?.("user-1", Outbound.payload("x"), "k-1", { channelId: "issue-1" }))?.value).toBe("rejected");
       expect(warns).toEqual(["linear api key missing — reply not posted"]);
-      const own = envelope({ actor: { id: "user-owner" }, data: { id: "comment-9", body: "mine", issueId: "issue-1", userId: "user-owner" } });
+      const own = envelope({ actor: { id: "user-account" }, data: { id: "comment-9", body: "mine", issueId: "issue-1", userId: "user-account" } });
       expect(await (await keyless.runtime.webhookHandler?.(signed(JSON.stringify(own))))?.text()).toBe("Own action");
-      // #1600 lane R3: keyless and nameless under mentions_and_dms nothing could ever name the Owner — the start refuses rather than mounting deaf; under `all` it reads everything.
-      await expect(started({ secret: SECRET })).rejects.toMatchObject({ _tag: "ChannelsFailure", operation: "linear.owner.start" });
+      // #1600 lane R3: keyless and nameless under mentions_and_dms nothing could ever name the Account — the start refuses rather than mounting deaf; under `all` it reads everything.
+      await expect(started({ secret: SECRET })).rejects.toMatchObject({ _tag: "ChannelsFailure", operation: "linear.account.start" });
     } finally {
       api.restore();
     }
@@ -291,18 +290,18 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
     try {
       const runtime = arm().create({ secret: SECRET, token: "lin_api_key" }, () => undefined, injectedOptions());
       runtime.surface.onMessage(async () => undefined);
-      await expect(runtime.surface.start("boot")).rejects.toMatchObject({ _tag: "ChannelsFailure", operation: "linear.owner.start" });
+      await expect(runtime.surface.start("boot")).rejects.toMatchObject({ _tag: "ChannelsFailure", operation: "linear.account.start" });
     } finally {
       mute.restore();
     }
   });
 
-  it("the provider is Owner-only: the owner arm declares what the runtime exposes and admits only the Owner's shape; the bot arm refuses", () => {
+  it("the provider is Account-only: the account arm declares what the runtime exposes and admits only the Account's shape; the bot arm refuses", () => {
     expect(LinearProvider.capabilities).toMatchObject({ deliver: true, webhook: true, react: false, typing: false, media: false });
     expect(LinearProvider.credentials.safeParse({ secret: "s" }).success).toBe(false);
-    expect(() => LinearProvider.create({} as never, {}, () => undefined, injectedOptions())).toThrow("identity: owner");
+    expect(() => LinearProvider.create({} as never, {}, () => undefined, injectedOptions())).toThrow("identity: account");
     expect(arm().credentials.safeParse({ secret: "s" }).success).toBe(true);
-    expect(arm().credentials.safeParse({ secret: "s", token: "t", ownerUserId: "u" }).success).toBe(true);
+    expect(arm().credentials.safeParse({ secret: "s", token: "t", accountUserId: "u" }).success).toBe(true);
     expect(arm().credentials.safeParse({ token: "t" }).success).toBe(false);
     expect(arm().credentials.safeParse({ secret: "s", extra: 1 }).success).toBe(false);
     const runtime = arm().create({ secret: SECRET }, () => undefined, injectedOptions());

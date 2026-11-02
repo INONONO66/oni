@@ -2,23 +2,22 @@ import { describe, expect, test } from "bun:test";
 import { DiscordNormalizer } from "../src/provider/discord/normalizer";
 import { SlackNormalizer } from "../src/provider/slack/normalizer";
 import { TelegramNormalizer } from "../src/provider/telegram/normalizer";
-import { ownerInbound } from "../src/provider/telegram/owner-normalizer";
-import { ownerMessage } from "./helpers/telegram-owner-sdk";
+import { accountInbound } from "../src/provider/telegram/account-normalizer.js";
+import { accountMessage } from "./helpers/telegram-account-sdk.js";
 import { telegramReply } from "./helpers/telegram";
 
 describe("provider ingress facts", () => {
-  test("Telegram Owner preserves account-local ids and caption, mention and native reply", () => {
-    const result = ownerInbound({
-      ...ownerMessage, dm: false, mentionedUserIds: ["owner-1"],
+  test("Telegram Account preserves account-local ids and caption, mention and native reply", () => {
+    const result = accountInbound({
+      ...accountMessage, dm: false, mentionedUserIds: ["account-1"],
       media: [{ kind: "audio", fileId: 4, name: "voice.ogg", mime: "audio/ogg", size: 12, voice: true }],
-    }, "owner-1");
+    }, "account-1");
     expect(result?.facts).toMatchObject({
       eventId: "tdlib:100", event: "mention", channelId: "chat-1",
-      addressees: [{ externalId: "owner-1" }], render: "caption",
+      addressees: [{ externalId: "account-1" }], render: "caption",
       reply: { chain: ["99"], replyToMessageId: "99" },
       attachments: [{ kind: "audio", ref: "tdlib-file:4", voice: true }],
-      receivedBy: "owner",
-    });
+      });
   });
   test("telegram preserves event identity, author, reply chain, and render text", () => {
     const result = new TelegramNormalizer({
@@ -41,13 +40,13 @@ describe("provider ingress facts", () => {
     const result = new DiscordNormalizer().normalize({
       id: "discord-dm-1",
       channel_id: "dm-chan",
-      author: { id: "owner-1", username: "Owner" },
+      author: { id: "account-1", username: "Account" },
       content: "status?",
     });
     expect(result?.facts).toMatchObject({
       eventId: "discord-dm-1",
       event: "message",
-      author: { externalId: "owner-1", isBot: false },
+      author: { externalId: "account-1", isBot: false },
       channelId: "dm-chan",
       dm: true,
       render: "status?",
@@ -109,12 +108,12 @@ describe("provider ingress facts", () => {
       account: "1", addressees: [{ externalId: "1" }],
       dm: true, author: { externalId: "56", isBot }, quotes: "78",
     });
-    const account = ownerInbound({
-      ...ownerMessage, sender: { kind: "user", id: "peer", isBot },
-      mentionedUserIds: ["owner-1", "other"], dm: false,
-    }, "owner-1");
+    const account = accountInbound({
+      ...accountMessage, sender: { kind: "user", id: "peer", isBot },
+      mentionedUserIds: ["account-1", "other"], dm: false,
+    }, "account-1");
     expect(account?.facts).toMatchObject({
-      account: "owner-1", addressees: [{ externalId: "owner-1" }, { externalId: "other" }],
+      account: "account-1", addressees: [{ externalId: "account-1" }, { externalId: "other" }],
       dm: false, author: { externalId: "peer", isBot },
     });
     // The account transport supplies a reply id, but no quoted author.

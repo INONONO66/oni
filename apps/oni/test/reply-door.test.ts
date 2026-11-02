@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { Effect } from "effect";
 import type { Core } from "@oni/agent";
 import { createSurfaceKeyStore, decodeChannelFailure } from "@oni/channels";
-import { type GatewayRouter } from "../src/bundles/messaging/message-ports.js";
+import type { GatewayRouter } from "../src/bundles/messaging/message-ports.js";
 import { type Gateway, Outbound } from "@oni/protocol";
 import { commitReceivedMessage } from "../../../packages/agent/test/helpers/ingress";
 import { createSendMessageTool } from "../src/bundles/messaging/send-message/index";

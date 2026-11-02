@@ -2,15 +2,15 @@ import type { Gateway, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryNotSent, DiscordApiError } from "../../errors";
 import { type DeliveryReceipt, type DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
-import { ThrownError } from "../../support/thrown";
+import { CaughtError } from "../../support/thrown";
 import { translate } from "../../support/translate";
 import type { PublishPort } from "../../types";
 import type { ProviderOptions } from "../contract";
 import type { DiscordBotApi, DiscordFailure } from "./sdk";
-import type { DiscordOwnerApi } from "./owner-sdk";
+import type { DiscordAccountApi } from "./account-sdk";
 import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format";
 
-type DiscordClient = DiscordBotApi | DiscordOwnerApi;
+type DiscordClient = DiscordBotApi | DiscordAccountApi;
 
 /** What one Discord instance delivers with: its REST client under its own token and its custody ledger. */
 export interface DiscordDelivery {
@@ -33,12 +33,12 @@ export async function discordDmChannel(
       throw new DiscordApiError({ message: "Discord DM channel response carried no string id" });
     return channel.id;
   } catch (error) {
-    throw new DeliveryNotSent({ operation: "discord.createDmChannel", cause: ThrownError.parse(error).message });
+    throw new DeliveryNotSent({ operation: "discord.createDmChannel", cause: CaughtError.parse(error).message });
   }
 }
 
 /**
- * Existing-agent delivery, the same for the bot and the Owner's account
+ * Existing-agent delivery, the same for the bot and the Account's account
  * (#1569): a registered ActorEndpoint's externalId is a Discord user id —
  * deliver by DM, or into the conversation's channel when the person wrote
  * in one — and report the platform message id of the final chunk (the

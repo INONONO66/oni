@@ -5,7 +5,7 @@ import { z } from "zod";
  * otherwise. zod is the narrowing layer for promise-rejection seams
  * (`Effect.tryPromise` catch), so no mapper parameter carries `unknown`.
  */
-export const ThrownError = z.union([
+export const CaughtError = z.union([
   z.instanceof(Error),
   z.coerce.string().transform((text) => new Error(text)),
 ]);

@@ -1,10 +1,10 @@
-import { ledger, resetLedger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger, resetLedger } from "../helpers/ledger.js";
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { Ingress, SessionTransition } from "@oni/protocol";
 import * as Matcher from "../../../src/bundles/messaging/request/matcher.js";
 
 type ResponderTarget = Parameters<typeof Matcher.responderCandidates>[0][number];
-import { requestFixture } from "../../../../../packages/channels/test/helpers/request-record.js";
+import { requestFixture } from "../helpers/request-record.js";
 beforeEach(() => {
   resetLedger();
 });

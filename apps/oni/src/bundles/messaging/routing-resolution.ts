@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { type Gateway, Ingress, SessionTransition } from "@oni/protocol";
-import type { ChannelStores } from "@oni/channels";
+import { type Gateway, type Ingress, SessionTransition } from "@oni/protocol";
 import { findRequestCandidates } from "@oni/channels";
 import type { GatewayRouterPorts } from "./message-ports.js";
 import type { MatchDecision } from "./rule-outcome";

@@ -1,4 +1,4 @@
-import { ledger } from "../../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../../helpers/ledger.js";
 import { runEffect } from "../../../../../../packages/channels/test/helpers/effect.js";
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { Gateway } from "@oni/protocol";
@@ -10,7 +10,7 @@ import {
   buildGrant,
   buildSendInput,
   messagingNow,
-} from "../../../../../../packages/channels/test/helpers/messaging.js";
+} from "../../helpers/messaging.js";
 import { resetStores } from "../_router-fixture.js";
 import { registerSenderAndTarget, sendPorts } from "./_send-fixture.js";
 

@@ -59,7 +59,7 @@ type IngestMode = "poll" | "socket" | "webhook";
  */
 export interface RenderPolicy {
   /**
-   * Maps Resident markdown to the platform dialect; identity where the
+   * Maps Agent markdown to the platform dialect; identity where the
    * platform accepts the text as-is (slack mrkdwn, github comments).
    */
   readonly renderMarkdown: (markdown: string) => string;
@@ -87,7 +87,7 @@ export interface MediaLimits {
 interface ProviderCapabilities {
   /** Optional read-only platform history, independent of delivery authority. */
   readonly history?: boolean;
-  /** The runtime exposes `deliveryRoute` — the Resident can message into it. */
+  /** The runtime exposes `deliveryRoute` — the Agent can message into it. */
   readonly deliver: boolean;
   /** Bot delivery can open a person's direct conversation from an endpoint id. */
   readonly direct: boolean;
@@ -135,26 +135,26 @@ export const WEBHOOK_TEXT_CAPABILITIES: ProviderCapabilities = {
  * `webhookHandler`, and one declaring neither returns neither. The provider
  * conformance suite enforces the correspondence.
  */
-/** The platform identity of the account a runtime speaks as (#1600): what the Owner Person's endpoint on that platform is. */
+/** The platform identity of the account a runtime speaks as (#1600): what the Account Person's endpoint on that platform is. */
 export interface AccountIdentity {
   readonly externalId: string;
   readonly workspace?: string;
 }
 
-/** The latched cause an Owner account runtime withdrew its readiness for. */
-export type OwnerWithdrawal = "login_action_required" | "session_lost";
+/** The latched cause an Account account runtime withdrew its readiness for. */
+export type AccountWithdrawal = "login_action_required" | "session_lost";
 
 export interface ProviderRuntime {
   readonly historyRoute?: ProviderHistoryRoute;
-  /** Notifies the mount owner once when a started account runtime withdraws readiness. */
-  readonly onWithdrawn?: (listener: (reason: OwnerWithdrawal) => void) => void;
+  /** Notifies the mount account once when a started account runtime withdraws readiness. */
+  readonly onWithdrawn?: (listener: (reason: AccountWithdrawal) => void) => void;
   /** Streaming-capable downloads; buffered providers keep `attachments`. */
   readonly streamingAttachments?: AttachmentFetchWithStream;
   readonly surface: Channel.Surface;
   readonly deliveryRoute?: ProviderDeliveryRoute;
   readonly typingRoute?: ProviderTypingRoute;
   readonly webhookHandler?: (request: Request) => Promise<Response>;
-  /** #1600: the account this runtime speaks as, known once the surface started; an Owner instance's is bound to the Owner Person. */
+  /** #1600: the account this runtime speaks as, known once the surface started; an Account instance's is bound to the Account Person. */
   readonly account?: () => AccountIdentity | undefined;
   /** The platform's authenticated download for the references its normalizer emits; absent when they are public URLs. */
   readonly attachments?: AttachmentFetch;
@@ -172,13 +172,13 @@ export interface ProviderRuntime {
  * admission) remains router-side.
  */
 /**
- * The Owner-identity arm of a provider (#1569): the same platform spoken as
- * the Owner's own account. Its credential is the account session the QR (or
+ * The Account-identity arm of a provider (#1569): the same platform spoken as
+ * a user account. Its credential is the account session the QR (or
  * remote-auth) login produced, never the bot's; its runtime mounts under
  * its channel_instance row id. Only the capabilities an account can carry are
  * declared — there is no webhook arm, and typing is the platform's own.
  */
-export interface OwnerArm<TCredentials> {
+export interface AccountArm<TCredentials> {
   readonly credentials: z.ZodType<TCredentials, TCredentials>;
   readonly preconditions: readonly string[];
   readonly capabilities: Pick<ProviderCapabilities, "deliver" | "react" | "media" | "typing" | "voice" | "history">;
@@ -191,12 +191,12 @@ export interface OwnerArm<TCredentials> {
   ): ProviderRuntime;
 }
 
-export interface ChannelProvider<TCredentials, TId extends string = string, TOwner = never> {
+export interface ChannelProvider<TCredentials, TId extends string = string, TAccount = never> {
   readonly id: TId;
   readonly ingest: IngestMode;
   readonly capabilities: ProviderCapabilities;
-  /** The Owner-account arm where the platform has one; absent, an `identity: owner` declaration is unsupported. */
-  readonly owner?: OwnerArm<TOwner>;
+  /** The Account-account arm where the platform has one; absent, an `identity: account` declaration is unsupported. */
+  readonly account?: AccountArm<TAccount>;
   /**
    * THE schema for this provider's secret payload — the app's credential
    * gates (boot declared rows, `channel_add`/`secret_rotate`) validate

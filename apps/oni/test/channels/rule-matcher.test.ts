@@ -34,7 +34,7 @@ const cases: readonly { name: string; message: Ingress.Message; rules: readonly 
   { name: "empty table", message: input, rules: [] },
 ];
 
-test.each(cases)("matches the first rule for $name", async ({ message, rules, expected }) => {
+test.each([...cases])("matches the first rule for $name", async ({ message, rules, expected }) => {
   const matched = await runEffect(match(message, rules));
   expect(matched?.rule.id).toBe(expected);
   if (expected === "owner-draft") expect(matched?.rule.outcome).toMatchObject({ reply: "draft", as: "owner" });

@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { Delivery, Ingress } from "@oni/protocol";
-import { ledger } from "../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 import { commits, createMappedOwnerSession, makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState } from "./router/_router-fixture.js";
 
@@ -41,7 +41,7 @@ function addRule(id: string, extras: Partial<Ingress.Rule> = {}) {
   ledger().stores.rules.add(Ingress.Rule.parse({
     id, position: 0, enabled: true, createdBy: "owner", when: { instance: ownerFacts.surface },
     outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, ...extras,
-  }));
+  }), true);
 }
 
 test.each(["matched", "missing", "disabled", "unapproved"] as const)(

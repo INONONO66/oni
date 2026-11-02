@@ -4,12 +4,12 @@ import { type LedgerAction, Outbound, type SessionTransition } from "@oni/protoc
 import { z } from "zod";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ledger, resetLedger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger, resetLedger } from "../helpers/ledger.js";
 import { Bus } from "../../../../../packages/channels/test/helpers/observation.js";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
 import { channelRequests } from "../helpers/channel-requests.js";
-import { channelTransaction } from "../../../../../packages/channels/test/helpers/channel-transaction.js";
-import { answer, originalAction, requestPort } from "../../../../../packages/channels/test/helpers/requests.js";
+import { channelTransaction } from "../helpers/channel-transaction.js";
+import { answer, originalAction, requestPort } from "../helpers/requests.js";
 import { createExistingAgentMessaging } from "../../../src/bundles/messaging/send.js";
 
 type OutboundMessage = Parameters<Parameters<typeof createExistingAgentMessaging>[0]["deliver"]>[0];

@@ -1,4 +1,4 @@
-import { ledger, resetLedger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger, resetLedger } from "../helpers/ledger.js";
 import { sessionTree } from "../../../../../packages/agent/test/store/helpers/session-tree.js";
 import { channelRequests } from "../helpers/channel-requests.js";
 import { beforeEach, expect, test } from "bun:test";
@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import { effectFailure } from "../../../../../packages/channels/test/helpers/effect-failure.js";
 import { canonicalDigest, type SessionTransition } from "@oni/protocol";
 import { answerNativeRequest } from "../../../src/bundles/messaging/request/native.js";
-import { openRequest, requestPort } from "../../../../../packages/channels/test/helpers/requests.js";
+import { openRequest, requestPort } from "../helpers/requests.js";
 import { makeRouter } from "./_router-fixture.js";
 
 beforeEach(() => {

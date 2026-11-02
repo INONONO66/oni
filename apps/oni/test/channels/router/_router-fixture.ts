@@ -1,10 +1,10 @@
 import { policySnapshot } from "../../../../../packages/agent/test/helpers/compiled-policy.js";
-import { commitReceivedMessage, ledger, resetLedger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { commitReceivedMessage, ledger, resetLedger } from "../helpers/ledger.js";
 import { Effect } from "effect";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
 import { channelRequests } from "../helpers/channel-requests.js";
-import { channelTransaction } from "../../../../../packages/channels/test/helpers/channel-transaction.js";
-import { originalAction, requestPort } from "../../../../../packages/channels/test/helpers/requests.js";
+import { channelTransaction } from "../helpers/channel-transaction.js";
+import { originalAction, requestPort } from "../helpers/requests.js";
 import { messageExecutionReceipt } from "../../../../../packages/channels/test/helpers/message-execution.js";
 import { Ingress, Gateway, type Delivery } from "@oni/protocol";
 import { Core } from "@oni/agent";
@@ -361,7 +361,7 @@ export function registerOwnerDm(): void {
       id: `seed-owner-${field}`, position, enabled: true, createdBy: "owner",
       when: { instance: ownerFacts.surface, [field]: true, isBot: false },
       outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
-    });
+    }, true);
   }
 }
 

@@ -6,15 +6,15 @@ import { useSqliteChannelStore } from "../helpers/sqlite";
 describe("ActorRegistry SQLite persistence", () => {
   const stores = useSqliteChannelStore("actor-registry");
   const registry = () => createActorRegistry(stores.store);
-  const registerOwnerEndpoint = () => {
+  const registerAccountEndpoint = () => {
     registry().registerIdentity({
-      id: "act_owner",
+      id: "act_account",
       kind: "human",
-      trustTier: "owner",
+      trustTier: "manager",
     });
     registry().registerEndpoint({
       id: "ep_discord_user_1",
-      actorId: "act_owner",
+      actorId: "act_account",
       channel: "discord",
       externalId: "user-1",
       workspace: "guild",
@@ -23,23 +23,23 @@ describe("ActorRegistry SQLite persistence", () => {
 
   test("resolves registered endpoints across storage re-init", () => {
     // Given
-    registerOwnerEndpoint();
+    registerAccountEndpoint();
 
     stores.reopen();
     const resolved = registry().resolveEndpoint("discord", "user-1", "guild");
 
     // Then
-    expect(resolved?.identity.id).toBe("act_owner");
-    expect(resolved?.identity.trustTier).toBe("owner");
+    expect(resolved?.identity.id).toBe("act_account");
+    expect(resolved?.identity.trustTier).toBe("manager");
     expect(resolved?.endpoint.id).toBe("ep_discord_user_1");
   });
 
   test("returns undefined for unregistered endpoints", () => {
     // Given
     registry().registerIdentity({
-      id: "act_owner",
+      id: "act_account",
       kind: "human",
-      trustTier: "owner",
+      trustTier: "manager",
     });
 
     // When
@@ -53,16 +53,16 @@ describe("ActorRegistry SQLite persistence", () => {
     // Given
     const createdAt = 100;
     registry().registerIdentity({
-      id: "act_owner",
+      id: "act_account",
       kind: "human",
-      trustTier: "owner",
+      trustTier: "manager",
       createdAt,
       updatedAt: createdAt,
     });
 
     // When
     const updated = registry().registerIdentity({
-      id: "act_owner",
+      id: "act_account",
       kind: "human",
       trustTier: "manager",
       createdAt,
@@ -72,7 +72,7 @@ describe("ActorRegistry SQLite persistence", () => {
     // Then
     expect(updated.createdAt).toBe(createdAt);
     expect(updated.updatedAt).toBeGreaterThan(createdAt);
-    expect(registry().getIdentity("act_owner")?.trustTier).toBe("manager");
+    expect(registry().getIdentity("act_account")?.trustTier).toBe("manager");
   });
 
   test("rejects endpoints for unknown actor identities", () => {
@@ -89,13 +89,13 @@ describe("ActorRegistry SQLite persistence", () => {
 
   test("rejects duplicate endpoint addresses with different endpoint ids", () => {
     // Given
-    registerOwnerEndpoint();
+    registerAccountEndpoint();
 
     // When / Then
     expect(() =>
       registry().registerEndpoint({
         id: "ep_discord_user_1_duplicate",
-        actorId: "act_owner",
+        actorId: "act_account",
         channel: "discord",
         externalId: "user-1",
         workspace: "guild",
@@ -106,9 +106,9 @@ describe("ActorRegistry SQLite persistence", () => {
   test("allows the same endpoint address in different workspaces", () => {
     // Given
     registry().registerIdentity({
-      id: "act_owner",
+      id: "act_account",
       kind: "human",
-      trustTier: "owner",
+      trustTier: "manager",
     });
     registry().registerIdentity({
       id: "act_collaborator",
@@ -117,7 +117,7 @@ describe("ActorRegistry SQLite persistence", () => {
     });
     registry().registerEndpoint({
       id: "ep_discord_user_1_guild_a",
-      actorId: "act_owner",
+      actorId: "act_account",
       channel: "discord",
       externalId: "user-1",
       workspace: "guild-a",
@@ -134,7 +134,7 @@ describe("ActorRegistry SQLite persistence", () => {
 
     // Then
     expect(registry().resolveEndpoint("discord", "user-1", "guild-a")?.identity.id).toBe(
-      "act_owner",
+      "act_account",
     );
     expect(registry().resolveEndpoint("discord", "user-1", "guild-b")?.identity.id).toBe(
       "act_collaborator",
@@ -154,13 +154,13 @@ describe("ActorRegistry SQLite persistence", () => {
       JSON.stringify({
         id: "act_legacy",
         kind: "human",
-        trustTier: "owner",
-        relationship: "owner",
+        trustTier: "manager",
+        relationship: "manager",
         createdAt: 100,
         updatedAt: 100,
       }),
       "human",
-      "owner",
+      "manager",
       100,
       100,
     );
@@ -174,7 +174,7 @@ describe("ActorRegistry SQLite persistence", () => {
 
     // Then — the retired key is stripped on read and stays gone after re-write.
     expect("relationship" in identity).toBe(false);
-    expect(identity.trustTier).toBe("owner");
+    expect(identity.trustTier).toBe("manager");
     expect(identity.createdAt).toBe(100);
     expect("relationship" in roundTripped).toBe(false);
     expect(registry().getIdentity("act_legacy")?.trustTier).toBe("manager");
@@ -182,22 +182,22 @@ describe("ActorRegistry SQLite persistence", () => {
 
   test("filters endpoint lists by actor and workspace", () => {
     // Given — two actors, endpoints across two workspaces.
-    registry().registerIdentity({ id: "act_owner", kind: "human", trustTier: "owner" });
+    registry().registerIdentity({ id: "act_account", kind: "human", trustTier: "manager" });
     registry().registerIdentity({
       id: "act_collaborator",
       kind: "human",
       trustTier: "collaborator",
     });
     registry().registerEndpoint({
-      id: "ep_owner_a",
-      actorId: "act_owner",
+      id: "ep_account_a",
+      actorId: "act_account",
       channel: "discord",
       externalId: "user-1",
       workspace: "guild-a",
     });
     registry().registerEndpoint({
-      id: "ep_owner_b",
-      actorId: "act_owner",
+      id: "ep_account_b",
+      actorId: "act_account",
       channel: "discord",
       externalId: "user-1",
       workspace: "guild-b",
@@ -215,21 +215,21 @@ describe("ActorRegistry SQLite persistence", () => {
     // stable assertion surface across same-millisecond registrations).
     const ids = (endpoints: readonly { id: string }[]) =>
       endpoints.map((endpoint) => endpoint.id).sort();
-    expect(ids(registry().listEndpoints())).toEqual(["ep_collab_a", "ep_owner_a", "ep_owner_b"]);
-    expect(ids(registry().listEndpoints("act_owner"))).toEqual(["ep_owner_a", "ep_owner_b"]);
+    expect(ids(registry().listEndpoints())).toEqual(["ep_account_a", "ep_account_b", "ep_collab_a"]);
+    expect(ids(registry().listEndpoints("act_account"))).toEqual(["ep_account_a", "ep_account_b"]);
     expect(ids(registry().listEndpoints(undefined, "guild-a"))).toEqual([
+      "ep_account_a",
       "ep_collab_a",
-      "ep_owner_a",
     ]);
-    expect(ids(registry().listEndpoints("act_owner", "guild-b"))).toEqual(["ep_owner_b"]);
+    expect(ids(registry().listEndpoints("act_account", "guild-b"))).toEqual(["ep_account_b"]);
   });
 
   test("removing an identity removes its endpoints through SQLite cascade", () => {
     // Given
-    registerOwnerEndpoint();
+    registerAccountEndpoint();
 
     // When
-    registry().removeIdentity("act_owner");
+    registry().removeIdentity("act_account");
 
     // Then
     expect(registry().getEndpoint("ep_discord_user_1")).toBeUndefined();

@@ -1,9 +1,9 @@
 import { testRun } from "../../../../../packages/channels/test/helpers/injected.js";
 import { Outbound } from "@oni/protocol";
-import { ledger, resetLedger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger, resetLedger } from "../helpers/ledger.js";
 import { sessionTree } from "../../../../../packages/agent/test/store/helpers/session-tree.js";
 type OutboundMessage = Parameters<Parameters<typeof createExistingAgentMessaging>[0]["deliver"]>[0];
-import { channelTransaction } from "../../../../../packages/channels/test/helpers/channel-transaction.js";
+import { channelTransaction } from "../helpers/channel-transaction.js";
 import { channelRequests } from "../helpers/channel-requests.js";
 import { afterEach, expect, test } from "bun:test";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
@@ -13,7 +13,7 @@ import { TelegramAdapter } from "../../../../../packages/channels/src/provider/t
 import { TelegramNormalizer } from "../../../../../packages/channels/src/provider/telegram/normalizer.js";
 import { createExistingAgentMessaging } from "../../../src/bundles/messaging/send.js";
 import { makeRouter, resetStores } from "./_router-fixture.js";
-import { originalAction, requestPort } from "../../../../../packages/channels/test/helpers/requests.js";
+import { originalAction, requestPort } from "../helpers/requests.js";
 
 function registerTelegramTarget(): void {
   ledger().stores.actors.registerIdentity({ id: "target", kind: "human", trustTier: "collaborator" });

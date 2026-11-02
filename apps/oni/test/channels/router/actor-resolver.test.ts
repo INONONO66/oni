@@ -1,4 +1,4 @@
-import { ledger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../helpers/ledger.js";
 import { describe, expect, test } from "bun:test";
 import { resolveIngressActor } from "../../../src/bundles/messaging/actor-resolver.js";
 import {

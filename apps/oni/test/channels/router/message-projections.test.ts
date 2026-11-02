@@ -1,4 +1,4 @@
-import { ledger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../helpers/ledger.js";
 import { sessionTree } from "../../../../../packages/agent/test/store/helpers/session-tree.js";
 import { beforeEach, expect, test } from "bun:test";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
@@ -18,7 +18,7 @@ test.each([
   ledger().stores.rules.add({
     id: "ws", position: 0, enabled: true, createdBy: "owner", when: { instance: "ws" },
     outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
-  });
+  }, true);
   ledger().stores.actors.registerIdentity({ id: "sender", kind: "human", trustTier: "owner" });
   ledger().stores.actors.registerEndpoint({ id: "ws:sender", actorId: "sender", channel: "ws", externalId: "owner" });
   ledger().stores.actors.registerIdentity({

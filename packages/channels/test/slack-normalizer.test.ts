@@ -5,25 +5,24 @@ const normalizer = new SlackNormalizer({ botUserId: "B1", team: "T1" });
 const message = { type: "message", channel: "C1", user: "U1", ts: "1", text: "hello" };
 
 describe("Slack ingress facts", () => {
-  it("normalizes the Owner's resolved room to an unaddressed call on the real conversation", () => {
+  it("normalizes the Account's resolved room to an unaddressed call on the real conversation", () => {
     const event = {
       type: "user_huddle_changed" as const, user: {
-        id: "U-owner", team_id: "T1", profile: {
+        id: "U-account", team_id: "T1", profile: {
           huddle_state: "in_a_huddle", huddle_state_call_id: "R1",
         },
       }, event_ts: "1746217200.000001",
     };
-    const ctx = { team: "T1", ownerUserId: "U-owner", channelId: "C1", dm: false };
+    const ctx = { team: "T1", accountUserId: "U-account", channelId: "C1", dm: false };
     expect(slackCall(event, ctx)).toMatchObject({
-      sender: { surface: "slack", externalId: "T1:U-owner" },
+      sender: { surface: "slack", externalId: "T1:U-account" },
       facts: {
-        eventId: "call:slack:T1:U-owner:1746217200.000001:R1",
-        event: "call", surface: "slack", receivedBy: "owner",
-        channelId: "C1", dm: false, addressees: [],
-        author: { externalId: "T1:U-owner", isBot: false },
+        eventId: "call:slack:T1:U-account:1746217200.000001:R1",
+        event: "call", surface: "slack", channelId: "C1", dm: false, addressees: [],
+        author: { externalId: "T1:U-account", isBot: false },
       },
     });
-    expect(slackCall(event, { ...ctx, ownerUserId: "U-other" })).toBeNull();
+    expect(slackCall(event, { ...ctx, accountUserId: "U-other" })).toBeNull();
     expect(slackCall(event, { ...ctx, team: "T2" })).toBeNull();
     expect(slackCall({ ...event, user: { ...event.user, profile: { huddle_state: "away" } } }, ctx)).toBeNull();
   });

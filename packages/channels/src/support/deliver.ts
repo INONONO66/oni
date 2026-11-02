@@ -3,7 +3,7 @@ import { Operational, type Outbound } from "@oni/protocol";
 import { z } from "zod";
 import type { PublishPort } from "../types";
 import { type DeliveryOutcome, PartialDeliveryError } from "./translate";
-import { ThrownError } from "./thrown";
+import { CaughtError } from "./thrown";
 import { newTraceId } from "./trace";
 import { NeverConnected } from "./transport-failure";
 
@@ -80,7 +80,7 @@ export function deliverKeyed(
   options: { readonly now: () => number; readonly id: () => string },
 ): Promise<DeliveryReceipt> {
   // #1248: an uncertain outcome is recorded as unknown AND surfaced to the
-  // Owner — the reconciliation map refuses to resend it, so without a notice
+  // Account — the reconciliation map refuses to resend it, so without a notice
   // the message would vanish silently.
   const unknownNotice = (traceId: string, reason: string): DeliveryReceipt => {
     publish(Operational.Events.Warn, {
@@ -120,7 +120,7 @@ export function deliverKeyed(
   };
   const attempt = async (): Promise<DeliveryReceipt> => {
     const traceId = newTraceId(options.id);
-    const outcome = await Promise.resolve().then(() => send(traceId)).catch(ThrownError.parse);
+    const outcome = await Promise.resolve().then(() => send(traceId)).catch(CaughtError.parse);
     if (outcome instanceof Error) return refused(traceId, outcome);
     if (!outcome.accepted) return unknownNotice(traceId, "platform returned no message id");
     return outcome.externalMessageId === undefined

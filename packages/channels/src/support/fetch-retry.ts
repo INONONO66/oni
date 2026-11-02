@@ -2,7 +2,7 @@ import { Clock, Data, Effect, Result } from "effect";
 import { RateLimited } from "../errors";
 import { Operational, parseJson } from "@oni/protocol";
 import type { z } from "zod";
-import { ThrownError } from "./thrown";
+import { CaughtError } from "./thrown";
 import type { EffectRunner, PublishPort } from "../types";
 
 const MAX_API_RETRIES = 3;
@@ -47,7 +47,7 @@ export function fetchWithRetry(
   const once = Effect.gen(function* () {
     const response = yield* Effect.tryPromise({
       try: () => fetch(url, init),
-      catch: (cause) => new FetchStep({ kind: "terminal", error: ThrownError.parse(cause) }),
+      catch: (cause) => new FetchStep({ kind: "terminal", error: CaughtError.parse(cause) }),
     });
     if (response.status !== 429) return response;
     attempts += 1;

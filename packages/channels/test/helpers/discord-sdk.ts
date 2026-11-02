@@ -103,7 +103,7 @@ export class FakeDiscordClient extends ScriptedClient implements DiscordBotApi {
   createDm(userId: string): Promise<{ id: string }> {
     this.failures.check("createDm");
     this.calls.push({ method: "createDm", channelId: userId });
-    return Promise.resolve({ id: "D-owner" });
+    return Promise.resolve({ id: "D-account" });
   }
 
   triggerTyping(channelId: string): Promise<void> {

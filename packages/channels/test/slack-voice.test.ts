@@ -2,26 +2,26 @@ import { expect, test } from "bun:test";
 import { Operational } from "@oni/protocol";
 import { z } from "zod";
 import { VoiceJoinRefused } from "../src/errors";
-import { SlackOwnerAdapter } from "../src/provider/slack/owner";
-import { SlackHuddleError } from "../src/provider/slack/owner-sdk";
-import { FakeSlackOwnerListener, fakeHuddle, fakeSlackOwnerSdk, type HuddleEvent } from "./helpers/slack-owner-sdk";
+import { SlackAccountAdapter } from "../src/provider/slack/account.js";
+import { SlackHuddleError } from "../src/provider/slack/account-sdk.js";
+import { FakeSlackAccountListener, fakeHuddle, fakeSlackAccountSdk, type HuddleEvent } from "./helpers/slack-account-sdk.js";
 import { inboundQueue } from "./helpers/inbound-queue";
 import { injectedOptions } from "./helpers/injected";
 import { bounded } from "./helpers/bounded";
 import { testClockRuntime } from "./helpers/effect";
 
-const credential = { token: "xoxc-owner", cookie: "owner-cookie" };
-const address = { surface: "channel:slack:hq", channelId: "C1", speakerExternalId: "T1:U-owner" };
+const credential = { token: "xoxc-account", cookie: "account-cookie" };
+const address = { surface: "channel:slack:hq", channelId: "C1", speakerExternalId: "T1:U-account" };
 
 function fixture(run = injectedOptions().run) {
-  const fake = fakeSlackOwnerSdk();
+  const fake = fakeSlackAccountSdk();
   const warning = Promise.withResolvers<string>();
-  const adapter = new SlackOwnerAdapter(credential, (event, data) => {
+  const adapter = new SlackAccountAdapter(credential, (event, data) => {
     if (event.name === Operational.Events.Warn.name)
       warning.resolve(z.object({ msg: z.string() }).parse(data).msg);
   }, { ...injectedOptions(run), instance: address.surface }, fake.sdk);
   const queue = inboundQueue(adapter);
-  const changed = (ts: string, room = "R1", user = "U-owner", team = "T1") => {
+  const changed = (ts: string, room = "R1", user = "U-account", team = "T1") => {
     fake.listener.emit("user_huddle_changed", {
       type: "user_huddle_changed", user: {
         id: user, team_id: team, profile: { huddle_state: "in_a_huddle", huddle_state_call_id: room },
@@ -29,7 +29,7 @@ function fixture(run = injectedOptions().run) {
     });
   };
   const room = (id = "R1", channel = "C1") => fake.listener.emit("sh_room_join", {
-    type: "sh_room_join", user: "U-owner", room: { id, has_ended: false, participants: ["U-owner"] },
+    type: "sh_room_join", user: "U-account", room: { id, has_ended: false, participants: ["U-account"] },
     huddle: { channel_id: channel }, event_ts: "10.0",
   });
   return { ...fake, adapter, ...queue, changed, room, warning: warning.promise };
@@ -57,8 +57,8 @@ test("voice rejects malformed addresses and an unstarted arm before SDK I/O", as
   await f.adapter.start("start");
   for (const bad of [
     { ...address, surface: "slack:bot" },
-    { ...address, speakerExternalId: "U-owner" },
-    { ...address, speakerExternalId: "T2:U-owner" },
+    { ...address, speakerExternalId: "U-account" },
+    { ...address, speakerExternalId: "T2:U-account" },
     { ...address, workspaceId: "T2" },
     { ...address, channelId: "R1" },
     { ...address, channelId: "" },
@@ -73,20 +73,20 @@ test("voice rejects malformed addresses and an unstarted arm before SDK I/O", as
   await f.adapter.stop("stop");
 });
 
-test("a ready call passes the Owner session, maps departure once, and releases its reservation", async () => {
+test("a ready call passes the Account session, maps departure once, and releases its reservation", async () => {
   const f = fixture();
   const h = fakeHuddle();
   f.setJoin(async () => h.handle);
   await f.adapter.start("start");
   const voice = await f.adapter.joinVoice(address);
   expect(f.joins).toEqual([{
-    workspaceId: "T1", channelId: "C1", speakerId: "U-owner", mode: "join", credentials: credential,
+    workspaceId: "T1", channelId: "C1", speakerId: "U-account", mode: "join", credentials: credential,
   }]);
   const events = voice.events[Symbol.asyncIterator]();
   h.emit({ type: "ready" });
   expect((await bounded(events.next())).value).toEqual({ type: "ready" });
-  h.emit({ type: "speaker_left", userId: "U-owner" });
-  expect((await bounded(events.next())).value).toEqual({ type: "speaker_left", externalId: "T1:U-owner" });
+  h.emit({ type: "speaker_left", userId: "U-account" });
+  expect((await bounded(events.next())).value).toEqual({ type: "speaker_left", externalId: "T1:U-account" });
   await voice.leave();
   expect(h.leaves).toBe(1);
   const next = fakeHuddle();
@@ -95,7 +95,7 @@ test("a ready call passes the Owner session, maps departure once, and releases i
   await f.adapter.stop("stop");
 });
 
-test("calling a DM selects the contact's speaker while retaining the Owner seat", async () => {
+test("calling a DM selects the contact's speaker while retaining the Account seat", async () => {
   const f = fixture();
   const h = fakeHuddle();
   f.setJoin(async () => h.handle);
@@ -246,9 +246,9 @@ test("one pending call is busy, stop aborts it and cleans a late raw handle", as
 
 test("voice refuses admission before the RTM hello", async () => {
   const entered = Promise.withResolvers<void>();
-  const listener = new FakeSlackOwnerListener(() => entered.resolve());
-  const fake = fakeSlackOwnerSdk({}, listener);
-  const adapter = new SlackOwnerAdapter(credential, () => undefined, { ...injectedOptions(), instance: address.surface }, fake.sdk);
+  const listener = new FakeSlackAccountListener(() => entered.resolve());
+  const fake = fakeSlackAccountSdk({}, listener);
+  const adapter = new SlackAccountAdapter(credential, () => undefined, { ...injectedOptions(), instance: address.surface }, fake.sdk);
   adapter.onMessage(() => Promise.resolve());
   fake.setJoin(async () => fakeHuddle().handle);
   const starting = adapter.start("start");
@@ -268,7 +268,7 @@ test("stop fences authentication completing after teardown", async () => {
   const starting = f.adapter.start("start");
   await bounded(entered.promise);
   await f.adapter.stop("stop");
-  auth.resolve({ user_id: "U-owner", team_id: "T1" });
+  auth.resolve({ user_id: "U-account", team_id: "T1" });
   await expect(starting).rejects.toThrow();
   await expect(f.adapter.joinVoice(address)).rejects.toMatchObject({ _tag: "VoiceJoinRefused", reason: "not_started" });
   expect(f.joins).toEqual([]);
@@ -308,15 +308,15 @@ test.each([null, undefined])("explicit leave with room id %s allows a newer same
   await acceptedEntry(f);
   f.listener.emit("user_huddle_changed", {
     type: "user_huddle_changed", user: {
-      id: "U-owner", team_id: "T1",
+      id: "U-account", team_id: "T1",
       profile: { huddle_state: "not_in_a_huddle", ...(roomId === undefined ? {} : { huddle_state_call_id: roomId }) },
     }, event_ts: "1700.2",
   });
   const next = f.next();
   f.changed("1700.3");
-  expect((await next).facts.eventId).toBe("call:slack:T1:U-owner:1700.3:R1");
+  expect((await next).facts.eventId).toBe("call:slack:T1:U-account:1700.3:R1");
   expect(f.inbound.map((message) => message.facts.eventId)).toEqual([
-    "call:slack:T1:U-owner:1700.1:R1", "call:slack:T1:U-owner:1700.3:R1",
+    "call:slack:T1:U-account:1700.1:R1", "call:slack:T1:U-account:1700.3:R1",
   ]);
   await f.adapter.stop("stop");
 });
@@ -359,14 +359,14 @@ test.each([["9.9", "10.0"], ["10.1", "11.0"]] as const)(
   },
 );
 
-test("Owner state resolves in either event order and never mistakes the room for a channel", async () => {
+test("Account state resolves in either event order and never mistakes the room for a channel", async () => {
   const f = fixture();
   await f.adapter.start("start");
   const first = f.next();
   f.changed("1700.000001");
   f.room();
   expect((await first).facts).toMatchObject({
-    event: "call", channelId: "C1", receivedBy: "owner", addressees: [],
+    event: "call", channelId: "C1", addressees: [],
   });
   const second = f.next();
   f.room("R2", "D2");
@@ -405,7 +405,7 @@ test("reconnect preserves the last accepted same-room transition", async () => {
   f.changed("1700.05", "R2");
   f.changed("1700.2");
   expect(f.inbound.map((message) => message.facts.eventId)).toEqual([
-    "call:slack:T1:U-owner:1700.1:R1",
+    "call:slack:T1:U-account:1700.1:R1",
   ]);
   await f.adapter.stop("stop");
 });
@@ -415,13 +415,13 @@ test("an unknown state cannot reset a same-room transition", async () => {
   await acceptedEntry(f);
   f.listener.emit("user_huddle_changed", {
     type: "user_huddle_changed", user: {
-      id: "U-owner", team_id: "T1",
+      id: "U-account", team_id: "T1",
       profile: { huddle_state: "new_unknown_state", huddle_state_call_id: null },
     }, event_ts: "1700.2",
   });
   f.changed("1700.3");
   expect(f.inbound.map((message) => message.facts.eventId)).toEqual([
-    "call:slack:T1:U-owner:1700.1:R1",
+    "call:slack:T1:U-account:1700.1:R1",
   ]);
   await f.adapter.stop("stop");
 });
@@ -477,7 +477,7 @@ test("same-room updates, old timestamps, other users and the user_change twin em
   f.changed("1700.000002");
   f.changed("1700.000001", "R2");
   f.changed("1700.000003", "R2", "U-other");
-  f.changed("1700.000004", "R2", "U-owner", "T2");
+  f.changed("1700.000004", "R2", "U-account", "T2");
   f.listener.emit("slack_event", { type: "user_change" });
   const sentinel = f.next();
   f.listener.message({ channel: "D2", user: "U-other", text: "done", ts: "1701.1" });
@@ -486,7 +486,7 @@ test("same-room updates, old timestamps, other users and the user_change twin em
   await f.adapter.stop("stop");
 });
 
-test("Owner updates during pending and live calls advance state without echoing a trigger", async () => {
+test("Account updates during pending and live calls advance state without echoing a trigger", async () => {
   const f = fixture();
   const joined = Promise.withResolvers<ReturnType<typeof fakeHuddle>["handle"]>();
   const entered = Promise.withResolvers<void>();
@@ -505,7 +505,7 @@ test("Owner updates during pending and live calls advance state without echoing 
   await active.leave();
   const delivered = f.next();
   f.changed("1700.3", "R3");
-  expect((await delivered).facts.eventId).toBe("call:slack:T1:U-owner:1700.3:R3");
+  expect((await delivered).facts.eventId).toBe("call:slack:T1:U-account:1700.3:R3");
   expect(f.inbound).toHaveLength(1);
   await f.adapter.stop("stop");
 });
@@ -522,7 +522,7 @@ test("a room association arriving after an active call leaves cannot replay its 
   f.room("R2");
   const next = f.next();
   f.changed("1700.2", "R2");
-  expect((await next).facts.eventId).toBe("call:slack:T1:U-owner:1700.2:R2");
+  expect((await next).facts.eventId).toBe("call:slack:T1:U-account:1700.2:R2");
   expect(f.inbound).toHaveLength(1);
   await f.adapter.stop("stop");
 });

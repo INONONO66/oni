@@ -1,8 +1,8 @@
-import { ledger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../helpers/ledger.js";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
 import { beforeEach, expect, test } from "bun:test";
 
-import { openRequest } from "../../../../../packages/channels/test/helpers/requests.js";
+import { openRequest } from "../helpers/requests.js";
 import {
   commits,
   createMappedOwnerSession,

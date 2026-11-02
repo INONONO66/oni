@@ -1,4 +1,4 @@
-import { ledger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../helpers/ledger.js";
 import { beforeEach } from "bun:test";
 import { type Gateway, Ingress } from "@oni/protocol";
 import { z } from "zod";

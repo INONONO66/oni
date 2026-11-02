@@ -16,7 +16,7 @@ describe("SurfaceKey SQLite persistence", () => {
     expect(surfaceKeys().lookup("telegram:bot:chat:123")).toBe("persist-session");
   });
 
-  test("re-claim with expected owner updates session in SQLite", () => {
+  test("re-claim with expected account updates session in SQLite", () => {
     surfaceKeys().claim("slack:ws:channel:C1", "old-session");
     surfaceKeys().claim("slack:ws:channel:C1", "new-session", "old-session");
 
@@ -28,7 +28,7 @@ describe("SurfaceKey SQLite persistence", () => {
   test("claim throws loudly when the row is missing after INSERT OR IGNORE", () => {
     // Impossible-state simulation: a trigger deletes every inserted row, so
     // the read-back inside claim's own transaction finds nothing. The old
-    // `row?.session_id ?? sessionId` fallback silently fabricated ownership
+    // `row?.session_id ?? sessionId` fallback silently fabricated custody
     // for exactly this unreachable state.
     const db = new Database(":memory:");
     db.exec(

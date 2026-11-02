@@ -1,12 +1,12 @@
-import { ledger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../helpers/ledger.js";
 import { sessionTree } from "../../../../../packages/agent/test/store/helpers/session-tree.js";
 import { Effect } from "effect";
 import { channelRequests } from "../helpers/channel-requests.js";
-import { channelTransaction } from "../../../../../packages/channels/test/helpers/channel-transaction.js";
+import { channelTransaction } from "../helpers/channel-transaction.js";
 import { effectFailure } from "../../../../../packages/channels/test/helpers/effect-failure.js";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
-import { openRequest, requestPort, seededRequests } from "../../../../../packages/channels/test/helpers/requests.js";
-import { replaceDecisionFacts } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { openRequest, requestPort, seededRequests } from "../helpers/requests.js";
+import { replaceDecisionFacts } from "../helpers/ledger.js";
 import { beforeEach, expect, test } from "bun:test";
 import { Channel, Ingress, Outbound, type SessionTransition } from "@oni/protocol";
 import { Bus } from "../../../../../packages/channels/test/helpers/observation.js";
@@ -53,7 +53,7 @@ test.each([0, 10] as const)("correlated reply bypasses a %s-second action trigge
     id: "request-trigger", position: 0, enabled: true, createdBy: "owner",
     when: { instance: "telegram" },
     outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, group: { by: "thread", windowSeconds },
-  }));
+  }), true);
   ledger().stores.surfaceKeys.claim(
     Channel.SurfaceKey.fromChannel({
       surface: "telegram",
@@ -385,7 +385,7 @@ test("awaited send resolves quorum from distinct authenticated responder endpoin
 test("a disabled inbound rule does not deny an authenticated correlated reply", async () => {
   await runEffect(await openRequest("correlated"));
   ledger().stores.rules.add({ id: "disabled", position: 0, enabled: false, createdBy: "owner",
-    when: { instance: "telegram" }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } });
+    when: { instance: "telegram" }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } }, true);
   expect(await runEffect(kernelRouter().ingest(sender, facts("reply")))).toMatchObject({ status: "executed" });
   expect(routingDecisions()[0]).toMatchObject({ stage: "request_correlation", outcome: "route" });
   expect(ledger().kernel.requestById("correlated")?.state).toBe("resolved");

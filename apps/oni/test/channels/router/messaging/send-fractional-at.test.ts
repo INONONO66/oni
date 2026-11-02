@@ -1,11 +1,11 @@
-import { ledger, resetLedger } from "../../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger, resetLedger } from "../../helpers/ledger.js";
 import { channelRequests } from "../../helpers/channel-requests.js";
-import { channelTransaction } from "../../../../../../packages/channels/test/helpers/channel-transaction.js";
+import { channelTransaction } from "../../helpers/channel-transaction.js";
 import { runEffect } from "../../../../../../packages/channels/test/helpers/effect.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Gateway } from "@oni/protocol";
 import { createExistingAgentMessaging } from "../../../../src/bundles/messaging/send.js";
-import { seededRequests } from "../../../../../../packages/channels/test/helpers/requests.js";
+import { seededRequests } from "../../helpers/requests.js";
 
 // Storage.initialize no-ops when an earlier test file left an initialized
 // ":memory:" adapter behind, which would resurrect its registered actors —

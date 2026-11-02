@@ -6,8 +6,8 @@ import { Effect } from "effect";
 import { ChannelProviders, Vault, createChannelStores } from "@oni/channels";
 import { Channel, Gateway, L0Observation, Operational } from "@oni/protocol";
 import { createTelegramProvider } from "../../../packages/channels/src/provider/telegram/provider";
-import { telegramOwnerLogin } from "../../../packages/channels/src/provider/telegram/owner-sdk";
-import { fakeTelegramOwner, ownerMessage } from "../../../packages/channels/test/helpers/telegram-owner-sdk";
+import { telegramAccountLogin } from "../../../packages/channels/src/provider/telegram/account-sdk.js";
+import { fakeTelegramAccount, accountMessage } from "../../../packages/channels/test/helpers/telegram-account-sdk.js";
 import { runCli } from "../src/cli/commands";
 import { createCliDeps } from "../src/cli/main";
 import { channelStoreSource } from "../src/gateway";
@@ -34,7 +34,7 @@ function ownerConfig(inbox: string, wsToken: string) {
   });
 }
 
-function ownerCli(home: string, port: number, token: string, fake: ReturnType<typeof fakeTelegramOwner>) {
+function ownerCli(home: string, port: number, token: string, fake: ReturnType<typeof fakeTelegramAccount>) {
   const dataDir = join(home, ".oni", "telegram", "owner");
   mkdirSync(join(home, ".oni"), { recursive: true });
   writeFileSync(join(home, ".oni", "env"), [
@@ -51,8 +51,8 @@ function ownerCli(home: string, port: number, token: string, fake: ReturnType<ty
     stderr: (line: string) => { errors.push(line); },
     ask: async (question: string) => { prompts.push(question); throw new Error("unexpected prompt"); },
     login: { ...base.login, telegram: { ...base.login.telegram, dataDir, isTTY: true },
-      logins: { ...base.login.logins, telegram: (input: Parameters<typeof telegramOwnerLogin>[0]) =>
-        telegramOwnerLogin(input, fake.sdk) } },
+      logins: { ...base.login.logins, telegram: (input: Parameters<typeof telegramAccountLogin>[0]) =>
+        telegramAccountLogin(input, fake.sdk) } },
   };
   return { deps, output, errors, prompts };
 }
@@ -68,10 +68,10 @@ test("local Owner login, mounted ingress stream and two CLI history pages share 
   const size = count * bytes.byteLength;
   const expectedHash = createHash("sha256");
   const messages = [
-    { ...ownerMessage, messageId: "102", dateSeconds: 123,
+    { ...accountMessage, messageId: "102", dateSeconds: 123,
       media: [{ kind: "audio" as const, fileId: 71, name: "voice.ogg", mime: "audio/ogg", size, voice: true }] },
-    { ...ownerMessage, messageId: "101", dateSeconds: 123, text: "older caption", media: [] },
-    { ...ownerMessage, messageId: "100", dateSeconds: 122, text: "oldest", media: [] },
+    { ...accountMessage, messageId: "101", dateSeconds: 123, text: "older caption", media: [] },
+    { ...accountMessage, messageId: "100", dateSeconds: 122, text: "oldest", media: [] },
   ];
   let maxChunk = 0;
   let yielded = 0;
@@ -80,7 +80,7 @@ test("local Owner login, mounted ingress stream and two CLI history pages share 
   // Bytes the machine has acknowledged are the bytes in its staging file under the inbox export, so
   // yielded minus staged is what the consumer holds without a machine acknowledgment.
   const staged = () => readdirSync(inbox).reduce((total, name) => total + statSync(join(inbox, name)).size, 0);
-  const fake: ReturnType<typeof fakeTelegramOwner> = fakeTelegramOwner({
+  const fake: ReturnType<typeof fakeTelegramAccount> = fakeTelegramAccount({
     onDownload: async (fileId) => {
       expect(fileId).toBe(71);
       return {
@@ -153,7 +153,7 @@ test("local Owner login, mounted ingress stream and two CLI history pages share 
     received.push(`${event.kind}:${event.sessionId}`);
     if (event.kind === "prompt") committed.resolve(event.sessionId);
   }));
-  fake.emit(messages[0] ?? ownerMessage);
+  fake.emit(messages[0] ?? accountMessage);
   const sessionId = await committed.promise;
   const stored = receivedMessages(plane, sessionId);
   expect(stored.filter((row) => {
@@ -213,7 +213,7 @@ test("app shutdown aborts a held Owner inbox download before the account closes"
   const dataDir = join(home, ".oni", "telegram", "owner");
   const order: string[] = [];
   const held = eventSignal<AbortSignal>("held Owner download", 15_000);
-  const fake: ReturnType<typeof fakeTelegramOwner> = fakeTelegramOwner({
+  const fake: ReturnType<typeof fakeTelegramAccount> = fakeTelegramAccount({
     onDownload: (_fileId, signal) => {
       held.resolve(signal);
       return new Promise((_resolve, reject) => {
@@ -234,7 +234,7 @@ test("app shutdown aborts a held Owner inbox download before the account closes"
   const { deps } = ownerCli(home, app.port, "owner-shutdown-token", fake);
   expect(await runCli(["login", "telegram"], deps)).toBe(0);
   order.length = 0;
-  fake.emit({ ...ownerMessage, messageId: "200",
+  fake.emit({ ...accountMessage, messageId: "200",
     media: [{ kind: "file" as const, fileId: 72, name: "held.bin", mime: "application/octet-stream", size: 16 }] });
   const signal = await held.promise;
   expect(signal.aborted).toBe(false);

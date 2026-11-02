@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { ledger } from "../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 import { commits, makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState } from "./router/_router-fixture.js";
 
@@ -10,7 +10,7 @@ function rule(judge?: string) {
   ledger().stores.rules.add({
     id: "notify", position: 0, enabled: true, createdBy: "owner", when: { instance: ownerFacts.surface },
     outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, judge,
-  });
+  }, true);
 }
 
 test("a rule before the conversation seed wins with one action", async () => {

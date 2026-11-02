@@ -30,7 +30,7 @@ export type A2AFetch = (
     readonly headers: Readonly<Record<string, string>>;
     readonly body?: string;
     readonly signal: AbortSignal;
-    /** Never followed: a redirect is the peer's refusal, and the bearer goes nowhere the Owner did not declare. */
+    /** Never followed: a redirect is the peer's refusal, and the bearer goes nowhere the Account did not declare. */
     readonly redirect: "manual";
   },
 ) => Promise<{ readonly status: number; text(): Promise<string> }>;
@@ -38,7 +38,7 @@ export type A2AFetch = (
 /**
  * What reading a peer's card came to: the card, none at either well-known
  * path, or a card naming an endpoint outside the declared base — refused,
- * since the bearer goes nowhere the Owner did not declare.
+ * since the bearer goes nowhere the Account did not declare.
  */
 export type A2ACardRead =
   | { readonly kind: "card"; readonly card: AgentCard }

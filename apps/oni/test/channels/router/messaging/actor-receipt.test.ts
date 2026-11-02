@@ -1,12 +1,12 @@
-import { ledger, resetLedger } from "../../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger, resetLedger } from "../../helpers/ledger.js";
 import { Effect } from "effect";
 import { channelRequests } from "../../helpers/channel-requests.js";
-import { channelTransaction } from "../../../../../../packages/channels/test/helpers/channel-transaction.js";
+import { channelTransaction } from "../../helpers/channel-transaction.js";
 import { runEffect } from "../../../../../../packages/channels/test/helpers/effect.js";
-import { seededRequests } from "../../../../../../packages/channels/test/helpers/requests.js";
+import { seededRequests } from "../../helpers/requests.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createExistingAgentMessaging } from "../../../../src/bundles/messaging/send.js";
-import { buildAwaitedSendInput, buildGrant, buildSendInput, registerAgentFixture } from "../../../../../../packages/channels/test/helpers/messaging.js";
+import { buildAwaitedSendInput, buildGrant, buildSendInput, registerAgentFixture } from "../../helpers/messaging.js";
 import { makeRouter, resetStores } from "../_router-fixture.js";
 import type { ChannelDeliveryRoute } from "../../../../src/bundles/messaging/message-ports.js";
 

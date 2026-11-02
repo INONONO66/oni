@@ -1,16 +1,16 @@
 import { expect, test } from "bun:test";
 import { Outbound } from "@oni/protocol";
-import { fakeTelegramOwner, ownerRuntime } from "../../../packages/channels/test/helpers/telegram-owner-sdk";
+import { fakeTelegramAccount, accountRuntime } from "../../../packages/channels/test/helpers/telegram-account-sdk.js";
 import { createChannelSupervisor, type DesiredChannelRow, type SupervisorDeps } from "../src/bundles/provision/supervisor";
 import { residentSuite } from "./helpers/resident-suite";
 
 const suite = residentSuite();
 
-async function fixture(scripts: readonly Parameters<typeof fakeTelegramOwner>[0][]) {
+async function fixture(scripts: readonly Parameters<typeof fakeTelegramAccount>[0][]) {
   const directory = suite.tempDir("channel-lifecycle-");
-  const fakes = scripts.map((script) => fakeTelegramOwner(script));
+  const fakes = scripts.map((script) => fakeTelegramAccount(script));
   const rows: DesiredChannelRow[] = fakes.map((fake, index) => {
-    const runtime = ownerRuntime(fake.sdk, directory);
+    const runtime = accountRuntime(fake.sdk, directory);
     return {
       instanceId: `channel:telegram:owner-${index}`, key: "one",
       component: { id: "telegram", identity: "owner", listens: true, build: () => runtime },

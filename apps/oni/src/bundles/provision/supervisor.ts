@@ -1,5 +1,5 @@
-import { type AccountIdentity, type OwnerWithdrawal, type ProviderHistoryRoute, type ProviderTypingRoute, type ProviderVoiceRoute } from "@oni/channels";
-import { type ChannelDeliveryRoute } from "../messaging/message-ports.js";
+import type { AccountIdentity, AccountWithdrawal, ProviderHistoryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
+import type { ChannelDeliveryRoute } from "../messaging/message-ports.js";
 import { ThrownError } from "../../thrown";
 import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../../channels";
 
@@ -68,7 +68,7 @@ interface MountedRow {
   readonly surfaceId: string;
   readonly stop: () => Promise<void>;
   /** The latched cause a started account runtime withdrew readiness for. */
-  readonly withdrawn: () => OwnerWithdrawal | undefined;
+  readonly withdrawn: () => AccountWithdrawal | undefined;
 }
 
 function mountedStatus(instanceId: string, row: MountedRow): ChannelRuntimeStatus {
@@ -104,7 +104,7 @@ export interface ChannelSupervisor {
   /** Last reconcile's verdict per instance plus what is mounted right now. */
   status(): ChannelRuntimeStatus[];
   /** The latched withdrawal of the mounted surface, if its runtime withdrew readiness. */
-  withdrawal(surfaceId: string): OwnerWithdrawal | undefined;
+  withdrawal(surfaceId: string): AccountWithdrawal | undefined;
   /** Channel truth comes only from declared instances. */
   source(): "declared";
   /** Reverse-order teardown of every running stage (composer disposer). */
@@ -127,7 +127,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
   // R09: a withdrawal revokes the ready-only history registration and is reported, never left mounted.
   function holdHistory(instanceId: string, surfaceId: string, built: BuiltChannel) {
     let revoke: (() => void) | undefined;
-    let withdrawal: OwnerWithdrawal | undefined;
+    let withdrawal: AccountWithdrawal | undefined;
     let live = true;
     built.onWithdrawn?.((reason) => {
       if (!live || withdrawal !== undefined) return;
@@ -292,7 +292,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     status(): ChannelRuntimeStatus[] {
       return [...lastStatuses];
     },
-    withdrawal(surfaceId: string): OwnerWithdrawal | undefined {
+    withdrawal(surfaceId: string): AccountWithdrawal | undefined {
       return [...mounted.values()].find((row) => row.surfaceId === surfaceId)?.withdrawn();
     },
     source(): "declared" {

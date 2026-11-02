@@ -29,12 +29,12 @@ describe("Discord outbound SDK requests", () => {
     const runtime = createDiscordProvider(fake.sdk).create({ token: "dc-test" }, {}, () => undefined, injectedOptions());
     expect(await runtime.deliveryRoute?.("U1", {
       kind: "react", messageId: "m-17", emoji: "✅", replaces: "👀",
-    }, "settled-reaction", { channelId: "D-owner" })).toEqual({
+    }, "settled-reaction", { channelId: "D-account" })).toEqual({
       value: "accepted", externalMessageId: "m-17",
     });
     expect(removals).toBe(1);
     expect(fake.client.calls).toEqual([
-      { method: "addReaction", channelId: "D-owner", messageId: "m-17", emoji: "✅" },
+      { method: "addReaction", channelId: "D-account", messageId: "m-17", emoji: "✅" },
     ]);
   });
 
@@ -46,14 +46,14 @@ describe("Discord outbound SDK requests", () => {
     expect(await send()).toEqual({ value: "accepted", externalMessageId: "m-17" });
     expect(fake.client.calls).toEqual([
       { method: "createDm", channelId: "U1" },
-      { method: "createMessage", channelId: "D-owner" },
+      { method: "createMessage", channelId: "D-account" },
     ]);
     expect(await runtime.deliveryRoute?.("U1", {
       kind: "react", messageId: "m-17", emoji: "✅", replaces: "👀",
-    }, "reaction-key", { channelId: "D-owner" })).toEqual({ value: "accepted", externalMessageId: "m-17" });
+    }, "reaction-key", { channelId: "D-account" })).toEqual({ value: "accepted", externalMessageId: "m-17" });
     expect(fake.client.calls.slice(2)).toEqual([
-      { method: "removeReaction", channelId: "D-owner", messageId: "m-17", emoji: "👀" },
-      { method: "addReaction", channelId: "D-owner", messageId: "m-17", emoji: "✅" },
+      { method: "removeReaction", channelId: "D-account", messageId: "m-17", emoji: "👀" },
+      { method: "addReaction", channelId: "D-account", messageId: "m-17", emoji: "✅" },
     ]);
   });
 

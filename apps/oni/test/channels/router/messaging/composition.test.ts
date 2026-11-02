@@ -1,11 +1,11 @@
-import { ledger } from "../../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../../helpers/ledger.js";
 import { beforeEach, expect, test } from "bun:test";
 import { runEffect } from "../../../../../../packages/channels/test/helpers/effect.js";
 import { effectFailure } from "../../../../../../packages/channels/test/helpers/effect-failure.js";
 import { Effect } from "effect";
 import { type Gateway, Ingress, MessagingEvents, Outbound } from "@oni/protocol";
 import { ingressSurfaceKey } from "../../../../src/bundles/messaging/automation/input.js";
-import { registerRule } from "../../../../../../packages/channels/test/helpers/rule.js";
+import { registerRule } from "../../helpers/rule.js";
 import type { ChannelDeliveryRoute } from "../../../../src/bundles/messaging/index.js";
 import { admitReply } from "../../../../src/bundles/messaging/admission.js";
 import { SendAdmissionConflict } from "../../../../../../packages/channels/src/errors.js";
@@ -278,7 +278,7 @@ test("a rule-routed action is answered by the session the ledger routed it to, w
       createdBy: "owner",
       when: { instance: ownerFacts.surface, dm: true },
       outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "auto" },
-    }),
+    }), true,
   );
   const routed = await runEffect(router.ingest(ownerSender, ownerFacts));
   expect(routed).toMatchObject({ status: "executed", handle: { target: "worker" } });

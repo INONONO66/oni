@@ -12,7 +12,7 @@ import { injectedOptions } from "./helpers/injected";
 
 const noopPublish: PublishPort = () => undefined;
 const voiceAddress = { surface: "discord", channelId: "channel", workspaceId: "guild",
-  speakerExternalId: "owner" } as const;
+  speakerExternalId: "account" } as const;
 /** One started adapter over the scripted SDK listener, with an inbound queue. */
 async function started(publish: PublishPort = noopPublish, listener?: FakeDiscordListener) {
   const fake = fakeDiscordSdk(listener);
@@ -244,7 +244,7 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
   });
 });
 
-const state = (channel_id: string | null, user_id = "owner", guild_id?: string) => ({
+const state = (channel_id: string | null, user_id = "account", guild_id?: string) => ({
   ...(guild_id === undefined ? {} : { guild_id }), channel_id, user_id, session_id: "voice-session",
   deaf: false, mute: false, self_deaf: false, self_mute: false, self_video: false, suppress: false,
 });
@@ -272,14 +272,14 @@ describe("Discord bot voice route and call facts", () => {
         warnings.push(z.object({ context: z.object({ err: z.string() }) }).parse(data).context.err);
     });
     client.getUser = async (userId) => {
-      if (userId === "owner") throw new Error("author unavailable");
+      if (userId === "account") throw new Error("author unavailable");
       return { bot: false };
     };
-    listener.emit("voice_state_update", state("voice", "owner", "guild"), 10);
+    listener.emit("voice_state_update", state("voice", "account", "guild"), 10);
     const fresh = next();
-    listener.emit("voice_state_update", state("voice", "other-owner", "guild"), 11);
-    expect((await bounded(fresh)).facts.eventId).toBe("call:guild:other-owner:session:11");
-    expect(inbound.map(({ facts }) => facts.eventId)).toEqual(["call:guild:other-owner:session:11"]);
+    listener.emit("voice_state_update", state("voice", "other-account", "guild"), 11);
+    expect((await bounded(fresh)).facts.eventId).toBe("call:guild:other-account:session:11");
+    expect(inbound.map(({ facts }) => facts.eventId)).toEqual(["call:guild:other-account:session:11"]);
     expect(warnings).toEqual(["Error: author unavailable"]);
   });
 
@@ -288,14 +288,14 @@ describe("Discord bot voice route and call facts", () => {
     const lookup = Promise.withResolvers<{ bot: boolean }>();
     const entered = Promise.withResolvers<void>();
     client.getUser = () => { entered.resolve(); return lookup.promise; };
-    listener.emit("voice_state_update", state("voice", "owner", "new-guild"), 10);
+    listener.emit("voice_state_update", state("voice", "account", "new-guild"), 10);
     await bounded(entered.promise);
-    listener.emit("voice_state_update", state(null, "owner", "new-guild"), 11);
+    listener.emit("voice_state_update", state(null, "account", "new-guild"), 11);
     lookup.resolve({ bot: false });
     const fresh = next();
-    listener.emit("voice_state_update", state("other", "other-owner", "new-guild"), 12);
-    expect((await bounded(fresh)).facts.eventId).toBe("call:new-guild:other-owner:session:12");
-    expect(inbound.map(({ facts }) => facts.eventId)).toEqual(["call:new-guild:other-owner:session:12"]);
+    listener.emit("voice_state_update", state("other", "other-account", "new-guild"), 12);
+    expect((await bounded(fresh)).facts.eventId).toBe("call:new-guild:other-account:session:12");
+    expect(inbound.map(({ facts }) => facts.eventId)).toEqual(["call:new-guild:other-account:session:12"]);
   });
 
   it("keeps the latest move when author lookups complete out of order", async () => {
@@ -309,48 +309,48 @@ describe("Discord bot voice route and call facts", () => {
       entered.resolve();
       return second.promise;
     };
-    listener.emit("voice_state_update", state("old", "owner", "guild"), 10);
-    listener.emit("voice_state_update", state("new", "owner", "guild"), 11);
+    listener.emit("voice_state_update", state("old", "account", "guild"), 10);
+    listener.emit("voice_state_update", state("new", "account", "guild"), 11);
     await bounded(entered.promise);
     second.resolve({ bot: false });
-    expect((await bounded(next())).facts.eventId).toBe("call:guild:owner:session:11");
+    expect((await bounded(next())).facts.eventId).toBe("call:guild:account:session:11");
     first.resolve({ bot: false });
     const fresh = next();
-    listener.emit("voice_state_update", state("other", "other-owner", "guild"), 12);
-    expect((await bounded(fresh)).facts.eventId).toBe("call:guild:other-owner:session:12");
+    listener.emit("voice_state_update", state("other", "other-account", "guild"), 12);
+    expect((await bounded(fresh)).facts.eventId).toBe("call:guild:other-account:session:12");
     expect(inbound.map(({ facts }) => facts.eventId)).toEqual([
-      "call:guild:owner:session:11", "call:guild:other-owner:session:12",
+      "call:guild:account:session:11", "call:guild:other-account:session:12",
     ]);
   });
 
   it("dispatches one exact call fact per join or move, without replay, departure, echo or missing guild", async () => {
     const { client, listener, next, inbound, adapter } = await started();
     const first = next();
-    const joined = state("voice-one", "owner", "guild");
+    const joined = state("voice-one", "account", "guild");
     listener.emit("voice_state_update", joined, 42);
     expect(await first).toEqual({
-      sender: { kind: "external", surface: "discord", externalId: "owner" },
+      sender: { kind: "external", surface: "discord", externalId: "account" },
       facts: {
-        eventId: "call:guild:owner:session:42", event: "call", surface: "discord", instance: "channel:test:main",
+        eventId: "call:guild:account:session:42", event: "call", surface: "discord", instance: "channel:test:main",
         workspaceId: "guild", channelId: "voice-one",
-        author: { externalId: "owner", isBot: false }, account: "bot", addressees: [{ externalId: "bot" }],
+        author: { externalId: "account", isBot: false }, account: "bot", addressees: [{ externalId: "bot" }],
         dm: false, payload: joined, render: "joined voice channel voice-one",
       },
     });
     listener.emit("voice_state_update", joined, 43);
     listener.emit("connected", READY);
     listener.emit("voice_state_update", joined, 44);
-    listener.emit("voice_state_update", state("stale", "owner", "guild"), 41);
-    listener.emit("voice_state_update", state(null, "owner", "guild"), 45);
+    listener.emit("voice_state_update", state("stale", "account", "guild"), 41);
+    listener.emit("voice_state_update", state(null, "account", "guild"), 45);
     listener.emit("voice_state_update", state("voice-two", "bot", "guild"), 46);
-    listener.emit("voice_state_update", state("voice-two", "owner"), 47);
+    listener.emit("voice_state_update", state("voice-two", "account"), 47);
     client.getUser = async () => ({ bot: true });
     listener.emit("voice_state_update", state("voice-two", "another-bot", "guild"), 49);
     client.getUser = async () => ({ bot: false });
     expect(inbound).toHaveLength(1);
     const second = next();
-    listener.emit("voice_state_update", state("voice-two", "owner", "guild"), 48);
-    expect((await second).facts.eventId).toBe("call:guild:owner:session:48");
+    listener.emit("voice_state_update", state("voice-two", "account", "guild"), 48);
+    expect((await second).facts.eventId).toBe("call:guild:account:session:48");
     expect(inbound).toHaveLength(2);
     await adapter.stop("stop");
   });
@@ -359,7 +359,7 @@ describe("Discord bot voice route and call facts", () => {
     const fake = fakeDiscordSdk();
     const adapter = new DiscordAdapter("token", {}, noopPublish, injectedOptions(), fake.sdk);
     adapter.onMessage(async () => undefined);
-    const address = { surface: "discord", channelId: "channel", speakerExternalId: "owner" };
+    const address = { surface: "discord", channelId: "channel", speakerExternalId: "account" };
     await expect(adapter.joinVoice(address)).rejects.toEqual(
       new VoiceJoinRefused({ reason: "not_started", surface: "discord", detail: "Discord gateway is not READY" }));
     await adapter.start("boot");
@@ -418,7 +418,7 @@ describe("Discord bot voice route and call facts", () => {
       { type: "ready" } | { type: "speaker_left"; userId: string } |
       { type: "disconnected"; reason: string } | { type: "error"; reason: string }, void, void> {
       yield { type: "ready" } as const;
-      yield { type: "speaker_left", userId: "owner" } as const;
+      yield { type: "speaker_left", userId: "account" } as const;
       yield { type: "disconnected", reason: "closed" } as const;
       yield { type: "error", reason: "failed" } as const;
     })());
@@ -428,7 +428,7 @@ describe("Discord bot voice route and call facts", () => {
     const events: import("../src/provider/voice").VoiceEvent[] = [];
     for await (const event of handle.events) events.push(event);
     expect(events).toEqual([
-      { type: "ready" }, { type: "speaker_left", externalId: "owner" },
+      { type: "ready" }, { type: "speaker_left", externalId: "account" },
       { type: "disconnected", reason: "closed" }, { type: "error", reason: "failed" },
     ]);
     await adapter.joinVoice(address);
@@ -524,9 +524,9 @@ describe("Discord bot voice route and call facts", () => {
       };
     };
     await adapter.joinVoice({ surface: "discord", channelId: "voice", workspaceId: "one",
-      speakerExternalId: "owner" });
+      speakerExternalId: "account" });
     await adapter.joinVoice({ surface: "discord", channelId: "voice", workspaceId: "two",
-      speakerExternalId: "owner" });
+      speakerExternalId: "account" });
     const stopping = adapter.stop("stop");
     const refused = stopping.then(() => "stopped", (error: Error) => error);
     await secondStarted.promise;

@@ -11,7 +11,7 @@ const failures = {
   }),
   RuleEnableRefused: new Errors.RuleEnableRefused({
     id: "fixture",
-    reason: "approval_required",
+    reason: "not_authorized",
   }),
   RuleConfigurationError: new Errors.RuleConfigurationError({
     reason: "store_unconfigured",

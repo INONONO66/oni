@@ -8,7 +8,7 @@ import { openChannelStore } from "../../../src/store/sqlite/index.js";
 import { ChannelStoreInvariant } from "../../../src/store/sqlite/errors.js";
 import { testNow } from "../helpers/sqlite";
 
-const record = { id: "rule", position: 0, enabled: true, createdBy: "owner" as const,
+const record = { id: "rule", position: 0, enabled: true, createdBy: "session:test" as const,
   when: { instance: "chat" }, outcome: { kind: "deliver" as const, target: "conversation", deliveryKind: "prompt" as const, reply: "auto" as const } };
 
 function schema(db: Database) {
@@ -24,14 +24,14 @@ test("current channel stores reopen without changing schema or rule records", ()
     const writer = new Database(path);
     const store = openChannelStore(writer, testNow);
     store.rule.set({ record, approved: true });
-    store.actorRegistry.setIdentity({ id: "actor", kind: "human", trustTier: "owner" });
+    store.actorRegistry.setIdentity({ id: "actor", kind: "human", trustTier: "manager" });
     const before = schema(writer);
     writer.close();
     using reader = new Database(path);
     const reopened = openChannelStore(reader, testNow);
     expect(schema(reader)).toEqual(before);
     expect(reopened.rule.get(record.id)).toEqual({ record, approved: true });
-    expect(reopened.actorRegistry.getIdentity("actor")?.trustTier).toBe("owner");
+    expect(reopened.actorRegistry.getIdentity("actor")?.trustTier).toBe("manager");
     expect(reader.query("SELECT version FROM channel_store_schema").get()).toEqual({ version: 2 });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

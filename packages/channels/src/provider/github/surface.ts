@@ -292,7 +292,7 @@ export class GitHubAdapter implements Channel.Surface {
   /**
    * Awaits the inbound handler. A perimeter refusal is this surface's own
    * verdict (#1600 lane R2): answered 200 with the delivery claim kept, so
-   * GitHub never redelivers a message the Owner's policy refused. A failure
+   * GitHub never redelivers a message the Account's policy refused. A failure
    * releases the claim and answers 500 so a redelivery can land.
    */
   private async dispatchWebhook(prepared: PreparedWebhook): Promise<Response> {

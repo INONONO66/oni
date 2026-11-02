@@ -27,7 +27,7 @@ import { createSlackProvider } from "../../../packages/channels/src/provider/sla
 import { createTelegramProvider } from "../../../packages/channels/src/provider/telegram/provider";
 import { recordHttp } from "../../../packages/channels/test/helpers/http";
 import { fakeSlackSdk } from "../../../packages/channels/test/helpers/slack-sdk";
-import { fakeTelegramOwner } from "../../../packages/channels/test/helpers/telegram-owner-sdk";
+import { fakeTelegramAccount } from "../../../packages/channels/test/helpers/telegram-account-sdk.js";
 import { injectedOptions } from "../../../packages/channels/test/helpers/injected";
 
 type ToolMachine = ReturnType<NonNullable<FilePorts["machines"]>["get"]>;
@@ -196,8 +196,8 @@ test("an oversize machine file is refused on stat, before any byte is read", asy
   // Through the real Owner adapter the stat-time refusal keeps its typed size receipt, with no physical send.
   const dir = mkdtempSync(join(tmpdir(), "oni-media-owner-"));
   try {
-    const fake = fakeTelegramOwner();
-    const arm = createTelegramProvider(undefined, fake.sdk).owner;
+    const fake = fakeTelegramAccount();
+    const arm = createTelegramProvider(undefined, fake.sdk).account;
     const runtime = arm?.create({ apiId: "123", apiHash: "a".repeat(32) },
       () => undefined, { ...injectedOptions(), telegramDataDir: dir, media: resolve });
     await runtime?.surface.start("start");

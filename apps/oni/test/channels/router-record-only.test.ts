@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Ingress } from "@oni/protocol";
-import { ledger } from "../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 import { inboundIdOf } from "../../src/bundles/messaging/inbound-id.js";
 import {

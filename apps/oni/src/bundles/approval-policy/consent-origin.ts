@@ -1,5 +1,5 @@
 import { decodeChannelFailure } from "@oni/channels";
-import { type createGatewayRouter } from "../messaging/index.js";
+import type { createGatewayRouter } from "../messaging/index.js";
 import { Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";

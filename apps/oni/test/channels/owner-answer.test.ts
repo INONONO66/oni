@@ -1,4 +1,4 @@
-import { adoptLedgerFence, ledger, resetLedger } from "../../../../packages/channels/test/helpers/ledger.js";
+import { adoptLedgerFence, ledger, resetLedger } from "./helpers/ledger.js";
 import { sessionTree } from "../../../../packages/agent/test/store/helpers/session-tree.js";
 import { channelRequests } from "./helpers/channel-requests.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -16,8 +16,8 @@ const requestBindingDigest = Core.requestBindingDigest;
 import { Gateway, PlainValueSchema, canonicalDigest, type Channel, type SessionTransition, } from "@oni/protocol";
 import { WebSocketHandler } from "../../../../packages/channels/src/websocket.js";
 import { makeRouter } from "./router/_router-fixture.js";
-import { originalAction, requestPort } from "../../../../packages/channels/test/helpers/requests.js";
-import { requestFixture } from "../../../../packages/channels/test/helpers/request-record.js";
+import { originalAction, requestPort } from "./helpers/requests.js";
+import { requestFixture } from "./helpers/request-record.js";
 import { bounded } from "../../../../packages/channels/test/helpers/bounded.js";
 
 const credential = "owner-frame-secret";

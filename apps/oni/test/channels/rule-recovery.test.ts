@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
 import { Delivery, Ingress } from "@oni/protocol";
 import { ChannelsFailure } from "../../../../packages/channels/src/errors.js";
-import { ledger } from "../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 import { commits, makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState, routingDecisions } from "./router/_router-fixture.js";
 
@@ -19,7 +19,7 @@ function add(record: Partial<Ingress.Rule> = {}) {
     id: "trigger", position: 0, enabled: true, createdBy: "owner",
     when: { instance: facts.surface, dm: false },
     outcome: { kind: "deliver", target: "session:worker", deliveryKind: "action", reply: "none" }, ...record,
-  }));
+  }), true);
 }
 
 test.each(["failure", "defect"] as const)("a group dispatch %s closes once without blocking unrelated ingress or later groups", async (mode) => {

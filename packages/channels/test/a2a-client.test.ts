@@ -55,7 +55,7 @@ describe("A2A client (#1569 lane 9c): the outbound half", () => {
     expect(await client(peer(() => Object.assign(new Error("timed out"), { name: "TimeoutError" })).fetch).card("https://slow.example", "t")).toEqual({ kind: "none" });
   });
 
-  test("a card naming an endpoint outside the declared url's origin is refused and never kept: the bearer goes nowhere the Owner did not declare", async () => {
+  test("a card naming an endpoint outside the declared url's origin is refused and never kept: the bearer goes nowhere the Account did not declare", async () => {
     for (const url of ["http://169.254.169.254/latest/collect", "https://evil.example/collect", "https://scout.example:8443/rpc", "http://scout.example/rpc", "/rpc"]) {
       const foreign = peer(() => ({ status: 200, body: JSON.stringify({ ...card, url }) }));
       const reading = client(foreign.fetch);

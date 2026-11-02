@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import type { ChannelStores } from "@oni/channels";
 import type { PolicyEvaluationInput } from "@oni/agent";
 import { type Gateway, Ingress } from "@oni/protocol";
-import { type PendingGroup } from "@oni/channels";
+import type { PendingGroup } from "@oni/channels";
 import { type ingressInput, ingressSurfaceKey } from "./automation/input.js";
 import { match } from "@oni/channels";
 import { inboundIdOf as inboundEventId } from "./inbound-id.js";

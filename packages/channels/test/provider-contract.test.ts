@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { Outbound, type PlainValue } from "@oni/protocol";
 import { injectedOptions } from "./helpers/injected";
-import type { OwnerArm, ProviderRuntime } from "../src/provider/contract";
+import type { AccountArm, ProviderRuntime } from "../src/provider/contract";
 import { ChannelProviders } from "../src/provider/registry";
 import type { PublishPort } from "../src/types";
 import { createDiscordProvider } from "../src/provider/discord/provider";
 import { emptyVoiceStream, fakeDiscordSdk } from "./helpers/discord-sdk";
 import type { DiscordVoiceHandle } from "../src/provider/discord/sdk";
 import { createSlackProvider } from "../src/provider/slack/provider";
-import { fakeSlackOwnerSdk } from "./helpers/slack-owner-sdk";
+import { fakeSlackAccountSdk } from "./helpers/slack-account-sdk.js";
 import { fakeSlackSdk } from "./helpers/slack-sdk";
 import { createTelegramProvider } from "../src/provider/telegram/provider";
-import { fakeTelegramOwner } from "./helpers/telegram-owner-sdk";
+import { fakeTelegramAccount } from "./helpers/telegram-account-sdk.js";
 
 /**
  * Provider conformance: every registry entry honors the contract's structural
@@ -41,11 +41,11 @@ const CONVERSATION_SURFACES = new Set(["discord", "slack", "telegram"]);
 const CONVERSATION_TARGETS = new Set<string>(["a2a", "github"]);
 
 /**
- * #1569 lane 7: an Owner-only platform has no bot account — its bot arm
+ * #1569 lane 7: an Account-only platform has no bot account — its bot arm
  * refuses every credential and never constructs, and the platform is
- * reached through its `owner` arm alone. These cases conform the arm.
+ * reached through its `account` arm alone. These cases conform the arm.
  */
-interface OwnerOnlyCase {
+interface AccountOnlyCase {
   readonly provider:
     | (typeof ChannelProviders)["instagram"]
     | (typeof ChannelProviders)["kakaotalk"]
@@ -54,35 +54,35 @@ interface OwnerOnlyCase {
   readonly build: (publish: PublishPort) => ProviderRuntime;
   readonly rendered: string;
   readonly limit: number | null;
-  /** The platform reaches the Owner's account over a webhook rather than a socket (#1569 lane 9b, Linear). */
+  /** The platform reaches the Account's account over a webhook rather than a socket (#1569 lane 9b, Linear). */
   readonly webhook?: boolean;
 }
-/** What the conformance reads off an Owner arm, whatever credential type it carries. */
-type ArmFacts = Pick<OwnerArm<never>, "listen" | "capabilities" | "preconditions"> & {
+/** What the conformance reads off an Account arm, whatever credential type it carries. */
+type ArmFacts = Pick<AccountArm<never>, "listen" | "capabilities" | "preconditions"> & {
   readonly credentials: { safeParse(input: PlainValue): { readonly success: boolean } };
 };
 
-/** The arm an Owner-only platform is reached through; its absence would be a registry defect. */
-function ownerArmOf(provider: { readonly id: string; readonly owner?: ArmFacts }): ArmFacts {
-  if (provider.owner === undefined) throw new Error(`${provider.id} has no owner arm`);
-  return provider.owner;
+/** The arm an Account-only platform is reached through; its absence would be a registry defect. */
+function accountArmOf(provider: { readonly id: string; readonly account?: ArmFacts }): ArmFacts {
+  if (provider.account === undefined) throw new Error(`${provider.id} has no account arm`);
+  return provider.account;
 }
 const instagramArm = () => {
-  const arm = ChannelProviders.instagram.owner;
-  if (arm === undefined) throw new Error("instagram has no owner arm");
+  const arm = ChannelProviders.instagram.account;
+  if (arm === undefined) throw new Error("instagram has no account arm");
   return arm;
 };
 const kakaoArm = () => {
-  const arm = ChannelProviders.kakaotalk.owner;
-  if (arm === undefined) throw new Error("kakaotalk has no owner arm");
+  const arm = ChannelProviders.kakaotalk.account;
+  if (arm === undefined) throw new Error("kakaotalk has no account arm");
   return arm;
 };
 const linearArm = () => {
-  const arm = ChannelProviders.linear.owner;
-  if (arm === undefined) throw new Error("linear has no owner arm");
+  const arm = ChannelProviders.linear.account;
+  if (arm === undefined) throw new Error("linear has no account arm");
   return arm;
 };
-const ownerOnlyCases: readonly OwnerOnlyCase[] = [
+const accountOnlyCases: readonly AccountOnlyCase[] = [
   {
     provider: ChannelProviders.instagram,
     rendered: "**hi** `code`",
@@ -111,11 +111,11 @@ const ownerOnlyCases: readonly OwnerOnlyCase[] = [
     provider: ChannelProviders.linear,
     rendered: "**hi** `code`",
     limit: null,
-    credential: { secret: "hook-secret", token: "lin_api", ownerUserId: "user-owner" },
+    credential: { secret: "hook-secret", token: "lin_api", accountUserId: "user-account" },
     webhook: true,
     build: (publish) =>
       linearArm().create(
-        { secret: "hook-secret", token: "lin_api", ownerUserId: "user-owner" },
+        { secret: "hook-secret", token: "lin_api", accountUserId: "user-account" },
         publish,
         injectedOptions(),
       ),
@@ -189,20 +189,20 @@ const cases: readonly ConformanceCase[] = [
 ];
 
 describe("provider conformance", () => {
-  test("Slack Owner alone exposes a huddle route with the sealed Owner session", () => {
-    const provider = createSlackProvider(fakeSlackSdk().sdk, fakeSlackOwnerSdk().sdk);
-    const owner = provider.owner;
+  test("Slack Account alone exposes a huddle route with the sealed Account session", () => {
+    const provider = createSlackProvider(fakeSlackSdk().sdk, fakeSlackAccountSdk().sdk);
+    const account = provider.account;
     expect(provider.capabilities.voice).toBe(false);
-    expect(owner?.capabilities.voice).toBe(true);
-    expect(owner?.credentials.safeParse({ token: "xoxc-1", cookie: "d" }).success).toBe(true);
-    expect(owner?.credentials.safeParse({ token: "xoxc-1", cookie: "d", huddle: { token: "xoxc-2", cookie: "d2" } }).success).toBe(false);
-    const runtime = owner?.create({ token: "xoxc-1", cookie: "d" }, noopPublish, injectedOptions());
+    expect(account?.capabilities.voice).toBe(true);
+    expect(account?.credentials.safeParse({ token: "xoxc-1", cookie: "d" }).success).toBe(true);
+    expect(account?.credentials.safeParse({ token: "xoxc-1", cookie: "d", huddle: { token: "xoxc-2", cookie: "d2" } }).success).toBe(false);
+    const runtime = account?.create({ token: "xoxc-1", cookie: "d" }, noopPublish, injectedOptions());
     expect(runtime?.voiceRoute).toBeDefined();
   });
-  test("Telegram Owner declares history, streaming intake and bounded byte-upload support", () => {
-    const provider = createTelegramProvider(undefined, fakeTelegramOwner().sdk);
-    const arm = provider.owner;
-    if (arm === undefined) throw new Error("Telegram Owner arm absent");
+  test("Telegram Account declares history, streaming ingress and bounded byte-upload support", () => {
+    const provider = createTelegramProvider(undefined, fakeTelegramAccount().sdk);
+    const arm = provider.account;
+    if (arm === undefined) throw new Error("Telegram Account arm absent");
     const runtime = arm.create(
       { apiId: "123", apiHash: "a".repeat(32) },
       noopPublish, injectedOptions(),
@@ -240,13 +240,13 @@ describe("provider conformance", () => {
     const provider = createDiscordProvider(fake.sdk);
     const runtime = provider.create({ token: "token" }, {}, noopPublish, injectedOptions());
     expect(provider.capabilities.voice).toBe(true);
-    expect(provider.owner?.capabilities.voice).toBe(false);
+    expect(provider.account?.capabilities.voice).toBe(false);
     expect(runtime.voiceRoute).toBeDefined();
     expect(fake.listener.started).toBe(0);
     runtime.surface.onMessage(async () => undefined);
     await runtime.surface.start("boot");
     await runtime.voiceRoute?.({ surface: "discord", channelId: "voice",
-      workspaceId: "guild", speakerExternalId: "owner" });
+      workspaceId: "guild", speakerExternalId: "account" });
     await runtime.surface.stop("stop");
     expect(left).toBe(1);
     expect(fake.listener.stopped).toBe(1);
@@ -256,19 +256,19 @@ describe("provider conformance", () => {
       expect(provider.id).toBe(key as keyof typeof ChannelProviders);
   });
   test("every registry entry has a conformance case", () => {
-    const covered: string[] = [...cases, ...ownerOnlyCases].map((kase) => kase.provider.id);
+    const covered: string[] = [...cases, ...accountOnlyCases].map((kase) => kase.provider.id);
     expect(covered.sort()).toEqual(Object.keys(ChannelProviders).sort());
   });
-  for (const kase of ownerOnlyCases) {
-    describe(`${kase.provider.id} (Owner-only)`, () => {
+  for (const kase of accountOnlyCases) {
+    describe(`${kase.provider.id} (Account-only)`, () => {
       test("the bot arm refuses every credential and never constructs", () => {
         expect(kase.provider.credentials.safeParse(kase.credential).success).toBe(false);
         expect(kase.provider.credentials.safeParse({}).success).toBe(false);
-        expect(() => kase.provider.create({} as never, {}, noopPublish, injectedOptions())).toThrow("identity: owner");
+        expect(() => kase.provider.create({} as never, {}, noopPublish, injectedOptions())).toThrow("identity: account");
         expect(kase.provider.capabilities.webhook).toBe(kase.webhook ?? false);
       });
-      test("the owner arm's seams match its capabilities and declared instance", () => {
-        const arm = ownerArmOf(kase.provider);
+      test("the account arm's seams match its capabilities and declared instance", () => {
+        const arm = accountArmOf(kase.provider);
         const runtime = kase.build(noopPublish);
         expect(runtime.surface.id).toBe("channel:test:main");
         expect(runtime.deliveryRoute !== undefined).toBe(arm.capabilities.deliver);
@@ -277,8 +277,8 @@ describe("provider conformance", () => {
         expect(runtime.webhookHandler !== undefined).toBe(kase.webhook ?? false);
         expect(arm.listen).toBe(true);
       });
-      test("the owner arm's credential schema admits the account session and refuses junk, strictly", () => {
-        const arm = ownerArmOf(kase.provider);
+      test("the account arm's credential schema admits the account session and refuses junk, strictly", () => {
+        const arm = accountArmOf(kase.provider);
         expect(arm.credentials.safeParse(kase.credential).success).toBe(true);
         expect(arm.credentials.safeParse({ bogus: "x" }).success).toBe(false);
         expect(arm.credentials.safeParse({ ...kase.credential, extra: "x" }).success).toBe(false);
@@ -289,10 +289,10 @@ describe("provider conformance", () => {
         expect(policy.messageLimit).toBe(kase.limit);
         expect(kase.provider.capabilities.media).toBe(false);
       });
-      test("preconditions are a verbatim operator checklist naming the owner arm", () => {
-        for (const precondition of [...kase.provider.preconditions, ...ownerArmOf(kase.provider).preconditions])
+      test("preconditions are a verbatim operator checklist naming the account arm", () => {
+        for (const precondition of [...kase.provider.preconditions, ...accountArmOf(kase.provider).preconditions])
           expect(precondition.length).toBeGreaterThan(0);
-        expect(kase.provider.preconditions.some((text) => text.includes("identity: owner"))).toBe(true);
+        expect(kase.provider.preconditions.some((text) => text.includes("identity: account"))).toBe(true);
       });
       test("construction is pure — nothing published before start", () => {
         let published = 0;

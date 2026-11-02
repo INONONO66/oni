@@ -12,7 +12,7 @@
  * and no default credential — absence of config is absence of the component.
  */
 
-import type { AccountIdentity, AttachmentFetch, AttachmentFetchWithStream, ChannelProvider, EffectRunner, MediaResolver, OwnerArm, OwnerWithdrawal, ProviderDeliveryRoute, ProviderHistoryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
+import type { AccountIdentity, AttachmentFetch, AttachmentFetchWithStream, ChannelProvider, EffectRunner, MediaResolver, AccountArm, AccountWithdrawal, ProviderDeliveryRoute, ProviderHistoryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
 import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider } from "@oni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@oni/protocol";
 import { Result } from "effect";
@@ -52,7 +52,7 @@ export interface BuiltChannel {
   readonly voiceRoute?: ProviderVoiceRoute;
   readonly historyRoute?: ProviderHistoryRoute;
   /** An Owner account runtime's readiness withdrawal, observed by the supervisor. */
-  readonly onWithdrawn?: (listener: (reason: OwnerWithdrawal) => void) => void;
+  readonly onWithdrawn?: (listener: (reason: AccountWithdrawal) => void) => void;
   /** Ingress seam: present only for webhook-fed channels. */
   readonly webhookHandler?: (request: Request) => Promise<Response>;
   /** #1600: the account the runtime speaks as, known after start; an Owner instance's becomes the Owner Person's endpoint. */
@@ -108,8 +108,10 @@ function providerRow(
         run: deps.run,
         ...(deps.media === undefined ? {} : { media: deps.media }),
       });
-      runtime.surface.onMessage(deps.inbox === undefined ? handler :
-        deps.inbox(runtime.attachments, handler, runtime.streamingAttachments));
+      const receive = deps.inbox === undefined ? handler :
+        deps.inbox(runtime.attachments, handler, runtime.streamingAttachments);
+      runtime.surface.onMessage((message) =>
+        receive({ ...message, facts: { ...message.facts, receivedBy: identity } }));
       return {
         surface: runtime.surface,
 
@@ -190,7 +192,7 @@ function ownerRow(
 ): ChannelComponent | { readonly invalid: string } | { readonly unsupported: string } {
   // Each platform's arm carries its own credential type; the arm's schema is
   // what admits the vault payload, so the row reads it as plain data.
-  const arm = provider.owner as OwnerArm<PlainValue> | undefined;
+  const arm = provider.account as AccountArm<PlainValue> | undefined;
   if (arm === undefined) return { unsupported: `${provider.id} has no Owner-account arm` };
   const decoded = Result.try({
     try: (): PlainValue => JSON.parse(new TextDecoder().decode(plaintext)),
@@ -343,7 +345,7 @@ export function validateProviderCredential(
   }
   const registered = ChannelProviders[provider];
   // #1569: an Owner-account credential parses under the provider's owner arm.
-  const schema = identity === "owner" ? registered.owner?.credentials : registered.credentials;
+  const schema = identity === "owner" ? registered.account?.credentials : registered.credentials;
   if (schema === undefined) return `${provider} has no Owner-account arm`;
   const parsed = schema.safeParse(payload);
   return parsed.success ? undefined : parsed.error.message;
@@ -363,7 +365,7 @@ export function validateProviderSettings(
   if (!isRegisteredProvider(provider)) {
     return `unknown provider ${provider}`;
   }
-  if (identity === "owner" && ChannelProviders[provider].owner === undefined)
+  if (identity === "owner" && ChannelProviders[provider].account === undefined)
     return `${provider} has no Owner-account arm`;
   const parsed = ChannelSettings.safeParse(settings);
   return parsed.success ? undefined : parsed.error.message;

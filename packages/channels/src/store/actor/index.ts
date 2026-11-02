@@ -124,7 +124,7 @@ export function createActorRegistry(source: ActorRegistrySource) {
 
     /**
      * #P3 promotion act (§3.1/§6): provisional → registered. Idempotent —
-     * promoting a registered contact returns it unchanged. The Owner-approval
+     * promoting a registered contact returns it unchanged. The Account-authorization
      * gate lives with the tool that calls this (product authority), not here.
      */
     promote(actorId: string) {
@@ -143,7 +143,7 @@ export function createActorRegistry(source: ActorRegistrySource) {
     /**
      * #P3 endpoint merge act (§8.4): moves one endpoint onto another identity
      * — the ONLY way two channels ever fold into one contact. The
-     * Owner-approval gate lives with the tool that calls this.
+     * Account-authorization gate lives with the tool that calls this.
      */
     mergeEndpoint(endpointId: string, toActorId: string) {
       const adapter = requireAdapter();

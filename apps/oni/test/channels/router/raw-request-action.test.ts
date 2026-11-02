@@ -1,10 +1,10 @@
-import { ledger, resetLedger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger, resetLedger } from "../helpers/ledger.js";
 import { Effect } from "effect";
 import { channelRequests } from "../helpers/channel-requests.js";
-import { channelTransaction } from "../../../../../packages/channels/test/helpers/channel-transaction.js";
+import { channelTransaction } from "../helpers/channel-transaction.js";
 import { effectFailure } from "../../../../../packages/channels/test/helpers/effect-failure.js";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
-import { openRequest, requestPort } from "../../../../../packages/channels/test/helpers/requests.js";
+import { openRequest, requestPort } from "../helpers/requests.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { type Gateway, type Delivery, type BusEvent, type PlainValue, Ingress } from "@oni/protocol";
 import { createGatewayRouter, type GatewayRouterPorts } from "../../../src/bundles/messaging/index.js";

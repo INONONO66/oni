@@ -7,10 +7,10 @@ import { runEffect } from "./helpers/effect";
 
 const noopPublish: PublishPort = () => undefined;
 const wsConfig = { now: () => 1_700_000_000_000, id: () => "frame-id" };
-const connection = { surfaceKey: "ws::dm:c1", authenticated: true, externalId: "owner" };
+const connection = { surfaceKey: "ws::dm:c1", authenticated: true, externalId: "account" };
 
 /**
- * The Owner's channel declaration over the socket (#1569 lane 5b): the
+ * The Account's channel declaration over the socket (#1569 lane 5b): the
  * perimeter decodes the frame and hands it to the app; a malformed one is
  * answered with a typed refusal naming the issues.
  */
@@ -21,12 +21,11 @@ describe("websocket channel_add frame", () => {
     const frame: Provisioning.ChannelDeclareRequest = {
       type: "channel_add",
       requestId: "r-1",
-      id: "channel:slack:owner",
+      id: "channel:slack:account",
       provider: "slack",
-      identity: "owner",
-      settings: { intake: "mentions_and_dms", autoReply: false },
-      outbound: true,
-      credential: { token: "xoxc-1", cookie: "d" },
+      identity: "bot",
+      settings: {},
+      credential: { botToken: "xoxb-1", appToken: "xapp-1" },
     };
     expect(await runEffect(handler.handleFrame(connection, JSON.stringify(frame)))).toEqual(frame);
     expect(entries).toBe(0);

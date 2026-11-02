@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { ChannelProvider, OwnerArm } from "../contract.js";
+import type { ChannelProvider, AccountArm } from "../contract.js";
 import { kernelDeliveryRoute } from "../delivery-route.js";
 import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format.js";
-import { DiscordOwnerAdapter } from "./owner.js";
-import { type DiscordOwnerSdk, discordOwnerSdk } from "./owner-sdk.js";
+import { DiscordAccountAdapter } from "./account.js";
+import { type DiscordAccountSdk, discordAccountSdk } from "./account-sdk.js";
 import { type DiscordSdk, discordSdk } from "./sdk.js";
 import { DiscordAdapter } from "./surface.js";
 
@@ -12,29 +12,29 @@ interface DiscordCredentials {
   readonly token: string;
 }
 
-/** The Owner's own account session (#1569): the account token the remote-auth (QR) login produced. */
-interface DiscordOwnerCredentials {
+/** The user account session (#1569): the account token the remote-auth (QR) login produced. */
+interface DiscordAccountCredentials {
   readonly token: string;
 }
 
 /**
- * The Owner-identity arm (#1569 lane 6): the account's gateway listener
- * emitting facts, delivery and typing as the Owner's
+ * The Account-identity arm (#1569 lane 6): the account's gateway listener
+ * emitting facts, delivery and typing as the Account's
  * account through the package's REST client, mounted by declaration id
  * (a delivery route only when the declaration grants outbound).
  */
-function createDiscordOwnerArm(sdk: DiscordOwnerSdk = discordOwnerSdk()): OwnerArm<DiscordOwnerCredentials> {
+function createDiscordAccountArm(sdk: DiscordAccountSdk = discordAccountSdk()): AccountArm<DiscordAccountCredentials> {
   return {
     // A bot token carries the `Bot` scheme at the wire; an account token never does.
     credentials: z.object({ token: z.string().min(1).refine((token) => !token.startsWith("Bot ")) }).strict(),
     preconditions: [
-      "Owner session from the Discord remote-auth (QR) login, sealed into the vault (the login helper lands with its own lane): the account token",
-      "the Owner accepts automation under their own account (declared outbound grant)",
+      "Account session from the Discord remote-auth (QR) login, sealed into the vault (the login helper lands with its own lane): the account token",
+      "the Account accepts automation under their own account (declared outbound grant)",
     ],
     capabilities: { deliver: true, react: true, media: DISCORD_MEDIA_LIMITS, typing: true, voice: false },
     listen: true,
     create(credentials, publish, options) {
-      const surface = new DiscordOwnerAdapter(credentials, publish, options, sdk);
+      const surface = new DiscordAccountAdapter(credentials, publish, options, sdk);
       return {
         surface,
         account: () => surface.accountIdentity(),
@@ -61,12 +61,12 @@ function createDiscordOwnerArm(sdk: DiscordOwnerSdk = discordOwnerSdk()): OwnerA
  */
 export function createDiscordProvider(
   sdk: DiscordSdk = discordSdk(),
-  ownerSdk: DiscordOwnerSdk = discordOwnerSdk(),
-): ChannelProvider<DiscordCredentials, "discord", DiscordOwnerCredentials> {
+  accountSdk: DiscordAccountSdk = discordAccountSdk(),
+): ChannelProvider<DiscordCredentials, "discord", DiscordAccountCredentials> {
   return {
     id: "discord",
     ingest: "socket",
-    owner: createDiscordOwnerArm(ownerSdk),
+    account: createDiscordAccountArm(accountSdk),
     capabilities: {
       deliver: true,
       direct: true,
@@ -100,5 +100,5 @@ export function createDiscordProvider(
   };
 }
 
-export const DiscordProvider: ChannelProvider<DiscordCredentials, "discord", DiscordOwnerCredentials> =
+export const DiscordProvider: ChannelProvider<DiscordCredentials, "discord", DiscordAccountCredentials> =
   createDiscordProvider();

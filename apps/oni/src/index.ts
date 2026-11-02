@@ -56,7 +56,7 @@ const AgentFailure = Core.AgentFailure;
 const ExecutionApprovalError = Core.ExecutionApprovalError;
 import { canonicalJson, SessionTransition, type PlainValue } from "@oni/protocol";
 import { type ChannelProviders, type ProviderTypingRoute, type ProviderVoiceRoute, type ProviderHistoryRoute, createChannelStores, decodeChannelFailure, ChannelsFailure, WebSocketHandler, createWebhookSender, A2AClient } from "@oni/channels";
-import { type ChannelDeliveryRoute, type GatewayRouter } from "./bundles/messaging/message-ports.js";
+import type { ChannelDeliveryRoute, GatewayRouter } from "./bundles/messaging/message-ports.js";
 
 import {
   createFileGenerationStore,

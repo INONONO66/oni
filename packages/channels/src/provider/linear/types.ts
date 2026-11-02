@@ -50,16 +50,16 @@ export const LinearWebhookPayloadSchemas = {
 };
 
 /**
- * The Owner's own Linear access (#1569 lane 9b): the webhook's signing
- * secret, the Owner's personal API key for commenting back (absent leaves
- * the instance ingress-only), and the Owner's user id when the key cannot
+ * The Account's own Linear access (#1569 lane 9b): the webhook's signing
+ * secret, the Account's personal API key for commenting back (absent leaves
+ * the instance ingress-only), and the Account's user id when the key cannot
  * say — the account's own actions are never an outside event, and a
- * mention of the Owner is what `mentions_and_dms` admits.
+ * mention of the Account is what `mentions_and_dms` admits.
  */
-export interface LinearOwnerCredentials {
+export interface LinearAccountCredentials {
   readonly secret: string;
   readonly token?: string;
-  readonly ownerUserId?: string;
+  readonly accountUserId?: string;
 }
 
 /** The account the key belongs to, as Linear names it. */

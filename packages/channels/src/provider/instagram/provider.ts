@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { ChannelsFailure } from "../../errors.js";
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
-import type { ChannelProvider, OwnerArm } from "../contract.js";
+import type { ChannelProvider, AccountArm } from "../contract.js";
 import { INSTAGRAM_RENDER } from "./format.js";
-import { type InstagramOwnerCredentials, InstagramOwnerAdapter } from "./owner.js";
-import { type InstagramOwnerSdk, instagramOwnerSdk } from "./owner-sdk.js";
+import { type InstagramAccountCredentials, InstagramAccountAdapter } from "./account.js";
+import { type InstagramAccountSdk, instagramAccountSdk } from "./account-sdk.js";
 
 /** The session the login helper sealed: the SDK's session state as JSON, cookies included. */
 const SessionJson = z.string().min(1).refine(
@@ -20,22 +20,22 @@ const SessionJson = z.string().min(1).refine(
 );
 
 /**
- * The Owner-identity arm (#1569 lane 7): the account's inbox listener and
- * delivery into threads as the Owner, mounted by
+ * The Account-identity arm (#1569 lane 7): the account's inbox listener and
+ * delivery into threads as the Account, mounted by
  * declaration id (a delivery route only when the declaration grants
  * outbound).
  */
-function createInstagramOwnerArm(sdk: InstagramOwnerSdk = instagramOwnerSdk()): OwnerArm<InstagramOwnerCredentials> {
+function createInstagramAccountArm(sdk: InstagramAccountSdk = instagramAccountSdk()): AccountArm<InstagramAccountCredentials> {
   return {
     credentials: z.object({ session: SessionJson }).strict(),
     preconditions: [
-      "Owner session from the Instagram login (password, 2FA or challenge), sealed into the vault as the SDK's session state (the login helper lands with its own lane)",
-      "the Owner accepts automation under their own account: Instagram watches for automated behaviour, so keep the account's sends sparse",
+      "Account session from the Instagram login (password, 2FA or challenge), sealed into the vault as the SDK's session state (the login helper lands with its own lane)",
+      "the Account accepts automation under their own account: Instagram watches for automated behaviour, so keep the account's sends sparse",
     ],
     capabilities: { deliver: true, react: false, media: false, typing: false, voice: false },
     listen: true,
     create(credentials, publish, options) {
-      const surface = new InstagramOwnerAdapter(credentials, publish, options, sdk);
+      const surface = new InstagramAccountAdapter(credentials, publish, options, sdk);
       return {
         surface,
         account: () => surface.account(),
@@ -47,13 +47,13 @@ function createInstagramOwnerArm(sdk: InstagramOwnerSdk = instagramOwnerSdk()): 
 }
 
 /**
- * Instagram (#1569 lane 7): an Owner-only platform — there is no bot
+ * Instagram (#1569 lane 7): an Account-only platform — there is no bot
  * account, so the provider's bot arm refuses every declaration and the
- * platform is reached through its `owner` arm alone (`identity: owner`).
+ * platform is reached through its `account` arm alone (`identity: account`).
  */
 export function createInstagramProvider(
-  ownerSdk: InstagramOwnerSdk = instagramOwnerSdk(),
-): ChannelProvider<never, "instagram", InstagramOwnerCredentials> {
+  accountSdk: InstagramAccountSdk = instagramAccountSdk(),
+): ChannelProvider<never, "instagram", InstagramAccountCredentials> {
   return {
     id: "instagram",
     ingest: "socket",
@@ -67,19 +67,19 @@ export function createInstagramProvider(
       typing: false,
       voice: false,
     },
-    owner: createInstagramOwnerArm(ownerSdk),
+    account: createInstagramAccountArm(accountSdk),
     credentials: z.custom<never>(() => false, {
-      message: "instagram has no bot account; declare the instance with identity: owner",
+      message: "instagram has no bot account; use the account arm",
     }),
-    preconditions: ["Instagram has no bot account: declare the instance with identity: owner"],
+    preconditions: ["Instagram has no bot account: use the account arm"],
     create() {
       throw new ChannelsFailure({
         operation: "instagram.create",
-        cause: "instagram has no bot account; declare the instance with identity: owner",
+        cause: "instagram has no bot account; use the account arm",
       });
     },
   };
 }
 
-export const InstagramProvider: ChannelProvider<never, "instagram", InstagramOwnerCredentials> =
+export const InstagramProvider: ChannelProvider<never, "instagram", InstagramAccountCredentials> =
   createInstagramProvider();

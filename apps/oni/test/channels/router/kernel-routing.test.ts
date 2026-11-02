@@ -1,4 +1,4 @@
-import { ledger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../helpers/ledger.js";
 import { effectFailure } from "../../../../../packages/channels/test/helpers/effect-failure.js";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";

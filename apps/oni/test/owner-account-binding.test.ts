@@ -23,7 +23,7 @@ class FakeOwnerSurface implements Channel.Surface {
 }
 
 test("#1600 lane R1: a mounted Owner instance binds its account to the Owner Person through the booted composition", async () => {
-  const owner = ChannelProviders.slack.owner;
+  const owner = ChannelProviders.slack.account;
   if (owner === undefined) throw new Error("slack has no Owner arm");
   const create = spyOn(owner, "create").mockImplementation(() => ({
     surface: new FakeOwnerSurface(),
@@ -49,7 +49,7 @@ test("#1600 lane R1: a mounted Owner instance binds its account to the Owner Per
 });
 
 test("#1600 lane R1: an address another Person holds is never re-homed by a mount — the holder keeps it and the Owner is warned", async () => {
-  const owner = ChannelProviders.slack.owner;
+  const owner = ChannelProviders.slack.account;
   if (owner === undefined) throw new Error("slack has no Owner arm");
   const create = spyOn(owner, "create").mockImplementation(() => ({
     surface: new FakeOwnerSurface(),

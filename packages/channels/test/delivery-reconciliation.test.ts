@@ -8,7 +8,7 @@ import { DeliveryReconciliation, deliverKeyed } from "../src/support/deliver";
 import { bounded } from "./helpers/bounded";
 
 // #1569: Slack rides the agent-messenger SDK; its physical evidence is pinned over the SDK error shapes in slack-surface.test.ts.
-for (const provider of ["discord", "discord-owner", "telegram"] as const) {
+for (const provider of ["discord", "discord-account", "telegram"] as const) {
   test(`${provider}: lost ACK never repeats a physical send at a non-deduplicating destination`, async () => {
     const arrived = Promise.withResolvers<void>();
     const ack = Promise.withResolvers<void>();
@@ -171,10 +171,10 @@ test("GitHub uncertainty is terminal even when comment read-back would show no m
   );
   try {
     const adapter = new GitHubAdapter("secret", {}, () => undefined, injectedOptions(), "token");
-    expect(await adapter.deliver("owner/repo#1", Outbound.payload("SENTINEL"), "key")).toEqual({
+    expect(await adapter.deliver("account/repo#1", Outbound.payload("SENTINEL"), "key")).toEqual({
       value: "unknown",
     });
-    expect(await adapter.deliver("owner/repo#1", Outbound.payload("SENTINEL"), "key")).toEqual({
+    expect(await adapter.deliver("account/repo#1", Outbound.payload("SENTINEL"), "key")).toEqual({
       value: "unknown",
     });
     expect(physicalSends).toBe(1);
@@ -187,7 +187,7 @@ test("GitHub uncertainty is terminal even when comment read-back would show no m
 });
 
 // #1569: Slack has no DM preflight on the SDK (it posts to the user id directly).
-for (const provider of ["github", "discord", "discord-owner"] as const) {
+for (const provider of ["github", "discord", "discord-account"] as const) {
   test(`${provider}: a failed preflight is not_sent and can retry without resending a message`, async () => {
     const nativeFetch = globalThis.fetch;
     let sends = 0;
@@ -211,7 +211,7 @@ for (const provider of ["github", "discord", "discord-owner"] as const) {
         provider === "github"
           ? {
               adapter: new GitHubAdapter("secret", {}, () => undefined, injectedOptions(), "token"),
-              address: "owner/repo#1",
+              address: "account/repo#1",
             }
           : deliveryFixture(provider);
       expect(await adapter.deliver(address, Outbound.payload("SENTINEL"), "preflight")).toEqual({

@@ -1,11 +1,11 @@
-import { ledger } from "../../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../../helpers/ledger.js";
 import { sessionTree } from "../../../../../../packages/agent/test/store/helpers/session-tree.js";
 import { effectFailure } from "../../../../../../packages/channels/test/helpers/effect-failure.js";
 import { channelRequests } from "../../helpers/channel-requests.js";
-import { channelTransaction } from "../../../../../../packages/channels/test/helpers/channel-transaction.js";
-import { seededRequests } from "../../../../../../packages/channels/test/helpers/requests.js";
+import { channelTransaction } from "../../helpers/channel-transaction.js";
+import { seededRequests } from "../../helpers/requests.js";
 import { runEffect } from "../../../../../../packages/channels/test/helpers/effect.js";
-import { replaceDecisionFacts } from "../../../../../../packages/channels/test/helpers/ledger.js";
+import { replaceDecisionFacts } from "../../helpers/ledger.js";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { type Gateway, Outbound, type PlainObject, type SessionTransition, type Storage } from "@oni/protocol";
@@ -14,7 +14,7 @@ import { createExistingAgentMessaging } from "../../../../src/bundles/messaging/
 import type { KernelDeliveryReceipt } from "../../../../../../packages/channels/src/support/deliver.js";
 
 type OutboundMessage = Parameters<Parameters<typeof createExistingAgentMessaging>[0]["deliver"]>[0];
-import { expectAwaited, expectDenied, expectRequestSpecViolation, buildAwaitedSendInput, buildGrant, buildSendInput, messagingNow, registerAgentFixture, } from "../../../../../../packages/channels/test/helpers/messaging.js";
+import { expectAwaited, expectDenied, expectRequestSpecViolation, buildAwaitedSendInput, buildGrant, buildSendInput, messagingNow, registerAgentFixture, } from "../../helpers/messaging.js";
 import { resetStores } from "../_router-fixture.js";
 
 type SenderTargetGrant = Gateway.SenderTargetGrant;

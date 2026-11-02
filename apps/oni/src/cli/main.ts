@@ -8,7 +8,7 @@ import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { Core } from "@oni/agent";
-import { createChannelInstanceStore, createPersonStore, createSecretStore, openChannelStore, OwnerLogins } from "@oni/channels";
+import { createChannelInstanceStore, createPersonStore, createSecretStore, openChannelStore, AccountLogins } from "@oni/channels";
 import { Channel, listenForAbort, parseJson, PlainValueSchema, Provisioning } from "@oni/protocol";
 import { loadConfig } from "../config";
 import { installShutdownHandlers, startOni } from "..";
@@ -367,7 +367,7 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     doctorPorts,
     follow,
     login: {
-      logins: OwnerLogins,
+      logins: AccountLogins,
       declare: declareChannel,
       id: () => platformEntropy().id(),
       telegram: {

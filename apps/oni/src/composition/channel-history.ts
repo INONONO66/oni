@@ -1,4 +1,4 @@
-import type { OwnerWithdrawal, ProviderHistoryRoute } from "@oni/channels";
+import type { AccountWithdrawal, ProviderHistoryRoute } from "@oni/channels";
 import { Channel, parseJson, PlainValueSchema } from "@oni/protocol";
 import { Effect } from "effect";
 import type { ChannelSupervisor } from "../bundles/provision/supervisor";
@@ -12,7 +12,7 @@ export type ChannelHistoryLookup = (
   instanceId: string,
 ) =>
   | { readonly status: "ready"; readonly history: ProviderHistoryRoute }
-  | { readonly status: "refused"; readonly reason: "owner_not_ready" | "history_unavailable" | OwnerWithdrawal };
+  | { readonly status: "refused"; readonly reason: "owner_not_ready" | "history_unavailable" | AccountWithdrawal };
 
 /** A ready route serves; a withdrawn mount names its latched cause; a mounted one without history is unavailable. */
 export function channelHistoryLookup(
@@ -85,6 +85,6 @@ export function channelHistoryWire(
     onFailure: (reason): Channel.HistoryResponse => refused(requestId, reason, request.data.instanceId),
     onSuccess: (result): Channel.HistoryResponse => result.status === "ok"
       ? { type: "channel_history_page", requestId, instanceId: request.data.instanceId, page: result.page }
-      : refused(requestId, result.reason, request.data.instanceId),
+      : refused(requestId, result.reason === "not_ready" ? "owner_not_ready" : result.reason, request.data.instanceId),
   }));
 }

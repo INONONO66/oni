@@ -1,7 +1,7 @@
-import { ledger } from "../../../../../packages/channels/test/helpers/ledger.js";
+import { ledger } from "../helpers/ledger.js";
 import { beforeEach, expect, test } from "bun:test";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
-import { registerRule } from "../../../../../packages/channels/test/helpers/rule.js";
+import { registerRule } from "../helpers/rule.js";
 import { commits, kernelRouter, ownerFacts, ownerSender, resetRouterState, routingDecisions } from "./_router-fixture.js";
 
 beforeEach(resetRouterState);

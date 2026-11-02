@@ -84,23 +84,23 @@ describe("SurfaceKey", () => {
       expect(surfaceKeys().listBySession(sessionId2)).toContain(key);
     });
 
-    test("claim returns existing owner without overwriting it", () => {
+    test("claim returns existing account without overwriting it", () => {
       const key = "slack:workspaceA:channel:C123";
       surfaceKeys().claim(key, "session-1");
 
-      const owner = surfaceKeys().claim(key, "session-2");
+      const account = surfaceKeys().claim(key, "session-2");
 
-      expect(owner).toBe("session-1");
+      expect(account).toBe("session-1");
       expect(surfaceKeys().lookup(key)).toBe("session-1");
     });
 
-    test("claim can replace an expected owner", () => {
+    test("claim can replace an expected account", () => {
       const key = "slack:workspaceA:channel:C123";
       surfaceKeys().claim(key, "session-1");
 
-      const owner = surfaceKeys().claim(key, "session-2", "session-1");
+      const account = surfaceKeys().claim(key, "session-2", "session-1");
 
-      expect(owner).toBe("session-2");
+      expect(account).toBe("session-2");
       expect(surfaceKeys().lookup(key)).toBe("session-2");
     });
   });
@@ -169,7 +169,7 @@ describe("SurfaceKey", () => {
 
     test("claim never fabricates a successful claim without persistence", () => {
       // The pre-#522 fail-open returned the candidate sessionId as if the
-      // claim had been persisted; ownership answers must never be fabricated.
+      // claim had been persisted; custody answers must never be fabricated.
       expect(() => createSurfaceKeyStore({}).claim(key, "candidate-session")).toThrow(
         absentMessage,
       );
