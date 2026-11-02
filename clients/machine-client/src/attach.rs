@@ -40,7 +40,12 @@ use crate::{
 };
 
 pub const HEARTBEAT: Duration = Duration::from_secs(5);
-const AGENT_READY: Duration = Duration::from_secs(30);
+/// How long `agent.session.open` waits for a launched CLI's first prompt or
+/// transcript: the same number as `Machine.AGENT_SESSION_OPEN_TIMEOUT_MS` in
+/// `packages/protocol/src/machine/schema.ts`, which the host extends by one
+/// second so the client's `session_not_available` is the answer, never a
+/// transport timeout. The generated Rust protocol carries shapes, not numbers.
+const AGENT_READY: Duration = Duration::from_secs(20);
 const AGENT_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, thiserror::Error)]

@@ -1097,9 +1097,15 @@ format, since no local `omp` transcript existed to copy). `launcher.rs` is
 vendor-free: `start` reclaims a registry terminal that is observed live,
 adopts the transcript of a requested id, or launches one named tmux terminal
 per session (`agent-<hex nanos>-<n>`, cwd = project, shell-quoted `exec env
-K=V cli args`) and then scans the layout directory up to four levels deep
-for a new, unowned `.jsonl`, driven by terminal output until the 30 s ready
-deadline; a missed deadline stops the process and answers
+K=V cli args`) and then waits for either readiness (#1807): the layout
+directory, scanned up to four levels deep, shows a new, unowned `.jsonl`,
+or, for a dialect that assigned the id, the ANSI-stripped rolling tail of
+the terminal (last 4 KiB) shows the manifest's `ready` marker (`claude-code`:
+`? for shortcuts`), in which case the session's transcript is the known
+`<layout>/<id>.jsonl` path and nothing is written to it. `changed` answers
+`Change::{Output, Progress, Timeout}`; the deadline is
+`Machine.AGENT_SESSION_OPEN_TIMEOUT_MS` (20 s; the host's `open` call waits
+one second longer), and a missed deadline stops the process and answers
 `session_not_available`. `attach` never launches; `send` (text plus `\r`)
 and `stop` (SIGTERM, SIGKILL after the 5 s grace, then close) refuse
 `NotOwned` unless the session is owned. `registry.rs` persists
@@ -1117,7 +1123,10 @@ answers `session_not_available`; an unknown id answers `session_not_found`.
 `list` caps at 256 sessions and sets `truncated`. `tail.rs` pages 32 records
 or 256 KiB per read: `recordHash` is the SHA-256 of the session id, generation,
 offset and complete prefix bytes, and the origin is offset 0 over empty input;
-the generation is the grant's negotiated one. Receipts from `tests/agent_wire.rs`:
+the generation is the grant's negotiated one. A transcript that does not exist
+yet (a session open at its prompt before its first turn) tails as an empty
+page at the origin (`records: []`, `hasMore: false`, byte 0), while a cursor
+past the origin over a missing file is `invalid_cursor` (#1807). Receipts from `tests/agent_wire.rs`:
 a tail from an acknowledged cursor after an append returns only the new
 records; replaying the same cursor over an unchanged source returns the same page, also under
 two concurrent tails; a reconnect at the same generation resumes from the
@@ -1201,11 +1210,10 @@ without them `available()` drops it from the offer.
 
 **Not yet.** The client's terminals still share the user's default tmux
 server (follow-up: the client should own its socket). Transcript discovery
-re-scans on terminal output or at the 30 s ready deadline, so a CLI that
-stays silent until its first prompt takes up to 30 s to discover, and a
-`claude-code` session that writes its transcript only after the first prompt
-answers `session_not_available` at that deadline when started without
-input. An existing hook module file is accepted by path without comparing
+re-scans on terminal output or at the ready deadline, so a dialect without a
+`ready` marker (`codex`, `pi`, `omp`) that stays silent until its first
+prompt takes up to 20 s to discover; `claude-code` opens at its prompt
+(#1807). An existing hook module file is accepted by path without comparing
 its bytes to the embedded copy. The `pi` and `omp` hook modules are
 installed and probed but not yet exercised inside a live `pi` or `omp`
 process (no `omp` install exists on the verifying machine), and `codex` is

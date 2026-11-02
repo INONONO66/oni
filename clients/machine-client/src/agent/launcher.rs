@@ -140,10 +140,25 @@ pub trait Cli {
     fn name(&self) -> &'static str;
     fn permission(&self) -> Permission;
     fn assigns_id(&self) -> bool;
+    /// Text the CLI prints once it is at its prompt. A launch that assigned
+    /// the session id is ready when its terminal shows this, before the
+    /// transcript exists; `None` leaves readiness to the transcript.
+    fn ready(&self) -> Option<&'static str>;
     fn command(&self, context: &LaunchContext<'_>) -> LaunchCommand;
     fn transcripts(&self, home: &Path, project: &Path) -> PathBuf;
     fn session_id(&self, transcript: &Path) -> Option<String>;
     fn belongs(&self, transcript: &Path, project: &Path) -> bool;
+}
+
+/// What one wait on a launched process observed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Change {
+    /// Terminal output since the previous wait, escape sequences included.
+    Output(String),
+    /// No output, and the deadline has not passed.
+    Progress,
+    /// No output, and the deadline has passed.
+    Timeout,
 }
 
 pub trait ProcessSpawner {
@@ -155,12 +170,12 @@ pub trait ProcessSpawner {
         command: &LaunchCommand,
     ) -> impl Future<Output = io::Result<Self::Handle>> + Send;
     fn terminal(&self, handle: &Self::Handle) -> String;
-    /// Wait for the process to show progress; `false` once `deadline` passes.
+    /// Wait for the process to show output, at most until `deadline`.
     fn changed(
         &self,
         handle: &mut Self::Handle,
         deadline: Instant,
-    ) -> impl Future<Output = io::Result<bool>> + Send;
+    ) -> impl Future<Output = io::Result<Change>> + Send;
     fn send(
         &self,
         handle: &Self::Handle,
@@ -280,6 +295,68 @@ fn discover(cli: &impl Cli, home: &Path, project: &Path) -> Vec<Found> {
         }
     }
     found
+}
+
+/// Bytes of stripped terminal output a launch keeps while waiting for its
+/// prompt: enough for the last screen, bounded however much the CLI prints.
+const TAIL: usize = 4096;
+
+/// Append `output` without its escape sequences, keeping the last `TAIL` bytes.
+/// The longest single `pty read` long-poll the wire admits (`waitMs`).
+const PTY_READ_WAIT_MAX: Duration = Duration::from_secs(30);
+
+/// A read that answered no output: when the capped long-poll returned before
+/// the deadline the pane is still being watched, otherwise it stayed quiet
+/// through the deadline.
+fn quiet(waited: Duration, remaining: Duration) -> Change {
+    if waited < remaining {
+        Change::Progress
+    } else {
+        Change::Timeout
+    }
+}
+
+fn keep_tail(tail: &mut String, output: &str) {
+    tail.push_str(&strip_ansi(output));
+    if tail.len() > TAIL {
+        let mut cut = tail.len() - TAIL;
+        while !tail.is_char_boundary(cut) {
+            cut += 1;
+        }
+        tail.drain(..cut);
+    }
+}
+
+/// Terminal output with its CSI, OSC and two-character escape sequences
+/// removed, so a prompt marker is contiguous whatever styling surrounds it.
+fn strip_ansi(output: &str) -> String {
+    enum State {
+        Text,
+        Escape,
+        Csi,
+        Osc,
+    }
+    let mut state = State::Text;
+    let mut text = String::with_capacity(output.len());
+    for c in output.chars() {
+        state = match (state, c) {
+            (State::Text, '\x1b') => State::Escape,
+            (State::Text, c) => {
+                text.push(c);
+                State::Text
+            }
+            (State::Escape, '[') => State::Csi,
+            (State::Escape, ']') => State::Osc,
+            // ESC plus one character: ESC 7, ESC =, ESC \ (string terminator).
+            (State::Escape, _) => State::Text,
+            (State::Csi, '\x40'..='\x7e') => State::Text,
+            (State::Csi, _) => State::Csi,
+            (State::Osc, '\x07') => State::Text,
+            (State::Osc, '\x1b') => State::Escape,
+            (State::Osc, _) => State::Osc,
+        };
+    }
+    text
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -585,7 +662,8 @@ impl<P: ProcessSpawner> Launcher<P> {
         let deadline = Instant::now() + self.settings.ready;
         let handle = self.spawner.launch(&project, &command).await?;
         self.launching.push(handle);
-        let found = loop {
+        let mut tail = String::new();
+        let (id, transcript) = loop {
             let appeared = discover(cli, &self.settings.home, &project)
                 .into_iter()
                 .filter(|found| {
@@ -594,12 +672,25 @@ impl<P: ProcessSpawner> Launcher<P> {
                 })
                 .max_by_key(|found| found.modified);
             if let Some(found) = appeared {
-                break found;
+                break (found.id, found.path);
             }
             let handle = self.launching.last_mut().expect("pushed above");
             match self.spawner.changed(handle, deadline).await {
-                Ok(true) => {}
-                Ok(false) => return self.abandon(LaunchError::SessionNotAvailable).await,
+                Ok(Change::Output(output)) => {
+                    keep_tail(&mut tail, &output);
+                    let prompted = cli.ready().is_some_and(|marker| tail.contains(marker));
+                    // At its prompt the CLI has committed to the id it was
+                    // given; the transcript appears at that id's path with
+                    // the first turn, so nothing is written here.
+                    if let Some(id) = session_id.as_deref().filter(|_| prompted) {
+                        let layout = cli.transcripts(&self.settings.home, &project);
+                        break (id.to_owned(), layout.join(format!("{id}.jsonl")));
+                    }
+                }
+                Ok(Change::Progress) => {}
+                Ok(Change::Timeout) => {
+                    return self.abandon(LaunchError::SessionNotAvailable).await;
+                }
                 Err(error) => return self.abandon(error.into()).await,
             }
         };
@@ -607,8 +698,8 @@ impl<P: ProcessSpawner> Launcher<P> {
         let session = Session {
             project,
             cli: cli.name().to_owned(),
-            session_id: found.id,
-            transcript: found.path,
+            session_id: id,
+            transcript,
             terminal: Some(self.spawner.terminal(handle)),
         };
         if let Err(error) = self.registry.observe(session.clone()) {
@@ -769,18 +860,21 @@ impl ProcessSpawner for PtySpawner {
         handle.name.clone()
     }
 
-    async fn changed(&self, handle: &mut PtyHandle, deadline: Instant) -> io::Result<bool> {
-        let wait = deadline
-            .saturating_duration_since(Instant::now())
-            .min(Duration::from_secs(30));
+    async fn changed(&self, handle: &mut PtyHandle, deadline: Instant) -> io::Result<Change> {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let wait = remaining.min(PTY_READ_WAIT_MAX);
         let mut request = json!({"name": handle.name, "waitMs": wait.as_millis()});
         if let Some(cursor) = &handle.cursor {
             request["cursor"] = cursor.as_str().into();
         }
         let answer = ok(self.pty.read(&wire(request)?).await)?;
         handle.cursor = answer["cursor"].as_str().map(str::to_owned);
-        Ok(answer["data"].as_str().is_some_and(|data| !data.is_empty())
-            || Instant::now() < deadline)
+        let data = answer["data"].as_str().unwrap_or_default();
+        if !data.is_empty() {
+            let bytes = STANDARD.decode(data).map_err(io::Error::other)?;
+            return Ok(Change::Output(String::from_utf8_lossy(&bytes).into_owned()));
+        }
+        Ok(quiet(wait, remaining))
     }
 
     async fn send(&self, handle: &PtyHandle, text: &str) -> io::Result<()> {
@@ -815,5 +909,54 @@ impl ProcessSpawner for PtySpawner {
             name: terminal.to_owned(),
             cursor: None,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{keep_tail, quiet, strip_ansi, Change, PTY_READ_WAIT_MAX, TAIL};
+    use std::time::Duration;
+
+    #[test]
+    fn a_quiet_capped_poll_is_progress_until_the_deadline() {
+        let over = PTY_READ_WAIT_MAX + Duration::from_secs(1);
+        assert!(matches!(quiet(PTY_READ_WAIT_MAX, over), Change::Progress));
+        let under = Duration::from_millis(200);
+        assert!(matches!(quiet(under, under), Change::Timeout));
+        assert!(matches!(
+            quiet(Duration::ZERO, Duration::ZERO),
+            Change::Timeout
+        ));
+    }
+
+    #[test]
+    fn strip_ansi_removes_csi_osc_and_two_character_escapes() {
+        let styled = "\x1b[2m?\x1b[0m\x1b[38;5;245m for shortcuts\x1b[m";
+        assert_eq!(strip_ansi(styled), "? for shortcuts");
+        let titled = "\x1b]0;claude\x07ready\x1b]8;;https://x\x1b\\link";
+        assert_eq!(strip_ansi(titled), "readylink");
+        assert_eq!(strip_ansi("a\x1b7b\x1b=c\x1b[?25ld\r\n"), "abcd\r\n");
+        assert_eq!(strip_ansi("cut \x1b[3"), "cut ");
+        assert_eq!(strip_ansi("plain text"), "plain text");
+    }
+
+    #[test]
+    fn keep_tail_bounds_the_stripped_output_on_a_char_boundary() {
+        let mut tail = String::new();
+        keep_tail(&mut tail, "\x1b[1mfirst\x1b[0m ");
+        keep_tail(&mut tail, "second");
+        assert_eq!(tail, "first second");
+        let mut tail = String::new();
+        keep_tail(&mut tail, &"a".repeat(TAIL));
+        keep_tail(&mut tail, "b");
+        assert_eq!(tail.len(), TAIL);
+        assert!(tail.starts_with("aa") && tail.ends_with("ab"));
+        // Twelve bytes, the two-byte `é` last; 4095 more land the cut inside it.
+        let mut tail = String::new();
+        keep_tail(&mut tail, "xxxxxxxxxxé");
+        let prompts = "? for shortcuts".repeat(273);
+        keep_tail(&mut tail, &prompts);
+        assert_eq!(tail, prompts);
+        assert_eq!(tail.len(), TAIL - 1);
     }
 }
