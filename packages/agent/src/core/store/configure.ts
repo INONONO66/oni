@@ -18,6 +18,7 @@ export interface MaterializeInput extends GenerationSeed {
   readonly id: string;
   readonly parentId: string | null;
   readonly role: LedgerSession.Role;
+  readonly agent?: string;
   /** Pinned at genesis: widths and fork copy cap. */
   readonly settings?: ConsumptionSettings;
   readonly actionId: string;
@@ -36,6 +37,7 @@ export function materializationSeed(
     readonly id: string;
     readonly parentId: string | null;
     readonly role: LedgerSession.Role;
+    readonly agent?: string;
     readonly actionId: string;
     readonly at: number;
     readonly settings?: ConsumptionSettings;
@@ -47,6 +49,7 @@ export function materializationSeed(
       id: input.id,
       parentId: input.parentId,
       role: input.role,
+      ...(input.agent === undefined ? {} : { agent: input.agent }),
       fenceOwner: null,
       fence: 0,
       revision: 0,
@@ -60,6 +63,7 @@ export function materializationSeed(
       sessionId: input.id,
       parentId: null,
       operation: "create",
+      ...(input.agent === undefined ? {} : { agent: input.agent }),
       snapshot,
       ...(input.settings === undefined ? {} : { settings: input.settings }),
       at: input.at,
@@ -160,6 +164,8 @@ export function configureAction(input: {
   readonly parentId: string | null;
   readonly operation: SessionGeneration.ConfigureIntent["operation"];
   readonly snapshot: SessionGeneration.Snapshot;
+  /** Present only on genesis; later configurations cannot select a persona. */
+  readonly agent?: string;
   /** Present only when the configure pins them. */
   readonly settings?: ConsumptionSettings;
   /** Present only on a forked child's genesis configure. */
@@ -177,6 +183,7 @@ export function configureAction(input: {
       encodingVersion: 1,
       value: {
         operation: input.operation,
+        ...(input.agent === undefined ? {} : { agent: input.agent }),
         ...(input.settings === undefined ? {} : { settings: input.settings }),
         ...(input.forkedFrom === undefined ? {} : { forkedFrom: input.forkedFrom }),
         ...(input.disabled === undefined ? {} : { disabled: input.disabled.map((entry) => ({ ...entry })) }),

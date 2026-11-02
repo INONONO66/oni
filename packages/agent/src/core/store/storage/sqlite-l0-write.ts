@@ -7,7 +7,10 @@ import { CorruptRecord, SchemaRefused } from "../errors";
 import type { RefuseWrite } from "./write-effect";
 
 export const sessionSelect = `SELECT id, parent_id, role, lease_owner, lease_fence,
-  revision, state, tools_generation, system_hash, policy_generation FROM session`;
+  revision, state, tools_generation, system_hash, policy_generation,
+  (SELECT json_extract(intent, '$.agent') FROM action
+   WHERE session_id = session.id AND ordinal = 1 AND kind = 'session.configure') AS agent
+  FROM session`;
 
 export function insertSession(db: Database, row: LedgerSession.Row): boolean {
   const result = db

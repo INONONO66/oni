@@ -172,6 +172,8 @@ export namespace LedgerSession {
       id: Identifier,
       parentId: NullableIdentifier,
       role: Role,
+      /** Opaque persona id from genesis; the core assigns no product default. */
+      agent: Identifier.optional(),
       fenceOwner: NullableIdentifier,
       fence: z.number().int().nonnegative(),
       revision: z.number().int().nonnegative(),
@@ -322,6 +324,8 @@ export namespace SessionGeneration {
         "compose",
         "fork",
       ]),
+      /** Immutable persona id, recorded only by the genesis configure. */
+      agent: Identifier.optional(),
       /** `all|one` consumption widths (#1253); present only when this configure pins them. */
       settings: ConsumptionSettings.optional(),
       /** Fork ancestry (#1257); present only on a forked child's genesis configure. */
