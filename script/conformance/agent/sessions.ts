@@ -8,14 +8,18 @@
  * the recorded claude-code transcript streams in source order and the same
  * cursor always yields the same page; a corrupt line becomes a typed
  * `corrupt` record per failure kind and an oversized line, or one line with
- * more records than a page holds, becomes a `truncated` record; and a
- * permission hook raised for a launched session is allowed only by an
- * explicit host grant, is refused `timeout` when the host's decision misses
- * its deadline, and the decision that arrives after that deadline cannot
- * turn into a grant. Waits are bus events, process exits or the host
- * decider's own signals under a bounded timeout; nothing sleeps or polls.
+ * more records than a page holds, becomes a `truncated` record; the
+ * transcript saved as plain file bytes plus its cursor and written back
+ * after the client was killed and re-admitted resumes the SAME session id
+ * from the saved cursor (never from byte zero), while a forged cursor or
+ * one from another generation is refused (#1779); and a permission hook
+ * raised for a launched session is allowed only by an explicit host grant,
+ * is refused `timeout` when the host's decision misses its deadline, and
+ * the decision that arrives after that deadline cannot turn into a grant.
+ * Waits are bus events, process exits or the host decider's own signals
+ * under a bounded timeout; nothing sleeps or polls.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Deferred, Effect } from "effect";
 import { type BusEvent, Machine } from "../../../packages/protocol/src/index.js";
@@ -95,7 +99,15 @@ export interface Harness<Client extends Attached> {
 }
 
 type Sessions = NonNullable<MachineHandle["agentSession"]>;
+type Records = readonly Machine.AgentTranscriptRecord[];
 type Page = Extract<Machine.AgentSessionTailResult, { status: "ok" }>;
+
+/** The transcript as the bytes on disk plus the cursor to resume from: no bundle store, no checkpoint. */
+interface Saved {
+  readonly path: string;
+  readonly bytes: Buffer;
+  readonly cursor: Machine.AgentSessionCursor;
+}
 
 interface Signal {
   readonly promise: Promise<void>;
@@ -199,7 +211,7 @@ export function agentConformance<Client extends Attached>(
     ]);
   }
 
-  async function typedDamage(sessions: Sessions, transcript: string, from: Page): Promise<void> {
+  async function typedDamage(sessions: Sessions, transcript: string, from: Page): Promise<{ readonly resume: Page; readonly rest: Records }> {
     writeFileSync(transcript, damagedLines(), { flag: "a" });
     const corrupt = await tail(sessions, { cursor: from.cursor });
     check(
@@ -229,6 +241,40 @@ export function agentConformance<Client extends Attached>(
     );
     record(
       `damaged lines typed: corrupt invalid_encoding/invalid_shape/unsupported_record, truncated ${OVERSIZED_BYTES + 1}-byte line, ${WIDE_PARTS}-part line cut to ${Machine.AGENT_SESSION_MAX_RECORDS} ending truncated`,
+    );
+    return { resume: oversized, rest: [...wide.records, ...after.records] };
+  }
+
+  function saveSession(home: string, transcript: string, cursor: Machine.AgentSessionCursor): Saved {
+    const path = transcript.slice(home.length + 1);
+    const bytes = readFileSync(transcript);
+    record(`saved ${path} as ${bytes.length} plain bytes, cursor byte ${cursor.byteOffset}`);
+    return { path, bytes, cursor };
+  }
+
+  function importSession(home: string, saved: Saved): void {
+    mkdirSync(resolve(home, saved.path, ".."), { recursive: true });
+    writeFileSync(join(home, saved.path), saved.bytes);
+  }
+
+  async function resumes(sessions: Sessions, project: string, saved: Saved, rest: Records): Promise<void> {
+    const reopened = await run(sessions.open({ project, cli: CLI, sessionId: SESSION }));
+    check(
+      reopened.status === "ok" && reopened.cursor.sessionId === SESSION && reopened.cursor.generation === saved.cursor.generation,
+      `reopen after import answered ${JSON.stringify(reopened)}`,
+    );
+    const wide = await tail(sessions, { cursor: saved.cursor });
+    const after = await tail(sessions, { cursor: wide.cursor });
+    check(
+      saved.cursor.byteOffset > 0 && same([...wide.records, ...after.records], rest),
+      `resume from byte ${saved.cursor.byteOffset} streamed ${JSON.stringify(wide.records.slice(0, 2))}`,
+    );
+    const forged = await run(sessions.tail({ cursor: { ...saved.cursor, recordHash: "0".repeat(64) } }));
+    check(forged.status === "refused" && forged.reason === "invalid_cursor", `forged cursor answered ${JSON.stringify(forged)}`);
+    const stale = await harness.refusal(sessions.tail({ cursor: { ...saved.cursor, generation: saved.cursor.generation + 1 } }));
+    check(stale === "stale_generation", `cursor from another generation refused ${stale}`);
+    record(
+      `after kill + re-admission the imported ${SESSION} resumed from byte ${saved.cursor.byteOffset}, not 0; forged cursor invalid_cursor, foreign-generation cursor stale_generation`,
     );
   }
 
@@ -349,7 +395,7 @@ export function agentConformance<Client extends Attached>(
     );
     const host = acquired.value;
     try {
-      await harness.attach(setup, events.next(Machine.Events.Attached));
+      const client = await harness.attach(setup, events.next(Machine.Events.Attached));
       const [info] = host.list();
       check(info?.capabilities.includes("agent.session") === true, `agent.session not negotiated: ${JSON.stringify(info?.capabilities)}`);
       const sessions = host.get(info.machineId).agentSession;
@@ -359,7 +405,15 @@ export function agentConformance<Client extends Attached>(
       mkdirSync(resolve(transcript, ".."), { recursive: true });
       writeFileSync(transcript, readFileSync(RECORDED));
       const end = await streamsInOrder(sessions, project, transcript);
-      await typedDamage(sessions, transcript, end);
+      const { resume, rest } = await typedDamage(sessions, transcript, end);
+      const saved = saveSession(setup.home, transcript, resume.cursor);
+      await harness.stop(client, events.next(Machine.Events.Detached));
+      rmSync(join(setup.home, ".claude"), { recursive: true, force: true });
+      rmSync(join(setup.home, ".oni", "machine-client", "agent-sessions.json"), { force: true });
+      importSession(setup.home, saved);
+      await harness.attach(setup, events.next(Machine.Events.Attached));
+      check(host.list()[0]?.generation === saved.cursor.generation, "the reconnect was not re-admitted on the cursor's generation");
+      await resumes(sessions, project, saved, rest);
       await permissionBridge(sessions, setup, project, decisions);
     } finally {
       await acquired.close();
