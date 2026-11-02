@@ -1,5 +1,24 @@
 # Implementation Status
 
+## #1779 attach and import hand-run CLI sessions
+
+A `cli:` contact declared with `attach: "existing"` and the `sessionId` of a
+session the Owner ran by hand opens that session through
+`agent.session.open` without launching a process. `agent.session.list`
+merges the transcripts found under the CLI's project directory with the
+client's registry, so a hand-run session is listable before any contact
+names it. The contact's first watch runs under the `imported` turn label:
+the child source tails the transcript from byte zero in
+`AGENT_SESSION_MAX_RECORDS` pages and admits the history as the same
+`child_fact` and `child_receipt` rows, so the ledger is the durable copy
+once the CLI deletes its transcript. The live watch then starts from the
+persisted contact cursor, never byte zero, and `send_message` resumes the
+CLI through `agent.session.send` (`claude --resume`, `codex resume`,
+pi `--session` for an observed-but-unowned session). The clients
+conformance kills the client, writes the transcript back as plain bytes,
+re-admits it, and proves the same session id resumes from the saved cursor
+while forged and foreign-generation cursors are refused.
+
 ## #1741 live session driver over the turn dispatcher
 
 `apps/oni/src/composition/live-session.ts` is a `Core.SessionRunner` for a
@@ -41,7 +60,6 @@ utterance → one assistant row, an admitted tool call → tool rows, a denied
 tool call → the denial row with the stream continuing, and the ws door
 selecting the runner. Receipts:
 `apps/oni/test/{live-session,live-session-ws}.test.ts`.
-
 ## #1604 child current-state frame
 
 A console or `cli:` contact sends `{type: "child_state", requestId, sessionId,
