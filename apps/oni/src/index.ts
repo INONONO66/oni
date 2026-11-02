@@ -735,8 +735,8 @@ export async function startOni(options: StartOptions = {}) {
       },
       // The machine port is read at access time, never captured.
       get machines() { return machineProvision; },
-      rules,
       get permissions() { return agentPermission; },
+      rules,
       persons: plane.stores.persons,
       instances: plane.stores.instances,
       secrets: plane.stores.secrets,
