@@ -14,7 +14,7 @@ const contact: Provisioning.ChannelInstance = {
   revision: 1, createdBy: "owner", updatedAt: 0,
 };
 
-function harness(options: { readonly sendRefused?: boolean } = {}) {
+function harness(options: { readonly sendRefused?: boolean; readonly silent?: boolean } = {}) {
   const calls: string[] = [];
   const installed: ChildWatch[] = [];
   const rows: ChildRow[] = [];
@@ -29,6 +29,7 @@ function harness(options: { readonly sendRefused?: boolean } = {}) {
     send: (request) => Effect.sync(() => {
       calls.push(`send:${request.sessionId}:${request.text}`);
       if (options.sendRefused === true) return { status: "refused" as const, reason: "session_not_available" as const };
+      if (options.silent === true) return { status: "ok" as const };
       const spec = installed.at(-1);
       if (spec === undefined) throw new Error("send before watch install");
       rows.push(...reconcile({
@@ -81,6 +82,15 @@ test("a cli turn opens a machine-client session, sends, and ends on the terminal
   expect(calls).toEqual([
     "open:claude-code:/work", "send:agent-1:review", "close:cli:agent-1", "send:agent-1:again", "stop:agent-1", "close:cli:agent-1",
   ]);
+});
+
+test("an interrupt wakes the pending turn with the landed refusal and stops the child", async () => {
+  const { runner, calls, listeners } = harness({ silent: true });
+  const pending = Effect.runPromise(Effect.flip(runner.run({ agent: "reviewer", message: "review", sender: SENDER, turnId: "t-1", key: "k-1" })));
+  await Effect.runPromise(runner.interrupt("agent-1"));
+  expect(await pending).toEqual({ reason: "deadline expired; the child was interrupted", landed: true });
+  expect(calls).toEqual(["open:claude-code:/work", "send:agent-1:review", "stop:agent-1", "close:cli:agent-1"]);
+  expect(listeners.size).toBe(0);
 });
 
 test("a refused send and an undeclared contact surface typed refusals", async () => {

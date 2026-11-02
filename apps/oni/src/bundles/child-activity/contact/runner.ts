@@ -67,6 +67,8 @@ interface Active {
   deadline?: DeadlineArm;
   interrupted: boolean;
   ended: boolean;
+  /** Re-checks the pending turn; set while a wait is parked, since the bus only wakes it on a commit. */
+  wake?: () => void;
 }
 
 const refused = (reason: string, landed?: boolean): CliRefusal =>
@@ -120,6 +122,7 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       let unsubscribe: (() => void) | undefined;
       // The callback cleanup runs only on interrupt, so a settled wait drops its listener itself.
       const settle = (exit: Effect.Effect<CliTurn, CliRefusal>) => {
+        child.wake = undefined;
         unsubscribe?.();
         resume(exit);
       };
@@ -142,8 +145,12 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
         resume(Effect.fail(refused("the observation bus offers no subscription; a cli turn cannot be awaited")));
         return;
       }
+      child.wake = check;
       check();
-      return Effect.sync(unsubscribe);
+      return Effect.sync(() => {
+        child.wake = undefined;
+        unsubscribe();
+      });
     });
   }
 
@@ -226,6 +233,7 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       );
       if (running.ended) return yield* Effect.fail({ reason: "the child turn has already ended", code: "turn_already_ended" as const });
       running.interrupted = true;
+      running.wake?.();
       yield* stop(running);
     }),
     close: () => Effect.forEach([...active.values()], stop, { discard: true }).pipe(Effect.catch(() => Effect.void)),
