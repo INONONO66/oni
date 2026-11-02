@@ -372,9 +372,9 @@ dropped and its id is spent.
 
 ### The sealed tool catalog (#949)
 
-The model door offers exactly eleven tools, in catalog order: `read`, `write`,
+The model door offers exactly twelve tools, in catalog order: `read`, `write`,
 `edit`, `ls`, `find`, `grep`, `bash`, `eval`, `monitor`, `send_message`,
-`provision`. `completion({prompt, model?, system?, schema?})` is the one
+`provision`, `speech`. `completion({prompt, model?, system?, schema?})` is the one
 cell-only tool; batching is the cell's `parallel()`. `model` is an id on the
 configured provider (never another credential), `system` is system text, and
 `schema` is a JSON Schema the answer must satisfy: the host validates the
