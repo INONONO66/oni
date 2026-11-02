@@ -29,7 +29,7 @@ src/
 
 ## DEPENDENCIES
 
-`@oni/protocol` only, plus `ai@7.0.93`, `@ai-sdk/anthropic@4.0.49`, `@ai-sdk/openai@4.0.60` (exact pins, same majors as the desktop console) and `effect@4.0.0-rc.118` — enforced by `script/check-deps.ts` and `script/topology.ts`. Consumer: `apps/oni` only; `packages/agent` must not depend on this package.
+`@oni/protocol` only, plus `ai@7.0.93`, `@ai-sdk/anthropic@4.0.49`, `@ai-sdk/openai@4.0.60`, `@ai-sdk/google@4.0.64` (exact pins, same majors as the desktop console) and `effect@4.0.0-rc.118` — enforced by `script/check-deps.ts` and `script/topology.ts`. Consumer: `apps/oni` only; `packages/agent` must not depend on this package.
 
 ## RULES
 
