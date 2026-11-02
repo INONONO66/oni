@@ -170,7 +170,7 @@ export const DELEGATION_DEADLINE = "delegation.deadline";
  * `to.new` session child keeps the #1258 session chain
  * (`<session>:delegation.deadline`), where a second arm supersedes the first.
  */
-export function cliDeadlineChain(sessionId: string, child: string): string {
+function cliDeadlineChain(sessionId: string, child: string): string {
   return `${sessionId}:${DELEGATION_DEADLINE}:${child}`;
 }
 

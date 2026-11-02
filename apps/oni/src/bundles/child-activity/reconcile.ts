@@ -1,7 +1,6 @@
-import { ChildLifecycleEvidence, Delivery, TranscriptRef, canonicalDigest, canonicalJson, parseJson, type LedgerAction } from "@oni/protocol";
+import { ChildLifecycleEvidence, Delivery, Machine, TranscriptRef, canonicalDigest, canonicalJson, parseJson, type LedgerAction } from "@oni/protocol";
 import { z } from "zod";
-import type { SpoolReplay } from "./spool";
-import type { SourceDiagnostic, SourceObservation } from "./transcript";
+import { phaseOf } from "./contact/rule";
 
 const Fact = ChildLifecycleEvidence.pick({ child: true, turn: true, toolUseId: true, phase: true });
 const Receipt = z.strictObject({
@@ -9,6 +8,8 @@ const Receipt = z.strictObject({
   ref: ChildLifecycleEvidence.shape.ref,
   diagnostics: ChildLifecycleEvidence.shape.diagnostics,
   observedAt: z.number().int().nonnegative(),
+  contact: z.string().min(1).optional(),
+  cursor: Machine.AgentSessionCursor.optional(),
 });
 const Conflict = z.strictObject({
   code: z.literal("idempotency_conflict"),
@@ -57,19 +58,47 @@ export function conflictRow(row: ChildRow): Extract<ChildRow, { kind: "child_con
   return { kind: "child_conflict", key: canonicalDigest(content), content };
 }
 
-export function diagnosticRow(
+function diagnosticRow(
   identity: { readonly child: string; readonly turn: string },
-  diagnostic: SourceDiagnostic,
+  diagnostic: { readonly ref: TranscriptRef; readonly diagnostic: { readonly code: string; readonly detail: string } },
 ): ChildRow {
   const content = { ...identity, ...diagnostic };
   return { kind: "child_diagnostic", key: canonicalDigest(content), content };
 }
 
-/** Authority orders a batch only; every source independently admits its fact and receipt. */
+interface TranscriptPage {
+  readonly machine: string;
+  readonly contact: string;
+  readonly child: string;
+  readonly turn: string;
+  readonly records: readonly Machine.AgentTranscriptRecord[];
+  readonly cursor: Machine.AgentSessionCursor;
+  readonly previous: Machine.AgentSessionCursor;
+  readonly observedAt: number;
+}
+
+function recordRef(page: TranscriptPage): TranscriptRef {
+  return {
+    machine: page.machine,
+    export: "agent-session",
+    path: `/agent-session/${page.child}`,
+    generation: {
+      kind: "inode",
+      device: String(page.cursor.generation),
+      inode: page.cursor.recordHash,
+    },
+    range: {
+      offsetBytes: page.previous.byteOffset,
+      lengthBytes: page.cursor.byteOffset - page.previous.byteOffset,
+    },
+    parser: { dialect: "agent-session", version: "1" },
+  };
+}
+
+/** Every machine-client record independently admits its source-free fact and retained cursor receipt. */
 export function reconcile(
-  observations: readonly SourceObservation[],
+  page: TranscriptPage,
   admitted: readonly ChildRow[],
-  replays: readonly SpoolReplay[] = [],
 ): ChildRow[] {
   const known = new Map(admitted.map((row) => [row.key, row]));
   const added: ChildRow[] = [];
@@ -87,44 +116,50 @@ export function reconcile(
     known.set(row.key, row);
     added.push(row);
   };
-  for (const { evidence, observedAt } of [...observations].sort(
-    (a, b) => authority[source(b.evidence.ref)] - authority[source(a.evidence.ref)],
-  )) {
+  for (const record of page.records) {
+    const phase = phaseOf(record);
+    const ref = recordRef(page);
+    if (phase === undefined) {
+      append(diagnosticRow(
+        { child: page.child, turn: page.turn },
+        { ref, diagnostic: { code: record.kind, detail: record.kind === "corrupt" ? record.reason : record.kind === "truncated" ? String(record.originalBytes) : "" } },
+      ));
+      continue;
+    }
     const content = {
-      child: evidence.child, turn: evidence.turn, phase: evidence.phase,
-      ...(evidence.toolUseId === undefined ? {} : { toolUseId: evidence.toolUseId }),
+      child: page.child,
+      turn: page.turn,
+      phase,
+      ...(record.kind === "tool_call" || record.kind === "tool_result" ? { toolUseId: record.callId } : {}),
     };
     const factKey = canonicalDigest(content);
     append({ kind: "child_fact", key: factKey, content });
-    const key = canonicalDigest([factKey, source(evidence.ref), evidence.ref]);
+    const key = canonicalDigest([factKey, "transcript", ref]);
     const previous = known.get(key);
     append({
       kind: "child_receipt", key,
       content: {
-        factKey, ref: evidence.ref, diagnostics: evidence.diagnostics,
+        factKey,
+        ref,
+        diagnostics: [],
+        contact: page.contact,
+        cursor: page.cursor,
         // A later read is not a new observation of the same retained bytes.
-        observedAt: previous?.kind === "child_receipt" ? previous.content.observedAt : observedAt,
+        observedAt: previous?.kind === "child_receipt" ? previous.content.observedAt : page.observedAt,
       },
     });
   }
-  for (const replay of replays) {
-    // A sequence belongs to the child, so the earlier receipt may sit on another turn.
-    const previous = childReceipts([...known.values()], replay.child).find(
-      (entry) => "kind" in entry.receipt.ref && entry.receipt.ref.seq === replay.seq,
-    );
-    const digest = previous?.receipt.diagnostics.find((entry) => entry.code === "source_sha256");
-    if (previous === undefined || digest === undefined || digest.detail === replay.digest) continue;
-    append(conflictRow({
-      kind: "child_receipt",
-      key: canonicalDigest([previous.receipt.factKey, "hook", previous.receipt.ref]),
-      content: {
-        ...previous.receipt,
-        diagnostics: previous.receipt.diagnostics.map((entry) =>
-          entry.code === "source_sha256" ? { ...entry, detail: replay.digest } : entry),
-      },
-    }));
-  }
   return added;
+}
+
+export function contactCursor(rows: readonly ChildRow[], contact: string): Machine.AgentSessionCursor | undefined {
+  return rows.reduce<Machine.AgentSessionCursor | undefined>((latest, row) => {
+    if (row.kind !== "child_receipt" || row.content.contact !== contact || row.content.cursor === undefined) return latest;
+    if (latest === undefined || row.content.cursor.generation > latest.generation) return row.content.cursor;
+    return row.content.cursor.generation === latest.generation && row.content.cursor.byteOffset > latest.byteOffset
+      ? row.content.cursor
+      : latest;
+  }, undefined);
 }
 
 export interface StateReceipt {

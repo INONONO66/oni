@@ -2,14 +2,9 @@ import { statSync, watch } from "node:fs";
 import { basename, dirname } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { Bundle } from "@oni/agent";
-import { MachineRefusalError } from "@oni/machines";
-import { TranscriptRef, canonicalJson, parseJson, type Alarm, type Machine } from "@oni/protocol";
-import type { FilePorts } from "../bundles/tools/core/filesystem";
+import { canonicalJson, type Alarm, type Machine } from "@oni/protocol";
 import type { ChildWatch } from "../bundles/child-activity/index";
-import { selectPack } from "../bundles/child-activity/dialects/index";
-import { decodeSpool, type SpoolCursor } from "../bundles/child-activity/spool";
-import { decodeTranscript, sourceDigest, transcriptCursor, type Generation, type TranscriptCursor } from "../bundles/child-activity/transcript";
-import { diagnosticRow, reconcile, type ChildRow } from "../bundles/child-activity/reconcile";
+import { contactCursor, reconcile, type ChildRow } from "../bundles/child-activity/reconcile";
 
 /**
  * Watch plane over the Session entity (W5.2 plan §1 F2, #1254): this module
@@ -465,199 +460,78 @@ export interface WatchSources {
 
 export interface ChildSourcePorts {
   readonly machines: {
-    get(id: string): { readonly fs: Pick<ReturnType<NonNullable<FilePorts["machines"]>["get"]>["fs"], "read" | "stat"> };
+    get(id: string): { readonly agentSession: {
+      tail(input: Machine.AgentSessionTailRequest): Promise<Machine.AgentSessionTailResult>;
+    } };
   };
   readonly rows: (sessionId: string) => readonly ChildRow[];
   readonly admit: NonNullable<WatchSenders["admit"]>;
 }
 
-/** Consecutive drains in which every configured source failed; the third retires the chain. */
+/** Consecutive drains in which the source failed; the third retires the chain. */
 const CHILD_FAILURE_LIMIT = 3;
 
-type ChildFs = ReturnType<ChildSourcePorts["machines"]["get"]>["fs"];
-
-/**
- * The anchored generation: fixed size plus the hash of its first bytes. A size-0 anchor hashed
- * no bytes, so the caller passes none and the first non-empty generation is adopted silently.
- */
-async function anchoredGeneration(fs: ChildFs, path: string, size: number, old: Generation | undefined): Promise<Generation> {
-  const anchorSize = old !== undefined && size >= old.size ? old.size : size;
-  const prefix = anchorSize === 0 ? new Uint8Array() : (await fs.read(path, { offset: 0, limit: Math.min(anchorSize, 4096) })).data;
-  const prefixSha256 = sourceDigest(prefix);
-  if (old !== undefined && size >= old.size && old.prefixSha256 === prefixSha256) return old;
-  return {
-    kind: "size-and-prefix-hash", size,
-    prefixSha256: anchorSize === size ? prefixSha256 : sourceDigest((await fs.read(path, { offset: 0, limit: Math.min(size, 4096) })).data),
-  };
-}
-
 class ChildSourceError extends Error {
-  constructor(readonly code: "pack_missing" | "source_missing" | "not_file" | "read_stalled" | "watch_conflict") {
+  constructor(readonly code: "source_missing" | "watch_conflict" | "tail_refused") {
     super(`child source: ${code}`);
     this.name = "ChildSourceError";
   }
 }
 
-/** Both remote files share one source, one serialized drain, and the existing alarm cadence. */
+/** Machine-client transcript pages share the existing alarm cadence and Deliver door. */
 export function childSource(
   spec: ChildWatch,
   ports: ChildSourcePorts,
   options: {
     readonly clock: () => number;
     readonly failure: (error: Error) => void;
-    /** After every drain: false when every configured source failed, true otherwise. */
+    /** After every drain: false when the remote source failed, true otherwise. */
     readonly drained?: (progress: boolean) => void;
   },
 ): AlarmSource & { observe(): Promise<void> } {
-  const selected = selectPack(spec.occupant);
-  if (selected === undefined) throw new ChildSourceError("pack_missing");
-  const pack = selected;
-  if ((spec.spool === undefined && spec.transcript === undefined) ||
-      (spec.spool !== undefined && pack.live === undefined) ||
-      (spec.transcript !== undefined && pack.transcript === undefined))
-    throw new ChildSourceError("source_missing");
   const admitted = new Map(ports.rows(spec.sessionId).map((row) => [row.key, row]));
-  const childFacts = new Set([...admitted.values()].flatMap((row) =>
-    row.kind === "child_fact" && row.content.child === spec.child ? [row.key] : []));
-  const configured = [spec.spool, spec.transcript].filter((location) => location !== undefined).length;
-  let spool: SpoolCursor | undefined;
-  let transcript: TranscriptCursor | undefined;
+  const persisted = contactCursor([...admitted.values()], spec.contact);
+  let cursor = persisted?.sessionId === spec.cursor.sessionId ? persisted : spec.cursor;
   let closed = false;
-  // Transcript reads are stamped strictly later than the previous read of this child, even inside
-  // one clock millisecond: two reads across a generation change must never tie in `currentState`.
-  let lastObservedAt = [...admitted.values()].reduce((last, row) =>
-    row.kind === "child_receipt" && childFacts.has(row.content.factKey) && !("kind" in row.content.ref)
-      ? Math.max(last, row.content.observedAt) : last, -1);
-  const observedAt = () => {
-    lastObservedAt = Math.max(options.clock(), lastObservedAt + 1);
-    return lastObservedAt;
-  };
-
-  function restored(location: NonNullable<ChildWatch["spool"]>): TranscriptCursor | undefined {
-    const refs: TranscriptRef[] = [];
-    for (const row of admitted.values()) {
-      if (row.kind !== "child_receipt" || !childFacts.has(row.content.factKey)) continue;
-      const ref = row.content.ref;
-      if (!("kind" in ref)) refs.push(ref);
-      refs.push(...row.content.diagnostics.flatMap((diagnostic) => {
-        if (diagnostic.code !== "spool_ref") return [];
-        const parsed = parseJson(TranscriptRef, diagnostic.detail);
-        return parsed === undefined ? [] : [parsed];
-      }));
-    }
-    const ref = refs.filter((entry) =>
-      entry.machine === location.machine && entry.export === location.export && entry.path === location.path,
-    ).at(-1);
-    return ref?.generation.kind === "size-and-prefix-hash"
-      ? { checkpoint: { generation: ref.generation, offsetBytes: ref.range.offsetBytes + ref.range.lengthBytes }, tail: new Uint8Array() }
-      : undefined;
-  }
-
-  async function read(location: NonNullable<ChildWatch["spool"]>, previous: TranscriptCursor | undefined) {
-    const fs = ports.machines.get(location.machine).fs;
-    const stat = await fs.stat(location.path).catch((error: Error) => {
-      if (error instanceof MachineRefusalError && error.reason === "not_found") return undefined;
+  async function admit(row: ChildRow): Promise<void> {
+    if (admitted.has(row.key)) return;
+    try {
+      for (const entry of await ports.admit(spec.sessionId, [row])) admitted.set(entry.key, entry);
+    } catch (error) {
+      // A Deliver may have committed before its reply was lost: the retry must see what the journal holds.
+      for (const entry of ports.rows(spec.sessionId)) admitted.set(entry.key, entry);
       throw error;
-    });
-    if (stat === undefined) return undefined;
-    if (stat.kind !== "file") throw new ChildSourceError("not_file");
-    // A size-0 anchor anchors nothing: the first non-empty generation is adopted, not reported as a rewrite.
-    const anchor = previous === undefined || previous.checkpoint.generation.size === 0 ? undefined : previous;
-    const generation = await anchoredGeneration(fs, location.path, stat.size, anchor?.checkpoint.generation);
-    const resumed = transcriptCursor(anchor, generation).cursor;
-    const offset = resumed.checkpoint.offsetBytes + resumed.tail.length;
-    const chunk = offset >= stat.size ? new Uint8Array() : (await fs.read(location.path, { offset, limit: 256 * 1024 })).data;
-    if (offset < stat.size && chunk.length === 0) throw new ChildSourceError("read_stalled");
-    return {
-      ref: { ...location, generation, range: { offsetBytes: offset, lengthBytes: chunk.length } },
-      chunk,
-      more: offset + chunk.length < stat.size,
-      anchor,
-    };
-  }
-
-  /** What the journal holds, so memory never disagrees with it after a refused or lost Deliver. */
-  const refresh = () => {
-    for (const persisted of ports.rows(spec.sessionId)) admitted.set(persisted.key, persisted);
-  };
-  async function accept(rows: readonly ChildRow[]) {
-    for (const row of rows) {
-      if (closed) return;
-      if (admitted.has(row.key)) continue;
-      let accepted: readonly ChildRow[];
-      try {
-        accepted = await ports.admit(spec.sessionId, [row]);
-      } catch (error) {
-        // A Deliver may have committed before its reply was lost: the retry must see what the journal holds.
-        refresh();
-        throw error;
-      }
-      // A Deliver-side idempotency conflict answers with the conflict row only. The requested
-      // key is never re-derived without an intervening thrown Deliver (the cursor advances past
-      // the bytes), and that path refreshes above, so no further refresh is needed here.
-      for (const entry of accepted) admitted.set(entry.key, entry);
     }
   }
-
-  async function drainSpool(location: NonNullable<ChildWatch["spool"]>) {
-      // The sequence belongs to the child, so it is restored even when this file location has no checkpoint.
-      spool ??= {
-        file: restored(location),
-        lastSeq: [...admitted.values()].reduce((seq, row) =>
-          row.kind === "child_receipt" && childFacts.has(row.content.factKey) && "kind" in row.content.ref
-            ? Math.max(seq, row.content.ref.seq) : seq, -1),
-      };
-      let more = true;
-      while (more && !closed) {
-        const input = await read(location, spool.file);
-        if (input === undefined) break;
-        const decoded = decodeSpool({ ...input, pack, child: spec.child, turn: spec.turn, cursor: { ...spool, file: input.anchor } });
-        await accept([...reconcile(decoded.observations, [...admitted.values()], decoded.replays), ...decoded.diagnostics.map((diagnostic) => diagnosticRow({ child: spec.child, turn: spec.turn }, diagnostic))]);
-        spool = decoded.cursor;
-        more = input.more;
+  async function drain(): Promise<void> {
+    let more = true;
+    while (more && !closed) {
+      const page = await ports.machines.get(spec.machine).agentSession.tail({ cursor });
+      if (page.status !== "ok") throw new ChildSourceError("tail_refused");
+      const rows = reconcile({
+        machine: spec.machine, contact: spec.contact, child: spec.child, turn: spec.turn,
+        records: page.records, cursor: page.cursor, previous: cursor, observedAt: options.clock(),
+      }, [...admitted.values()]);
+      for (const row of rows) {
+        if (closed) return;
+        await admit(row);
       }
-  }
-  async function drainTranscript(location: NonNullable<ChildWatch["transcript"]>) {
-      transcript ??= restored(location);
-      let more = true;
-      while (more && !closed) {
-        const input = await read(location, transcript);
-        if (input === undefined) break;
-        const decoded = decodeTranscript({ ...input, pack, child: spec.child, turn: spec.turn, observedAt: observedAt(), ...(input.anchor === undefined ? {} : { cursor: input.anchor }) });
-        await accept([...reconcile(decoded.observations, [...admitted.values()]), ...decoded.diagnostics.map((diagnostic) => diagnosticRow({ child: spec.child, turn: spec.turn }, diagnostic))]);
-        transcript = decoded.cursor;
-        more = input.more;
-      }
-  }
-  /** Each source drains on its own: a broken spool read must not stop transcript admission. */
-  async function drain(): Promise<Error[]> {
-    const failures: Error[] = [];
-    const isolated = (run: Promise<void>) => run.catch((error: Error) => { failures.push(error); });
-    if (spec.spool !== undefined) await isolated(drainSpool(spec.spool));
-    if (spec.transcript !== undefined) await isolated(drainTranscript(spec.transcript));
-    return failures;
-  }
-  const report = (failures: readonly Error[]) => {
-    for (const failure of failures) options.failure(failure);
-  };
-  const settle = (failures: Error[]) => {
-    options.drained?.(failures.length < configured);
-    return failures;
-  };
-  // The first drain settles `ready`: it refuses only when every configured source failed.
-  const ready = drain().then(settle).then((failures) => {
-    const [first] = failures;
-    if (first !== undefined && failures.length === configured) {
-      report(failures.slice(1));
-      throw first;
+      cursor = page.cursor;
+      more = page.hasMore;
     }
-    report(failures);
+  }
+  const ready = drain().then(() => options.drained?.(true), (error: Error) => {
+    options.drained?.(false);
+    throw error;
   });
   let pending = ready;
   return {
     ready,
     observe() {
-      pending = pending.then(() => closed ? undefined : drain().then(settle).then(report)).catch((error: Error) => options.failure(error));
+      pending = pending.then(() => closed ? undefined : drain().then(() => options.drained?.(true))).catch((error: Error) => {
+        options.drained?.(false);
+        options.failure(error);
+      });
       return pending;
     },
     async close() {

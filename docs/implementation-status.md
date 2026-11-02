@@ -11,6 +11,16 @@ of killing the client. Every heartbeat while restricted carries a
 in its `machine.report`, so the host observes the breach building across
 beats rather than only at the final disconnect.
 
+## #1777 machine client child activity sessions
+
+`cli:` contacts open, send to, and stop machine-client agent sessions through
+the attached machine handle. Their session IDs are the child IDs. The
+child-activity alarm source tails server-minted cursors, persists the latest
+cursor with its admitted receipts, and turns transcript records into the
+existing child facts and receipts. TypeScript dialect packs, hook spool
+scripts, and local transcript parsers are removed. The machine-originated
+permission bridge remains separate work under #1665.
+
 ## #1720 leased clipboard access
 
 Machine clipboard read/write runs through the captured computer-use lease gate; the client retains bounded previous contents locally for conditional lease-end restoration, and ledger facts expose only format and byte counts.
