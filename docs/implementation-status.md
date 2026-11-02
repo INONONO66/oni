@@ -923,46 +923,28 @@ without its terminal, and `list` reports `running` only for a session the
 client owns now. One session id belongs to one project and CLI: the registry
 refuses a second observation under another owner.
 
-**`packages/sync` (`@oni/sync`).** A new protocol-only workspace (topology,
-knip, tsconfig) plus the two lead edits that admit it: `workspaces: 10` in
-`script/core-end-state-targets.ts` and the generated `Test (sync)` step
-inside the `topology:test-steps` block of `.github/workflows/ci.yml`. `checkpoints.ts`: `syncPath` (canonical
-relative manifest key, refusing empty, absolute, `.`/`..`, backslash, NUL and
-over 4096), `commitCheckpoint` and `replayCheckpoints`, whose id is
-`canonicalDigest({projectId, sequence, parent, changes})` so equal content in
-two projects never shares an id and any foreign project, broken parent,
-wrong sequence, forged id or tampered change is `checkpoint_broken`.
-`bundles.ts`: `blobDigest`, the `BlobSource`/`BundleSource` ports,
-`MemoryBundleStore` with `maxEntries`/`maxBytes` (`limit_exceeded`) and
-`fetchBundle`, which trusts nothing from the source and re-checks identity,
-bounds, declared totals, per-entry path, digest and size, duplicates and
-every blob hash. `vfs.ts`: `createSyncVfs(manifest, blobs)` returns a frozen
-`{list, read, stat}` over manifest keys only (no filesystem, copies out,
-digest verified on read; `corrupt` or `path_rejected`). Export-root
-confinement for real paths stays in `machines/src/contained.ts`; sync adds
-no second fs policy. The app binds `BundleSource`; nothing in `apps/oni`
-consumes the package yet.
+**`packages/sync` (`@oni/sync`) — removed in #1780.** The workspace
+described below (checkpoints, content-addressed bundles, the read-only sync
+view) shipped with zero consumers outside this inventory and one
+conformance script; `apps/oni` never bound `BundleSource`. #1780 deleted the
+package, its topology/knip/tsconfig entries and the `Test (sync)` CI step,
+and dropped the conformance checks that exercised it (see the Conformance
+paragraph below).
 
 **Conformance.** `script/check-clients-conformance.ts` now runs the
 unchanged P3 stage (10 checks) and then `script/conformance/agent/sessions.ts`
-(8 checks, the first driving the shipped permission module) on its own fixture, host and private tmux server (`TMUX_TMPDIR`,
+on its own fixture, host and private tmux server (`TMUX_TMPDIR`,
 killed at teardown), with the fixture root at `/tmp` because a hook socket
 under `os.tmpdir()` exceeds `sun_path` on macOS. The P4 stage joins with
 `agent.session` in the enrollment; streams a recorded `claude-code`
 transcript in source order with a stable cursor (byte 423, identical page on
 re-read, unmoved when nothing is appended); turns three damaged lines into
 the three `corrupt` reasons and a 307,201-byte line into one `truncated`
-record; exports the transcript into a `MemoryBundleStore` bundle plus a
-`commitCheckpoint`; SIGKILLs the client, deletes `~/.claude` and the
-registry, imports through `fetchBundle` and `replayCheckpoints`, re-attaches
-at the same generation and resumes the same session id from byte 307,655,
-refusing a forged hash `invalid_cursor` and a generation+1 cursor
-`stale_generation`; serves a read-only sync view whose tampered blob, forked
-parent, foreign project and `../escape` are `corrupt`, `checkpoint_broken`,
-`checkpoint_broken` and `path_rejected`; and drives the permission bridge
-through a fake CLI executable standing in for `claude-code`: an explicit host
-grant is hook exit 0, a 250 ms host deadline is exit 2 with empty stdout,
-and a late `allowed` found no waiter.
+record; and drives the permission bridge through a fake CLI executable
+standing in for `claude-code`: an explicit host grant is hook exit 0, a
+250 ms host deadline is exit 2 with empty stdout, and a late `allowed` found
+no waiter. #1780 dropped the export/import/resume and read-only sync-view
+checks that exercised the now-deleted `packages/sync`.
 
 **Enrollment.** `handlers::SUPPORTED` lists `agent.session` with the four
 P3 capabilities, so `mclient join` writes it into the enrollment receipt and
@@ -992,11 +974,11 @@ binaries, 0 failures (11 parser, 17 session, 5 wire and the hook suite);
 modules, 0 cycles), `check-dead-exports` ("none new"), `check-topology` and
 `lint:docs` all exit 0 after the lead's two topology edits;
 `machine-contract.test.ts` 310 pass; `packages/machines` 349 pass with
-`host.ts` at 100% lines; `packages/sync` 23 pass with every `src/*` file at
-100% lines and functions; `bun run clients:conformance` exit 0 with
+`host.ts` at 100% lines; `bun run clients:conformance` exit 0 with
 `clients conformance: 10 checks passed` and `agent session conformance: 7
 checks passed`, `check-clients-conformance.ts` 379/379 and
-`conformance/agent/sessions.ts` 322/322 lines.
+`conformance/agent/sessions.ts` 322/322 lines. (`packages/sync` itself was
+removed in #1780; its 23 tests no longer exist.)
 
 ## #1626 machine client P3: transport, attach and the daemon-parity drivers (epic #1622, PR pending)
 
