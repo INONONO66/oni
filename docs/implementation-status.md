@@ -1,5 +1,17 @@
 # Implementation Status
 
+## #1783 tool-output media refs
+
+Shipped on `feat/1783-output-ref-bridge` (PR #1819). A letter's media part
+may carry the bare tool-output id `sha256:<64 hex>` as its `ref`, beside the
+machine-path and https forms. `packages/channels` passes the sender it already
+receives into `MediaResolver = (part, sender)`; the resolver in
+`apps/oni/src/composition/media.ts` tests that form before `asUrl` and reads
+the bytes through the sender session's fence only. A foreign or missing id is
+refused typed as `MediaRefused{code:"output_missing"}`; there is no fallback.
+`Inspect.toolOutput` reads raw bytes by media type, and one media type to
+extension map names the upload. Receipts: the PR Verification section.
+
 ## #1784 `@oni/ai` and generation rows
 
 Shipped on `refactor/1784-ai-rename` (PR #1818). `packages/llm` is
@@ -12,6 +24,7 @@ the existing sink, and `apps/oni/src/config.ts` exposes `speechRows` and
 `imageRows` beside `transcriptionRows`. No speech or image tool ships here
 (#1785, #1786). Receipts: the PR Verification section.
 
+||||||| parent of 276a66888 (docs: stamp and implementation status for #1783 (PR #1819))
 ## #1794 one Message
 
 PR #1814 removes `OwnerPosture` and provider-side admission branches.
