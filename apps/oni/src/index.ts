@@ -545,7 +545,7 @@ export async function startOni(options: StartOptions = {}) {
         .Deliver({
           kind: "signal",
           body: JSON.stringify({ content: [{ kind: "text", text: "delegation deadline expired" }], control: "cancel" }),
-          source: JSON.stringify({ kind: "alarm", purpose: DELEGATION_DEADLINE }),
+          source: JSON.stringify({ kind: "alarm", purpose: DELEGATION_DEADLINE, reply: "none" }),
           idempotencyKey: `${occurrenceId}:cancel`,
         })
         .pipe(
@@ -652,8 +652,11 @@ export async function startOni(options: StartOptions = {}) {
     // durable boundary). Process runners keep direct commit + doorbell.
     const requests: typeof bootRequests = {
       ...bootRequests,
-      answer: (answer) =>
+      answer: (input) =>
         Effect.suspend(() => {
+          const answer = input.outbound === undefined ? input : {
+            ...input, outbound: { ...input.outbound, reply: "none" as const },
+          };
           if (
             liveTurns.get(answer.sessionId) !== undefined ||
             sessionRunner(answer.sessionId) === "process"
@@ -1066,7 +1069,7 @@ export async function startOni(options: StartOptions = {}) {
                 .Deliver({
                   kind: "prompt",
                   body: JSON.stringify({ content: [{ kind: "text", text: content }] }),
-                  source: JSON.stringify({ kind: "contact", contact, ...(replyTo === undefined ? {} : { replyTo }) }),
+                  source: JSON.stringify({ kind: "contact", contact, reply: "none", ...(replyTo === undefined ? {} : { replyTo }) }),
                   idempotencyKey: `${replyTo ?? services.entropy.id()}:reply`,
                 })
                 .pipe(
@@ -1093,7 +1096,7 @@ export async function startOni(options: StartOptions = {}) {
             content: [{ kind: "text", text: canonicalJson(payload) }],
             ...(after === undefined ? {} : { after }),
           }),
-          source: JSON.stringify({ kind: "hook.late" }),
+          source: JSON.stringify({ kind: "hook.late", reply: "none" }),
           idempotencyKey: `hook-late:${services.entropy.id()}`,
         }),
       ).then((exit) => {
@@ -1574,7 +1577,7 @@ export async function startOni(options: StartOptions = {}) {
               .Deliver({
                 kind: "signal",
                 body: JSON.stringify({ content: [], control: "interrupt" }),
-                source: JSON.stringify({ kind: "session", id }),
+                source: JSON.stringify({ kind: "session", id, reply: "none" }),
                 idempotencyKey: services.entropy.id(),
               })
               .pipe(

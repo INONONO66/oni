@@ -91,7 +91,7 @@ async function deliverExternal(
     sessionId,
     kind: "prompt",
     content: [{ kind: "text", text: content }],
-    origin: { encodingVersion: 1, value: { kind: "external", inboundTreatment: "full_access", ...origin } },
+    origin: { encodingVersion: 1, value: { kind: "external", reply: "auto", inboundTreatment: "full_access", ...origin } },
     createdAt: 10,
     parentActionId: null,
     ...(exists ? {} : { createSession: resident.genesis(sessionId, null, "resident", "resident") }),

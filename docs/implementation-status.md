@@ -27,6 +27,15 @@ declaration CLI flags for the removed settings are deleted. Provider fact,
 router addressing and rule-reply tests accompany the change; verification
 receipts are recorded on PR #1814.
 
+The app persists explicit reply policy at its delivery boundary: rule-backed
+channel messages (including A2A, webhook and scheduled alarms) retain the
+rule mode; unruled external messages draft for Owner accounts and reply
+automatically for bot accounts. Session and terminal child mail, atomic
+child admission, contact replies, deadline/control signals, late hooks,
+child activity and permission notices record `none`. A recorded external
+origin without policy reads as `draft`, and typing requires recorded `auto`;
+neither reader grants an implicit Owner-account send.
+
 ## #1793 ordered inbound rule table (PR #1805, epic #1791)
 
 `Ingress.Rule` is the sole inbound policy record. The channels store orders

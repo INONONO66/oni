@@ -2,13 +2,30 @@ import { Effect } from "effect";
 import { Core } from "@oni/agent";
 const AgentFailure = Core.AgentFailure;
 type AgentFailure = Core.AgentFailure;
-import { Delivery, Gateway, Provisioning, SessionGeneration, type ConsumptionSettings, type LedgerSession } from "@oni/protocol";
+import { Delivery, Gateway, PlainValueSchema, Provisioning, SessionGeneration, type ConsumptionSettings, type LedgerSession } from "@oni/protocol";
 import { type ConversationBinding, SendAdmissionConflict, type createGatewayRouter } from "@oni/channels";
 import { z } from "zod";
 import type { AppLedgerPlane } from "./cluster-runtime";
 import { outboundMessage } from "./terminal-message";
 
 type Ports = Parameters<typeof createGatewayRouter>[0];
+
+const ReplyPolicy = z.enum(["auto", "draft", "none"]);
+const OriginPolicy = z.object({
+  kind: z.string().optional(),
+  receivedBy: z.enum(["bot", "owner"]).optional(),
+  reply: ReplyPolicy.optional(),
+  rule: z.object({ reply: ReplyPolicy }).catchall(PlainValueSchema).optional(),
+}).catchall(PlainValueSchema);
+
+/** Every app admission records its reply decision, including non-channel mail. */
+export function deliveryOrigin(origin: Delivery.Origin): Delivery.Origin {
+  const value = OriginPolicy.parse(origin.value);
+  const fallback = value.kind === "external"
+    ? value.receivedBy === "owner" ? "draft" : "auto"
+    : "none";
+  return { ...origin, value: { ...value, reply: value.rule?.reply ?? value.reply ?? fallback } };
+}
 
 /** The origin a channel prompt was recorded with (`message-execution.ts`); other origins bind no conversation. */
 const ExternalOrigin = z
@@ -20,6 +37,7 @@ const ExternalOrigin = z
     actorId: z.string(),
     /** The account identity that observed the prompt. */
     receivedBy: z.enum(["bot", "owner"]).optional(),
+    reply: ReplyPolicy.optional(),
     rule: z.object({ reply: z.enum(["auto", "draft", "none"]), as: z.string().optional() }).optional(),
     conversation: z
       .object({
@@ -46,10 +64,11 @@ function originBinding(
   if (send.to.kind !== "origin") return undefined;
   const origin = ExternalOrigin.safeParse(kernel.actionById(send.to.inReplyTo)?.intent.value);
   if (!origin.success || origin.data.surface === "ws") return undefined;
-  const { surface, instance, externalId, actorId, conversation, receivedBy, rule } = origin.data;
+  const { surface, instance, externalId, actorId, conversation, receivedBy, rule, reply } = origin.data;
   return {
     surface,
-    ...(rule === undefined ? {} : { reply: rule.reply, ...(rule.as === undefined ? {} : { as: rule.as }) }),
+    reply: rule?.reply ?? reply ?? "draft",
+    ...(rule?.as === undefined ? {} : { as: rule.as }),
     ...(instance === undefined ? {} : { instance }),
     externalId,
     actorId,
@@ -78,7 +97,7 @@ export function pendingDeliveryRow(input: Delivery.Commit, ordinal: number): Del
     sessionId: input.sessionId,
     kind: input.kind,
     content: input.content,
-    origin: input.origin,
+    origin: deliveryOrigin(input.origin),
     status: "pending",
     consumedBy: null,
     consumedAt: null,
@@ -198,7 +217,7 @@ export function deliverPayload(input: Delivery.Commit): Effect.Effect<DeliverPay
         ...(control === undefined ? {} : { control }),
         ...(delivery === undefined ? {} : { delivery }),
       }),
-      source: JSON.stringify(input.origin.value),
+      source: JSON.stringify(deliveryOrigin(input.origin).value),
       idempotencyKey: input.id,
     };
   });

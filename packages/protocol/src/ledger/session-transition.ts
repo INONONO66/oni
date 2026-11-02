@@ -124,6 +124,8 @@ export namespace SessionTransition {
       content: z.string(),
       /** Loop-consumption boundary the receiver folds the row at (#1311); absent folds to the `followUp` default. */
       delivery: z.enum(["steer", "followUp"]).optional(),
+      /** Reply policy attached by the receiving application's delivery boundary. */
+      reply: z.enum(["auto", "draft", "none"]).optional(),
       digest: Id,
     })
     .strict();

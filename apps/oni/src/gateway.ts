@@ -34,6 +34,7 @@ import { messageDecisionRules } from "./composition/message-decision";
 import { createIngressExecutor, GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { SHIPPED_OWNER_POLICY } from "./composition/policy";
 import { outboundMessage } from "./composition/terminal-message";
+import { deliveryOrigin } from "./composition/message-session";
 import { type Context, Effect, Result, Exit, ManagedRuntime, Scope } from "effect";
 import { AppLedger, type AppLedgerPlane } from "./composition/cluster-runtime";
 import type { ComposedGeneration } from "./composition/composed";
@@ -671,7 +672,12 @@ export function channelRequests(
   return {
     list: requests.list,
     open: (input) =>
-      requests.open(input).pipe(Effect.mapError(decodeChannelFailure("request.open"))),
+      requests.open({
+        ...input,
+        ...(input.admission === undefined ? {} : {
+          admission: { ...input.admission, origin: deliveryOrigin(input.admission.origin) },
+        }),
+      }).pipe(Effect.mapError(decodeChannelFailure("request.open"))),
     answer: (input) =>
       requests.answer(input).pipe(Effect.mapError(decodeChannelFailure("request.answer"))),
     receipt: (input) =>

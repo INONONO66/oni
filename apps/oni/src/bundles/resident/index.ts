@@ -92,7 +92,11 @@ const OriginConversation = z
  * origin names an actor on a channel surface. WebSocket owners already read
  * the turn stream, so they are not written to twice.
  */
-const OriginReply = z.object({ reply: z.enum(["auto", "draft", "none"]) });
+const ReplyPolicy = z.enum(["auto", "draft", "none"]);
+const OriginReply = z.object({
+  reply: ReplyPolicy.optional(),
+  rule: z.object({ reply: ReplyPolicy }).optional(),
+}).transform(({ rule, reply }) => rule?.reply ?? reply);
 
 function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget | undefined {
   for (const message of [...input.messages].reverse()) {
@@ -103,14 +107,14 @@ function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget |
     if (typeof origin.actorId !== "string" || typeof origin.externalId !== "string") continue;
     const rawConversation = OriginConversation.safeParse(origin.conversation);
     const conversation = originConversation(origin.conversation);
-    const rule = OriginReply.safeParse(origin.rule);
+    const reply = OriginReply.safeParse(origin);
     return {
       actorId: origin.actorId,
       externalId: origin.externalId,
       surface: origin.surface,
       ...(typeof origin.instance === "string" ? { instance: origin.instance } : {}),
       messageId: message.id,
-      reply: rule.data?.reply,
+      reply: reply.data,
       ...(conversation === undefined ? {} : { conversation }),
       ...(rawConversation.success
         ? {
@@ -353,7 +357,7 @@ function typingFor(
   target: ReplyTarget | undefined,
   typingRoute: ((surface: string) => ProviderTypingRoute | undefined) | undefined,
 ): Effect.Effect<void> | undefined {
-  if (role !== "resident" || input.authority === "evidence_only" || target?.reply === "draft" || target?.reply === "none") return undefined;
+  if (role !== "resident" || input.authority === "evidence_only" || target?.reply !== "auto") return undefined;
   const route = target === undefined ? undefined : typingRoute?.(target.instance ?? target.surface);
   return route === undefined || target === undefined ? undefined : typingPulse(route, target.externalId, target.conversation);
 }

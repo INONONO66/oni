@@ -68,7 +68,7 @@ test("the request lands in the owning session as one action row and an allow fac
       agentSessionId: "agent-1", deadlineMs: AGENT_PERMISSION_DEADLINE_MS, description: "rm -rf build",
       kind: "agent_permission", machineId: MACHINE, requestId: "req-1", tool: "Bash",
     }) }] }),
-    source: JSON.stringify({ kind: "agent_permission", machineId: MACHINE }),
+    source: JSON.stringify({ kind: "agent_permission", machineId: MACHINE, reply: "none" }),
     idempotencyKey: KEY,
   }]);
   expect(store(OWNER).head(KEY)).toEqual({ key: KEY, type: "agent_permission.decided", data: { status: "allowed" }, timeCreated: 1_000 });

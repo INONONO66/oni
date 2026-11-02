@@ -111,7 +111,7 @@ export function createAgentPermissionPort(deps: AgentPermissionDeps): AgentPermi
     return deps.deliver(owner, {
       kind: "action",
       body: canonicalJson({ content: [{ kind: "text", text: canonicalJson(row) }] }),
-      source: canonicalJson({ kind: "agent_permission", machineId }),
+      source: canonicalJson({ kind: "agent_permission", machineId, reply: "none" }),
       idempotencyKey: key,
     }).pipe(
       Effect.andThen(awaitAnswer(owner, key)),
