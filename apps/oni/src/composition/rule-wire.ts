@@ -23,7 +23,7 @@ function respond(port: RulePort, request: Ingress.RuleRequest,
       const entry = store.add({ ...request.record, id, createdBy: caller,
         seed: caller === "owner" && request.record.seed === true,
         enabled: caller === "owner" && request.record.enabled }, caller === "owner");
-      return { type: "rule_added", requestId, record: entry.record };
+      return caller === "owner" ? { type: "rule_added", requestId, record: entry.record } : refused(request, "require_approval");
     }
     case "rule_list": return { type: "rule_listed", requestId, records: store.list().map((entry) => entry.record) };
     case "rule_ledger": {

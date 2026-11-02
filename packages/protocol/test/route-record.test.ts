@@ -115,7 +115,7 @@ describe("Ingress.routeDecisionsEquivalent", () => {
 
   test.each([
     ["decision", { decision: "matched" as const }],
-    ["by", { by: "automation/alerts" }],
+    ["by", { by: "rule/alerts" }],
   ])("ledger rows: divergent %s → not equivalent", (_f, over) => {
     expect(Ingress.routeDecisionsEquivalent(ledger(), ledger(over))).toBe(false);
   });

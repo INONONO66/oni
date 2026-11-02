@@ -13,13 +13,13 @@ const base = {
   outcome: "record" as const,
   reason: "event-1",
   factsUsed: ["event.kind", "author.isBot"],
-  by: "automation/alerts",
+  by: "rule/alerts",
   factsDigest: "sha256:123",
 };
 
 for (const decision of ["matched", "filtered", "refused", "deduped", "grouped", "superseded"] as const) {
   test(`round-trips ${decision} ledger decision`, () => {
-    const value = { ...base, decision, runWhen: { verdict: "unknown" as const, reason: "not enough facts" }, target: "session:1", actionSeq: 2 };
+    const value = { ...base, decision, verdict: "unknown" as const, target: "session:1", actionSeq: 2 };
     expect(schema.parse(value)).toEqual(value);
     expect(Ingress.recordedRoutingDecision(value)).toEqual(value);
   });
@@ -37,7 +37,6 @@ const LEDGER_KEYS = [
   "mode",
   "outcome",
   "reason",
-  "runWhen",
   "sessionId",
   "stage",
   "surface",
@@ -45,6 +44,7 @@ const LEDGER_KEYS = [
   "time",
   "traceId",
   "trustTier",
+  "verdict",
 ] as const;
 
 for (const decision of ["matched", "filtered", "refused", "deduped", "grouped", "superseded"] as const) {
@@ -52,7 +52,7 @@ for (const decision of ["matched", "filtered", "refused", "deduped", "grouped", 
     const full = {
       ...base,
       decision,
-      runWhen: { verdict: "yes" as const, reason: "owner mention" },
+      verdict: "yes" as const,
       target: "session:1",
       actionSeq: 2,
       sessionId: "session-1",
