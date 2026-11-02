@@ -57,8 +57,9 @@ export const scriptsLanes = {
     "run-quality-mutations-compiler.test.ts",
     "run-quality-mutations-operators.test.ts",
   ],
-  // Needs the prebuilt clients/target/debug/mclient: run by the Clients Rust
-  // CI job (`bun run clients:conformance`), never by a script partition.
+  // Needs a prebuilt mclient (`ONI_MCLIENT_BIN`, else clients/target/debug):
+  // run by the Clients Rust CI job after its coverage pass builds one
+  // (`bun run clients:conformance`), never by a script partition.
   "clients-conformance": ["check-clients-conformance.test.ts"],
 } as const;
 export type ScriptsLane = keyof typeof scriptsLanes;
@@ -66,33 +67,37 @@ export const scriptPartitions = [
   "scripts-contracts",
   "scripts-tooling-1",
   "scripts-tooling-2",
+  "scripts-tooling-3",
 ] as const;
 // #1116 lean PR gate: the ratchet-only tooling suites are gone; the surviving
-// mutation-runner suites split by their measured heavy hitters
-// (run-quality-mutations ~197s uninstrumented, the full-repository compiler
-// suites, check-types-census ~48s) so both shards stay far below the timeout.
+// mutation-runner suites are packed by their measured CI wall time (run
+// 41421047056: run-quality-mutations ~327s with its fixture campaign, the
+// compiler suite ~266s, operators ~140s, check-types-census ~75s,
+// quality-mutation-shard ~56s, check-deps ~43s) so no shard exceeds ~340s.
 export const scriptToolingPartitions = {
   "scripts-tooling-1": [
     "census-consumer-contract.test.ts",
-    "check-deps.test.ts",
     "check-deps-agent-bands.test.ts",
     "check-written-types.test.ts",
     "run-quality-mutations.test.ts",
     "quality-mutation-workflow.test.ts",
     "quality-source.test.ts",
-    "run-quality-mutations-operators.test.ts",
-    "quality-native-mutation.test.ts",
     "quality-json.test.ts",
     "quality-audit.test.ts",
-    "quality-audit-issues.test.ts",
     "quality-native-process.test.ts",
   ],
   "scripts-tooling-2": [
+    "check-deps.test.ts",
+    "run-quality-mutations-compiler.test.ts",
+    "quality-native-mutation.test.ts",
+    "quality-audit-issues.test.ts",
+  ],
+  "scripts-tooling-3": [
     "bundle-type-contract.test.ts",
     "check-comment-residue.test.ts",
     "generate-machine-schema.test.ts",
     "generate-models-snapshot.test.ts",
-    "run-quality-mutations-compiler.test.ts",
+    "run-quality-mutations-operators.test.ts",
     "quality-mutation-shard.test.ts",
     "check-types-census.test.ts",
     "quality-mutation-reach-overlay.test.ts",
