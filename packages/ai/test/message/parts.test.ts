@@ -8,6 +8,7 @@ import { runTestSync } from "../helpers/runner";
 const vision: Provider.Model = { id: "claude-sonnet-4-5", providerID: "anthropic", name: "Sonnet", input: ["text", "image"], api: { npm: "@ai-sdk/anthropic" } };
 const audio: Provider.Model = { id: "audio", providerID: "openai", name: "Audio", input: ["text", "image", "audio", "video"], api: { npm: "@ai-sdk/openai", style: "chat" } };
 const textOnly: Provider.Model = { id: "o3-mini", providerID: "openai", name: "o3-mini" };
+const gemini: Provider.Model = { id: "gemini-2.5-flash", providerID: "google", name: "Gemini", input: ["text", "image", "audio", "video"], api: { npm: "@ai-sdk/google" } };
 
 const photo: Gateway.MediaPart = { kind: "image", ref: "mac:/p.png", mime: "image/png" };
 const voice: Gateway.MediaPart = { kind: "audio", ref: "mac:/voice", name: "voice", voice: true, mime: "audio/wav" };
@@ -15,9 +16,11 @@ const doc: Gateway.MediaPart = { kind: "file", ref: "mac:/d.pdf" };
 const lost: Gateway.MediaPart = { kind: "image", ref: "mac:/gone.png" };
 const png = new Uint8Array([137, 80, 78, 71]);
 const wav = new Uint8Array([1, 2, 3]);
+const pdf = new Uint8Array([37, 80, 68, 70]);
 const bytes: PartBytes<string> = (ref) => {
   if (ref === photo.ref) return Effect.succeed({ bytes: png, mime: "image/jpeg" });
   if (ref === voice.ref) return Effect.succeed({ bytes: wav, mime: "application/octet-stream" });
+  if (ref === doc.ref) return Effect.succeed({ bytes: pdf, mime: "application/pdf" });
   return Effect.fail(`no bytes for ${ref}`);
 };
 
@@ -55,6 +58,15 @@ describe("resolveInputParts", () => {
         { part: lost, reason: "unresolved", cause: "no bytes for mac:/gone.png" },
       ],
     });
+  });
+
+  test("a PDF reaches a google model as a file block; a text-only model with the same bytes refuses it", () => {
+    expect(runTestSync(resolveInputParts({ parts: [doc], model: gemini, bytes }))).toEqual({
+      blocks: [{ type: "file", data: pdf, mediaType: "application/pdf" }],
+      unaccepted: [],
+    });
+    expect(runTestSync(resolveInputParts({ parts: [doc], model: textOnly, bytes: () => Effect.die(new Error("must not read")) })))
+      .toEqual({ blocks: [], unaccepted: [{ part: doc, reason: "modality" }] });
   });
 
   test("a text-only model never reads media bytes", () => {

@@ -25,12 +25,12 @@ export const RemoteModel = CatalogModel.omit({ provider: true })
     });
     return input === undefined ? model : { ...model, input };
   });
-const SupportedSdk = new Set<string>(["@ai-sdk/anthropic", "@ai-sdk/openai"]);
+const SupportedSdk = new Set<string>(["@ai-sdk/anthropic", "@ai-sdk/google", "@ai-sdk/openai"]);
 const RemoteProvider = z.object({
   id: z.string().optional(),
   name: z.string(),
   env: z.array(z.string()),
-  npm: z.enum(["@ai-sdk/anthropic", "@ai-sdk/openai"]),
+  npm: z.enum(["@ai-sdk/anthropic", "@ai-sdk/google", "@ai-sdk/openai"]),
   models: z.record(z.string(), RemoteModel),
 });
 /** The SDK gate: an entry without a bundled SDK is a policy skip, never a parse failure. */

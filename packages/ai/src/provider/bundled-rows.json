@@ -25,6 +25,19 @@
       "image": {
         "model": "gpt-image-1"
       }
+    },
+    {
+      "id": "google",
+      "npm": "@ai-sdk/google",
+      "transcription": "gemini-3.5-transcribe",
+      "speech": {
+        "model": "gemini-2.5-flash-preview-tts",
+        "voice": "Kore",
+        "format": "wav"
+      },
+      "image": {
+        "model": "gemini-2.5-flash-image"
+      }
     }
   ]
 }

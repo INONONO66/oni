@@ -1,4 +1,5 @@
 import { createAnthropic, type AnthropicProvider } from "@ai-sdk/anthropic";
+import { createGoogle, type GoogleProvider } from "@ai-sdk/google";
 import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { secretFingerprint } from "../fingerprint";
@@ -21,13 +22,14 @@ export interface Transport {
   readonly headers?: Record<string, string>;
 }
 
-type BundledProviderSDK = AnthropicProvider | OpenAIProvider;
+type BundledProviderSDK = AnthropicProvider | GoogleProvider | OpenAIProvider;
 type ProviderSDK = BundledProviderSDK;
 
 // A Map keeps the lookup free of Object.prototype keys ("toString", ...)
 // that an object literal would resolve and invoke as SDK factories.
 const BUNDLED_PROVIDERS = new Map<string, (options: SdkOptions) => BundledProviderSDK>([
   ["@ai-sdk/anthropic", (options) => createAnthropic(options)],
+  ["@ai-sdk/google", (options) => createGoogle(options)],
   ["@ai-sdk/openai", (options) => createOpenAI(options)],
 ]);
 

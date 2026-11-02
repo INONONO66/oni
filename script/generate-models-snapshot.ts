@@ -4,7 +4,7 @@ import { RemoteModel } from "../packages/ai/src/model/schema.js";
 import { PlainValueSchema, type PlainObject } from "../packages/protocol/src/json.js";
 import { z } from "zod";
 
-const BUNDLED_PROVIDERS = ["anthropic", "openai"] as const;
+const BUNDLED_PROVIDERS = ["anthropic", "openai", "google"] as const;
 const SNAPSHOT_PATH = "packages/ai/src/model/models-snapshot.json";
 const SourceModel = RemoteModel.and(z.object({
   release_date: z.string().optional(),

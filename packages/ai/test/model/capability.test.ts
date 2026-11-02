@@ -40,6 +40,25 @@ describe("model input capability", () => {
     expect(Capability.accepts({ ...model, input: ["text"] }, { kind: "image", mime: "image/png" })).toBe(false);
   });
 
+  test("the google transport reads the documented Gemini image, audio, video and PDF types; file is transport-only", () => {
+    const model = { input: ["text", "image", "audio", "video"] as const, api: { npm: "@ai-sdk/google" } };
+    for (const mime of ["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"])
+      expect(Capability.accepts(model, { kind: "image", mime })).toBe(true);
+    for (const mime of ["audio/wav", "audio/mpeg", "audio/mp3", "audio/mp4", "audio/ogg", "audio/opus", "audio/webm"])
+      expect(Capability.accepts(model, { kind: "audio", mime })).toBe(true);
+    for (const mime of ["video/mp4", "video/quicktime", "video/3gpp", "video/webm"])
+      expect(Capability.accepts(model, { kind: "video", mime })).toBe(true);
+    expect(Capability.accepts(model, { kind: "file", mime: "application/pdf" })).toBe(true);
+    expect(Capability.accepts({ api: model.api }, "file")).toBe(true);
+    for (const part of [
+      { kind: "image", mime: "image/gif" },
+      { kind: "video", mime: "video/x-matroska" },
+      { kind: "file", mime: "text/plain" },
+    ] as const)
+      expect(Capability.accepts(model, part)).toBe(false);
+    expect(Capability.accepts({ ...model, input: ["text"] }, { kind: "audio", mime: "audio/wav" })).toBe(false);
+  });
+
   test("bundled rows carry the input modalities through to the provider model", () => {
     expect(bundled("anthropic", "claude-sonnet-4-5").input).toEqual(["text", "image"]);
     expect(Capability.accepts(bundled("openai", "gpt-5"), "image")).toBe(true);
@@ -53,7 +72,7 @@ describe("model input capability", () => {
       google: {
         name: "Google",
         env: [],
-        npm: "@ai-sdk/openai",
+        npm: "@ai-sdk/google",
         models: {
           omni: { id: "omni", name: "Omni", modalities: { input: ["text", "image", "audio", "video", "pdf"], output: ["text"] } },
           plain: { id: "plain", name: "Plain" },

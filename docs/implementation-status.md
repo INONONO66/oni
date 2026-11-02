@@ -1,5 +1,26 @@
 # Implementation Status
 
+## #1787 google provider row
+
+Shipped on `feat/1787-google` (PR #1820). `@ai-sdk/google@4.0.64` is the
+third provider package: the `ProviderRow.npm` enum, `BUNDLED_PROVIDERS` in
+`script/generate-models-snapshot.ts` and the `ProviderSDK` union in
+`packages/ai/src/provider/sdk.ts` all name it, superseding the two-package
+enum recorded under `feat/1562-provider-rows`. The bundled `google` row
+selects `gemini-3.5-transcribe` for transcription,
+`gemini-2.5-flash-preview-tts` (voice `Kore`, `wav`) for speech and
+`gemini-2.5-flash-image` for image generation (the Gemini image model, which
+the pinned SDK exposes where Imagen is absent). `Capability.accepts` carries
+the Gemini transport: the image, audio and video MIME lists and the first
+`file` acceptance (`application/pdf`), so a PDF part reaches a google chat
+model as a file block while every other package still refuses `file`;
+`models-snapshot.json` now bundles the google catalog so offline google
+models keep their context limits and input modalities. With the default rows
+transcription still resolves to the first row that declares one (openai);
+the google transcription model is reachable only by model selection. Fixture
+tests cover the chat, image, speech, transcription and PDF paths; no live
+call. Receipts: the PR Verification section.
+
 ## #1783 tool-output media refs
 
 Shipped on `feat/1783-output-ref-bridge` (PR #1819). A letter's media part
@@ -24,7 +45,6 @@ the existing sink, and `apps/oni/src/config.ts` exposes `speechRows` and
 `imageRows` beside `transcriptionRows`. No speech or image tool ships here
 (#1785, #1786). Receipts: the PR Verification section.
 
-||||||| parent of 276a66888 (docs: stamp and implementation status for #1783 (PR #1819))
 ## #1794 one Message
 
 PR #1814 removes `OwnerPosture` and provider-side admission branches.
