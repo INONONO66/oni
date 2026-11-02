@@ -48,7 +48,8 @@ import {
   inputRecorder,
 } from "./conformance/computer/index.js";
 
-export const MCLIENT = resolve(import.meta.dir, "../clients/target/debug/mclient");
+export const MCLIENT =
+  process.env.ONI_MCLIENT_BIN ?? resolve(import.meta.dir, "../clients/target/debug/mclient");
 const MACHINE = "conformance";
 const EXPORT = "work";
 const PTY_NAME = "conformance";
