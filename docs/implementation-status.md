@@ -1,5 +1,9 @@
 # Implementation Status
 
+## #1781 gate-review follow-ups (docs)
+
+On `docs/1781-gate-followups` (PR #1823), docs only. The #1786 section below and `docs/agents-stamps/1786-image.md` now count thirteen model-door tools (the #1785 and #1786 lanes each added one over the twelve of `docs/kernel-contract.md` before them); the five historical mentions of the pre-#1784 package name read `@oni/ai` (then `llm`); `docs/compaction-design.md` refers to its reference harness generically. No code changed.
+
 ## #1786 image tool
 
 Shipped on `feat/1786-image` (PR #1822). `packages/ai/src/image.ts` is the
