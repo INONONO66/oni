@@ -35,6 +35,8 @@ interface Delivered {
 }
 
 const delivered: Delivered[] = [];
+/** The sender the capturing route received beside each letter (#1783). */
+const senders: (Gateway.IngestSender | undefined)[] = [];
 const sender = { kind: "external", surface: "discord", externalId: "buyer-external" } as const;
 const facts: Ingress.Message = {
   eventId: "contact",
@@ -53,8 +55,10 @@ const capturing: ChannelDeliveryRoute = { platform: "discord", identity: "bot", 
   payload,
   idempotencyKey,
   conversation,
+  sender,
 ) => {
   delivered.push({ externalId, body: Outbound.text(payload), idempotencyKey, conversation });
+  senders.push(sender);
   return { value: "accepted", externalMessageId: `platform-${delivered.length}` };
 } };
 
@@ -85,6 +89,7 @@ function replyFrom(router: Router, sessionId: string, inReplyTo: string, content
 beforeEach(() => {
   resetRouterState();
   delivered.length = 0;
+  senders.length = 0;
   registerRule({ when: { instance: "discord", channel: "market" } });
   ledger().stores.actors.registerIdentity({
     id: "actor-buyer",
@@ -537,4 +542,11 @@ test("the reply admission records one budget-free fact per message id: a replay 
   expect(first).toMatchObject({ budgeted: false, sendClass: "notify" });
   expect(admitReply(ledger().stores, input("yes"), target)).toEqual(first);
   expect(() => admitReply(ledger().stores, input("no"), target)).toThrow(SendAdmissionConflict);
+});
+
+test("a reply carries the answering session as the letter's sender, unchanged, to the route (#1783)", async () => {
+  const router = makeRouter();
+  const prompt = await admitFirstContact(router);
+  expect((await replyFrom(router, prompt.target, prompt.messageId)).status).toBe("executed");
+  expect(senders).toEqual([{ kind: "session", id: prompt.target }]);
 });

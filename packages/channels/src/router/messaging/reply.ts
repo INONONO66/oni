@@ -72,6 +72,8 @@ type OutboundMessage = Readonly<{
   operation: Gateway.MessageOperation;
   payload: Outbound.Payload;
   target: Gateway.DeliveryTarget;
+  /** The letter's admitted sender, as the router handed it in (#1783). */
+  sender?: Gateway.IngestSender;
 }>;
 
 export interface ReplyPorts {
@@ -107,7 +109,8 @@ export interface ReplyMessaging {
     binding: ConversationBinding | undefined,
     inReplyTo: string,
   ): ReplyRefusal | undefined;
-  send(input: ReplyInput): Effect.Effect<KernelDeliveryReceipt["value"], ChannelError>;
+  /** `sender` rides beside the input: the router's authenticated fact, never an input field. */
+  send(input: ReplyInput, sender?: Gateway.IngestSender): Effect.Effect<KernelDeliveryReceipt["value"], ChannelError>;
 }
 
 /**
@@ -184,7 +187,7 @@ export function createReplyMessaging(ports: ReplyPorts): ReplyMessaging {
       const selected = replyInstance(ports, binding);
       return typeof selected === "string" ? selected : undefined;
     },
-    send: (input) =>
+    send: (input, sender) =>
       Effect.gen(function* () {
         const selected = replyInstance(ports, input.binding);
         if (typeof selected === "string")
@@ -220,6 +223,7 @@ export function createReplyMessaging(ports: ReplyPorts): ReplyMessaging {
               operation: "fire_and_forget",
               payload: input.payload,
               target,
+              ...(sender === undefined ? {} : { sender }),
             }),
           catch: decodeChannelFailure("reply.deliver"),
         });

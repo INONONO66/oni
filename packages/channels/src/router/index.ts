@@ -40,13 +40,14 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     ((_sender: Gateway.IngestSender, observation: Gateway.MessageObservation) =>
       ports.sink(Gateway.MessageObserved, observation));
   const messagingPorts = ports.messaging;
-  // The sending session rides along as the letter's sender (#1783): the
-  // admitted `senderId` is a session id on both the send and the reply door.
+  // The letter's admitted sender rides along unchanged (#1783): the executor
+  // hands it to both doors beside the parsed input, and a kernel driven
+  // without the router carries none, so the route attaches no session output.
   const deliver = (message: {
     readonly target: Gateway.DeliveryTarget;
     readonly payload: Outbound.Payload;
     readonly idempotencyKey: string;
-    readonly senderId: string;
+    readonly sender?: Gateway.IngestSender;
   }) => {
     const route = messagingPorts?.deliveryRoutes.get(message.target.instance);
     if (route === undefined)
@@ -59,7 +60,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       message.payload,
       message.idempotencyKey,
       message.target.conversation,
-      { kind: "session", id: message.senderId },
+      message.sender,
     );
   };
   const routes = () => messagingPorts?.deliveryRoutes ?? new Map();
