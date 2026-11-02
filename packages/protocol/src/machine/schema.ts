@@ -341,6 +341,21 @@ export const Load = z
 export type Load = z.infer<typeof Load>;
 
 /**
+ * Present only while the client is over its memory budget (#1775); its
+ * absence from a `Report` means the client is not restricted. Mirrors
+ * `oni-machine-client`'s `budget::Budget` fields exactly.
+ */
+export const MemoryBudget = z
+  .object({
+    restricted: z.literal(true),
+    overSamples: z.number().int().nonnegative(),
+    limitBytes: z.number().int().nonnegative(),
+    rssBytes: z.number().int().nonnegative(),
+  })
+  .strict();
+export type MemoryBudget = z.infer<typeof MemoryBudget>;
+
+/**
  * Daemon → host heartbeat (#1555): one per report interval after attach.
  * The host stores only the latest report per attachment and derives
  * staleness from its own clock; nothing here is extrapolated.
@@ -361,6 +376,7 @@ export const Report = z
      * calls `machine.stream.open` never receives this field.
      */
     streams: z.array(StreamObservation).max(STREAM_MAX_CONCURRENT).optional(),
+    memoryBudget: MemoryBudget.optional(),
   })
   .strict();
 export type Report = z.infer<typeof Report>;

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { EpochMs } from "../time.js";
-import { AttachGeneration, CapabilityId, Enrollment, Load, Peer, Resources } from "./schema.js";
+import { AttachGeneration, CapabilityId, Enrollment, Load, MemoryBudget, Peer, Resources } from "./schema.js";
 import { HumanInput, Session, TransportFacts } from "./facts.js";
 import { Screen } from "./probe.js";
 import { ComputerWindow } from "./lease.js";
@@ -22,6 +22,7 @@ export const Info = Enrollment.extend({
     transport: TransportFacts.extend({ clockOffsetMs: z.number().finite().optional() }).optional(),
     stale: z.boolean(),
     windows: z.record(z.string(), ComputerWindow).optional(),
+    memoryBudget: MemoryBudget.optional(),
   }).strict().optional(),
 });
 export type Info = z.infer<typeof Info>;

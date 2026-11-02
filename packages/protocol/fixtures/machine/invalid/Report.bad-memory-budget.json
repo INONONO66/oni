@@ -1,0 +1,11 @@
+{
+  "machineId": "mac-0",
+  "reportedAt": 3000,
+  "load": { "loadAvg1": 1.2, "memoryAvailableBytes": 1024, "inFlight": 0 },
+  "memoryBudget": {
+    "restricted": false,
+    "overSamples": -1,
+    "limitBytes": 536870912,
+    "rssBytes": 600000000
+  }
+}

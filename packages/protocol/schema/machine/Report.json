@@ -59,6 +59,37 @@
       "minLength": 1,
       "type": "string"
     },
+    "memoryBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "limitBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "overSamples": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "restricted": {
+          "const": true,
+          "type": "boolean"
+        },
+        "rssBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "restricted",
+        "overSamples",
+        "limitBytes",
+        "rssBytes"
+      ],
+      "type": "object"
+    },
     "reportedAt": {
       "minimum": 0,
       "type": "number"
