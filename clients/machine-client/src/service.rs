@@ -525,7 +525,7 @@ mod tests {
                     host_pin: None,
                     trust_on_first_use: false,
                     unix: None,
-                    memory_budget_mb: 96,
+                    memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,
                 };
                 let state = install(
                     &options,

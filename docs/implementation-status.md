@@ -1,5 +1,16 @@
 # Implementation Status
 
+## #1775 memory budget default and breach reporting
+
+`mclient`'s default `memoryBudgetMb` is 512 (was 96, below one Retina
+`screen()` capture's retained ~103 MB RSS), and `attach::Budget::sample`
+tolerates `EXIT_GRACE_SAMPLES` (6, was 3) consecutive over-budget heartbeats
+before exiting 4, so a single capture spike sheds once and recovers instead
+of killing the client. Every heartbeat while restricted carries a
+`memoryBudget` fact (`restricted`, `overSamples`, `limitBytes`, `rssBytes`)
+in its `machine.report`, so the host observes the breach building across
+beats rather than only at the final disconnect.
+
 ## #1720 leased clipboard access
 
 Machine clipboard read/write runs through the captured computer-use lease gate; the client retains bounded previous contents locally for conditional lease-end restoration, and ledger facts expose only format and byte counts.

@@ -17,6 +17,10 @@ use crate::transport::connection::{public_key_pin, HostTrust};
 
 pub const DEFAULT_PORT: &str = "7643";
 
+/// One Retina `screen()` capture retains ~103 MB RSS that the allocator does
+/// not return (#1775); 512 covers that plus encode-buffer headroom.
+pub const DEFAULT_MEMORY_BUDGET_MB: u64 = 512;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("host_unresolved")]
@@ -83,7 +87,7 @@ pub struct JoinOptions {
     pub trust_on_first_use: bool,
     #[arg(long)]
     pub unix: Option<PathBuf>,
-    #[arg(long, default_value_t = 96)]
+    #[arg(long, default_value_t = DEFAULT_MEMORY_BUDGET_MB)]
     pub memory_budget_mb: u64,
 }
 

@@ -16,6 +16,34 @@ import foldedReport from "../../protocol/fixtures/machine/valid/Report.v3-folded
 beforeAll(mclientBinary, 300_000);
 
 describe("machine.report heartbeat", () => {
+  test("a report carrying a restricted memoryBudget fact is accepted and stored", async () => {
+    const events = eventCollector();
+    const ticks = await run(Queue.unbounded<void>());
+    const host = await createMachineHost({
+      listen: { unix: socketPath() }, enrollment: (id) => id === "w-1" ? mclientEnrollment(id) : undefined,
+      events: events.sink, now: () => 4000, pingTick: Queue.take(ticks),
+    });
+    const peer = await connectIpcClient(host.endpoints.unix ?? "", {});
+    try {
+      expect(await peer.call(Machine.WireMethod.Attach, {
+        machineId: "w-1", daemonVersion: "budget-client", platform: "linux-arm64",
+        offeredCapabilities: [], offeredAt: 1, capabilities: [],
+        peer: { kind: "client", contractVersion: Machine.contractVersion },
+      })).toMatchObject({ status: "attached" });
+      expect(await peer.call(Machine.WireMethod.Report, {
+        machineId: "w-1", reportedAt: 4000,
+        load: { loadAvg1: 0, memoryAvailableBytes: 1, inFlight: 0 },
+        memoryBudget: { restricted: true, overSamples: 2, limitBytes: 536870912, rssBytes: 600000000 },
+      })).toEqual({ status: "accepted" });
+      expect(host.list()[0]?.live?.memoryBudget).toEqual({
+        restricted: true, overSamples: 2, limitBytes: 536870912, rssBytes: 600000000,
+      });
+    } finally {
+      await peer.close();
+      await host.close();
+    }
+  });
+
   test("timed ping exposes a host-owned offset without changing the client report", async () => {
     const events = eventCollector();
     const ticks = await run(Queue.unbounded<void>());
