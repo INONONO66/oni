@@ -20,7 +20,7 @@ use oni_machine_client::agent::{
         Settings, PERMISSION_FILE, PERMISSION_MODULE,
     },
     manifest::{self, Dialect, DIALECTS},
-    omp, pi,
+    pi,
     registry::{Registry, RegistryError, Session},
 };
 use oni_machine_client::pty::ops::Pty;
@@ -485,12 +485,10 @@ async fn launch_argv_and_hooks_stay_in_dialect_data() {
         ["--resume", "chosen"]
     );
     assert_eq!(dialect("codex").command(&resume).args, ["resume", "chosen"]);
-    for cli in ["pi", "omp"] {
-        assert_eq!(
-            dialect(cli).command(&resume).args[2..],
-            ["--session".to_owned(), transcript.display().to_string()]
-        );
-    }
+    assert_eq!(
+        dialect("pi").command(&resume).args[2..],
+        ["--session".to_owned(), transcript.display().to_string()]
+    );
 }
 
 #[test]
@@ -509,17 +507,6 @@ fn transcript_layouts_follow_each_dialect() {
         pi::transcripts(home, Path::new("/srv/x:y/z")),
         Path::new("/home/user/.pi/agent/sessions/--srv-x-y-z--")
     );
-    for (project, encoded) in [
-        ("/home/user/src/app", "-src-app"),
-        ("/tmp/scratch/app", "-tmp-scratch-app"),
-        ("/srv/app", "--srv-app--"),
-    ] {
-        assert_eq!(
-            omp::transcripts(home, Path::new(project)),
-            home.join(".omp/agent/sessions").join(encoded),
-            "{project}"
-        );
-    }
     let codex_file = Path::new(&format!(
         "/s/rollout-2026-10-25T00-00-00-{DISCOVERED}.jsonl"
     ))

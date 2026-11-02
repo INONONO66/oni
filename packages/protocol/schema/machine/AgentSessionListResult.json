@@ -12,8 +12,7 @@
                 "enum": [
                   "claude-code",
                   "codex",
-                  "pi",
-                  "omp"
+                  "pi"
                 ],
                 "type": "string"
               },

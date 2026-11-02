@@ -2,3 +2,8 @@
 {"type":"user","message":{"role":"user","content":"hello"}}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"call-1","name":"read","input":{"path":"README.md"}}]}}
 {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-1","content":"contents","is_error":false}]}}
+{"type":"last-prompt","lastPrompt":"hello","leafUuid":"00000000-0000-4000-8000-000000000001","sessionId":"fixture"}
+{"type":"permission-mode","permissionMode":"default","sessionId":"fixture"}
+{"type":"mode","mode":"normal","sessionId":"fixture"}
+{"type":"atis-latch","atis":"","sessionId":"fixture"}
+{"type":"cost-state","sessionId":"fixture","totalCostUSD":0.01,"totalAPIDuration":1,"totalToolDuration":0,"totalLinesAdded":0,"totalLinesRemoved":0,"totalDuration":2}

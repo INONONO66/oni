@@ -90,6 +90,11 @@ pub(crate) fn parse_value(value: &Value) -> Vec<AgentTranscriptRecord> {
             | "system"
             | "file-history-snapshot"
             | "progress"
+            | "last-prompt"
+            | "permission-mode"
+            | "mode"
+            | "atis-latch"
+            | "cost-state"
     ) {
         return Vec::new();
     }

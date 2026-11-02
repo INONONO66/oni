@@ -871,9 +871,9 @@ and a launch cancelled before its session registers leaves no process.
 Retained fixtures cover the parsers, but the first live run (#1778) exposed
 the first-prompt readiness gap (#1807), Codex authentication (#1809), and
 the installed Pi executable's different transcript root (#1810). Pi ids
-are discovered rather than assigned. The `omp` launch entry was removed:
-no executable or home existed to validate its documentation-derived layout.
-Its retained parser fixtures do not establish live support.
+are discovered rather than assigned. The `omp` dialect was removed: no
+executable or home existed to validate its documentation-derived layout, so
+its launch entry, parser, fixtures and `AgentCli` wire value are gone.
 
 **The cursor.** `tail` is a bounded page (32 records or 256 KiB) ending in a
 server-minted cursor `{sessionId, generation, byteOffset, recordHash}`,

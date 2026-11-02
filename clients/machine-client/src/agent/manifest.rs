@@ -11,7 +11,6 @@ pub enum Format {
     ClaudeJsonl,
     CodexRolloutJsonl,
     PiJsonlV3,
-    OmpJsonlV3,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,7 +67,7 @@ impl Dialect {
     pub fn hook_request(&self, input: &Value) -> Option<AgentPermissionRequest> {
         match self.format {
             Format::ClaudeJsonl => super::claude::hook_request(input),
-            Format::PiJsonlV3 | Format::OmpJsonlV3 => super::pi::hook_request(input),
+            Format::PiJsonlV3 => super::pi::hook_request(input),
             Format::CodexRolloutJsonl => None,
         }
     }
@@ -97,7 +96,6 @@ impl Format {
                 Self::ClaudeJsonl => super::claude::parse_value,
                 Self::CodexRolloutJsonl => super::codex::parse_value,
                 Self::PiJsonlV3 => super::pi::parse_value,
-                Self::OmpJsonlV3 => super::omp::parse_value,
             },
         )
     }
@@ -125,7 +123,6 @@ impl Cli for Dialect {
             Format::ClaudeJsonl => super::claude::command(context, self.permission_hook),
             Format::CodexRolloutJsonl => super::codex::command(context),
             Format::PiJsonlV3 => super::pi::command(context),
-            Format::OmpJsonlV3 => super::omp::command(context),
         }
     }
 
@@ -134,7 +131,6 @@ impl Cli for Dialect {
             Format::ClaudeJsonl => super::claude::transcripts(home, project),
             Format::CodexRolloutJsonl => super::codex::transcripts(home),
             Format::PiJsonlV3 => super::pi::transcripts(home, project),
-            Format::OmpJsonlV3 => super::omp::transcripts(home, project),
         }
     }
 
@@ -142,7 +138,7 @@ impl Cli for Dialect {
         match self.format {
             Format::ClaudeJsonl => super::claude::session_id(transcript),
             Format::CodexRolloutJsonl => super::codex::session_id(transcript),
-            Format::PiJsonlV3 | Format::OmpJsonlV3 => super::pi::session_id(transcript),
+            Format::PiJsonlV3 => super::pi::session_id(transcript),
         }
     }
 

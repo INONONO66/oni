@@ -39,8 +39,8 @@ The 2026-11-02 MacBook run (#1778) reached real CLI processes but did not
 complete a CLI child turn: Claude waited for its first prompt while `open`
 waited for a transcript (#1807); Codex required login (#1809); the installed
 `pi` executable used a different transcript root (#1810). Each refusal and
-its missing rows are recorded on #1778. `omp` was absent and its launch
-manifest was removed rather than treated as verified.
+its missing rows are recorded on #1778. `omp` was absent and its dialect
+was removed rather than treated as verified.
 
 ## Session-owned capture receipt
 

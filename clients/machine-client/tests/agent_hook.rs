@@ -160,7 +160,7 @@ async fn every_failure_blocks() {
         "{unreachable:?}"
     );
 
-    for cli in ["codex", "omp", "unknown"] {
+    for cli in ["codex", "unknown"] {
         let outcome = hook_run(cli, &pi_input(), &socket.path).await;
         assert_eq!(outcome.code, 2, "{cli}");
     }
