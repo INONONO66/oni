@@ -57,7 +57,6 @@ export const LinearProvider: ChannelProvider<never, "linear", LinearOwnerCredent
   credentials: z.custom<never>(() => false, {
     message: "linear has no bot account; declare the instance with identity: owner",
   }),
-  settings: z.record(z.string(), z.never()),
   preconditions: ["Linear has no bot account (a personal API key is the Owner's): declare the instance with identity: owner"],
   create() {
     throw new ChannelsFailure({

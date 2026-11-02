@@ -71,7 +71,6 @@ export function createInstagramProvider(
     credentials: z.custom<never>(() => false, {
       message: "instagram has no bot account; declare the instance with identity: owner",
     }),
-    settings: z.record(z.string(), z.never()),
     preconditions: ["Instagram has no bot account: declare the instance with identity: owner"],
     create() {
       throw new ChannelsFailure({

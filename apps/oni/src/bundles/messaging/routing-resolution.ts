@@ -3,7 +3,7 @@ import { type Gateway, Ingress, SessionTransition } from "@oni/protocol";
 import type { ChannelStores } from "@oni/channels";
 import { findRequestCandidates } from "@oni/channels";
 import type { GatewayRouterPorts } from "./message-ports.js";
-import type { MatchDecision } from "@oni/channels";
+import type { MatchDecision } from "./rule-outcome";
 
 const ScopedCorrelationClaim = SessionTransition.Correlation.required({ endpointId: true, channelId: true });
 type ScopedCorrelation = z.infer<typeof ScopedCorrelationClaim>;

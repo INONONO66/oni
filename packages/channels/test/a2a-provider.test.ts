@@ -10,7 +10,7 @@ const PEERS = [
   { id: "scout", token: "scout-token" },
   { id: "planner", token: "planner-token" },
 ];
-const CARD = { name: "Oni Resident", description: "one Resident, delegating through evidence", version: "0.1.0" };
+const CARD = { id: "test-agent", name: "Test agent", description: "test messaging endpoint", version: "0.1.0" };
 /** The driver's run port with every sleep elided: a blocking wait expires at once. */
 const immediate: EffectRunner = () => Promise.resolve(undefined as never);
 
@@ -72,7 +72,7 @@ describe("A2A door (#1569 lane 9c): other agents reach the Resident through ordi
       preferredTransport: "JSONRPC",
       version: "0.1.0",
       capabilities: { streaming: false, pushNotifications: false },
-      skills: [{ id: "resident" }],
+      skills: [{ id: CARD.id }],
       securitySchemes: { bearer: { type: "http", scheme: "bearer" } },
     });
   });

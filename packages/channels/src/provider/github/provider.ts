@@ -25,7 +25,6 @@ export const GitHubProvider: ChannelProvider<GitHubCredentials, "github"> = {
       botUsername: z.string().min(1).optional(),
     })
     .strict(),
-  settings: z.record(z.string(), z.never()),
   preconditions: [
     "repository webhook posts issues/issue_comment events to the public endpoint with the shared secret",
   ],

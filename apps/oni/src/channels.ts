@@ -16,6 +16,9 @@ import type { AccountIdentity, AttachmentFetch, AttachmentFetchWithStream, Chann
 import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider } from "@oni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@oni/protocol";
 import { Result } from "effect";
+import { z } from "zod";
+
+const ChannelSettings = z.object({}).strict();
 
 /**
  * Injected runtime seams for provider construction (#1245): observation
@@ -198,7 +201,7 @@ function ownerRow(
   }
   const parsed = arm.credentials.safeParse(decoded.success);
   if (!parsed.success) return { invalid: parsed.error.message };
-  const parsedSettings = provider.settings.safeParse(settings);
+  const parsedSettings = ChannelSettings.safeParse(settings);
   if (!parsedSettings.success) return { invalid: `settings: ${parsedSettings.error.message}` };
   return providerRow(
     provider.id,
@@ -213,6 +216,7 @@ function ownerRow(
 
 /** What the A2A door says about this agent; the url is the door a request came through. */
 const A2A_CARD = {
+  id: "resident",
   name: "Oni Resident",
   description: "One Resident, delegating through durable contracts and evidence.",
   // The app's own version (apps/oni/package.json); the card is the one place it is published.
@@ -347,7 +351,7 @@ export function validateProviderCredential(
 
 /**
  * The pre-persist settings gate for `channel_add`: knobs must parse under
- * the provider's `settings` schema before the row lands. No shipped provider
+ * the app's settings schema before the row lands. No shipped provider
  * carries knobs yet, so any settings key is a typed refusal — never
  * accepted-and-ignored.
  */
@@ -361,8 +365,7 @@ export function validateProviderSettings(
   }
   if (identity === "owner" && ChannelProviders[provider].owner === undefined)
     return `${provider} has no Owner-account arm`;
-  const schema = ChannelProviders[provider].settings;
-  const parsed = schema.safeParse(settings);
+  const parsed = ChannelSettings.safeParse(settings);
   return parsed.success ? undefined : parsed.error.message;
 }
 

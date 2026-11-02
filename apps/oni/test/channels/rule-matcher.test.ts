@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { Ingress } from "@oni/protocol";
-import { match } from "../src/router/automation/match.js";
-import { routeRule } from "../src/automation/matcher.js";
-import { runEffect } from "./helpers/effect.js";
+import { match } from "../../../../packages/channels/src/router/automation/match.js";
+import { routeRule } from "../../src/bundles/messaging/rule-outcome.js";
+import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 
 const input: Ingress.Message = {
   eventId: "one", instance: "chat", surface: "telegram", event: "message", channelId: "room", threadId: "root",

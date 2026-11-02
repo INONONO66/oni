@@ -5,11 +5,10 @@ test("channels barrel exposes only its runtime public surface", () => {
   expect(Object.keys(barrel).sort()).toEqual([
     "DeliveryNotSent",
     "IngressRoutingError",
-    "advanceGroups",
-    "routeRule",
     "match",
     "newTraceId",
     "findRequestCandidates",
+    "Route",
     "A2AClient",
     "A2ACredentials",
     "AttachmentRefused",

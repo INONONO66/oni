@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { Ingress } from "@oni/protocol";
-import { routeRule } from "../src/automation/matcher.js";
-import { match } from "../src/router/automation/match.js";
-import { runEffect } from "./helpers/effect.js";
+import { routeRule } from "../../src/bundles/messaging/rule-outcome.js";
+import { match } from "../../../../packages/channels/src/router/automation/match.js";
+import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 
 test("an event held by the first rule cannot fire a later rule", async () => {
   const input = Ingress.Message.parse({

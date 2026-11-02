@@ -205,13 +205,6 @@ export interface ChannelProvider<TCredentials, TId extends string = string, TOwn
    */
   readonly credentials: z.ZodType<TCredentials, TCredentials>;
   /**
-   * Non-secret instance knobs. No shipped provider carries knobs yet, so
-   * every schema is the empty record (`z.record(z.never())`) — the seam
-   * exists so `ChannelInstance.settings` is validated where it enters
-   * (`channel_add`) instead of accepted-and-ignored.
-   */
-  readonly settings: z.ZodType<Record<string, never>, Record<string, never>>;
-  /**
    * Operator checklist the credential cannot carry and the runner cannot
    * verify — portal-side switches (Discord gateway intents, Slack app
    * scopes). `provision` op `status` reports these verbatim; nothing enforces

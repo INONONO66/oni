@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { ChannelProvider } from "../contract";
 import { WebhookAdapter } from "./surface";
 import { WebhookCredentials, type SecretRefPort } from "./types";
@@ -21,7 +20,6 @@ export function createWebhookProvider(
       voice: false,
     },
     credentials: WebhookCredentials,
-    settings: z.record(z.string(), z.never()),
     preconditions: ["X-Signature sha256 HMAC and an installed secretRef are required"],
     create(credentials, config, publish, options) {
       const surface = new WebhookAdapter(credentials, config, publish, options, resolveSecret);

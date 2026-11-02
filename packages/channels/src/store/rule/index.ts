@@ -2,7 +2,7 @@ import { Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { RuleConfigurationError, RuleEnableRefused } from "../../errors.js";
 import type { StoredGroup } from "./group.js";
-import type { MatchDecision } from "../../automation/matcher.js";
+import type { Route } from "../../automation/matcher.js";
 
 export { RuleEnableRefused } from "../../errors.js";
 
@@ -17,13 +17,13 @@ export interface RuleAdapter {
   remove(id: string): boolean;
   list(): StoredRule[];
   move(id: string, position: number): StoredRule;
-  record(decision: Ingress.RoutingDecisionPayload, group?: StoredGroup, route?: MatchDecision["route"]): void;
+  record(decision: Ingress.RoutingDecisionPayload, group?: StoredGroup, route?: Route | undefined): void;
   decisions(inboundId: string): Ingress.RoutingDecisionPayload[];
   ledger(query: Ingress.RuleLedgerFilter): Ingress.RoutingDecisionPayload[];
   delivered(inboundId: string, sessionId: string, actionSeq: number): void;
   /** A matched event whose delivery the app refused; the delivery is terminal, never retried. */
   refused(inboundId: string, reason: string): void;
-  pendingDelivery(inboundId: string): MatchDecision["route"];
+  pendingDelivery(inboundId: string): Route | undefined;
   completeDelivery(inboundId: string): void;
   groups(): StoredGroup[];
   closeGroup(id: string, at: number, matched: boolean,
@@ -84,7 +84,7 @@ export function createRuleStore(source: { readonly rule?: RuleAdapter }) {
       adapter().set(approved);
       return approved;
     },
-    record: (decision: Ingress.RoutingDecisionPayload, group?: StoredGroup, route?: MatchDecision["route"]) =>
+    record: (decision: Ingress.RoutingDecisionPayload, group?: StoredGroup, route?: Route | undefined) =>
       adapter().record(decision, group, route),
     decisions: (inboundId: string) => adapter().decisions(inboundId),
     ledger: (query: Ingress.RuleLedgerFilter) => adapter().ledger(query),

@@ -1,5 +1,6 @@
+import { advanceGroups, type MatchDecision } from "../bundles/messaging/rule-outcome.js";
 import { Cause, Effect } from "effect";
-import { advanceGroups, type MatchDecision } from "@oni/channels";
+
 import type { StoredGroup } from "@oni/channels";
 import type { ChannelStores } from "@oni/channels";
 import { type ChannelError, decodeChannelFailure } from "@oni/channels";

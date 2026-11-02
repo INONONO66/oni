@@ -57,7 +57,7 @@ export { createSurfaceKeyStore } from "./store/surface-key/index.js";
 export { createMachineEnrollmentStore } from "./store/provisioning/machine-enrollment.js";
 export { StoredEndpoint, StoredIdentity } from "./store/sqlite/actor-schema.js";
 
-export { advanceGroups, type MatchDecision, routeRule, type PendingGroup } from "./automation/matcher.js";
+export { Route, type PendingGroup } from "./automation/matcher.js";
 
 export { type StoredGroup } from "./store/rule/group.js";
 

@@ -37,7 +37,6 @@ export function createTelegramProvider(
       voice: false,
     },
     credentials: z.object({ token: z.string().min(1) }).strict(),
-    settings: z.record(z.string(), z.never()),
     preconditions: [],
     owner: {
       credentials: TelegramOwnerCredentials,

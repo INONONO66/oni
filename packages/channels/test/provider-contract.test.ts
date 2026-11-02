@@ -266,7 +266,6 @@ describe("provider conformance", () => {
         expect(kase.provider.credentials.safeParse({}).success).toBe(false);
         expect(() => kase.provider.create({} as never, {}, noopPublish, injectedOptions())).toThrow("identity: owner");
         expect(kase.provider.capabilities.webhook).toBe(kase.webhook ?? false);
-        expect(kase.provider.settings.safeParse({ knob: "x" }).success).toBe(false);
       });
       test("the owner arm's seams match its capabilities and declared instance", () => {
         const arm = ownerArmOf(kase.provider);
@@ -338,10 +337,6 @@ describe("provider conformance", () => {
         expect(
           kase.provider.credentials.safeParse({ ...kase.credential, extra: "x" }).success,
         ).toBe(false);
-      });
-      test("settings schema admits only the empty record", () => {
-        expect(kase.provider.settings.safeParse({}).success).toBe(true);
-        expect(kase.provider.settings.safeParse({ knob: "x" }).success).toBe(false);
       });
       test("render policy uses the platform dialect and delivery limit", () => {
         const policy = kase.provider.capabilities.render;

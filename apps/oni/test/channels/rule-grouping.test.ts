@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Ingress } from "@oni/protocol";
-import { advanceGroups, routeRule } from "../src/automation/matcher.js";
+import { advanceGroups, routeRule } from "../../src/bundles/messaging/rule-outcome.js";
 
 const record = Ingress.Rule.parse({
   id: "digest", position: 0, enabled: true, createdBy: "owner",

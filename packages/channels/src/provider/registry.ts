@@ -39,5 +39,5 @@ export const ChannelProviders: Readonly<{
   instagram: InstagramProvider,
   kakaotalk: KakaoTalkProvider,
   linear: LinearProvider,
-  a2a: createA2AProvider(async () => [], { name: "Oni Resident", description: "unbound", version: "0" }),
+  a2a: createA2AProvider(async () => [], { id: "unbound", name: "unbound", description: "unbound", version: "0" }),
 } as const;

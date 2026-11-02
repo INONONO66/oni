@@ -36,6 +36,7 @@ export type PeerResolver = () => Promise<readonly A2APeer[]>;
 
 /** What the card says about this agent; the url is the door the request came through. */
 export interface A2ACardFacts {
+  readonly id: string;
   readonly name: string;
   readonly description: string;
   readonly version: string;
@@ -224,7 +225,7 @@ export class A2AAdapter implements Channel.Surface {
       defaultOutputModes: ["text/plain"],
       skills: [
         {
-          id: "resident",
+          id: this.card.id,
           name: this.card.name,
           description: this.card.description,
           tags: ["assistant"],

@@ -70,7 +70,6 @@ export function createKakaoTalkProvider(
     credentials: z.custom<never>(() => false, {
       message: "kakaotalk has no bot account; declare the instance with identity: owner",
     }),
-    settings: z.record(z.string(), z.never()),
     preconditions: ["KakaoTalk has no bot account: declare the instance with identity: owner"],
     create() {
       throw new ChannelsFailure({
