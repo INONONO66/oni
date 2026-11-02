@@ -401,6 +401,12 @@ export function agentConformance<Client extends Attached>(
     const bin = join(scratch, "bin");
     mkdirSync(bin);
     await script(join(bin, "claude"), FAKE_CLAUDE);
+    // The launched CLI runs in a login shell, whose /etc/profile may reorder
+    // the inherited PATH (macOS path_helper puts /etc/paths.d entries such as
+    // a package manager's bin first); the fixture home's profile puts the
+    // fixture bin back in front so `claude` is the script above, never an
+    // installed one.
+    writeFileSync(join(base.home, ".profile"), `PATH='${bin}':$PATH\nexport PATH\n`);
     await permissionModule({ check, record, script }, scratch);
     const setup: AgentFixture = {
       ...base,
