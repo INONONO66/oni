@@ -119,7 +119,8 @@ fn reports_corrupt_encoding_shape_unsupported_and_truncated_tail() {
 
 #[test]
 fn manifest_selects_distinct_supported_formats() {
-    assert_eq!(manifest::DIALECTS.len(), 4);
+    assert_eq!(manifest::DIALECTS.len(), 3);
+    assert!(manifest::select("omp").is_none());
     assert!(manifest::DIALECTS
         .windows(2)
         .all(|pair| pair[0].format != pair[1].format));
