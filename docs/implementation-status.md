@@ -1,5 +1,29 @@
 # Implementation Status
 
+## #1794 one Message
+
+PR #1814 removes `OwnerPosture` and provider-side admission branches.
+Account listeners emit observed messages for the ordered rule table rather
+than filtering by an instance setting. `Ingress.Message` replaces
+`Gateway.IngressFacts` and `Ingress.Input` across provider output, router
+admission, grouping, replay and alarm composition.
+
+Providers carry receiving `account`, mentioned `addressees`, `dm`,
+`author.isBot`, and quoted-author `quotes` where the transport supplies it.
+The router derives `addressed` once from DM, receiving-account mention,
+receiving-account quote, or a bound thread, and overwrites authenticated
+`from` and receipt time. Display labels and provider mention verdicts do
+not substitute for account facts. Telegram account replies and Instagram
+summaries do not expose quoted authors in the pinned transport; those facts
+remain absent.
+
+Seeded Owner rows retain `reply: draft`. The reply door reads the frozen
+rule mode without a second instance-level automatic-reply set, and the
+Resident suppresses typing for draft and no-reply deliveries. Account
+declaration CLI flags for the removed settings are deleted. Provider fact,
+router addressing and rule-reply tests accompany the change; verification
+receipts are recorded on PR #1814.
+
 ## #1793 ordered inbound rule table (PR #1805, epic #1791)
 
 `Ingress.Rule` is the sole inbound policy record. The channels store orders
@@ -37,8 +61,8 @@ Conversation keys are `<instance>:channel:<channelId>:thread:<root>`, with
 top-level messages as their own roots, or `<instance>:dm:<peerId>`. The first
 claim owns the binding. Physical request correlation remains independent.
 Replay retains the recorded choice, including reply policy; grouped windows
-and delivery receipts survive reopening. Owner provider intake branches remain
-for #1794; moving ledger writes out of channels remains #1795.
+and delivery receipts survive reopening. Provider admission branches were
+removed by #1794; moving ledger writes out of channels remains #1795.
 
 This section supersedes older inbound grant, blacklist, environment posture
 and automation policy descriptions below. Verification receipts are in PR #1805.

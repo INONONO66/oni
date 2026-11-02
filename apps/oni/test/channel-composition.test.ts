@@ -46,7 +46,7 @@ describe("declared channel composition", () => {
   test("a Slack Owner voice route mounts only with the outbound grant", () => {
     const declared: Provisioning.ChannelInstance = {
       id: "channel:slack:owner", provider: "slack", identity: "owner",
-      enabled: true, settings: { intake: "none" }, credentialRef: "owner-session",
+      enabled: true, settings: {}, credentialRef: "owner-session",
       grant: { outbound: true }, revision: 0, createdBy: "owner", updatedAt: 0,
     };
     const credential = new TextEncoder().encode(JSON.stringify({ token: "xoxc-owner", cookie: "d" }));

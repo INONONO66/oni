@@ -86,7 +86,7 @@ describe("declared Owner instances", () => {
     });
   });
 
-  test("an Owner declaration's settings are its intake posture: the default reads mentions and DMs, `none` only sends, a bot knob is refused", () => {
+  test("an Owner declaration listens without settings and refuses removed admission knobs", () => {
     const reading = declaredChannelProfile([instance({})], reader(OWNER_SESSION), testChannelDeps());
     expect(reading.rows[0]?.component).toMatchObject({ identity: "owner", listens: true });
     const sendOnly = declaredChannelProfile([instance({ settings: { intake: "none" } })], reader(OWNER_SESSION), testChannelDeps());
@@ -110,7 +110,7 @@ describe("declared Owner instances", () => {
     expect(owner.rows[0]?.component.build(async () => undefined).deliveryRoute).toBeDefined();
     // Without an outbound grant the auto-reply means nothing: no route, no auto-reply.
     const drafting = declaredChannelProfile(
-      [instance({ id: "channel:instagram:owner", provider: "instagram", credentialRef: "secret:ig", settings: { autoReply: true } })],
+      [instance({ id: "channel:instagram:owner", provider: "instagram", credentialRef: "secret:ig" })],
       reader(JSON.stringify({ session })),
       testChannelDeps(),
     );

@@ -110,7 +110,7 @@ function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget |
       surface: origin.surface,
       ...(typeof origin.instance === "string" ? { instance: origin.instance } : {}),
       messageId: message.id,
-      ...(rule.success ? { reply: rule.data.reply } : {}),
+      reply: rule.data?.reply,
       ...(conversation === undefined ? {} : { conversation }),
       ...(rawConversation.success
         ? {

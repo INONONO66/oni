@@ -31,7 +31,7 @@ test("#1600 lane R1: a mounted Owner instance binds its account to the Owner Per
   }));
   try {
     const config = suite.config("owner-account-", { wsToken: "token" });
-    const kek = declareChannel(config.catalogPath ?? "", "slack", { token: "xoxc-1", cookie: "d" }, { settings: { intake: "none", autoReply: false } });
+    const kek = declareChannel(config.catalogPath ?? "", "slack", { token: "xoxc-1", cookie: "d" }, { settings: {} });
     const app = await suite.boot({ config: { ...config, kek }, llm: { resolveModel: fakeProviderModel } });
     const plane = await planeOf(app.runtime);
     expect(create).toHaveBeenCalledTimes(1);
@@ -64,7 +64,7 @@ test("#1600 lane R1: an address another Person holds is never re-homed by a moun
       trustTier: "observer",
       endpoints: [{ channel: "slack", externalId: "T1:U-owner", workspace: "T1" }],
     });
-    const kek = declareChannel(config.catalogPath ?? "", "slack", { token: "xoxc-1", cookie: "d" }, { settings: { intake: "none", autoReply: false } });
+    const kek = declareChannel(config.catalogPath ?? "", "slack", { token: "xoxc-1", cookie: "d" }, { settings: {} });
     const app = await suite.boot({ config: { ...config, kek }, llm: { resolveModel: fakeProviderModel } });
     const plane = await planeOf(app.runtime);
     expect(create).toHaveBeenCalledTimes(1);

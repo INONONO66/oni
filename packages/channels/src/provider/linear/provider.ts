@@ -6,10 +6,9 @@ import { LinearAdapter } from "./surface.js";
 import type { LinearOwnerCredentials } from "./types.js";
 
 /**
- * The Owner-identity arm (#1569 lane 9b): the workspace webhook under the
- * declared posture and comments as the Owner, mounted by declaration id (a
- * delivery route only when the declaration grants outbound; the reply door
- * answers through it only when the declaration auto-replies).
+ * The Owner-identity arm (#1569 lane 9b): the workspace webhook and comments
+ * as the Owner, mounted by declaration id. A delivery route exists only
+ * when the declaration grants outbound; rules control replies.
  */
 const LinearOwnerArm: OwnerArm<LinearOwnerCredentials> = {
   credentials: z

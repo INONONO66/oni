@@ -12,7 +12,7 @@ test.each([
   { name: "mention", facts: { ...ownerFacts, dm: false, account: "self", addressees: [{ externalId: "self" }] }, expected: "seed-owner-addressed" },
   { name: "bot author", facts: { ...ownerFacts, author: { externalId: "bot", isBot: true } }, expected: "none" },
   { name: "unaddressed reaction", facts: { ...ownerFacts, dm: false, event: "reaction" as const }, expected: "none" },
-])("router records the matched rule for $name", async ({ facts, expected }) => {
+] satisfies { name: string; facts: Ingress.Message; expected: string }[])("router records the matched rule for $name", async ({ facts, expected }) => {
   registerOwnerDm();
   await runEffect(makeRouter().ingest(ownerSender, facts));
   expect(ledger().stores.rules.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm")[0]).toMatchObject({ by: `rule/${expected}` });

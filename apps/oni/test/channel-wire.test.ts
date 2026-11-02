@@ -78,7 +78,7 @@ test("the Owner's socket declares a channel, seals its credential, and reads bac
       provider: "slack",
       identity: "owner",
       enabled: false,
-      settings: { intake: "none", autoReply: false },
+      settings: {},
       outbound: true,
       from: ["T1:U-friend"],
       credential: { token: "xoxc-1", cookie: "d" },
@@ -93,7 +93,7 @@ test("the Owner's socket declares a channel, seals its credential, and reads bac
   expect(instance).toMatchObject({
     identity: "owner",
     enabled: false,
-    settings: { intake: "none", autoReply: false },
+    settings: {},
     grant: { outbound: true },
     createdBy: "owner",
   });
@@ -152,7 +152,7 @@ test("the CLI's declaration client reaches the daemon the env file names, and re
       provider: "discord",
       identity: "owner",
       enabled: false,
-      settings: { intake: "none", autoReply: false },
+      settings: {},
       credential: { token: "user-token" },
     }),
   ).toMatchObject({ type: "channel_declared", requestId: "cli-1", id: "channel:discord:owner" });

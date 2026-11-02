@@ -76,6 +76,7 @@ interface ExternalOrigin {
   readonly messageId: string;
   readonly conversation?: Readonly<Record<string, string | boolean>>;
   readonly inboundTreatment?: "full_access" | "evidence_only";
+  readonly rule?: { readonly reply: "auto" | "draft" | "none" };
 }
 
 async function deliverExternal(
@@ -364,9 +365,11 @@ test("a refused or failed reply never fails the turn: the result is recorded eit
 });
 
 test.each([
-  { outcome: "result", stop: "stop" as const },
-  { outcome: "error", stop: "error" as const },
-])("an external turn pulses its recorded conversation until the model run ends ($outcome), before any reply", async ({ outcome, stop }) => {
+  { outcome: "result", stop: "stop" as const, reply: "auto" as const },
+  { outcome: "error", stop: "error" as const, reply: "auto" as const },
+  { outcome: "result", stop: "stop" as const, reply: "draft" as const },
+  { outcome: "result", stop: "stop" as const, reply: "none" as const },
+])("an external turn follows recorded reply=$reply for typing until $outcome", async ({ outcome, stop, reply }) => {
   const ingested: Ingested[] = [];
   const started = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -400,18 +403,19 @@ test.each([
       }),
     },
   });
-  const turn = deliverExternal(resident, `reply-origin-typing-${outcome}`, {
+  const turn = deliverExternal(resident, `reply-origin-typing-${outcome}-${reply}`, {
     ...telegramOwner,
     instance: "channel:telegram:west",
+    rule: { reply },
     conversation: { channelId: "C1", messageId: "m-1", dm: false },
   }, "ping");
   await started.promise;
-  expect(events).toEqual(['open 7 {"channelId":"C1","replyToMessageId":"m-1"}', "pulse"]);
+  expect(events).toEqual(reply === "auto" ? ['open 7 {"channelId":"C1","replyToMessageId":"m-1"}', "pulse"] : []);
   release.resolve();
   expect((await turn).kind).toBe(outcome);
   // The pulse scope closed with the model run; the reply (the answer, or the
   // failure text) always comes after the last pulse.
-  expect(events.slice(2)).toEqual(["reply"]);
+  expect(events.slice(reply === "auto" ? 2 : 0)).toEqual(["reply"]);
   expect(ingested).toHaveLength(1);
   expect(ingested[0]?.to).toEqual(REPLY_TO_ORIGIN);
   if (outcome === "result") expect(ingested[0]?.content).toEqual(Outbound.payload("pong"));

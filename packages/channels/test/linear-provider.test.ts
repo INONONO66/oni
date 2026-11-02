@@ -83,6 +83,22 @@ async function started(
 }
 
 describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner instance", () => {
+  it("emits integration authors and mention facts without provider admission", async () => {
+    const api = linearApi();
+    try {
+      const { runtime, received } = await started();
+      await runtime.webhookHandler?.(signed(JSON.stringify(envelope({
+        actor: { id: "integration", type: "integration" },
+      }))));
+      expect(received[0]?.facts).toMatchObject({
+        account: OWNER.id, addressees: [{ externalId: OWNER.id }], dm: false,
+        author: { externalId: "integration", isBot: true },
+      });
+      expect(received[0]?.facts.quotes).toBeUndefined();
+    } finally {
+      api.restore();
+    }
+  });
   it("under mentions_and_dms a comment naming the Owner is a mention received by the Owner; one that does not, and a new issue, are not intake", async () => {
     const api = linearApi();
     try {

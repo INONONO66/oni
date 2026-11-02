@@ -5,8 +5,7 @@ import { MediaPart } from "../gateway/media.js";
 
 const Id = z.string().min(1);
 
-export const Author = z.object({ externalId: Id, isBot: z.boolean() }).strict();
-export type Author = z.infer<typeof Author>;
+const Author = z.object({ externalId: Id, isBot: z.boolean() }).strict();
 
 /** Platform facts and router-derived addressing share one message contract. */
 export const Message = z

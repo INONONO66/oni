@@ -359,7 +359,7 @@ describe("Oni Resident WebSocket", () => {
 
   it("mounts a declared Linear Owner instance on the same HTTP server", async () => {
     const declared = suite.config("declared-linear-", { wsToken: WS_TOKEN });
-    const kek = declareChannel(statePath(declared.catalogPath), "linear", { secret: "linear-signing-secret", ownerUserId: "user-owner" }, { settings: { intake: "all" } });
+    const kek = declareChannel(statePath(declared.catalogPath), "linear", { secret: "linear-signing-secret", ownerUserId: "user-owner" }, { settings: {} });
     const app = await bootWithConfig({ ...declared, kek });
 
     const response = await fetch(`http://127.0.0.1:${app.port}/linear/webhook`, {

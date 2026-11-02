@@ -130,7 +130,7 @@ test("local Owner login, mounted ingress stream and two CLI history pages share 
   expect(JSON.stringify(output)).not.toContain("a".repeat(32));
   const instance = plane.stores.instances.get("channel:telegram:owner");
   expect(instance).toMatchObject({
-    identity: "owner", settings: { intake: "mentions_and_dms", autoReply: false },
+    identity: "owner", settings: {},
   });
   expect(instance?.grant).toBeUndefined();
   if (instance?.credentialRef === undefined) throw new Error("credential was not sealed");

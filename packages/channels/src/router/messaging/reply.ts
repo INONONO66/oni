@@ -36,16 +36,14 @@ export interface ConversationBinding {
   readonly messageId: string;
   readonly dm: boolean;
   readonly threadId?: string;
-  /** The account identity that observed the prompt; Owner replies require the declaration's auto-reply grant. */
+  /** The account identity that observed the prompt. */
   readonly receivedBy?: Channel.Identity;
   readonly reply?: "auto" | "draft" | "none";
   readonly as?: string;
 }
 
 /**
- * `draft` (#1569 lane 7): the surface is reachable only through an Owner
- * instance whose declaration does not let the reply door answer on its own;
- * the Resident's answer stays a draft the Owner sends.
+ * `draft`: the admitted rule keeps the answer for the Owner to send.
  */
 type ReplyRefusal = "not_bound" | "no_route" | "draft";
 
@@ -142,10 +140,9 @@ function deliveryTarget(
 }
 
 /**
- * A reply leaves through the instance that received the prompt. An Owner
- * account without an auto-replying outbound route drafts; another mounted
- * account never substitutes for it. Non-channel origins can use their sole
- * matching route.
+ * A reply leaves through the receiving or rule-selected instance. Another
+ * mounted account never substitutes for it. Non-channel origins can use
+ * their sole matching route.
  */
 function replyInstance(
   ports: Pick<ReplyPorts, "routes">,
