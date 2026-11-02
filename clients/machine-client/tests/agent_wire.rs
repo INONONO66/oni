@@ -628,6 +628,9 @@ async fn owned_sessions_send_stop_and_relay_permission_to_the_host() {
                     ..observed(project, "pi", SESSION, base.join("transcript.jsonl"))
                 })
                 .expect("live seed");
+            registry
+                .observe(observed(project, "pi", "gone", base.join("gone.jsonl")))
+                .expect("missing transcript");
         },
     )
     .await;
@@ -659,7 +662,28 @@ async fn owned_sessions_send_stop_and_relay_permission_to_the_host() {
             .await["sessions"][0]["state"],
         "running"
     );
+    let listed = |id: &'static str| {
+        let fixture = &fixture;
+        async move {
+            fixture
+                .call("agent.session.list", json!({"project": fixture.project()}))
+                .await["sessions"]
+                .as_array()
+                .expect("sessions")
+                .iter()
+                .find(|session| session["sessionId"] == id)
+                .cloned()
+        }
+    };
+    // A transcript the Owner's own run left on disk is listed before any open.
+    assert_eq!(
+        listed("found").await,
+        Some(json!({
+            "sessionId": "found", "project": fixture.project(), "cli": "pi", "state": "stopped",
+        }))
+    );
     assert_eq!(open(Some("found"), "pi").await["status"], "ok");
+    assert_eq!(listed("found").await.expect("adopted")["state"], "stopped");
     assert_eq!(
         open(Some("absent"), "codex").await,
         refusal("session_not_available")
@@ -675,7 +699,12 @@ async fn owned_sessions_send_stop_and_relay_permission_to_the_host() {
     let send =
         |id: &str| fixture.call("agent.session.send", json!({"sessionId": id, "text": "hi"}));
     assert_eq!(send(SESSION).await, json!({"status": "ok"}));
-    assert_eq!(send("found").await, refusal("session_not_available"));
+    // `found` was adopted, not launched: the send first resumes it in a
+    // fresh terminal. No CLI binary exists on this machine, so that terminal
+    // may already be gone when the text lands; the resume is what is asserted.
+    assert_ne!(send("found").await, refusal("session_not_found"));
+    assert_eq!(listed("found").await.expect("resumed")["state"], "running");
+    assert_eq!(send("gone").await, refusal("session_not_available"));
     assert_eq!(send("missing").await, refusal("session_not_found"));
 
     assert_eq!(
@@ -735,6 +764,7 @@ async fn owned_sessions_send_stop_and_relay_permission_to_the_host() {
     );
 
     let stop = |id: &str| fixture.call("agent.session.stop", json!({"sessionId": id}));
+    assert_eq!(stop("found").await, json!({"status": "ok"}));
     assert_eq!(stop("found").await, refusal("session_not_available"));
     assert_eq!(stop(SESSION).await, json!({"status": "ok"}));
     assert_eq!(stop(SESSION).await, refusal("session_not_available"));
