@@ -70,6 +70,7 @@ export function createDiscordProvider(
     owner: createDiscordOwnerArm(ownerSdk),
     capabilities: {
       deliver: true,
+      direct: true,
       webhook: false,
       render: DISCORD_RENDER,
       media: DISCORD_MEDIA_LIMITS,

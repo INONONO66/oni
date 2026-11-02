@@ -86,6 +86,8 @@ interface ProviderCapabilities {
   readonly history?: boolean;
   /** The runtime exposes `deliveryRoute` — the Resident can message into it. */
   readonly deliver: boolean;
+  /** Bot delivery can open a person's direct conversation from an endpoint id. */
+  readonly direct: boolean;
   /** The runtime exposes `webhookHandler` — ingress arrives over HTTP. */
   readonly webhook: boolean;
   /** Outbound text policy the surface applies (dialect + chunk limit). */
@@ -114,6 +116,7 @@ interface ProviderCapabilities {
  */
 export const WEBHOOK_TEXT_CAPABILITIES: ProviderCapabilities = {
   deliver: true,
+  direct: false,
   webhook: true,
   render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null },
   media: false,

@@ -1,5 +1,6 @@
-import type { ChannelDeliveryRoute } from "@oni/channels";
+import { type ChannelDeliveryRoute, ChannelProviders } from "@oni/channels";
 import type { Provisioning } from "@oni/protocol";
+import { isRegisteredProvider } from "../channels";
 
 /** Where a drafted answer goes (#1600 lane R2): the Owner Person on a platform the bot can write to — the resident bundle's `ownerContact` shape. */
 interface OwnerContact {
@@ -28,7 +29,8 @@ export function ownerContactFor(
   const reachable = owner.endpoints.filter(
     (endpoint) =>
       held.get(endpoint.channel) === 1 &&
-      ["slack", "telegram", "discord", "ws"].includes(endpoint.channel) &&
+      (endpoint.channel === "ws" ||
+        (isRegisteredProvider(endpoint.channel) && ChannelProviders[endpoint.channel].capabilities.direct)) &&
       [...routes.values()].filter((route) => route.platform === endpoint.channel && route.identity === "bot").length === 1,
   );
   const endpoint = reachable.find((candidate) => candidate.channel !== "ws") ?? reachable[0];

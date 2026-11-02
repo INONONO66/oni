@@ -28,6 +28,7 @@ export function createTelegramProvider(
     ingest: "poll",
     capabilities: {
       deliver: true,
+      direct: true,
       webhook: false,
       render: TELEGRAM_RENDER,
       media: TELEGRAM_MEDIA_LIMITS,

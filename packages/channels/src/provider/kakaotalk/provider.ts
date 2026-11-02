@@ -59,6 +59,7 @@ export function createKakaoTalkProvider(
     ingest: "socket",
     capabilities: {
       deliver: true,
+      direct: false,
       webhook: false,
       render: KAKAOTALK_RENDER,
       media: false,

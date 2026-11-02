@@ -76,6 +76,7 @@ export function createSlackProvider(
     ingest: "socket",
     capabilities: {
       deliver: true,
+      direct: true,
       webhook: false,
       render: SLACK_RENDER,
       media: SLACK_MEDIA_LIMITS,

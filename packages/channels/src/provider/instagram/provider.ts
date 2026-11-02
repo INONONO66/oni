@@ -59,6 +59,7 @@ export function createInstagramProvider(
     ingest: "socket",
     capabilities: {
       deliver: true,
+      direct: false,
       webhook: false,
       render: INSTAGRAM_RENDER,
       media: false,
