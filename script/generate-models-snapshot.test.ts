@@ -41,6 +41,15 @@ const catalog = {
       "gpt-example": { id: "gpt-example", name: "GPT Example" },
     },
   },
+  google: {
+    id: "google",
+    name: "Google",
+    env: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+    npm: "@ai-sdk/google",
+    models: {
+      "gemini-example": { id: "gemini-example", name: "Gemini Example", modalities: { input: ["text", "image", "audio", "video", "pdf"] } },
+    },
+  },
   ignored: { id: "ignored", name: "Not bundled", env: [], npm: "x", models: {} },
 };
 
@@ -142,15 +151,22 @@ test("projects the bundled providers of the models.dev catalog into the snapshot
       npm: "@ai-sdk/openai",
       models: { "gpt-example": { id: "gpt-example", name: "GPT Example" } },
     },
+    google: {
+      id: "google",
+      name: "Google",
+      env: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+      npm: "@ai-sdk/google",
+      models: { "gemini-example": { id: "gemini-example", name: "Gemini Example", input: ["text", "image", "audio", "video"] } },
+    },
   });
   expect(logs).toEqual([
-    "[generate-models-snapshot] wrote packages/ai/src/model/models-snapshot.json (2 providers)",
+    "[generate-models-snapshot] wrote packages/ai/src/model/models-snapshot.json (3 providers)",
   ]);
 });
 
 test.each([
   ["upstream failure", 503, catalog, "503"],
-  ["missing provider", 200, { anthropic: catalog.anthropic }, "openai"],
+  ["missing provider", 200, { anthropic: catalog.anthropic, openai: catalog.openai }, "google"],
 ])("refuses %s without writing a snapshot", async (_name, status, payload, message) => {
   const server = Bun.serve({ port: 0, fetch: () => Response.json(payload, { status }) });
   const root = mkdtempSync(join(tmpdir(), "models-snapshot-error-"));
