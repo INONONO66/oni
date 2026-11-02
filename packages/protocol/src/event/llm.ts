@@ -51,6 +51,39 @@ export namespace LlmCall {
       { visibility: "llm_reason" },
     );
 
+    /**
+     * One settled speech-to-text provider call. Media derivation runs
+     * before any session binds the attachment, so the row carries the
+     * caller's trace id and no session or run identity.
+     */
+    export const TranscriptionCompleted = BusEvent.define(
+      "llm.transcription.completed",
+      z.object({
+        traceId: z.string(),
+        time: EpochMs,
+        provider: z.string(),
+        model: z.string(),
+        inputBytes: z.number().int().nonnegative(),
+        durationMs: z.number(),
+      }),
+      { visibility: "llm_reason" },
+    );
+
+    /** One speech-to-text provider call that failed; same identity as the completed row plus the error message. */
+    export const TranscriptionFailed = BusEvent.define(
+      "llm.transcription.failed",
+      z.object({
+        traceId: z.string(),
+        time: EpochMs,
+        provider: z.string(),
+        model: z.string(),
+        inputBytes: z.number().int().nonnegative(),
+        durationMs: z.number(),
+        error: z.string(),
+      }),
+      { visibility: "llm_reason" },
+    );
+
     export const RetryDecided = BusEvent.define(
       "llm.call.retry.decided",
       Base.extend({

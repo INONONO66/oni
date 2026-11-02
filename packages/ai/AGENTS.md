@@ -1,10 +1,10 @@
-# packages/llm
+# packages/ai
 
-Created 2026-10-13 (#1352, branch `epic1356/1352-llm-package`).
+Created 2026-10-13 (#1352, branch `epic1356/1352-llm-package`) under the `llm` name; renamed `packages/ai` / `@oni/ai` by #1784 (the package now also owns the non-chat model calls: speech-to-text today, speech and image generation in the #1781 lanes).
 
-The model-call layer (`@oni/llm`): provider resolution and adapters over the AI SDK, one streaming attempt per invocation, stream-event processing into protocol messages, usage accounting, credential storage, and the pure failure classifier. Extracted from `packages/agent/src/model/` (the #1246 fold reversed; `Retry.decide` stayed in the core as `core/loop/retry.ts`). The dependency direction is reversed from the pre-#1246 package: `packages/agent` declares the port (`Core.Llm`, `Core.LlmPort`, `Core.LlmSink`, `Core.RunInput`, `Core.LlmRunFailure`, `Core.FailureClass`) and never imports this package; only `apps/oni` binds `makeLlmService()` to `Core.Llm` at composition (`src/runtime.ts`).
+The model-call layer (`@oni/ai`): provider resolution and adapters over the AI SDK, one streaming attempt per invocation, stream-event processing into protocol messages, usage accounting, credential storage, and the pure failure classifier. Extracted from `packages/agent/src/model/` (the #1246 fold reversed; `Retry.decide` stayed in the core as `core/loop/retry.ts`). The dependency direction is reversed from the pre-#1246 package: `packages/agent` declares the port (`Core.Llm`, `Core.LlmPort`, `Core.LlmSink`, `Core.RunInput`, `Core.LlmRunFailure`, `Core.FailureClass`) and never imports this package; only `apps/oni` binds `makeLlmService()` to `Core.Llm` at composition (`src/runtime.ts`).
 
-Vocabulary: `llm` is the call layer; `Model` only as protocol `Model.Ref`; `Provider` is a package-internal namespace (not exported).
+Vocabulary: `ai` is the call layer (the package); `llm` survives only as the agent core's chat-call port (`packages/agent/src/core/ports/llm.ts`, the `Llm` tag) and in this package's `LlmError`/`LlmService` names; `Model` only as protocol `Model.Ref`; `Provider` is a package-internal namespace (not exported).
 
 ## STRUCTURE
 

@@ -6,7 +6,7 @@ import { normalizeExportRoot } from "@oni/machines";
 import { Gateway, Machine, NamedError, type Model, type PlainValue } from "@oni/protocol";
 import { loadPromptCatalog, type PromptCatalog } from "./bundles/prompt/data";
 import { type KekResolution, resolveKek } from "./bundles/provision/vault-key";
-import { ProviderRowsError, readProviderRows, type ProviderRow } from "@oni/llm";
+import { ProviderRowsError, readProviderRows, type ProviderRow } from "@oni/ai";
 import { Result } from "effect";
 import { z } from "zod";
 
@@ -99,6 +99,10 @@ export interface OniConfig {
      * model; absent leaves speech-to-text on the bundled rows.
      */
     readonly transcriptionRows?: readonly ProviderRow[];
+    /** The rows when at least one names a `speech` model; absent leaves text-to-speech on the bundled rows. */
+    readonly speechRows?: readonly ProviderRow[];
+    /** The rows when at least one names an `image` model; absent leaves image generation on the bundled rows. */
+    readonly imageRows?: readonly ProviderRow[];
     /** Configured realtime providers; absent selects the bundled provider. */
     readonly realtimeRows?: readonly ProviderRow[];
   };
@@ -740,6 +744,8 @@ function modelFromEnv(env: Record<string, string | undefined>): OniConfig["model
     ...(headers === undefined ? {} : { headers }),
     ...(fallbacks === undefined ? {} : { fallbacks }),
     ...(rows.some((candidate) => candidate.transcription !== undefined) ? { transcriptionRows: rows } : {}),
+    ...(rows.some((candidate) => candidate.speech !== undefined) ? { speechRows: rows } : {}),
+    ...(rows.some((candidate) => candidate.image !== undefined) ? { imageRows: rows } : {}),
     ...(rows.some((candidate) => candidate.realtime !== undefined) ? { realtimeRows: rows } : {}),
   };
 }

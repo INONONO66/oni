@@ -49,6 +49,29 @@ describe("LlmCall BusEvents", () => {
     expect(LlmCall.Events.Failed.name).toBe("llm.call.failed");
   });
 
+  test("TranscriptionCompleted carries the call's trace and byte count without session identity", () => {
+    const row = { traceId: "test-trace-id", time: 10, provider: "openai", model: "gpt-4o-transcribe", inputBytes: 7, durationMs: 250 };
+    expect(LlmCall.Events.TranscriptionCompleted.schema.parse(row)).toEqual(row);
+    expect(LlmCall.Events.TranscriptionCompleted.name).toBe("llm.transcription.completed");
+    expect(LlmCall.Events.TranscriptionCompleted.visibility).toBe("llm_reason");
+    for (const malformed of [
+      { ...row, inputBytes: -1 },
+      { ...row, inputBytes: 1.5 },
+      { ...row, provider: undefined },
+      { ...row, traceId: undefined },
+    ]) {
+      expect(LlmCall.Events.TranscriptionCompleted.schema.safeParse(malformed).success).toBe(false);
+    }
+  });
+
+  test("TranscriptionFailed carries the completed row's identity plus the error message", () => {
+    const row = { traceId: "test-trace-id", time: 10, provider: "openai", model: "gpt-4o-transcribe", inputBytes: 7, durationMs: 250, error: "down" };
+    expect(LlmCall.Events.TranscriptionFailed.schema.parse(row)).toEqual(row);
+    expect(LlmCall.Events.TranscriptionFailed.name).toBe("llm.transcription.failed");
+    expect(LlmCall.Events.TranscriptionFailed.visibility).toBe("llm_reason");
+    expect(LlmCall.Events.TranscriptionFailed.schema.safeParse({ ...row, error: undefined }).success).toBe(false);
+  });
+
   test("Completed rejects negative and fractional token counts", () => {
     const valid = {
       ...base,

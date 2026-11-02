@@ -20,7 +20,7 @@ function fixture(overrides: Readonly<Record<string, string>> = {}): string {
   const directory = mkdtempSync(join(tmpdir(), "core-structure-"));
   roots.push(directory);
   for (const [file, source] of Object.entries({
-    ...coreGateFiles, "packages/llm/package.json": "{}", ...overrides,
+    ...coreGateFiles, "packages/ai/package.json": "{}", ...overrides,
   })) {
     mkdirSync(dirname(join(directory, file)), { recursive: true });
     writeFileSync(join(directory, file), source);
@@ -59,11 +59,11 @@ test("emptying one owner and moving its DDL cannot preserve the owner count", as
 
 test("missing owners, bands, root files and llm manifest fail closed", async () => {
   const directory = fixture();
-  for (const file of ["packages/agent/src/core/api.ts", "packages/agent/src/core/gate", "packages/agent/src/core/store/catalog.ts", "packages/llm/package.json"]) {
+  for (const file of ["packages/agent/src/core/api.ts", "packages/agent/src/core/gate", "packages/agent/src/core/store/catalog.ts", "packages/ai/package.json"]) {
     rmSync(join(directory, file), { recursive: true });
   }
   const findings = (await validateAgentCoreLayout(directory)).join("\n");
-  for (const token of ["core root files", "core bands", "empty core band gate", "core SQL schema owners", "packages/llm/package.json"]) expect(findings).toContain(token);
+  for (const token of ["core root files", "core bands", "empty core band gate", "core SQL schema owners", "packages/ai/package.json"]) expect(findings).toContain(token);
 });
 
 test("moving every pinned file cannot disable migration accounting", async () => {

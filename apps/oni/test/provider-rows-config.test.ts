@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { Auth, makeRealtime, resolveAuthFilePath } from "@oni/llm";
+import { Auth, makeRealtime, resolveAuthFilePath } from "@oni/ai";
 import { Effect, Stream } from "effect";
 import { loadConfig, modelTransport } from "../src/config";
 import { runEffect } from "./helpers/effect";
@@ -96,6 +96,23 @@ describe("ONI_PROVIDERS_PATH", () => {
     useRows(JSON.stringify({ providers: [sttRow] }));
     const config = loadConfig();
     expect(config.model.transcriptionRows).toEqual([sttRow]);
+  });
+
+  it("hands speech and image rows out only when one names that model", () => {
+    process.env.GATEWAY_API_KEY = "sk-row";
+    useRows(JSON.stringify({ providers: [gatewayRow] }));
+    const bare = loadConfig().model;
+    expect({ speechRows: bare.speechRows, imageRows: bare.imageRows }).toEqual({ speechRows: undefined, imageRows: undefined });
+
+    const speechRow = { ...gatewayRow, npm: "@ai-sdk/openai" as const, speech: { model: "tts-1", voice: "nova", format: "mp3" as const } };
+    useRows(JSON.stringify({ providers: [speechRow] }));
+    const speech = loadConfig().model;
+    expect({ speechRows: speech.speechRows, imageRows: speech.imageRows }).toEqual({ speechRows: [speechRow], imageRows: undefined });
+
+    const imageRow = { ...gatewayRow, npm: "@ai-sdk/openai" as const, image: { model: "img-1" } };
+    useRows(JSON.stringify({ providers: [imageRow] }));
+    const image = loadConfig().model;
+    expect({ speechRows: image.speechRows, imageRows: image.imageRows }).toEqual({ speechRows: undefined, imageRows: [imageRow] });
   });
 
   it("hands a non-default realtime endpoint and model to the live-call factory", () => {

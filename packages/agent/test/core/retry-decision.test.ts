@@ -21,7 +21,7 @@ import { collector } from "../helpers/observation-collector";
  * The retry decision is the loop's, taken over the port's classification
  * (#1352): delay ladder, jitter, header caps, the instant-failure streak and
  * the validation fallback never read an SDK error. Classification itself is
- * tested beside its provider decoder in `packages/llm`.
+ * tested beside its provider decoder in `packages/ai`.
  */
 const zero = () => 0;
 

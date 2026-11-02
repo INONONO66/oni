@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { Core, Bundle } from "@oni/agent";
-import { makeLlmService } from "@oni/llm";
+import { makeLlmService } from "@oni/ai";
 const defineTool = Core.defineTool;
 const eraseTool = Core.eraseTool;
 const Llm = Core.Llm;

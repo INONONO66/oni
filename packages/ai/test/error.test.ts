@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Result } from "effect";
 import { coerceApiError, decodeLlmFailure } from "../src/error";
-import { LlmOperationFailure, ModelCatalogError } from "../src/errors";
+import { LlmOperationFailure, ModelCatalogError, ModelUnavailable } from "../src/errors";
 import { apiError, sdkError } from "./helpers/retry";
 import { runSyncEffect } from "./helpers/native";
 
@@ -64,5 +64,18 @@ describe("ModelCatalogError.fromThrown", () => {
     expect(error.path).toBe("/tmp/models.json");
     expect(error.cause).toBeInstanceOf(Error);
     expect(error.message).toBe(message);
+  });
+});
+
+describe("ModelUnavailable", () => {
+  test("carries the exhausted category, its nearest fallback and the circuit deadline", () => {
+    const routing = { category: "chat", requested: "openai/gpt-5", attempts: [] };
+    const error = new ModelUnavailable({ category: "chat", nearestFallback: null, openUntil: 1_700_000_000_000, routing });
+    expect(error._tag).toBe("ModelUnavailable");
+    expect(error.category).toBe("chat");
+    expect(error.nearestFallback).toBeNull();
+    expect(error.openUntil).toBe(1_700_000_000_000);
+    expect(error.routing).toBe(routing);
+    expect(error.message).toBe("No candidate available for chat");
   });
 });

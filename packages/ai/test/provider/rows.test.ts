@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { makeLlmService } from "../../src";
 import { resolveProviderRows } from "../../src/model/loader";
-import { BUNDLED_ROWS, readProviderRows } from "../../src/provider/rows";
+import { BUNDLED_ROWS, ProviderRow, readProviderRows } from "../../src/provider/rows";
 import { getLanguage } from "../../src/provider/sdk";
 import { usePrivateCatalog } from "../helpers/catalog";
 import { fixedNow } from "../helpers/fixtures";
@@ -68,8 +68,29 @@ describe("provider rows file", () => {
     });
   });
 
+  test("speech and image rows parse strict; the bundled openai row names both", () => {
+    const speech = { model: "tts-1", voice: "nova", format: "opus" };
+    const image = { model: "img-1" };
+    expect(ProviderRow.parse({ ...gateway, speech, image })).toMatchObject({ speech, image });
+    expect(ProviderRow.parse({ ...gateway, speech: { model: "tts-1", voice: "nova" } }).speech).toEqual({ model: "tts-1", voice: "nova" });
+    for (const malformed of [
+      { ...gateway, speech: { ...speech, speed: 1.5 } },
+      { ...gateway, speech: { ...speech, format: "flac" } },
+      { ...gateway, speech: { model: "tts-1" } },
+      { ...gateway, image: { ...image, size: "1024x1024" } },
+      { ...gateway, image: { model: "" } },
+    ]) {
+      expect(ProviderRow.safeParse(malformed).success).toBe(false);
+    }
+    expect(BUNDLED_ROWS.find((row) => row.id === "openai")).toMatchObject({
+      speech: { model: "gpt-4o-mini-tts", voice: "alloy", format: "mp3" },
+      image: { model: "gpt-image-1" },
+    });
+  });
+
   test.each([
     ["unsupported_npm", JSON.stringify({ providers: [{ ...gateway, npm: "@ai-sdk/other" }] })],
+    ["invalid_rows", JSON.stringify({ providers: [{ ...gateway, speech: { model: "tts-1", voice: "nova", speed: 1.5 } }] })],
     ["invalid_rows", JSON.stringify({ providers: [gateway, gateway] })],
     ["invalid_json", "{ not json"],
   ])("a malformed file refuses with reason %s", (reason, body) => {

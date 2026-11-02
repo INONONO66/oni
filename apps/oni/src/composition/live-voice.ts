@@ -1,6 +1,6 @@
 import { Core } from "@oni/agent";
 import { VoiceJoinRefused, type PersonStore, type ProviderVoiceRoute, type PcmVoiceHandle } from "@oni/channels";
-import type { Realtime, RealtimeSession, RealtimeToolCall } from "@oni/llm";
+import type { Realtime, RealtimeSession, RealtimeToolCall } from "@oni/ai";
 import { toolResultText, type Channel, type PlainValue, type Tool } from "@oni/protocol";
 import { Effect, Fiber, Stream } from "effect";
 import { createDownsampler, createUpsampler } from "./live-pcm";

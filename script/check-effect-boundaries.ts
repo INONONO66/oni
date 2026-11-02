@@ -15,7 +15,7 @@ const RUNNER_OWNERS = new Set([
   "apps/oni/test/helpers/effect.ts",
   "packages/agent/test/helpers/isolated.ts",
   "packages/channels/test/helpers/effect.ts",
-  "packages/llm/test/helpers/runner.ts",
+  "packages/ai/test/helpers/runner.ts",
   "packages/machines/test/helpers/effect.ts",
   "packages/machines/test/ipc/helpers/effects.ts",
   "packages/agent/bench/turns.ts",

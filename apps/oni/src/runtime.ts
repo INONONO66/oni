@@ -1,6 +1,6 @@
 import { AppInvariantError } from "./invariant";
 import { Core } from "@oni/agent";
-import { makeLlmService } from "@oni/llm";
+import { makeLlmService } from "@oni/ai";
 type Entropy = Core.Entropy;
 type EntropySource = Core.EntropySource;
 const ObservationSink = Core.ObservationSink;
@@ -11,7 +11,7 @@ type GenerationLayers = Core.GenerationLayers;
 import { AgentProcessLive } from "./agent-layers";
 type LedgerError = Core.LedgerError;
 type Llm = Core.Llm;
-/** The composition root binds the call layer to the core port (#1352): the core declares `Llm`, `@oni/llm` answers it. */
+/** The composition root binds the call layer to the core port (#1352): the core declares `Llm`, `@oni/ai` answers it. */
 export const LlmLive = Layer.sync(Core.Llm, () => makeLlmService());
 import { pid } from "node:process";
 import { type Clock, Context, Data, Effect, Layer, type ManagedRuntime, type Scope, flow } from "effect";

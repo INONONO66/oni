@@ -2,7 +2,7 @@ import { AppInvariantError } from "../invariant";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import type { EffectRunner } from "@oni/channels";
-import type { PartBytes, PartDerive } from "@oni/llm";
+import type { PartBytes, PartDerive } from "@oni/ai";
 import { Deferred, Effect, Exit, Result } from "effect";
 import { ThrownError } from "../thrown";
 import { Delivery, Gateway, SessionTransition } from "@oni/protocol";

@@ -24,6 +24,14 @@ export const ProviderRow = z
       endpoint: z.url().refine((value) => value.startsWith("ws:") || value.startsWith("wss:")),
       voice: z.string().min(1),
     }).strict().optional(),
+    /** Text-to-speech model, voice and output container; absent `format` leaves the container to the provider. */
+    speech: z.object({
+      model: z.string().min(1),
+      voice: z.string().min(1),
+      format: z.enum(["mp3", "opus", "wav"]).optional(),
+    }).strict().optional(),
+    /** Image generation model id. */
+    image: z.object({ model: z.string().min(1) }).strict().optional(),
   })
   .strict();
 export type ProviderRow = z.infer<typeof ProviderRow>;

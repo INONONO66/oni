@@ -88,7 +88,7 @@ describe("tool-bearing history", () => {
     const assistant = second.find((message) => message.info.id === "first");
     // The port receives the completed tool part with its call id and output
     // intact; rendering that part as provider tool-call/tool-result blocks is
-    // the call layer's and is tested beside it in packages/llm (#1352).
+    // the call layer's and is tested beside it in packages/ai (#1352).
     const toolParts = (assistant?.parts ?? []).filter((part): part is Message.ToolPart => part.type === "tool");
     expect(toolParts).toHaveLength(1);
     expect(toolParts.map((part) => part.callID)).toEqual(["call-1"]);

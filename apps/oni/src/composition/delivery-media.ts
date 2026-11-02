@@ -1,4 +1,4 @@
-import type { LlmService, PartBytes, PartDerive } from "@oni/llm";
+import type { LlmService, PartBytes, PartDerive } from "@oni/ai";
 import { Effect } from "effect";
 
 /**

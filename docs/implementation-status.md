@@ -1,5 +1,17 @@
 # Implementation Status
 
+## #1784 `@oni/ai` and generation rows
+
+Shipped on `refactor/1784-ai-rename` (PR #1818). `packages/llm` is
+`packages/ai` (`@oni/ai`); the agent port `packages/agent/src/core/ports/llm.ts`
+and its `Llm` tag keep their names. Provider rows gain strict
+`speech{model, voice, format?}` and `image{model}` objects (the bundled openai
+row is seeded), `makeStt` takes `model?: Model.Ref` gated by
+`"transcription" in sdk` and publishes one observation row per call through
+the existing sink, and `apps/oni/src/config.ts` exposes `speechRows` and
+`imageRows` beside `transcriptionRows`. No speech or image tool ships here
+(#1785, #1786). Receipts: the PR Verification section.
+
 ## #1794 one Message
 
 PR #1814 removes `OwnerPosture` and provider-side admission branches.

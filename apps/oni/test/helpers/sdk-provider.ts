@@ -1,6 +1,6 @@
 import { APICallError } from "ai";
 import { Effect } from "effect";
-import { Auth } from "@oni/llm";
+import { Auth } from "@oni/ai";
 import type { FixtureLlm } from "./app-fixture";
 import type { Model } from "@oni/protocol";
 import { assistantMessage } from "./assistant-message";

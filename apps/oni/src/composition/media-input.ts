@@ -1,5 +1,5 @@
-import { Capability, type DerivedPart, type PartBytes, type PartDerive, type Stt } from "@oni/llm";
-import { type Gateway, NamedError } from "@oni/protocol";
+import { Capability, type DerivedPart, type PartBytes, type PartDerive, type Stt } from "@oni/ai";
+import { type Gateway, NamedError, traceIdFromUuid } from "@oni/protocol";
 import { Effect, Result } from "effect";
 import { z } from "zod";
 import { type FilePorts, defaultMachineOf, filesystem } from "../bundles/tools/core/filesystem";
@@ -192,7 +192,7 @@ export function mediaDerive(ports: MediaInputPorts): PartDerive {
 
   const transcript = (attachment: Attachment): Effect.Effect<DerivedPart> =>
     bytes(attachment.ref).pipe(
-      Effect.flatMap((audio) => ports.stt.transcribe({ bytes: audio.bytes })),
+      Effect.flatMap((audio) => ports.stt.transcribe({ bytes: audio.bytes, traceId: traceIdFromUuid(ports.id()) })),
       Effect.map((result): DerivedPart => ({ text: `[voice transcript]\n${result.text}`, parts: [] })),
       Effect.catch((error: Error) => Effect.sync((): DerivedPart => {
         ports.warn({ code: "transcript_failed", ref: attachment.ref, detail: String(error) });

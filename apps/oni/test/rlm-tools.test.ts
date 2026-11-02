@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";
 import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { Core } from "@oni/agent";
-import { Auth, makeLlmService, ModelsDev } from "@oni/llm";
+import { Auth, makeLlmService, ModelsDev } from "@oni/ai";
 /** The lint's full spec surface (#1255 S3): widen the cell-only door for projection alone. */
 const toolSpec = (tool: import("@oni/protocol").AnyToolDefinition) => {
   const widened = tool.visibility.model.length > 0

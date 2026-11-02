@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { classifyFailure, type LlmService, type PartBytes, type PartDerive } from "@oni/llm";
+import { classifyFailure, type LlmService, type PartBytes, type PartDerive } from "@oni/ai";
 import { type Gateway, type Message, Operational } from "@oni/protocol";
 import { Effect } from "effect";
 import { deliveryMedia, mediaLlm } from "../src/composition/delivery-media";

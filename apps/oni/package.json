@@ -17,7 +17,7 @@
     "@oni/agent": "workspace:*",
     "@oni/channels": "workspace:*",
     "@oni/codemode": "workspace:*",
-    "@oni/llm": "workspace:*",
+    "@oni/ai": "workspace:*",
     "@oni/machines": "workspace:*",
     "@oni/protocol": "workspace:*",
     "effect": "4.0.0-rc.118",

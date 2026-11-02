@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { newTraceId } from "./helpers/bus";
 import { runEffect } from "./helpers/effect";
-import { Auth } from "@oni/llm";
+import { Auth } from "@oni/ai";
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";

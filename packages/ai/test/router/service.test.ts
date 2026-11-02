@@ -104,7 +104,8 @@ test("all open candidates return a typed value with the earliest reopening and c
   const later = apiError({ message: "route gone", statusCode: 404, isRetryable: false,
     responseHeaders: { "retry-after-ms": "120000" } });
   const first = await h.run(() => failed(h.calls === 1 ? later : connectionRefused())).catch((error: ModelUnavailable) => error);
-  expect(first).toBeInstanceOf(ModelUnavailable);
+  if (!(first instanceof ModelUnavailable)) throw new Error(`first run returned ${JSON.stringify(first)}`);
+  expect(first.message).toBe("No candidate available for proxy/x");
   const unavailable = await runEffect(Effect.flip(h.service.run(h.input, h.capture.sink, { createStream: success })));
   expect(unavailable).toMatchObject({
     _tag: "ModelUnavailable", category: "proxy/x", nearestFallback: "small", openUntil: 60_000,

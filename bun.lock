@@ -61,7 +61,7 @@
         "@oni/agent": "workspace:*",
         "@oni/channels": "workspace:*",
         "@oni/codemode": "workspace:*",
-        "@oni/llm": "workspace:*",
+        "@oni/ai": "workspace:*",
         "@oni/machines": "workspace:*",
         "@oni/protocol": "workspace:*",
         "effect": "4.0.0-rc.118",
@@ -114,8 +114,8 @@
         "typescript": "^5",
       },
     },
-    "packages/llm": {
-      "name": "@oni/llm",
+    "packages/ai": {
+      "name": "@oni/ai",
       "version": "0.1.0",
       "dependencies": {
         "@ai-sdk/anthropic": "4.0.49",
@@ -471,7 +471,7 @@
 
     "@oni/desktop": ["@oni/desktop@workspace:apps/desktop"],
 
-    "@oni/llm": ["@oni/llm@workspace:packages/llm"],
+    "@oni/ai": ["@oni/ai@workspace:packages/ai"],
 
     "@oni/machines": ["@oni/machines@workspace:packages/machines"],
 
@@ -1599,7 +1599,7 @@
 
     "@oni/desktop/@types/bun": ["@types/bun@1.4.1", "", { "dependencies": { "bun-types": "1.4.1" } }, "sha512-0AVGiTXGajf1rgKom3N+c5L7CBxuoyyv1i44M0nX4UDK0G/fnRAMiri93nHuVPIb429KKtAgj7HatVmmOjeQLA=="],
 
-    "@oni/llm/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+    "@oni/ai/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
     "@oni/machines/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
@@ -1691,7 +1691,7 @@
 
     "@oni/desktop/@types/bun/bun-types": ["bun-types@1.4.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-loKuVrAFZKfEv+JvWkHRS9GW5IqLuLRjVXN9p+vZvBN86O5hf/pBZQ5hSoyipsrMmWObZBDvWnlmKvjKTM0PdA=="],
 
-    "@oni/llm/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+    "@oni/ai/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
     "@oni/machines/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
