@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "bun:test";
-import type { PlainObject } from "@oni/protocol";
+import { Outbound, type PlainObject } from "@oni/protocol";
 import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { runEffect } from "./helpers/effect";
@@ -45,6 +45,8 @@ describe("the speech tool", () => {
     expect(result.structuredContent).toEqual({ kind: "audio", ref: MP3_REF, mime: "audio/mpeg", voice: true });
     expect(result.content).toBe(JSON.stringify({ kind: "audio", ref: MP3_REF, mime: "audio/mpeg", voice: true }));
     expect(stored).toEqual([{ sessionId: RESIDENT.sessionId, outputId: MP3_REF, mediaType: "audio/mpeg", bytes: MP3 }]);
+    // The returned part is a letter part as send_message reads it, not a copy of its shape.
+    expect(Outbound.Part.parse(result.structuredContent)).toEqual(result.structuredContent);
     // Omitted options are not forwarded, so the port's row defaults apply; given ones are, verbatim.
     expect(calls).toEqual([{ text: "hello there" }]);
     await run({ text: "again", voice: "echo", format: "opus", model: "tts-1-hd" });

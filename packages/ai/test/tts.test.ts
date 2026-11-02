@@ -87,23 +87,21 @@ describe("Tts", () => {
     ]);
   });
 
-  test("an explicit model picks its provider row and id, keeping that row's voice", async () => {
+  test("the first row naming a speech model serves the call, skipping rows without one", async () => {
     const { requests } = recording(() => audioResponse(mp3));
-    const gateway = ProviderRow.parse({ id: "gateway", npm: "@ai-sdk/openai", speech: { model: "gw-default", voice: "sage" } });
-    const explicit = tts({ authFilePath: await authFile("gateway"), rows: [openai, gateway], model: { provider: "gateway", id: "gw-speech" } });
-    expect(await runTestExit(explicit.speak(call))).toEqual(Exit.succeed({ bytes: mp3, mediaType: "audio/mpeg" }));
-    expect(requests.map((request) => request.body)).toEqual([{ model: "gw-speech", input: "hello there", voice: "sage", response_format: "mp3" }]);
+    const voiceless = ProviderRow.parse({ id: "gateway", npm: "@ai-sdk/openai" });
+    const first = tts({ authFilePath: await authFile("gateway"), rows: [voiceless, openai] });
+    expect(await runTestExit(first.speak(call))).toEqual(Exit.succeed({ bytes: mp3, mediaType: "audio/mpeg" }));
+    expect(requests.map((request) => request.body)).toEqual([{ model: "gpt-4o-mini-tts", input: "hello there", voice: "alloy", response_format: "mp3" }]);
   });
 
-  test("an explicit model refuses typed when its row is absent, names no voice, or lacks the speech surface", async () => {
+  test("refuses typed when no row names a speech model, or the first one lacks the speech surface", async () => {
     const authFilePath = await authFile("anthropic", "gateway");
-    const absent = await runEffect(Effect.flip(tts({ authFilePath, rows: [openai], model: { provider: "gateway", id: "gw-1" } }).speak(call)));
-    expect(absent).toMatchObject({ _tag: "ModelResolutionError", reason: "provider_not_found", provider: "gateway", model: "gw-1" });
     const voiceless = ProviderRow.parse({ id: "gateway", npm: "@ai-sdk/openai" });
-    const noVoice = await runEffect(Effect.flip(tts({ authFilePath, rows: [openai, voiceless], model: { provider: "gateway", id: "gw-1" } }).speak(call)));
-    expect(noVoice).toMatchObject({ _tag: "ModelResolutionError", reason: "model_not_found", provider: "gateway", model: "gw-1" });
+    const none = await runEffect(Effect.flip(tts({ authFilePath, rows: [voiceless] }).speak(call)));
+    expect(none).toMatchObject({ _tag: "ModelResolutionError", reason: "model_not_found", provider: "", model: "" });
     const anthropic = ProviderRow.parse({ id: "anthropic", npm: "@ai-sdk/anthropic", speech: { model: "claude", voice: "x" } });
-    const noSurface = await runEffect(Effect.flip(tts({ authFilePath, rows: [openai, anthropic], model: { provider: "anthropic", id: "claude" } }).speak(call)));
+    const noSurface = await runEffect(Effect.flip(tts({ authFilePath, rows: [anthropic, openai] }).speak(call)));
     expect(noSurface).toMatchObject({ _tag: "ModelResolutionError", reason: "model_not_found", provider: "anthropic", model: "claude" });
   });
 

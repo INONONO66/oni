@@ -1,4 +1,4 @@
-import { type BusEvent, LlmCall, type Model } from "@oni/protocol";
+import { type BusEvent, LlmCall } from "@oni/protocol";
 import { generateSpeech } from "ai";
 import { Effect } from "effect";
 import { Auth } from "./auth/storage";
@@ -35,27 +35,18 @@ interface Selection {
   readonly speech: SpeechRow;
 }
 
-function select(rows: readonly ProviderRow[], model: Model.Ref | undefined): Effect.Effect<Selection, ModelResolutionError> {
-  if (model === undefined) {
-    const row = rows.find((candidate) => candidate.speech !== undefined);
-    return row?.speech === undefined
-      ? Effect.fail(new ModelResolutionError({ message: "No provider row names a speech model", provider: "", model: "", reason: "model_not_found" }))
-      : Effect.succeed({ row, speech: row.speech });
-  }
-  const row = rows.find((candidate) => candidate.id === model.provider);
-  if (row === undefined) {
-    return Effect.fail(new ModelResolutionError({ message: `No provider row named ${model.provider}`, provider: model.provider, model: model.id, reason: "provider_not_found" }));
-  }
-  return row.speech === undefined
-    ? Effect.fail(new ModelResolutionError({ message: `Provider row ${row.id} names no speech voice`, provider: row.id, model: model.id, reason: "model_not_found" }))
-    : Effect.succeed({ row, speech: { ...row.speech, model: model.id } });
+/** The first row naming a speech model serves every call; a per-call `model` id stays on that row. */
+function select(rows: readonly ProviderRow[]): Effect.Effect<Selection, ModelResolutionError> {
+  const row = rows.find((candidate) => candidate.speech !== undefined);
+  return row?.speech === undefined
+    ? Effect.fail(new ModelResolutionError({ message: "No provider row names a speech model", provider: "", model: "", reason: "model_not_found" }))
+    : Effect.succeed({ row, speech: row.speech });
 }
 
 export function makeTts(input: {
   readonly authFilePath: string;
   readonly rows?: readonly ProviderRow[];
   readonly transport?: Transport;
-  readonly model?: Model.Ref;
   /** Receives one row per settled provider call: `llm.speech.completed` or `llm.speech.failed`. */
   readonly events: BusEvent.Sink;
   readonly now: () => number;
@@ -63,7 +54,7 @@ export function makeTts(input: {
   const rows = input.rows ?? BUNDLED_ROWS;
   return {
     speak: (call) => Effect.gen(function* () {
-      const { row, speech } = yield* select(rows, input.model);
+      const { row, speech } = yield* select(rows);
       const modelId = call.model ?? speech.model;
       const auth = yield* Auth.resolve(row.id, input.authFilePath);
       const sdk = getSDK(Provider.withRow({ id: modelId, providerID: row.id, name: modelId }, row), auth, input.transport);
@@ -80,7 +71,7 @@ export function makeTts(input: {
           model: sdk.speech(modelId),
           text: call.text,
           voice: call.voice ?? speech.voice,
-          outputFormat: call.format ?? speech.format,
+          outputFormat: call.format ?? speech.format ?? "mp3",
           maxRetries: 0,
           abortSignal,
         }),
