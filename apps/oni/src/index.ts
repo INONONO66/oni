@@ -9,6 +9,7 @@ import { channelWire } from "./composition/channel-wire";
 import { a2aContacts } from "./composition/a2a-contacts";
 import { ownerContactFor } from "./composition/owner-contact";
 import { createLiveVoice } from "./composition/live-voice";
+import { createLiveSessionRunner, type LiveSession } from "./composition/live-session";
 import { ownerAnswerAuthentication } from "./composition/answer-authentication";
 import { typingRouteFor } from "./composition/typing-route";
 import { webhookContacts } from "./composition/webhook-contacts";
@@ -179,6 +180,8 @@ class MessageAdmissionRefused extends Error {
 
 interface StartOptions {
   readonly runtime?: AppRuntime;
+  /** A kernel-owned transport selects live turns; absent, the ordinary model runner owns them. */
+  readonly liveSession?: (input: Core.SessionRunnerInput) => LiveSession | undefined;
   /** Native watch boundary; tests can model a stream that drops a create. */
   readonly pathWatch?: PathWatchInstaller;
   readonly sessionRuntime?: Pick<
@@ -1377,7 +1380,12 @@ export async function startOni(options: StartOptions = {}) {
           : turns.run(
               computerTurns.wrapRunner(
                 input.authority.sessionId,
-                resident.runnerFor(Core.sessionReadModel(input.kernel).row(input.authority.sessionId)),
+                (turn) => {
+                  const live = options.liveSession?.(turn);
+                  return live === undefined
+                    ? resident.runnerFor(Core.sessionReadModel(input.kernel).row(input.authority.sessionId))(turn)
+                    : createLiveSessionRunner(live, sessionRuntime.options)(turn);
+                },
               ),
               services.scope,
             )({ ...input, detach: (body) => input.detach(work.track(sessionId, body)) });
