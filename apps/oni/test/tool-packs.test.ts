@@ -85,6 +85,7 @@ test("a pack command reaches the attached machine with each argument shell-quote
       llm: undefined,
       speech: undefined,
       putOutput: undefined,
+      image: undefined,
     }), refuse);
     const tool = packs[0]?.tools[0];
     if (tool === undefined) throw new Error("missing fixture tool");

@@ -95,6 +95,32 @@ describe("LlmCall BusEvents", () => {
     expect(LlmCall.Events.SpeechFailed.schema.safeParse({ ...row, error: undefined }).success).toBe(false);
   });
 
+  test("ImageCompleted carries the requested count and returned byte total without session identity", () => {
+    const row = { traceId: "test-trace-id", time: 10, provider: "openai", model: "gpt-image-1", n: 2, bytes: 14, durationMs: 250 };
+    expect(LlmCall.Events.ImageCompleted.schema.parse(row)).toEqual(row);
+    expect(LlmCall.Events.ImageCompleted.name).toBe("llm.image.completed");
+    expect(LlmCall.Events.ImageCompleted.visibility).toBe("llm_reason");
+    for (const malformed of [
+      { ...row, n: 0 },
+      { ...row, n: 1.5 },
+      { ...row, bytes: -1 },
+      { ...row, bytes: 1.5 },
+      { ...row, provider: undefined },
+      { ...row, traceId: undefined },
+    ]) {
+      expect(LlmCall.Events.ImageCompleted.schema.safeParse(malformed).success).toBe(false);
+    }
+  });
+
+  test("ImageFailed carries the completed row's identity plus the error message and no byte total", () => {
+    const row = { traceId: "test-trace-id", time: 10, provider: "openai", model: "gpt-image-1", n: 1, durationMs: 250, error: "down" };
+    expect(LlmCall.Events.ImageFailed.schema.parse(row)).toEqual(row);
+    expect(LlmCall.Events.ImageFailed.name).toBe("llm.image.failed");
+    expect(LlmCall.Events.ImageFailed.visibility).toBe("llm_reason");
+    expect(LlmCall.Events.ImageFailed.schema.safeParse({ ...row, error: undefined }).success).toBe(false);
+    expect(LlmCall.Events.ImageFailed.schema.safeParse({ ...row, n: 0 }).success).toBe(false);
+  });
+
   test("Completed rejects negative and fractional token counts", () => {
     const valid = {
       ...base,

@@ -69,6 +69,7 @@ test("the manifest is THE product list: tool/action/hook/compaction/alarm capabi
     "send-message",
     "provision",
     "speech",
+    "image",
     "completion",
     "compaction-summarizer",
     "compaction-strategy",

@@ -1,5 +1,26 @@
 # Implementation Status
 
+## #1786 image tool
+
+Shipped on `feat/1786-image` (PR #1822). `packages/ai/src/image.ts` is the
+image port: `makeImage({authFilePath, rows?, transport?, events, now})`
+returns `generate(request)`, which serves every call from the first provider
+row naming an `image` model (a bare per-call `model` id stays on that row,
+so an Anthropic chat provider never receives an OpenAI image id), reads the
+SDK's `image` surface or refuses typed, and publishes one
+`llm.image.completed` or `llm.image.failed` row per settled call. The
+`image` bundle (`apps/oni/src/bundles/tools/image/index.ts`) is on the model
+door and in cells for the resident and its children: `n` (1..8) is charged
+whole against an eight-image budget keyed by the executing turn (one model
+turn at the model door, one cell inside a cell), each image is refused above
+the 25 MiB output cap before any of the call's images is stored, and the
+result is a list of strict `{kind:"image", ref}` letter parts stored under
+`sha256:<digest>` through the session's `putOutput`. `composeImage` and
+`createImagePort` (`apps/oni/src/composition/image.ts`) wire it;
+`docs/kernel-contract.md` now counts twelve model-door tools;
+`script/check-effect-boundaries.ts` lists the body and `script/lint-tools.ts`
+composes the bundle. Live token-hub image lanes stay [ino] #1782.
+
 ## #1785 speech tool
 
 Shipped on `feat/1785-speech` (PR #1821). `packages/ai/src/tts.ts` is the
