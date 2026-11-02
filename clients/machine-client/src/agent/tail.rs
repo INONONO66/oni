@@ -104,7 +104,10 @@ fn position(
 }
 
 /// Read the page after `from`. The position must still name the same bytes
-/// it was minted over; anything else is [`TailError::InvalidCursor`].
+/// it was minted over; anything else is [`TailError::InvalidCursor`]. A
+/// transcript that does not exist yet (a CLI at its prompt before its first
+/// turn) is an empty page at the origin, and a cursor past it names bytes
+/// that are gone.
 pub fn read(
     path: &Path,
     format: Format,
@@ -112,7 +115,20 @@ pub fn read(
     session_id: &str,
     generation: u64,
 ) -> Result<Page, TailError> {
-    let mut file = File::open(path)?;
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            if *from != origin(session_id, generation) {
+                return Err(TailError::InvalidCursor);
+            }
+            return Ok(Page {
+                records: Vec::new(),
+                position: from.clone(),
+                has_more: false,
+            });
+        }
+        Err(error) => return Err(error.into()),
+    };
     let len = file.metadata()?.len();
     validate(&mut file, len, from, session_id, generation)?;
     file.seek(SeekFrom::Start(from.byte_offset))?;

@@ -1179,6 +1179,13 @@ export type PtyOutput = z.infer<typeof PtyOutput>;
 export const AGENT_SESSION_MAX_RECORDS = 32;
 export const AGENT_SESSION_MAX_SESSIONS = 256;
 export const AGENT_SESSION_MAX_TEXT = 4096;
+/**
+ * How long a client waits for a launched CLI to reach its first prompt or
+ * write its transcript before `open` answers `session_not_available`; the
+ * host's own `open` timeout sits one second past it, so the client's refusal
+ * always arrives before the host gives up on the call.
+ */
+export const AGENT_SESSION_OPEN_TIMEOUT_MS = 20_000;
 const AgentSessionId = z.string().min(1).max(256);
 const agentProjectPattern = String.raw`^\/(?!\.\.(?:\/|$)|.*\/\.\.(?:\/|$))[^\x00]*$`;
 const AgentProject = z.string().min(1).max(4096)

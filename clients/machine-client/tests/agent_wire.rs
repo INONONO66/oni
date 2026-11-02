@@ -398,7 +398,6 @@ async fn tail_refuses_foreign_rotated_or_truncated_cursors_and_bounds_reads() {
         ("missing", "session_not_found"),
         ("outside", "session_not_available"),
         ("unknown-cli", "session_not_available"),
-        ("gone", "session_not_available"),
     ] {
         assert_eq!(
             tail(json!({"sessionId": id})).await,
@@ -406,6 +405,36 @@ async fn tail_refuses_foreign_rotated_or_truncated_cursors_and_bounds_reads() {
             "{id}"
         );
     }
+    // A session whose transcript does not exist yet (a CLI at its prompt
+    // before its first turn) tails as an empty page at the origin, and that
+    // cursor replays to the same page; one past the origin names lost bytes.
+    let empty = tail(json!({"sessionId": "gone"})).await;
+    let mut origin = Sha256::new();
+    origin.update(4_u64.to_be_bytes());
+    origin.update(b"gone");
+    origin.update(1_u64.to_be_bytes());
+    origin.update(0_u64.to_be_bytes());
+    assert_eq!(
+        empty,
+        json!({
+            "status": "ok",
+            "records": [],
+            "hasMore": false,
+            "cursor": {
+                "sessionId": "gone",
+                "generation": 1,
+                "byteOffset": 0,
+                "recordHash": hex::encode(origin.finalize()),
+            },
+        })
+    );
+    assert_eq!(tail(json!({"cursor": empty["cursor"]})).await, empty);
+    let mut past = empty["cursor"].clone();
+    past["byteOffset"] = 1.into();
+    assert_eq!(
+        tail(json!({"cursor": past})).await,
+        refusal("invalid_cursor")
+    );
     // A registry row whose CLI no dialect names cannot be resumed either.
     assert_eq!(
         fixture

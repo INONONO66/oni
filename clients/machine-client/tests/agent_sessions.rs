@@ -15,9 +15,9 @@ use std::{
 use oni_machine_client::agent::{
     claude, codex,
     launcher::{
-        correlate, refused, Cli, HookModule, HookTarget, LaunchCommand, LaunchContext, LaunchError,
-        Launcher, Opened, Permission, PermissionRelay, ProcessSpawner, PtySpawner, Settings,
-        PERMISSION_FILE, PERMISSION_MODULE,
+        correlate, refused, Change, Cli, HookModule, HookTarget, LaunchCommand, LaunchContext,
+        LaunchError, Launcher, Opened, Permission, PermissionRelay, ProcessSpawner, PtySpawner,
+        Settings, PERMISSION_FILE, PERMISSION_MODULE,
     },
     manifest::{self, Dialect, DIALECTS},
     omp, pi,
@@ -42,11 +42,14 @@ struct Fake {
     waiting: Arc<tokio::sync::Notify>,
     launches: Mutex<Vec<LaunchCommand>>,
     log: Mutex<Vec<String>>,
+    prompt: bool,
+    on_send: Option<(PathBuf, String)>,
 }
 
 struct FakeHandle {
     terminal: String,
     pending: Vec<(PathBuf, String)>,
+    prompt: bool,
 }
 
 impl Fake {
@@ -59,6 +62,8 @@ impl Fake {
             waiting: Arc::new(tokio::sync::Notify::new()),
             launches: Mutex::new(Vec::new()),
             log: Mutex::new(Vec::new()),
+            prompt: false,
+            on_send: None,
         }
     }
 
@@ -95,14 +100,18 @@ impl ProcessSpawner for Fake {
             .lock()
             .expect("live terminals")
             .push(terminal.clone());
-        Ok(FakeHandle { terminal, pending })
+        Ok(FakeHandle {
+            terminal,
+            pending,
+            prompt: self.prompt,
+        })
     }
 
     fn terminal(&self, handle: &FakeHandle) -> String {
         handle.terminal.clone()
     }
 
-    async fn changed(&self, handle: &mut FakeHandle, _: Instant) -> io::Result<bool> {
+    async fn changed(&self, handle: &mut FakeHandle, _: Instant) -> io::Result<Change> {
         if self.fail_changed {
             return Err(io::Error::other("terminal lost"));
         }
@@ -115,12 +124,25 @@ impl ProcessSpawner for Fake {
             self.waiting.notify_one();
             return std::future::pending().await;
         }
-        Ok(!pending.is_empty())
+        if std::mem::take(&mut handle.prompt) {
+            // Styled like a real prompt line: the marker is split by escapes.
+            Ok(Change::Output(
+                "\x1b[2m?\x1b[0m\x1b[2m for shortcuts\x1b[0m\r\n".to_owned(),
+            ))
+        } else if pending.is_empty() {
+            Ok(Change::Timeout)
+        } else {
+            Ok(Change::Progress)
+        }
     }
 
     async fn send(&self, handle: &FakeHandle, text: &str) -> io::Result<()> {
         let event = format!("send {} {text}", handle.terminal);
         self.log.lock().expect("event log").push(event);
+        if let Some((path, body)) = &self.on_send {
+            fs::create_dir_all(path.parent().expect("transcript directory"))?;
+            fs::write(path, body)?;
+        }
         Ok(())
     }
 
@@ -141,8 +163,56 @@ impl ProcessSpawner for Fake {
             .then(|| FakeHandle {
                 terminal: terminal.to_owned(),
                 pending: Vec::new(),
+                prompt: false,
             }))
     }
+}
+
+#[tokio::test]
+async fn assigned_id_opens_on_prompt_before_first_transcript_and_reclaims_after_restart() {
+    let world = World::new();
+    let project = world.project("prompt");
+    let cli = dialect("claude-code");
+    let id = "assigned-before-send";
+    let path = transcript(cli, &world.home, &project, id);
+    let mut fake = Fake::silent();
+    fake.prompt = true;
+    fake.on_send = Some((
+        path.clone(),
+        format!(
+            "{}\n",
+            json!({
+                "type": "user", "message": {"role": "user", "content": "hello"}
+            })
+        ),
+    ));
+    let mut launcher = world.launcher(fake);
+
+    let opened = launcher
+        .start(&cli, &project, Some(id))
+        .await
+        .expect("prompt ready");
+    assert!(opened.owned && opened.launched);
+    assert_eq!(opened.session.session_id, id);
+    assert_eq!(opened.session.transcript, path);
+    assert!(!path.exists());
+    let mut restarted = Fake::silent();
+    restarted.live = Mutex::new(vec!["fake-1".to_owned()]);
+    let mut restarted = world.launcher(restarted);
+    let reclaimed = restarted
+        .start(&cli, &project, Some(id))
+        .await
+        .expect("reclaim");
+    assert!(reclaimed.owned && !reclaimed.launched);
+    assert_eq!(reclaimed.session, opened.session);
+    assert!(!path.exists());
+
+    launcher
+        .send(&project, cli.cli, id, "hello")
+        .await
+        .expect("send");
+    assert!(path.exists());
+    assert_eq!(launcher.spawner().log(), ["send fake-1 hello"]);
 }
 
 struct Relay {
@@ -1081,6 +1151,10 @@ impl Cli for ScriptCli {
 
     fn assigns_id(&self) -> bool {
         true
+    }
+
+    fn ready(&self) -> Option<&'static str> {
+        None
     }
 
     fn command(&self, context: &LaunchContext<'_>) -> LaunchCommand {

@@ -12,15 +12,18 @@
  * transcript saved as plain file bytes plus its cursor and written back
  * after the client was killed and re-admitted resumes the SAME session id
  * from the saved cursor (never from byte zero), while a forged cursor or
- * one from another generation is refused (#1779); and a permission hook
- * raised for a launched session is allowed only by an explicit host grant,
- * is refused `timeout` when the host's decision misses its deadline, and
- * the decision that arrives after that deadline cannot turn into a grant.
- * Waits are bus events, process exits or the host decider's own signals
- * under a bounded timeout; nothing sleeps or polls.
+ * one from another generation is refused (#1779); a launched claude-code
+ * session opens at its prompt, before any transcript exists, tails as an
+ * empty page at the origin until the first sent turn writes the transcript
+ * (#1807); and a permission hook raised for that session is allowed only by
+ * an explicit host grant, is refused `timeout` when the host's decision
+ * misses its deadline, and the decision that arrives after that deadline
+ * cannot turn into a grant. Waits are bus events, process exits, file
+ * watches or the host decider's own signals under a bounded timeout;
+ * nothing sleeps or polls.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { Deferred, Effect } from "effect";
 import { type BusEvent, Machine } from "../../../packages/protocol/src/index.js";
 import {
@@ -48,9 +51,10 @@ const LATE_REQUEST = "call-late";
 const HOOK_BLOCK_EXIT = 2;
 
 /**
- * The `claude` the client launches: writes the transcript, then prints one
- * line, because the launcher re-scans for the transcript only when its
- * terminal shows output, then idles on stdin.
+ * The `claude` the client launches, shaped like the real one: it shows its
+ * prompt hint (styled, so the marker is split by escape sequences on the
+ * wire) and waits for input; only the first turn writes the transcript,
+ * whole, under the session id it was given; then it idles on stdin.
  */
 const FAKE_CLAUDE = `#!/bin/sh
 id=
@@ -60,9 +64,12 @@ while [ "$#" -gt 0 ]; do
     *) shift ;;
   esac
 done
+printf '\\033[2m?\\033[0m\\033[2m for shortcuts\\033[0m\\r\\n'
+read line || exit 0
 dir="$HOME/.claude/projects/$(pwd -P | tr -c 'A-Za-z0-9\\n' '-' | tr -d '\\n')"
 mkdir -p "$dir"
-cat "$ONI_CONFORMANCE_LAUNCHED" > "$dir/$id.jsonl"
+cat "$ONI_CONFORMANCE_LAUNCHED" > "$dir/$id.jsonl.part"
+mv "$dir/$id.jsonl.part" "$dir/$id.jsonl"
 echo transcript-written
 exec cat > /dev/null
 `;
@@ -117,6 +124,24 @@ interface Signal {
 function signal(): Signal {
   const { promise, resolve: done } = Promise.withResolvers<void>();
   return { promise, resolve: () => done() };
+}
+
+/** Resolves once `path` exists; the watch is live before the caller acts. */
+function appearance(path: string): Promise<void> {
+  const directory = resolve(path, "..");
+  mkdirSync(directory, { recursive: true });
+  const { promise, resolve: done, reject } = Promise.withResolvers<void>();
+  const watcher = watch(directory, (_event, name) => {
+    if (name === basename(path) && existsSync(path)) {
+      watcher.close();
+      done();
+    }
+  });
+  watcher.on("error", (error) => {
+    watcher.close();
+    reject(error);
+  });
+  return promise;
 }
 
 function same(left: object, right: object): boolean {
@@ -295,12 +320,30 @@ export function agentConformance<Client extends Attached>(
     return await within(output(child), `permission hook ${requestId}`);
   }
 
-  async function permissionBridge(sessions: Sessions, setup: AgentFixture, project: string, decisions: Decider): Promise<void> {
+  async function opensAtPrompt(sessions: Sessions, setup: AgentFixture, project: string): Promise<string> {
     const launched = await run(sessions.open({ project, cli: CLI }));
     check(launched.status === "ok" && launched.cursor.sessionId !== SESSION, `launch answered ${JSON.stringify(launched)}`);
     const sessionId = launched.cursor.sessionId;
-    const first = await tail(sessions, { sessionId });
+    const transcript = join(setup.home, ".claude", "projects", project.replace(/[^A-Za-z0-9]/g, "-"), `${sessionId}.jsonl`);
+    check(!existsSync(transcript), `open waited for the transcript ${transcript} instead of the prompt`);
+    const empty = await tail(sessions, { sessionId });
+    check(
+      empty.records.length === 0 && !empty.hasMore && same(empty.cursor, launched.cursor),
+      `tail before the first turn answered ${JSON.stringify(empty)}`,
+    );
+    const appeared = appearance(transcript);
+    const sent = await run(sessions.send({ sessionId, text: "go" }));
+    check(sent.status === "ok", `send at the prompt answered ${JSON.stringify(sent)}`);
+    await within(appeared, "transcript written by the first turn");
+    const first = await tail(sessions, { cursor: empty.cursor });
     check(same(first.records, [{ kind: "turn", role: "user", text: "launched" }]), `launched transcript ${JSON.stringify(first.records)}`);
+    record(
+      `launched ${sessionId} opened at its prompt with no transcript: tail was an empty page at byte 0; after send the transcript appeared and tailed 1 record from that cursor`,
+    );
+    return sessionId;
+  }
+
+  async function permissionBridge(sessions: Sessions, setup: AgentFixture, sessionId: string, decisions: Decider): Promise<void> {
     const allowed = await hook(setup, sessionId, ALLOW_REQUEST);
     check(
       allowed.code === 0 && allowed.stdout.includes('"permissionDecision":"allow"'),
@@ -414,7 +457,8 @@ export function agentConformance<Client extends Attached>(
       await harness.attach(setup, events.next(Machine.Events.Attached));
       check(host.list()[0]?.generation === saved.cursor.generation, "the reconnect was not re-admitted on the cursor's generation");
       await resumes(sessions, project, saved, rest);
-      await permissionBridge(sessions, setup, project, decisions);
+      const launched = await opensAtPrompt(sessions, setup, project);
+      await permissionBridge(sessions, setup, launched, decisions);
     } finally {
       await acquired.close();
       await output(Bun.spawn(["tmux", "kill-server"], { env: setup.env, stdout: "pipe", stderr: "pipe" }));

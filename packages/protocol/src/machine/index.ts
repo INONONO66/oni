@@ -230,6 +230,7 @@ export namespace Machine {
   export const AGENT_SESSION_MAX_RECORDS = Schema.AGENT_SESSION_MAX_RECORDS;
   export const AGENT_SESSION_MAX_SESSIONS = Schema.AGENT_SESSION_MAX_SESSIONS;
   export const AGENT_SESSION_MAX_TEXT = Schema.AGENT_SESSION_MAX_TEXT;
+  export const AGENT_SESSION_OPEN_TIMEOUT_MS = Schema.AGENT_SESSION_OPEN_TIMEOUT_MS;
   export const AgentSessionCursor = Schema.AgentSessionCursor;
   export type AgentSessionCursor = Schema.AgentSessionCursor;
   export const AgentTranscriptRecord = Schema.AgentTranscriptRecord;

@@ -649,13 +649,14 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         readonly before?: (peer: Attachment, request: I) => Effect.Effect<void, MachineError>;
         readonly after?: (peer: Attachment, result: O) => Effect.Effect<void, MachineError>;
       },
+      timeoutMs?: number,
     ): Effect.Effect<O, MachineError> {
       return Effect.gen(function* () {
         const request = yield* Effect.try({ try: () => requestSchema.parse(input), catch: decodeMachineFailure(`${label}.request`) });
         const peer = yield* Effect.try({ try: () => agentPeer(id), catch: decodeMachineFailure(`${label}.connection`) });
         if (checks?.before) yield* checks.before(peer, request);
         peer.server.useConnection(peer.rawId);
-        const raw = yield* typedCall(peer.server, method, request).pipe(Effect.mapError(transportFailure(label)));
+        const raw = yield* typedCall(peer.server, method, request, timeoutMs).pipe(Effect.mapError(transportFailure(label)));
         if (attachments.get(peer.key) !== peer)
           return yield* new MachineRefusalError({ reason: "stale_generation", message: "agent session attachment was superseded" });
         const result = yield* Effect.try({ try: () => resultSchema.parse(raw), catch: decodeMachineFailure(`${label}.response`) });
@@ -986,10 +987,13 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         }),
         agentSession: {
           list: (input) => agentCall(id, "agent.list", Machine.WireMethod.AgentSessionList, Machine.AgentSessionListRequest, Machine.AgentSessionListResult, input),
+          // The client waits the shared open timeout for a launched CLI's
+          // prompt or transcript before refusing; the host waits one second
+          // longer so that refusal, not a transport timeout, is the answer.
           open: (input) => agentCall(id, "agent.open", Machine.WireMethod.AgentSessionOpen, Machine.AgentSessionOpenRequest, Machine.AgentSessionOpenResult, input, {
             after: (peer, result) => result.status === "ok" && result.cursor.generation !== peer.generation
               ? new MachineRefusalError({ reason: "stale_generation", message: "agent session cursor generation mismatch" }) : Effect.void,
-          }),
+          }, Machine.AGENT_SESSION_OPEN_TIMEOUT_MS + 1000),
           tail: (input) => agentCall(id, "agent.tail", Machine.WireMethod.AgentSessionTail, Machine.AgentSessionTailRequest, Machine.AgentSessionTailResult, input, {
             before: (peer, request) => "cursor" in request && request.cursor.generation !== peer.generation
               ? new MachineRefusalError({ reason: "stale_generation", message: "agent session cursor generation mismatch" }) : Effect.void,

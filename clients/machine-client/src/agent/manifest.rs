@@ -21,6 +21,10 @@ pub struct Dialect {
     pub permission_hook: &'static str,
     pub permission: Permission,
     pub assigns_id: bool,
+    /// Text the CLI prints once it is at its prompt; a launch is ready when
+    /// the terminal shows it, before any transcript exists. `None` for a CLI
+    /// whose readiness is only its transcript appearing.
+    pub ready: Option<&'static str>,
     pub format: Format,
 }
 
@@ -31,6 +35,7 @@ pub const DIALECTS: [Dialect; 4] = [
         permission_hook: "PreToolUse",
         permission: Permission::Hook,
         assigns_id: true,
+        ready: Some("? for shortcuts"),
         format: Format::ClaudeJsonl,
     },
     Dialect {
@@ -39,6 +44,7 @@ pub const DIALECTS: [Dialect; 4] = [
         permission_hook: "approval_request",
         permission: Permission::CliPrompt,
         assigns_id: false,
+        ready: None,
         format: Format::CodexRolloutJsonl,
     },
     Dialect {
@@ -47,6 +53,7 @@ pub const DIALECTS: [Dialect; 4] = [
         permission_hook: "tool_call",
         permission: Permission::Hook,
         assigns_id: false,
+        ready: None,
         format: Format::PiJsonlV3,
     },
     Dialect {
@@ -55,6 +62,7 @@ pub const DIALECTS: [Dialect; 4] = [
         permission_hook: "tool_call",
         permission: Permission::Hook,
         assigns_id: false,
+        ready: None,
         format: Format::OmpJsonlV3,
     },
 ];
@@ -115,6 +123,10 @@ impl Cli for Dialect {
 
     fn assigns_id(&self) -> bool {
         self.assigns_id
+    }
+
+    fn ready(&self) -> Option<&'static str> {
+        self.ready
     }
 
     fn command(&self, context: &LaunchContext<'_>) -> LaunchCommand {
