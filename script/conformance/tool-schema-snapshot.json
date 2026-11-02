@@ -478,7 +478,7 @@
   },
   {
     "name": "provision",
-    "description": "Administer contacts, channels, credentials, machines, computer leases, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|machine_add|machine_grant|machine_deny|machine_remove|machine_list|computer_request|computer_list|computer_end|computer_exclude|computer_keep|status. Authority changes, computer lease requests and exclusions, machine public keys, Owner-account channel instances, their outbound grant and sender restrictions require Owner consent. computer_request names app identities, minutes (5-120), and an optional foreground purpose. computer_keep retains a target launched in this turn as a deliverable or handoff. A contact with reach: true is one the Resident may write to cold. Session-created automations remain disabled until the Owner enables them.",
+    "description": "Administer contacts, channels, credentials, machines, computer leases, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|machine_add|machine_grant|machine_deny|machine_remove|machine_list|permission_allow|permission_deny|computer_request|computer_list|computer_end|computer_exclude|computer_keep|status. Authority changes, computer lease requests and exclusions, machine public keys, Owner-account channel instances, their outbound grant, sender restrictions and permission_allow require Owner consent. permission_allow and permission_deny answer an agent_permission action row from a cli child this session launched; copy its machineId, agentSessionId and requestId. computer_request names app identities, minutes (5-120), and an optional foreground purpose. computer_keep retains a target launched in this turn as a deliverable or handoff. A contact with reach: true is one the Resident may write to cold.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -973,6 +973,66 @@
                 "args": {
                   "type": "object",
                   "properties": {},
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "permission_allow"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "agentSessionId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["machineId", "agentSessionId", "requestId"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "permission_deny"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "agentSessionId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["machineId", "agentSessionId", "requestId"],
                   "additionalProperties": false
                 }
               },

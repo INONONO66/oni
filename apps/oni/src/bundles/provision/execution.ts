@@ -22,7 +22,7 @@ import {
 } from "./channels";
 import { executeBundleDisable, executeBundleEnable } from "./bundles";
 import { executeProvisionStatus } from "./status";
-import { executeApprovedMachine, executeMachine, machineDomainRevisions } from "./machines";
+import { executeApprovedMachine, executeMachine, executePermission, machineDomainRevisions, type MachinePort } from "./machines";
 import type { MachineOperation } from "./machine-schema";
 import { computerApproval, executeComputer } from "./computer";
 import { ComputerOperation } from "./computer-schema";
@@ -31,6 +31,16 @@ function machineConsent(
   operation: z.output<typeof ProvisionInput>["operation"],
 ): operation is Extract<MachineOperation, { op: "machine_add" | "machine_grant" | "machine_deny" }> {
   return operation.op === "machine_add" || operation.op === "machine_grant" || operation.op === "machine_deny";
+}
+/** Machine-family consent; #1665: allowing a child's permission request is the Owner's, denying needs none. */
+function machineApproval(
+  operation: z.output<typeof ProvisionInput>["operation"],
+  enrollments: MachinePort["enrollments"] | undefined,
+): { required: boolean; domainRevisions: Record<string, number> } | undefined {
+  if (machineConsent(operation))
+    return { required: true, domainRevisions: machineDomainRevisions(enrollments, operation.args.machineId) };
+  if (operation.op === "permission_allow") return { required: true, domainRevisions: {} };
+  return undefined;
 }
 function provisionExecutors(port: ProvisionPort, now: () => number) {
   return {
@@ -64,6 +74,9 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
       case "machine_remove":
       case "machine_list":
         return executeMachine(port?.machines, operation, `session:${context.sessionId}`);
+      case "permission_allow":
+      case "permission_deny":
+        return executePermission(port?.permissions, operation, context);
     }
     if (operation.op === "contact_promote" || operation.op === "contact_merge") {
       if (port === undefined) return refusal("provision", "provisioning is not composed");
@@ -110,8 +123,8 @@ export function provisionApproval(port: ProvisionPort | undefined) {
   return ({ operation }: z.output<typeof ProvisionInput>, context?: ToolExecutionContext) => {
     const computer = ComputerOperation.safeParse(operation);
     if (computer.success) return computerApproval(computerPort, computer.data, context);
-    if (machineConsent(operation))
-      return { required: true, domainRevisions: machineDomainRevisions(machineEnrollments, operation.args.machineId) };
+    const machine = machineApproval(operation, machineEnrollments);
+    if (machine !== undefined) return machine;
     if (operation.op === "contact_promote" || operation.op === "contact_merge") {
       if (port === undefined) return { required: false, domainRevisions: {} };
       return { required: false, domainRevisions: contactDomainRevisions(port.actors, operation) };

@@ -3,6 +3,7 @@ import type { createMachineEnrollmentStore } from "@oni/channels";
 import type { MachineHost } from "@oni/machines";
 import { canonicalDigest, Machine, type BusEvent, type ToolExecutionContext } from "@oni/protocol";
 import type { MachineOperation, MachineResult } from "./machine-schema";
+import type { PermissionPort } from "../seams";
 
 export interface MachinePort {
   readonly enrollments: ReturnType<typeof createMachineEnrollmentStore>;
@@ -12,9 +13,27 @@ export interface MachinePort {
   readonly now: () => number;
 }
 
+export function executePermission(
+  port: PermissionPort | undefined,
+  operation: Extract<MachineOperation, { op: "permission_allow" | "permission_deny" }>,
+  context: ToolExecutionContext,
+): MachineResult {
+  if (port === undefined) throw new Core.ToolRefused("provision", "agent permission port is not composed");
+  if (operation.op === "permission_allow" && context.domainRevisions === undefined)
+    return { op: operation.op, result: { type: "require_approval", id: operation.args.requestId } };
+  const outcome = port.answer({
+    sessionId: context.sessionId,
+    ...operation.args,
+    status: operation.op === "permission_allow" ? "allowed" : "denied",
+  });
+  if (outcome.kind === "not_owner")
+    throw new Core.ToolRefused("provision", `no cli turn of this session owns agent session ${operation.args.agentSessionId}`);
+  return { op: operation.op, result: outcome };
+}
+
 export function executeMachine(
   port: MachinePort | undefined,
-  operation: MachineOperation,
+  operation: Exclude<MachineOperation, { op: "permission_allow" | "permission_deny" }>,
   caller: "owner" | `session:${string}`,
 ): MachineResult {
   if (port === undefined) throw new Core.ToolRefused("provision", "machine provisioning is not composed");

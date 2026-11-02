@@ -9,7 +9,7 @@ import { refusal, storeRefusal } from "./contacts";
 import type { BundlePort } from "./bundles";
 import { Statuses } from "./status";
 import type { MachinePort } from "./machines";
-import type { ComputerPort } from "../seams";
+import type { ComputerPort, PermissionPort } from "../seams";
 
 export const CHANNEL_DECLARE_INPUT = z
   .object({
@@ -90,6 +90,7 @@ export interface ProvisionPort {
   readonly computer?: ComputerPort;
   readonly machines?: MachinePort;
   readonly rules: { readonly store: ReturnType<typeof createRuleStore>; readonly id: () => string };
+  readonly permissions?: PermissionPort;
   readonly persons: Pick<PersonStore, "put" | "get" | "list" | "remove">;
   readonly instances: Pick<ChannelInstanceStore, "put" | "get" | "list">;
   readonly secrets: Pick<SecretStore, "put" | "get">;

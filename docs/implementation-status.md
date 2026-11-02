@@ -43,6 +43,30 @@ for #1794; moving ledger writes out of channels remains #1795.
 This section supersedes older inbound grant, blacklist, environment posture
 and automation policy descriptions below. Verification receipts are in PR #1805.
 
+## #1604 child current-state frame
+
+A console or `cli:` contact sends `{type: "child_state", requestId, sessionId,
+child, turn}` over the gateway socket and receives one `child_state` frame:
+`{phase, source, since, facts: [{toolUseId?, phase}], diagnostics}`
+(`ChildState` in `packages/protocol/src/gateway/child-state.ts`). The app
+derives it from the same admitted `child_fact` / `child_receipt` /
+`child_diagnostic` rows `childActivity.state` folds (`currentState` over
+`stateReceipts`): `phase` and `source` are the winning receipt's, `since` is
+that receipt's first observation, `facts` lists the turn's admitted facts in
+admission order, and `diagnostics` is the winning receipt's list followed by
+the turn's damaged-record rows. The frame carries references and phase names
+only; no transcript bytes cross it. Refusals are typed:
+`invalid_request`, `unavailable` (child activity not composed),
+`session_not_found`, `unknown` (no admitted receipt for that child turn). The
+read is served before chat like `machine_list`
+(`apps/oni/src/composition/child-state-wire.ts`, dispatched in
+`webSocketCallbacks`) and admits nothing. Receipts:
+`packages/protocol/test/gateway-child-state.test.ts` (round trip, strict
+refusal of transcript bytes) and `apps/oni/test/gateway-child-state.test.ts`
+(three reconciled pages of one fixture child turn through the gateway
+callbacks, the exact frame, the refusals). Not claimed: a console rendering
+of the frame (#1513) and a `screen` source, which no reconciler path emits.
+
 ## #1775 memory budget default and breach reporting
 
 `mclient`'s default `memoryBudgetMb` is 512 (was 96, below one Retina
@@ -61,8 +85,8 @@ the attached machine handle. Their session IDs are the child IDs. The
 child-activity alarm source tails server-minted cursors, persists the latest
 cursor with its admitted receipts, and turns transcript records into the
 existing child facts and receipts. TypeScript dialect packs, hook spool
-scripts, and local transcript parsers are removed. The machine-originated
-permission bridge remains separate work under #1665.
+scripts, and local transcript parsers are removed. A child's permission
+request is decided by the session running its cli turn (#1665, below).
 
 ## #1792 channel instance surface ids
 
@@ -797,8 +821,8 @@ stale or ungranted. `apps/oni/src/index.ts` passes a
 `tool.pre` captures the effect; outside an invocation it refuses
 `permission_denied` and forwards nothing, and a compiled `pre` deny row on
 `machine.input.text` is tested to forward 0 and refuse `blocked_pre`.
-Binding this port to the agent's permission surface in the app is tracked
-as #1665.
+The agent permission port is bound out of band, not through `tool.pre`
+(#1665, below).
 
 **Client.** `clients/machine-client/src/screen/` (`Source` port, 2-slot
 frame pool that refuses `capture_failed` when saturated and frees on
@@ -925,11 +949,36 @@ port is absent, the request id is already in flight, the verdict is invalid
 or names another request, the port fails, or the 30,000 ms default deadline
 expires (`timeout`). Disconnect or supersession resolves every pending
 decision as denied, and a late answer has no waiter to satisfy. No policy is
-evaluated inside `packages/machines`; the app must bind its captured
-`tool.pre` decision to the port, and without it the host denies (the app
-binding is not wired yet: #1665). The
-capability has no `WellKnownCapability` member yet; the spelling is the
-string `agent.session`.
+evaluated inside `packages/machines`. The app binds the port in
+`apps/oni/src/bundles/approval-policy/agent-permission.ts` (#1665):
+`createMachineHost` receives `decideAgentPermission` with a 110,000 ms host
+backstop, and the request is decided out of band by the kernel session whose
+cli turn is running the agent session (`CliRunner.owner`, the `sender` the
+runner records at launch). A request whose agent session no cli turn owns is
+refused `denied` with no row written. Otherwise the request lands in the
+owning session through the entity's `Deliver` door as one `action` row
+(source `{kind: "agent_permission", machineId}`, idempotency key
+`agent-permission:<machineId>:<agentSessionId>:<requestId>`, body
+`{kind: "agent_permission", machineId, agentSessionId, requestId, tool,
+description, deadlineMs}`), and the port awaits the first decision fact
+recorded under that key in that session (`type` `agent_permission.decided`,
+data `{status: "allowed" | "denied"}`): `allowed` resolves the host callback
+`allowed`; any other fact resolves `refused/denied`; no fact within the
+100,000 ms app deadline (under the client's own 120 s `hook::DECIDE` bound)
+resolves `refused/timeout`; a `Deliver` failure is an `Operational.Error`
+incident and `refused/denied`. A fact already recorded under the key answers
+a repeated request without a second row. The owning session answers with the
+`provision` ops `permission_allow` and `permission_deny` (args `machineId`,
+`agentSessionId`, `requestId`, the row's own field names): `permission_allow`
+requires Owner consent through the existing durable approval request and
+records the `allowed` fact only when it re-executes approved;
+`permission_deny` records `denied` at once; a session that does not own the
+child is refused `ToolRefused`; a second answer under the same key returns the
+first fact (`exists`). A fact recorded after the app deadline, or after the
+child disconnected, wakes no host waiter. The port never starts a turn and
+never adopts the session fence. Receipts: `apps/oni/test/agent-permission.test.ts`,
+the owner assertions in `apps/oni/test/cli-runner.test.ts`. The capability has
+no `WellKnownCapability` member yet; the spelling is the string `agent.session`.
 
 **Client: dialects and launchers.** `clients/machine-client/src/agent/`
 holds the only files that name a CLI: `claude.rs`, `codex.rs`, `pi.rs`,
