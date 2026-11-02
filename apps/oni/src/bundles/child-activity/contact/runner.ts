@@ -1,5 +1,6 @@
 import type { ChannelInstanceStore } from "@oni/channels";
 import type { MachineError, MachineHandle } from "@oni/machines";
+import { L0Observation, type ObservationSink } from "@oni/protocol";
 import { Effect } from "effect";
 import type { ChildWatch } from "../index";
 import { type ChildRow, contactCursor } from "../reconcile";
@@ -56,6 +57,12 @@ export interface CliRunner {
   run(input: CliRunInput): Effect.Effect<CliTurn, CliRefusal>;
   interrupt(child: string): Effect.Effect<void, CliRefusal>;
   close(): Effect.Effect<void>;
+}
+
+/** The runner's `committed` port over an observation sink: one listener per sender session's committed actions. */
+export function committedOn(observations: Pick<ObservationSink, "subscribe">): CliRunnerDeps["committed"] {
+  return (sessionId, listener) =>
+    observations.subscribe?.(L0Observation.ActionCommittedEvent, () => listener(), { match: { sessionId } });
 }
 
 interface Active {

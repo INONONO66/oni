@@ -2,7 +2,9 @@ import { statSync, watch } from "node:fs";
 import { basename, dirname } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { Bundle } from "@oni/agent";
+import type { MachineHandle } from "@oni/machines";
 import { canonicalJson, type Alarm, type Machine } from "@oni/protocol";
+import type { Effect } from "effect";
 import type { ChildWatch } from "../bundles/child-activity/index";
 import { contactCursor, reconcile, type ChildRow } from "../bundles/child-activity/reconcile";
 
@@ -466,6 +468,24 @@ export interface ChildSourcePorts {
   };
   readonly rows: (sessionId: string) => readonly ChildRow[];
   readonly admit: NonNullable<WatchSenders["admit"]>;
+}
+
+/** The child reader's machine port over the host's agent-session handles; `run` is the caller's Effect boundary. */
+export function agentSessionTail(
+  host: { get(id: string): Pick<MachineHandle, "agentSession"> },
+  run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>,
+): ChildSourcePorts["machines"] {
+  return {
+    get: (id) => ({
+      agentSession: {
+        tail: (input) => {
+          const agentSession = host.get(id).agentSession;
+          if (agentSession === undefined) throw new Error(`machine ${id} does not support agent sessions`);
+          return run(agentSession.tail(input));
+        },
+      },
+    }),
+  };
 }
 
 /** Consecutive drains in which the source failed; the third retires the chain. */

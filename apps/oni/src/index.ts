@@ -77,7 +77,6 @@ import {
 } from "@oni/machines";
 import {
   Alarm,
-  L0Observation,
   Operational,
   Outbound,
   traceIdFromUuid,
@@ -131,7 +130,7 @@ import {
 } from "./composition/cluster-runtime";
 import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow, effectScheduler } from "./composition/platform";
-import { createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
+import { agentSessionTail, createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
 import { createMediaResolver } from "./composition/media";
 import { channelHistoryLookup } from "./composition/channel-history";
 import { inboxHandler } from "./composition/attachments";
@@ -167,7 +166,7 @@ import { admit } from "./bundles/child-activity/admit";
 import { ChildWatch } from "./bundles/child-activity/index";
 import { type ChildRow, currentState, receivedChildRows, stateReceipts } from "./bundles/child-activity/reconcile";
 import { validateCliContactSettings } from "./bundles/child-activity/contact/declaration";
-import { type CliRunner, createCliRunner } from "./bundles/child-activity/contact/runner";
+import { type CliRunner, committedOn, createCliRunner } from "./bundles/child-activity/contact/runner";
 
 /** A channel message the gateway refused pre-admission: the driver reports it to the sender. */
 class MessageAdmissionRefused extends Error {
@@ -898,17 +897,7 @@ export async function startOni(options: StartOptions = {}) {
           machines: tools.machines,
         }),
         children: {
-          machines: {
-            get: (id: string) => ({
-              agentSession: {
-                tail: (input: Machine.AgentSessionTailRequest) => {
-                  const agentSession = machinery.host.get(id).agentSession;
-                  if (agentSession === undefined) throw new Error(`machine ${id} does not support agent sessions`);
-                  return runAppEffect(runtime, agentSession.tail(input));
-                },
-              },
-            }),
-          },
+          machines: agentSessionTail(machinery.host, (effect) => runAppEffect(runtime, effect)),
           rows: childRows,
         },
       },
@@ -950,8 +939,7 @@ export async function startOni(options: StartOptions = {}) {
         close: childActivity.close,
         rows: childRowsAfter,
       },
-      committed: (sessionId, listener) =>
-        services.observations.subscribe?.(L0Observation.ActionCommittedEvent, () => listener(), { match: { sessionId } }),
+      committed: committedOn(services.observations),
       deadline: armDeadline,
       now: services.now,
     });
