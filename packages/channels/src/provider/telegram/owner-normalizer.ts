@@ -1,4 +1,4 @@
-import { type Channel, Gateway } from "@oni/protocol";
+import { type Channel, Ingress } from "@oni/protocol";
 import type { TelegramOwnerMessage } from "./owner-sdk.js";
 
 /** Messages without a canonical Bot API id occupy a separate account-local key space. */
@@ -33,7 +33,8 @@ export function ownerInbound(message: TelegramOwnerMessage, userId: string): Cha
       } : {}),
       surface: "telegram",
       channelId: message.chatId,
-      addressees: mentioned ? [{ externalId: userId }] : [],
+      addressees: message.mentionedUserIds.map((externalId) => ({ externalId })),
+      account: userId,
       dm: message.dm,
       receivedBy: "owner",
       ...(threadId === undefined && message.replyToMessageId === undefined ? {} : {
@@ -45,7 +46,7 @@ export function ownerInbound(message: TelegramOwnerMessage, userId: string): Cha
           }),
         },
       }),
-      payload: Gateway.IngressFacts.shape.payload.parse(message),
+      payload: Ingress.Message.shape.payload.parse(message),
       render: message.text,
       ...(attachments.length === 0 ? {} : { attachments }),
     },

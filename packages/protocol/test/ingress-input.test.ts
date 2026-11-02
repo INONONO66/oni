@@ -9,9 +9,10 @@ const input = {
   threadId: "thread-1",
   workspaceId: "workspace-1",
   author: { externalId: "user-1", isBot: true },
+  from: "user-1", addressees: [], payload: {},
   dm: false,
-  mentionsBot: true,
-  body: "ready",
+  addressed: true,
+  render: "ready",
   receivedAt: 1_750_000_000_000,
 };
 
@@ -22,19 +23,19 @@ for (const event of ["message", "reaction", "postback", "mention", "webhook", "g
       ...(event === "webhook" ? { secretRef: "secret:hook-1" } : {}),
       ...(event === "github" ? { githubEvent: "pull_request.opened" } : {}),
     };
-    expect(Ingress.Input.parse(value)).toEqual(value);
+    expect(Ingress.Message.parse(value)).toEqual(value);
   });
 }
 
 test("rejects unknown input and author fields", () => {
-  expect(Ingress.Input.safeParse({ ...input, event: "reaction", payload: "raw" }).success).toBe(false);
+  expect(Ingress.Message.safeParse({ ...input, event: "reaction", unexpected: "raw" }).success).toBe(false);
   expect(
-    Ingress.Input.safeParse({ ...input, event: "reaction", author: { ...input.author, name: "x" } })
+    Ingress.Message.safeParse({ ...input, event: "reaction", author: { ...input.author, name: "x" } })
       .success,
   ).toBe(false);
 });
 
 test("rejects missing identity and unsupported events", () => {
-  expect(Ingress.Input.safeParse({ ...input, event: "edit" }).success).toBe(false);
-  expect(Ingress.Input.safeParse({ ...input, event: "message", author: { isBot: false } }).success).toBe(false);
+  expect(Ingress.Message.safeParse({ ...input, event: "edit" }).success).toBe(false);
+  expect(Ingress.Message.safeParse({ ...input, event: "message", author: { isBot: false } }).success).toBe(false);
 });

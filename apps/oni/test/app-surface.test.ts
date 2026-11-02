@@ -104,7 +104,7 @@ test("facade interrupt rides the entity Deliver signal: the activation's writer 
       { deliveryKind: "interrupt", content: [] },
       expect.objectContaining({ phase: "delivery", kind: "interrupt", boundary: "before_llm", deliveryId: signals[0]?.id }),
     ]);
-    expect(signals[0]?.intent.value).toEqual({ kind: "session", id: sessionId });
+    expect(signals[0]?.intent.value).toEqual({ kind: "session", id: sessionId, reply: "none" });
     // Writer identity: the row committed on the live chain (after the turn
     // rows the activation wrote) and the fence owner/fence never changed
     // hands around it — the activation's own CAS, no other writer.

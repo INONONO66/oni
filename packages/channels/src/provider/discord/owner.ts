@@ -7,7 +7,7 @@ import { handoffInbound } from "../../support/inbound-handoff";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { newTraceId } from "../../support/trace";
 import type { PublishPort } from "../../types";
-import type { AccountIdentity, OwnerPosture, ProviderOptions } from "../contract";
+import type { AccountIdentity, ProviderOptions } from "../contract";
 import { type DiscordDelivery, deliverThroughDiscord, discordDmChannel } from "./delivery";
 import { DiscordNormalizer } from "./normalizer";
 import {
@@ -23,16 +23,11 @@ import { type DiscordMessage, DiscordMessageSchema } from "./types";
  * Discord as the Owner's own account (#1569 lane 6): the declared
  * instance, logged in with the vault-opened account token the remote-auth
  * login produced. Delivery and typing ride the SDK client under the bare
- * token with retries disabled; intake is the
- * account's gateway listener under the declared posture: by default a DM to
- * the Owner or a mention of the Owner reaches the Resident, received by
- * the Owner; the account's own messages never do. Reactions are not intake:
- * the router routes a reaction only as the answer to a request, and nothing
- * the Owner's account receives is one.
+ * token with retries disabled. The gateway listener emits message facts;
+ * the router's rules decide which messages to deliver.
  */
 export class DiscordOwnerAdapter implements Channel.Surface {
   get id(): string { return this.options.instance; }
-  /** The surface contract's config: an Owner instance carries its posture instead. */
   readonly config: Channel.Config = {};
 
   private readonly account: DiscordOwnerApi;
@@ -47,7 +42,6 @@ export class DiscordOwnerAdapter implements Channel.Surface {
 
   constructor(
     credentials: { token: string },
-    readonly posture: OwnerPosture,
     private readonly publish: PublishPort,
     private readonly options: ProviderOptions,
     sdk: DiscordOwnerSdk = discordOwnerSdk(),
@@ -64,7 +58,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
 
   /**
    * The account identity is verified before the instance counts as mounted;
-   * a refused login fails this start. Under an intake posture the gateway
+   * a refused login fails this start. The gateway
    * listener then opens, settling on READY and failing this start on an
    * error before it.
    */
@@ -74,7 +68,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
     const identity = await this.account.testAuth();
     this.selfId = identity.id;
     this.normalizer = new DiscordNormalizer(identity.id);
-    const listens = this.posture.intake !== "none" && this.handler !== null;
+    const listens = this.handler !== null;
     if (listens) await this.listen();
     this.publish(Operational.Events.Info, {
       traceId,
@@ -84,7 +78,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
       context: {
         userId: identity.id,
         username: identity.username,
-        listener: listens ? this.posture.intake : "none",
+        listener: listens,
       },
     });
   }
@@ -130,11 +124,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
     });
   }
 
-  /**
-   * One dispatch under the posture: the normalizer keeps the account's own
-   * messages out and names a mention of the Owner; `mentions_and_dms` then
-   * admits a DM or that mention.
-   */
+  /** Normalize each observed message before the router evaluates its rules. */
   private dispatch(parsed: z.ZodSafeParseResult<DiscordMessage>, key: string): void {
     const normalizer = this.normalizer;
     if (!parsed.success || normalizer === null) return;
@@ -150,18 +140,13 @@ export class DiscordOwnerAdapter implements Channel.Surface {
       rethrowFailure: false,
       handle: async () => {
         const inbound = normalizer.normalize(message);
-        if (inbound === null || !this.admits(inbound)) return;
+        if (inbound === null) return;
         await requireHandler(this.handler, this.id)({
           ...inbound,
           facts: { ...inbound.facts, receivedBy: "owner" },
         });
       },
     });
-  }
-
-  private admits(inbound: Channel.InboundMessage): boolean {
-    if (this.posture.intake === "all") return true;
-    return inbound.facts.dm || inbound.facts.event === "mention";
   }
 
   deliver(

@@ -8,7 +8,7 @@ import { type KakaoTalkOwnerSdk, kakaoTalkOwnerSdk } from "./owner-sdk.js";
 
 /**
  * The Owner-identity arm (#1569 lane 7): the account's LOCO push listener
- * under the declared posture, delivery and typing into chats as the Owner,
+ * emitting facts, delivery and typing into chats as the Owner,
  * mounted by declaration id (a delivery route only when the declaration
  * grants outbound).
  */
@@ -29,8 +29,8 @@ function createKakaoTalkOwnerArm(sdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk()): 
     ],
     capabilities: { deliver: true, react: false, media: KAKAOTALK_MEDIA_LIMITS, typing: true, voice: false },
     listen: true,
-    create(credentials, posture, publish, options) {
-      const surface = new KakaoTalkOwnerAdapter(credentials, posture, publish, options, sdk);
+    create(credentials, publish, options) {
+      const surface = new KakaoTalkOwnerAdapter(credentials, publish, options, sdk);
       return {
         surface,
         account: () => surface.account(),

@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { ZodError } from "zod";
-import { Gateway } from "../src/gateway/index.js";
+import { Ingress } from "../src/ingress/index.js";
 import { Message } from "../src/message/index.js";
 
 const base = { id: "p-1", sessionID: "ses-1", messageID: "msg-1" };
@@ -403,9 +403,9 @@ describe("Message.WithParts", () => {
   });
 });
 
-describe("Gateway.IngressFacts", () => {
+describe("Ingress.Message", () => {
   test("parses video and voice audio attachments", () => {
-    const facts = Gateway.IngressFacts.parse({
+    const facts = Ingress.Message.parse({
       eventId: "in-1",
       surface: "telegram",
       channelId: "chat-1",

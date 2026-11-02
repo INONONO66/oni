@@ -91,7 +91,6 @@ const ownerOnlyCases: readonly OwnerOnlyCase[] = [
     build: (publish) =>
       instagramArm().create(
         { session: JSON.stringify({ cookies: "sessionid=x", device: {}, user_id: "1" }) },
-        { intake: "none", autoReply: false },
         publish,
         injectedOptions(),
       ),
@@ -104,7 +103,6 @@ const ownerOnlyCases: readonly OwnerOnlyCase[] = [
     build: (publish) =>
       kakaoArm().create(
         { oauthToken: "oauth", userId: "1001" },
-        { intake: "none", autoReply: false },
         publish,
         injectedOptions(),
       ),
@@ -118,7 +116,6 @@ const ownerOnlyCases: readonly OwnerOnlyCase[] = [
     build: (publish) =>
       linearArm().create(
         { secret: "hook-secret", token: "lin_api", ownerUserId: "user-owner" },
-        { intake: "none", autoReply: false },
         publish,
         injectedOptions(),
       ),
@@ -199,7 +196,7 @@ describe("provider conformance", () => {
     expect(owner?.capabilities.voice).toBe(true);
     expect(owner?.credentials.safeParse({ token: "xoxc-1", cookie: "d" }).success).toBe(true);
     expect(owner?.credentials.safeParse({ token: "xoxc-1", cookie: "d", huddle: { token: "xoxc-2", cookie: "d2" } }).success).toBe(false);
-    const runtime = owner?.create({ token: "xoxc-1", cookie: "d" }, { intake: "none", autoReply: false }, noopPublish, injectedOptions());
+    const runtime = owner?.create({ token: "xoxc-1", cookie: "d" }, noopPublish, injectedOptions());
     expect(runtime?.voiceRoute).toBeDefined();
   });
   test("Telegram Owner declares history, streaming intake and bounded byte-upload support", () => {
@@ -208,7 +205,7 @@ describe("provider conformance", () => {
     if (arm === undefined) throw new Error("Telegram Owner arm absent");
     const runtime = arm.create(
       { apiId: "123", apiHash: "a".repeat(32) },
-      { intake: "none", autoReply: false }, noopPublish, injectedOptions(),
+      noopPublish, injectedOptions(),
     );
     expect(arm.credentials.safeParse({ apiId: "123", apiHash: "a".repeat(32) }).success).toBe(true);
     expect(arm.credentials.safeParse({ apiId: "0", apiHash: "a".repeat(32) }).success).toBe(false);

@@ -28,13 +28,12 @@ afterEach(async () => {
 function mounted(
   fake: ReturnType<typeof fakeTelegramOwner>,
   dir: string,
-  intake: "all" | "none" | "mentions_and_dms" = "mentions_and_dms",
   media?: ProviderOptions["media"],
 ) {
   const options = { ...injectedOptions(), telegramDataDir: dir, ...(media === undefined ? {} : { media }) };
   const arm = createTelegramProvider(undefined, fake.sdk).owner;
   if (arm === undefined) throw new Error("missing Owner arm");
-  return arm.create(credentials, { intake, autoReply: false }, () => undefined, options);
+  return arm.create(credentials, () => undefined, options);
 }
 
 describe("Telegram account Owner", () => {
@@ -69,13 +68,12 @@ describe("Telegram account Owner", () => {
     }
   });
 
-  test("normalizes DM, resolved mention, all and none without own echoes or empty events", async () => {
+  test("normalizes DM, resolved mention and group facts without own echoes or empty events", async () => {
     const dir = await directory();
-    for (const [intake, accepted] of [
-      ["mentions_and_dms", 2], ["all", 3], ["none", 0],
-    ] as const) {
+    {
+      const accepted = 3;
       const fake = fakeTelegramOwner();
-      const runtime = mounted(fake, dir, intake);
+      const runtime = mounted(fake, dir);
       const messages: string[] = [];
       const complete = Promise.withResolvers<void>();
       runtime.surface.onMessage(async (message) => {
@@ -194,7 +192,7 @@ describe("Telegram account Owner", () => {
         { ...ownerMessage, messageId: "99", dateSeconds: 12 },
       ], before: "99" };
     } });
-    const runtime = mounted(fake, dir, "none");
+    const runtime = mounted(fake, dir);
     await runtime.surface.start("start");
     expect(await runtime.historyRoute?.({ chatId: "chat-1", limit: 2 })).toMatchObject({
       status: "ok", page: { messages: [{ messageId: "100", threadId: "forum:42" }, { messageId: "99" }], before: "99" },
@@ -272,7 +270,7 @@ describe("Telegram account Owner", () => {
         ? new TelegramOwnerError("AUTH_KEY_UNREGISTERED", "session_lost", true)
         : new TelegramOwnerError("FILE_TOO_BIG", "media_too_large", true);
     } });
-    const runtime = mounted(fake, dir, "none",
+    const runtime = mounted(fake, dir,
       async () => ({ bytes: new Uint8Array([1, 2]), name: "photo.png", mime: "image/png" }));
     const withdrawn: string[] = [];
     runtime.onWithdrawn?.((reason) => withdrawn.push(reason));
@@ -295,7 +293,7 @@ describe("Telegram account Owner", () => {
     const fake = fakeTelegramOwner({ onSend: async () => {
       throw new TelegramOwnerError("revoked after dispatch", "session_lost");
     } });
-    const runtime = mounted(fake, dir, "none",
+    const runtime = mounted(fake, dir,
       async () => ({ bytes: new Uint8Array([1]), name: "photo.png", mime: "image/png" }));
     const withdrawn: string[] = [];
     runtime.onWithdrawn?.((reason) => withdrawn.push(reason));
@@ -315,7 +313,7 @@ describe("Telegram account Owner", () => {
     const dir = await directory();
     const fake = fakeTelegramOwner();
     const bytes = new Uint8Array([1, 2, 3]);
-    const runtime = mounted(fake, dir, "none",
+    const runtime = mounted(fake, dir,
       async () => ({ bytes, name: "sample", mime: "application/octet-stream" }));
     await runtime.surface.start("start");
     const cases = [
@@ -343,7 +341,7 @@ describe("Telegram account Owner", () => {
   test("caption preflight refuses before any SDK media send", async () => {
     const dir = await directory();
     const fake = fakeTelegramOwner();
-    const runtime = mounted(fake, dir, "none",
+    const runtime = mounted(fake, dir,
       async () => ({ bytes: new Uint8Array(2), name: "sample", mime: "image/png" }));
     await runtime.surface.start("start");
     expect(await runtime.deliveryRoute?.("peer", {
@@ -357,7 +355,7 @@ describe("Telegram account Owner", () => {
     const dir = await directory();
     const fake = fakeTelegramOwner();
     const bytes = new Uint8Array(50_000_001);
-    const runtime = mounted(fake, dir, "none",
+    const runtime = mounted(fake, dir,
       async () => ({ bytes, name: "sample", mime: "application/octet-stream" }));
     await runtime.surface.start("start");
     for (const part of [
@@ -398,7 +396,7 @@ describe("Telegram account Owner", () => {
     const fake = fakeTelegramOwner({ onClose: async () => { throw new TelegramOwnerError("close unconfirmed", "session_lost"); } });
     const events: string[] = [];
     const arm = createTelegramProvider(undefined, fake.sdk).owner;
-    const runtime = arm?.create(credentials, { intake: "none", autoReply: false },
+    const runtime = arm?.create(credentials,
       (_kind, event) => { events.push(JSON.stringify(event)); }, { ...injectedOptions(), telegramDataDir: dir });
     await runtime?.surface.start("start");
     await expect(runtime?.surface.stop("stop")).rejects.toMatchObject({ code: "session_lost" });
@@ -599,7 +597,7 @@ describe("Telegram account Owner", () => {
   test("oversize media is typed before physical send and bounded bytes use the SDK arm", async () => {
     const dir = await directory();
     const fake = fakeTelegramOwner();
-    const runtime = mounted(fake, dir, "none",
+    const runtime = mounted(fake, dir,
       async (part) => ({
         bytes: new Uint8Array(part.ref === "large" ? 10_000_001 : 2),
         name: "photo.png", mime: "image/png",

@@ -11,7 +11,7 @@ import { ownerContactFor } from "./composition/owner-contact";
 import { createLiveVoice } from "./composition/live-voice";
 import { createLiveSessionRunner, type LiveSession } from "./composition/live-session";
 import { ownerAnswerAuthentication } from "./composition/answer-authentication";
-import { typingRouteFor } from "./composition/typing-route";
+
 import { webhookContacts } from "./composition/webhook-contacts";
 import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
@@ -545,7 +545,7 @@ export async function startOni(options: StartOptions = {}) {
         .Deliver({
           kind: "signal",
           body: JSON.stringify({ content: [{ kind: "text", text: "delegation deadline expired" }], control: "cancel" }),
-          source: JSON.stringify({ kind: "alarm", purpose: DELEGATION_DEADLINE }),
+          source: JSON.stringify({ kind: "alarm", purpose: DELEGATION_DEADLINE, reply: "none" }),
           idempotencyKey: `${occurrenceId}:cancel`,
         })
         .pipe(
@@ -989,14 +989,10 @@ export async function startOni(options: StartOptions = {}) {
       run: (effect, signal) => runAppEffect(runtime, effect, signal),
       incident,
     });
-    // The Owner instances whose declaration lets the reply door answer through
-    // the account (#1569 lane 7); the supervisor keeps it with the routes, and
-    // the resident's typing pulse reads it.
-    const autoReplies = new Set<string>();
+
     const resident = createResident({
       agents: plane.stores.agents,
-      // A turn pulses only the receiving instance, subject to its auto-reply posture.
-      typingRoute: typingRouteFor(typingRoutes, autoReplies, deliveryRoutes),
+      typingRoute: (instance) => typingRoutes.get(instance),
       // #1600 lane R2: a drafted answer goes to the Owner through the bot on a
       // platform the Owner Person has an endpoint on, ws last (it needs a live socket).
       ownerContact: () => ownerContactFor(plane.stores.persons.list(), deliveryRoutes),
@@ -1070,7 +1066,7 @@ export async function startOni(options: StartOptions = {}) {
                 .Deliver({
                   kind: "prompt",
                   body: JSON.stringify({ content: [{ kind: "text", text: content }] }),
-                  source: JSON.stringify({ kind: "contact", contact, ...(replyTo === undefined ? {} : { replyTo }) }),
+                  source: JSON.stringify({ kind: "contact", contact, reply: "none", ...(replyTo === undefined ? {} : { replyTo }) }),
                   idempotencyKey: `${replyTo ?? services.entropy.id()}:reply`,
                 })
                 .pipe(
@@ -1097,7 +1093,7 @@ export async function startOni(options: StartOptions = {}) {
             content: [{ kind: "text", text: canonicalJson(payload) }],
             ...(after === undefined ? {} : { after }),
           }),
-          source: JSON.stringify({ kind: "hook.late" }),
+          source: JSON.stringify({ kind: "hook.late", reply: "none" }),
           idempotencyKey: `hook-late:${services.entropy.id()}`,
         }),
       ).then((exit) => {
@@ -1172,7 +1168,7 @@ export async function startOni(options: StartOptions = {}) {
       voiceRoutes,
       historyRoutes,
       webhookHandlers,
-      autoReplies,
+
       // #1600: an Owner instance's account is the Owner — its platform id joins the
       // Owner Person's endpoints; what goes wrong is the Owner's to hear.
       bindAccount: ownerAccountBinder({
@@ -1313,7 +1309,7 @@ export async function startOni(options: StartOptions = {}) {
         },
         {
           deliveryRoutes,
-          autoReplies: () => autoReplies,
+
           // #1569 lane 8: the standing grant is the Owner's `reach` on a Person
           // (`contact_add`), read from the store at each send so a contact named
           // mid-run is reachable at once; a Person without it is inbound-only.
@@ -1578,7 +1574,7 @@ export async function startOni(options: StartOptions = {}) {
               .Deliver({
                 kind: "signal",
                 body: JSON.stringify({ content: [], control: "interrupt" }),
-                source: JSON.stringify({ kind: "session", id }),
+                source: JSON.stringify({ kind: "session", id, reply: "none" }),
                 idempotencyKey: services.entropy.id(),
               })
               .pipe(

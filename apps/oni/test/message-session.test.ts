@@ -2,7 +2,7 @@ import { APPROVAL_POLICY } from "../src/composition/policy";
 import { expect, test } from "bun:test";
 import { Core } from "@oni/agent";
 const createExecutor = Core.createExecutor;
-import { Delivery, SessionGeneration, type LedgerSession, type SessionTransition } from "@oni/protocol";
+import { Delivery, SessionGeneration, type LedgerSession, type PlainObject, type SessionTransition } from "@oni/protocol";
 import { Effect } from "effect";
 import {
   createMessageDeliveryCommit,
@@ -267,9 +267,26 @@ test("entity delivery accepts the exact one-text-part outbound letter", async ()
     ),
   );
   expect(payload.idempotencyKey).toBe(message.messageId);
+  expect(JSON.parse(payload.source)).toEqual(message);
+  expect(pendingDeliveryRow(input, 1).origin).toEqual(input.origin);
   expect(JSON.parse(payload.body)).toEqual({
     content: input.content,
   });
+});
+
+const originPolicies: { readonly value: PlainObject; readonly reply: string }[] = [
+  { value: { kind: "external", receivedBy: "owner" }, reply: "draft" },
+  { value: { kind: "external", receivedBy: "bot" }, reply: "auto" },
+  { value: { kind: "external", receivedBy: "owner", rule: { reply: "auto", as: "channel:slack:owner" } }, reply: "auto" },
+  { value: { kind: "external", reply: "none" }, reply: "none" },
+  { value: { kind: "alarm" }, reply: "none" },
+  { value: { kind: "message", messageId: "request", senderSessionId: "child", sourceActionId: "action" }, reply: "none" },
+];
+test.each(originPolicies)("app admission records reply=$reply for $value", async ({ value, reply }) => {
+  const input = Delivery.Commit.parse({ ...deliveryCommit("policy"), origin: { encodingVersion: 1, value } });
+  const payload = await runEffect(deliverPayload(input));
+  expect(JSON.parse(payload.source)).toEqual({ ...value, reply });
+  expect(pendingDeliveryRow(input, 1).origin.value).toEqual({ ...value, reply });
 });
 
 test("entity delivery serializes ordered text and media with its consumption boundary", async () => {

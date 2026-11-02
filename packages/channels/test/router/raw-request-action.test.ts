@@ -91,7 +91,7 @@ test.each([
       };
     }),
   });
-  const facts: Gateway.IngressFacts = {
+  const facts: Ingress.Message = {
     eventId: "reply",
     surface: "telegram",
     channelId: "dm",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Gateway } from "@oni/protocol";
+import { Ingress } from "@oni/protocol";
 import { TelegramNormalizer } from "../src/provider/telegram/normalizer";
 import { TelegramUpdateSchema } from "../src/provider/telegram/types";
 import { SlackNormalizer } from "../src/provider/slack/normalizer";
@@ -127,6 +127,6 @@ test("the ingress schema preserves attachment references across parse and serial
     addressees: [], dm: true, payload: {}, render: "",
     attachments: [{ kind: "image" as const, ref: "https://cdn.discordapp.com/a.png", name: "a.png", bytes: 10 }],
   };
-  expect(Gateway.IngressFacts.parse(JSON.parse(JSON.stringify(Gateway.IngressFacts.parse(facts)))))
+  expect(Ingress.Message.parse(JSON.parse(JSON.stringify(Ingress.Message.parse(facts)))))
     .toEqual(facts);
 });

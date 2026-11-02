@@ -333,7 +333,7 @@ describe("Discord bot voice route and call facts", () => {
       facts: {
         eventId: "call:guild:owner:session:42", event: "call", surface: "discord", instance: "channel:test:main",
         workspaceId: "guild", channelId: "voice-one",
-        author: { externalId: "owner", isBot: false }, addressees: [{ externalId: "bot" }],
+        author: { externalId: "owner", isBot: false }, account: "bot", addressees: [{ externalId: "bot" }],
         dm: false, payload: joined, render: "joined voice channel voice-one",
       },
     });

@@ -366,8 +366,7 @@ export namespace Gateway {
   export const IngestSender = MessageContract.Sender;
   export type IngestSender = z.infer<typeof IngestSender>;
 
-  export const IngressFacts = MessageContract.IngressFacts;
-  export type IngressFacts = z.infer<typeof IngressFacts>;
+
 
   /** One inbound attachment, also carried as a media part inside a delivery's `Delivery.Content`. */
   export const MediaPart = MediaPartSchema;

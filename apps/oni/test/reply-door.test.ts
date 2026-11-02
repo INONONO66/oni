@@ -71,6 +71,7 @@ function slackOrigin(conversation: Conversation, receivedBy?: "bot" | "owner") {
       externalId: "T1:U1",
       actorId: "person:owner",
       ...(receivedBy === undefined ? {} : { receivedBy }),
+      ...(receivedBy === "owner" ? {} : { reply: "auto" }),
       conversation,
     },
   };
@@ -201,8 +202,10 @@ test("the model-facing send_message tool cannot compose an origin target", () =>
  * outside any tool body, so this is the receipt that it runs under the
  * turn's executor the gateway's session `run` port requires.
  */
-test("the resident's reply reaches the channel through the real gateway, under the turn's executor", async () => {
+test.each(["auto", "missing-owner", "child-settlement"] as const)("the resident reply and typing honor the recorded policy: %s", async (policy) => {
   const delivered: Delivered[] = [];
+  const typing: string[] = [];
+  const refusals: string[] = [];
   const sessionId = "reply-door-e2e";
   let gateway: GatewayRouter | undefined;
   const resident = residentRunner({
@@ -210,12 +213,19 @@ test("the resident's reply reaches the channel through the real gateway, under t
     apiKey: "test-key",
     tools: {
       messages: {
-        ingest: (...args) => {
+        ingest: async (...args) => {
           if (gateway === undefined) throw new Error("gateway is not composed yet");
-          return runEffect(gateway.ingest(...args));
+          const result = await runEffect(gateway.ingest(...args));
+          if (result.status === "blocked_pre") refusals.push(result.reasonCode);
+          return result;
         },
       },
     },
+    typingRoute: () => ({
+      everyMs: 4000,
+      open: async () => { typing.push("open"); return { channelId: "C1" }; },
+      pulse: async () => { typing.push("pulse"); },
+    }),
     sessionRuntime: { clock: () => 10 },
     llm: {
       resolveModel: (model: { readonly id: string; readonly provider: string }) =>
@@ -238,7 +248,9 @@ test("the resident's reply reaches the channel through the real gateway, under t
       },
       prepare: prepareMessage(resident.plane, resident.genesis),
       ...(yield* residentGatewayPorts(resident.plane, () => 10)),
-    }, { deliveryRoutes: slackRoute(delivered), grants: () => [] });
+    }, { deliveryRoutes: new Map([...slackRoute(delivered)].map(([id, route]) => [
+      id, { ...route, identity: policy === "auto" ? "bot" as const : "owner" as const },
+    ])), grants: () => [] });
   }).pipe(Effect.provide(resident.services)));
   createSurfaceKeyStore(resident.plane.channel).claim(SLACK_KEY, sessionId);
   await runEffect(localDelivery(resident.plane, "reply-door-e2e", () => 10)({
@@ -246,14 +258,20 @@ test("the resident's reply reaches the channel through the real gateway, under t
     sessionId,
     kind: "prompt",
     content: [{ kind: "text", text: "ping" }],
-    origin: slackOrigin(CHANNEL),
+    origin: policy === "child-settlement" ? { encodingVersion: 1, value: {
+      messageId: PROMPT_ID, sourceSessionId: "child", sourceActionId: "terminal",
+      destinationSessionId: sessionId, requestId: "request", replyTo: "request",
+      terminal: "completed", content: "ping", digest: "digest",
+    } } : slackOrigin(CHANNEL, policy === "missing-owner" ? "owner" : "bot"),
     createdAt: 10,
     parentActionId: null,
     createSession: resident.genesis(sessionId, null, "resident", "resident"),
   }));
   const result = await resident.drain(sessionId);
   expect(result?.kind).toBe("result");
-  expect(delivered).toEqual([
+  expect(delivered).toEqual(policy === "auto" ? [
     { externalId: "T1:U1", body: "pong", conversation: { channelId: "C1", threadId: "1710.0002", replyToMessageId: "1710.0002" } },
-  ]);
+  ] : []);
+  expect(refusals).toEqual(policy === "missing-owner" ? ["message.resident.reply_draft"] : []);
+  expect(typing).toEqual(policy === "auto" ? ["open", "pulse"] : []);
 });

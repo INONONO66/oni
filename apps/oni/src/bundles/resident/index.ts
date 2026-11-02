@@ -56,6 +56,7 @@ interface ReplyTarget {
   /** The channel the person wrote on: a person on several channels is answered where they asked (#1485). */
   readonly surface: string;
   readonly instance?: string;
+  readonly reply?: "auto" | "draft" | "none";
   /** The delivered prompt the reply door answers (#1569): the gateway folds the conversation from its recorded origin. */
   readonly messageId: string;
   /** The chat and thread they wrote in; a group message is answered there, not in a DM (#1490). */
@@ -91,6 +92,12 @@ const OriginConversation = z
  * origin names an actor on a channel surface. WebSocket owners already read
  * the turn stream, so they are not written to twice.
  */
+const ReplyPolicy = z.enum(["auto", "draft", "none"]);
+const OriginReply = z.object({
+  reply: ReplyPolicy.optional(),
+  rule: z.object({ reply: ReplyPolicy.optional() }).optional(),
+}).transform(({ rule, reply }) => rule?.reply ?? reply);
+
 function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget | undefined {
   for (const message of [...input.messages].reverse()) {
     if (message.id === undefined) continue;
@@ -100,12 +107,14 @@ function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget |
     if (typeof origin.actorId !== "string" || typeof origin.externalId !== "string") continue;
     const rawConversation = OriginConversation.safeParse(origin.conversation);
     const conversation = originConversation(origin.conversation);
+    const reply = OriginReply.safeParse(origin);
     return {
       actorId: origin.actorId,
       externalId: origin.externalId,
       surface: origin.surface,
       ...(typeof origin.instance === "string" ? { instance: origin.instance } : {}),
       messageId: message.id,
+      reply: reply.data,
       ...(conversation === undefined ? {} : { conversation }),
       ...(rawConversation.success
         ? {
@@ -348,7 +357,7 @@ function typingFor(
   target: ReplyTarget | undefined,
   typingRoute: ((surface: string) => ProviderTypingRoute | undefined) | undefined,
 ): Effect.Effect<void> | undefined {
-  if (role !== "resident" || input.authority === "evidence_only") return undefined;
+  if (role !== "resident" || input.authority === "evidence_only" || target?.reply !== "auto") return undefined;
   const route = target === undefined ? undefined : typingRoute?.(target.instance ?? target.surface);
   return route === undefined || target === undefined ? undefined : typingPulse(route, target.externalId, target.conversation);
 }

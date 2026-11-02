@@ -20,7 +20,7 @@ export function admit(
     client(sessionId).Deliver({
       kind: "action",
       body: canonicalJson({ content: [{ kind: "text", text: canonicalJson(row) }] }),
-      source: canonicalJson({ kind: "child_activity" }),
+      source: canonicalJson({ kind: "child_activity", reply: "none" }),
       idempotencyKey: row.key,
     });
   return Effect.gen(function* () {

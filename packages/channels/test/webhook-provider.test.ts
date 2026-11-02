@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { expect, test } from "bun:test";
-import { type Channel, Gateway, Operational } from "@oni/protocol";
+import { type Channel, Ingress, Operational } from "@oni/protocol";
 import { createWebhookProvider } from "../src/provider/webhook/provider";
 import { verifyWebhook } from "../src/provider/webhook/verify";
 import { injectedOptions } from "./helpers/injected";
@@ -35,7 +35,7 @@ test("verified raw body produces one normalized inbound message", async () => {
   await runtime.surface.start("trace");
   expect((await runtime.webhookHandler?.(request(body, signature)))?.status).toBe(200);
   expect(received).toHaveLength(1);
-  expect(Gateway.IngressFacts.parse(received[0]?.facts)).toMatchObject({
+  expect(Ingress.Message.parse(received[0]?.facts)).toMatchObject({
     surface: "webhook",
     event: "webhook",
     secretRef: "secret:hook-1",

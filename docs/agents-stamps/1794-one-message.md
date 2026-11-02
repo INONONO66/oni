@@ -1,0 +1,1 @@
+#1794 (epic #1791) | refactor/1794-one-message | 2026-11-02 | base 3d964076c | PR #1814 | One Ingress.Message, provider admission removed, rule-owned replies and typing; verification receipts in PR #1814.

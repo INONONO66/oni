@@ -47,6 +47,7 @@ test.each([
       channelId: "room",
       dm: false,
       addressees: [{ externalId: "mentioned" }],
+      account: addressee === "bot" ? "mentioned" : "self",
       payload: "hello",
       render: "hello",
     },

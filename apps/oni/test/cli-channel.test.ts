@@ -34,13 +34,13 @@ function declaring(declared: Provisioning.ChannelDeclareRequest[], state = "moun
 describe("oni channel add (#1600 lane R4)", () => {
   test("parses the platform and its flags; the Owner-account flags belong to Linear alone; anything else names the usage", () => {
     expect(parseChannelAddArgs(["slack"])).toEqual({
-      provider: "slack", instanceId: "channel:slack:main", identity: "bot", outbound: false, autoReply: false, print: false,
+      provider: "slack", instanceId: "channel:slack:main", identity: "bot", outbound: false, print: false,
     });
     expect(parseChannelAddArgs(["slack", "--id", "channel:slack:work", "--from", "T1:U1, T1:U2", "--print"])).toEqual({
-      provider: "slack", instanceId: "channel:slack:work", identity: "bot", from: ["T1:U1", "T1:U2"], outbound: false, autoReply: false, print: true,
+      provider: "slack", instanceId: "channel:slack:work", identity: "bot", from: ["T1:U1", "T1:U2"], outbound: false, print: true,
     });
-    expect(parseChannelAddArgs(["linear", "--intake", "all", "--outbound", "--auto-reply"])).toEqual({
-      provider: "linear", instanceId: "channel:linear:owner", identity: "owner", intake: "all", outbound: true, autoReply: true, print: false,
+    expect(parseChannelAddArgs(["linear", "--outbound"])).toEqual({
+      provider: "linear", instanceId: "channel:linear:owner", identity: "owner", outbound: true, print: false,
     });
     for (const args of [[], ["matrix"], ["slack", "--tier", "god"], ["slack", "--from", " , "], ["slack", "--id"], ["slack", "--bogus"], ["slack", "--outbound"], ["slack", "--intake", "all"], ["linear", "--auto-reply"], ["linear", "--intake", "loud"], ["a2a", "--tier", "manager"], ["a2a", "--allow", "x"], ["a2a", "--mention-only"]]) {
       expect(() => parseChannelAddArgs(args)).toThrow(CliError);
@@ -67,7 +67,7 @@ describe("oni channel add (#1600 lane R4)", () => {
       from: ["user"],
     });
     expect(channelDeclaration(parseChannelAddArgs(["linear", "--outbound"]), { secret: "s", token: "lin" }, "r-3")).toEqual({
-      type: "channel_add", requestId: "r-3", id: "channel:linear:owner", provider: "linear", identity: "owner", settings: { intake: "mentions_and_dms", autoReply: false }, outbound: true, credential: { secret: "s", token: "lin" },
+      type: "channel_add", requestId: "r-3", id: "channel:linear:owner", provider: "linear", identity: "owner", outbound: true, credential: { secret: "s", token: "lin" },
     });
   });
 
@@ -103,6 +103,6 @@ describe("oni channel add (#1600 lane R4)", () => {
 
     const usage = io({});
     expect(await channelAdd(["slack", "--outbound"], declaring([]), usage.io)).toBe(1);
-    expect(usage.err[0]).toContain("describe the Owner's own account");
+    expect(usage.err[0]).toContain("describes the Owner's own account");
   });
 });

@@ -582,7 +582,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     ).rejects.toThrow("channel:a2a:scout: a url is declared through channel_add under Owner consent, never by rotation");
   });
 
-  test("#1569 an Owner instance's knobs are its intake posture, validated under the resolved identity", async () => {
+  test("#1569 an Owner instance validates provider settings without admission knobs", async () => {
     const { port } = portWith();
     const tool = createProvisionTool(port, () => NOW);
     const context = {
@@ -611,16 +611,16 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
       );
     await expect(declare({ intake: "loud" })).rejects.toThrow("channel_add refused:");
     expect(plane().stores.instances.get("channel:slack:owner")).toBeUndefined();
-    expect(await declare({ intake: "all" })).toMatchObject({ action: "declared" });
-    expect(plane().stores.instances.get("channel:slack:owner")?.settings).toEqual({ intake: "all" });
-    // A re-declaration that says nothing about settings keeps the posture.
+    expect(await declare({})).toMatchObject({ action: "declared" });
+    expect(plane().stores.instances.get("channel:slack:owner")?.settings).toEqual({});
+    // A re-declaration that says nothing about settings keeps the settings.
     expect(
       await tool.execute(
         { operation: { op: "channel_add", args: { id: "channel:slack:owner", provider: "slack", enabled: true, outbound: true } } },
         { ...context, domainRevisions: { "channel:slack:owner": 0 } },
       ),
     ).toMatchObject({ action: "declared" });
-    expect(plane().stores.instances.get("channel:slack:owner")).toMatchObject({ settings: { intake: "all" }, grant: { outbound: true } });
+    expect(plane().stores.instances.get("channel:slack:owner")).toMatchObject({ settings: {}, grant: { outbound: true } });
     // A bot declaration never carries the posture knob.
     expect(await channelDeclare(port, () => NOW)({ id: "channel:slack:hq", provider: "slack", settings: { intake: "all" }, credential: { botToken: "xoxb-1", appToken: "xapp-1" } })).toContain(
       "channel_add refused:",
@@ -947,7 +947,7 @@ test("#1600: rotating the session an Owner instance speaks as re-points who the 
   const approval = tool.approval;
   if (approval === undefined) throw new Error("provision declares no approval hook");
   const context = { sessionId: "provision-session", turnId: "provision-turn", callId: "rotate-owner", signal: new AbortController().signal };
-  const owner = { id: "channel:slack:owner", provider: "slack", identity: "owner" as const, enabled: true, settings: { intake: "none" }, credential: { token: "xoxc-1", cookie: "d" } };
+  const owner = { id: "channel:slack:owner", provider: "slack", identity: "owner" as const, enabled: true, settings: {}, credential: { token: "xoxc-1", cookie: "d" } };
   expect(await tool.execute({ operation: { op: "channel_add", args: owner } }, { ...context, domainRevisions: { "channel:slack:owner": -1 } })).toMatchObject({ action: "declared" });
   const rotate = { secretId: "secret:channel-slack-owner", credential: { token: "xoxc-2", cookie: "e" } };
   expect(approval({ operation: { op: "secret_rotate", args: rotate } }, context)).toEqual({ required: true, domainRevisions: { "channel:slack:owner": 0 } });

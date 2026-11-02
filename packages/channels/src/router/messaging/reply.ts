@@ -36,16 +36,14 @@ export interface ConversationBinding {
   readonly messageId: string;
   readonly dm: boolean;
   readonly threadId?: string;
-  /** The account identity that observed the prompt; Owner replies require the declaration's auto-reply grant. */
+  /** The account identity that observed the prompt. */
   readonly receivedBy?: Channel.Identity;
   readonly reply?: "auto" | "draft" | "none";
   readonly as?: string;
 }
 
 /**
- * `draft` (#1569 lane 7): the surface is reachable only through an Owner
- * instance whose declaration does not let the reply door answer on its own;
- * the Resident's answer stays a draft the Owner sends.
+ * `draft`: the admitted rule keeps the answer for the Owner to send.
  */
 type ReplyRefusal = "not_bound" | "no_route" | "draft";
 
@@ -81,8 +79,7 @@ export interface ReplyPorts {
   readonly transaction: GatewayRouterPorts["transaction"];
   /** The surfaces with a mounted delivery route. */
   readonly routes: () => ReadonlyMap<string, Channel.Instance>;
-  /** Owner instance ids whose declaration lets the reply door answer through the account. */
-  readonly autoReplies: () => ReadonlySet<string>;
+
   readonly deliver: (
     message: OutboundMessage,
   ) => KernelDeliveryReceipt | Promise<KernelDeliveryReceipt>;
@@ -143,13 +140,12 @@ function deliveryTarget(
 }
 
 /**
- * A reply leaves through the instance that received the prompt. An Owner
- * account without an auto-replying outbound route drafts; another mounted
- * account never substitutes for it. Non-channel origins can use their sole
- * matching route.
+ * A reply leaves through the receiving or rule-selected instance. Another
+ * mounted account never substitutes for it. Non-channel origins can use
+ * their sole matching route.
  */
 function replyInstance(
-  ports: Pick<ReplyPorts, "routes" | "autoReplies">,
+  ports: Pick<ReplyPorts, "routes">,
   binding: Pick<ConversationBinding, "surface" | "instance" | "receivedBy" | "reply" | "as">,
 ): { readonly instance: string; readonly identity: Channel.Identity } | "draft" | "no_route" {
   if (binding.reply === "none") return "no_route";
@@ -158,7 +154,7 @@ function replyInstance(
   const identity = binding.as === undefined ? binding.receivedBy ?? "bot" : routes.get(binding.as)?.identity ?? "bot";
   const selected = resolveInstance(routes, binding.surface, identity, binding.as ?? binding.instance);
   if ("code" in selected) return identity === "owner" ? "draft" : "no_route";
-  if (identity === "owner" && binding.reply !== "auto" && !ports.autoReplies().has(selected.instance)) return "draft";
+
   return { instance: selected.instance, identity };
 }
 

@@ -18,7 +18,7 @@ describe("Discord ingress facts", () => {
     expect(discordCall(state, 42, "gateway-session", "BOT")?.facts).toEqual({
       eventId: "call:guild:owner:gateway-session:42", event: "call", surface: "discord",
       workspaceId: "guild", channelId: "voice", author: { externalId: "owner", isBot: false },
-      addressees: [{ externalId: "BOT" }], dm: false, payload: state, render: "joined voice channel voice",
+      account: "BOT", addressees: [{ externalId: "BOT" }], dm: false, payload: state, render: "joined voice channel voice",
     });
     expect(discordCall({ ...state, channel_id: null }, 43, "gateway-session", "BOT")).toBeNull();
     expect(discordCall({ ...state, user_id: "BOT" }, 44, "gateway-session", "BOT")).toBeNull();

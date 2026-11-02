@@ -31,7 +31,7 @@ import { configureAuthority } from "./composition/generation-layers";
 import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow } from "./composition/platform";
 import { createResident } from "./composition/resident";
-import { type DeliverPayload, deliverPayload, prepareMessage } from "./composition/message-session";
+import { type DeliverPayload, deliveryOrigin, deliverPayload, prepareMessage } from "./composition/message-session";
 import { messageDecisionRules } from "./composition/message-decision";
 import { gateRowPolicySeeds } from "./bundles/core-policy/index";
 import { ownerPolicy, seedKernelPolicyRows, SHIPPED_OWNER_POLICY, type OwnerPolicy } from "./composition/policy";
@@ -90,15 +90,17 @@ export interface ProcessReplies {
 
 /** The child's delivery commit: payload mapping here, admission in the parent's entity. */
 export function forwardedDeliveryCommit(deliver: ProcessReplies["deliver"]) {
-  return (input: Delivery.Commit): Effect.Effect<Delivery.Row, AgentFailure> =>
-    deliverPayload(input).pipe(
+  return (input: Delivery.Commit): Effect.Effect<Delivery.Row, AgentFailure> => {
+    const commit = { ...input, origin: deliveryOrigin(input.origin) };
+    return deliverPayload(commit).pipe(
       Effect.flatMap((payload) =>
         Effect.tryPromise({
-          try: () => deliver({ commit: input, deliver: payload }),
+          try: () => deliver({ commit, deliver: payload }),
           catch: (error) => new AgentFailure({ operation: "message.deliver", cause: String(error) }),
         }),
       ),
     );
+  };
 }
 
 export function serveProcessSession(

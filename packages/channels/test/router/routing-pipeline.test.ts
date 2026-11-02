@@ -10,7 +10,8 @@ const event: Gateway.DeliveredEvent = {
 const route = Route.parse({
   kind: "prompt", target: "conversation", ruleId: "allow", reply: "auto", newSession: true, conversation: true,
   origin: { eventId: "message", instance: "chat", surface: "chat", event: "message", author: { externalId: "person", isBot: false },
-    dm: true, mentionsBot: true, body: "hello", receivedAt: 1 },
+  from: "person", addressees: [], payload: {}, channelId: "room",
+    dm: true, addressed: true, render: "hello", receivedAt: 1 },
 });
 
 test("a matched rule retains canonical identity and the selected session", () => {

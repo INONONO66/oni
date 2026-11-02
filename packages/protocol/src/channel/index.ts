@@ -62,7 +62,7 @@ export namespace Channel {
 
   export interface InboundMessage {
     sender: import("../gateway/index.js").Gateway.IngestSender & { kind: "external" };
-    facts: import("../gateway/index.js").Gateway.IngressFacts;
+    facts: import("../ingress/index.js").Ingress.Message;
   }
 
   export type MessageHandler = (message: InboundMessage) => Promise<void>;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { injectedOptions } from "./helpers/injected";
-import { type Channel, type Gateway, Operational, Outbound } from "@oni/protocol";
+import { type Channel, type Ingress, Operational, Outbound } from "@oni/protocol";
 import { SlackAdapter } from "../src/provider/slack/surface";
 import { SlackBotError } from "../src/provider/slack/sdk";
 import { SlackEndpointKeyError, SlackHandlerMissingError } from "../src/errors";
@@ -275,7 +275,7 @@ describe("SlackAdapter over the agent-messenger bot SDK", () => {
     ts: string;
     thread_ts: string;
     fetched: boolean;
-    context: Gateway.IngressFacts["context"];
+    context: Ingress.Message["context"];
   }> = [
     {
       name: "an in-thread message carries the thread's earlier messages, the bot's own as assistant",

@@ -5,18 +5,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AttachmentFetch } from "@oni/channels";
 import { MachineRefusalError } from "@oni/machines";
-import { Operational, type Channel, type Gateway } from "@oni/protocol";
+import { Operational, type Channel, type Ingress } from "@oni/protocol";
 import { type AttachmentInbox, inboxHandler, withAttachmentInbox } from "../src/composition/attachments";
 import { MEDIA_BYTE_CAP, MediaRefused, createMediaResolver } from "../src/composition/media";
 import type { FilePorts } from "../src/bundles/tools/core/filesystem";
 import { eventSignal } from "./helpers/event-signal";
 
 type ToolMachine = ReturnType<NonNullable<FilePorts["machines"]>["get"]>;
-type Attachment = NonNullable<Gateway.IngressFacts["attachments"]>[number];
+type Attachment = NonNullable<Ingress.Message["attachments"]>[number];
 
 function inboundWith(
   attachments?: readonly Attachment[],
-  facts: Partial<Gateway.IngressFacts> = {},
+  facts: Partial<Ingress.Message> = {},
 ): Channel.InboundMessage {
   return {
     sender: { kind: "external", surface: "telegram:bot", externalId: "u1" },

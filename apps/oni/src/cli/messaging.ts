@@ -21,10 +21,6 @@ export interface MessagingReport {
 const OWNER_ONLY = new Set(["instagram", "kakaotalk", "linear"]);
 /** The Owner arms that name the account they speak as once started, so the mount binds it to the Owner Person (#1600 lane R1). */
 const NAMES_ITS_ACCOUNT = new Set(["slack", "discord", "instagram", "kakaotalk", "telegram"]);
-function setting(instance: Provisioning.ChannelInstance, key: string): string | undefined {
-  const value = instance.settings[key];
-  return value === undefined || value === null ? undefined : String(value);
-}
 
 function ownerPerson(persons: readonly Provisioning.Person[]): Provisioning.Person | undefined {
   return persons.find((person) => person.trustTier === "owner");
@@ -36,9 +32,7 @@ function rowLine(instance: Provisioning.ChannelInstance, sealed: ReadonlySet<str
     instance.credentialRef === undefined ? "no credential" : sealed.has(instance.credentialRef) ? "credential sealed" : `credential ${instance.credentialRef} MISSING from the vault`;
   const parts = [instance.enabled ? "enabled" : "DISABLED", credential];
   if (instance.identity === "owner") {
-    parts.push(`intake ${setting(instance, "intake") ?? "mentions_and_dms"}`);
     parts.push(instance.grant?.outbound === true ? "outbound" : "inbound-only");
-    if (setting(instance, "autoReply") === "true") parts.push("auto-reply");
   }
   return `  ${instance.id} [${instance.identity}] ${parts.join(", ")}`;
 }
@@ -50,15 +44,7 @@ function botReadLine(platform: string, bot: Provisioning.ChannelInstance): strin
 
 /** Who reaches the Resident through the Owner's account. */
 function ownerReadLine(platform: string, owner: Provisioning.ChannelInstance): string {
-  const intake = setting(owner, "intake") ?? "mentions_and_dms";
-  if (intake === "none") return `  READ  your ${platform} account reads nothing (intake none)`;
-  if (platform === "linear")
-    return intake === "all"
-      ? "  READ  every new Linear issue and comment reaches the Resident as receivedBy: owner"
-      : "  READ  Linear comments that name you reach the Resident as receivedBy: owner (Linear has no DMs; a keyless row needs ownerUserId to know your name)";
-  return intake === "all"
-    ? `  READ  everything your ${platform} account sees reaches the Resident as receivedBy: owner`
-    : `  READ  DMs to your ${platform} account and mentions of you reach the Resident as receivedBy: owner`;
+  return `  READ  ${owner.id} on ${platform} emits platform facts; ordered rules decide delivery`;
 }
 
 /** Who reaches the Resident on this platform, and how. */
@@ -90,9 +76,7 @@ function writeLines(platform: string, bot: Provisioning.ChannelInstance | undefi
   if (bot?.enabled === true) lines.push(botWriteLine(platform));
   if (owner?.enabled === true) {
     const outbound = owner.grant?.outbound === true;
-    const autoReply = setting(owner, "autoReply") === "true";
-    if (!outbound) lines.push(`  WRITE your ${platform} account never sends; a reply only it could carry is delivered to you as a draft`);
-    else if (autoReply) lines.push(`  WRITE your ${platform} account answers conversations only it reaches, and sends as: owner from an Owner-origin turn`);
+    if (!outbound) lines.push(`  WRITE your ${platform} account never sends; reply mode follows the matched rule (seeded as draft)`);
     else lines.push(`  WRITE your ${platform} account sends as: owner from an Owner-origin turn; a reply only it could carry is delivered to you as a draft`);
   }
   if (lines.length === 0) lines.push(`  WRITE nothing: no enabled instance on ${platform}`);

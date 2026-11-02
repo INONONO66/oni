@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { type Channel, Gateway, Operational, Outbound } from "@oni/protocol";
+import { type Channel, Ingress, Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryNotSent } from "../src/errors";
 import { createA2AProvider } from "../src/provider/a2a/provider";
@@ -90,7 +90,7 @@ describe("A2A door (#1569 lane 9c): other agents reach the Resident through ordi
     expect(task.status.state).toBe("working");
     expect(received).toHaveLength(1);
     expect(received[0]?.sender).toEqual({ kind: "external", surface: "a2a", externalId: "planner" });
-    expect(Gateway.IngressFacts.parse(received[0]?.facts)).toMatchObject({
+    expect(Ingress.Message.parse(received[0]?.facts)).toMatchObject({
       eventId: "m-plan the sprint",
       surface: "a2a",
       event: "message",

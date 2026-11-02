@@ -588,6 +588,7 @@ export namespace Delivery {
       replyTo: Identifier,
       childSessionId: Identifier.optional(),
       terminalKind: SessionTurn.TerminalKind.optional(),
+      reply: z.enum(["auto", "draft", "none"]).optional(),
     })
     .strict();
   export type ReplyOrigin = z.infer<typeof ReplyOrigin>;
@@ -600,6 +601,7 @@ export namespace Delivery {
       replyTo: Identifier.optional(),
       deadline: EpochMs.optional(),
       sourceActionId: Identifier,
+      reply: z.enum(["auto", "draft", "none"]).optional(),
     })
     .strict();
   export type MessageOrigin = z.infer<typeof MessageOrigin>;

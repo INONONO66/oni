@@ -5,9 +5,10 @@ import { match } from "../src/router/automation/match.js";
 import { routeRule } from "../src/automation/matcher.js";
 import { runEffect } from "./helpers/effect.js";
 
-const input: Ingress.Input = {
+const input: Ingress.Message = {
   eventId: "one", instance: "chat", surface: "telegram", event: "message", channelId: "room", threadId: "root",
-  author: { externalId: "user", isBot: false }, dm: false, mentionsBot: true, body: "deploy now", receivedAt: 0,
+  author: { externalId: "user", isBot: false }, dm: false, addressed: true, render: "deploy now", receivedAt: 0,
+  from: "user", addressees: [], payload: {},
 };
 const record = {
   id: "addressed", position: 1, enabled: true, createdBy: "owner",
@@ -16,12 +17,12 @@ const record = {
 } satisfies Ingress.Rule;
 const dm: Ingress.Rule = { ...record, id: "dm", position: 0, when: { instance: "chat", dm: true, isBot: false } };
 
-const cases: readonly { name: string; message: Ingress.Input; rules: readonly Ingress.Rule[]; expected?: string }[] = [
+const cases: readonly { name: string; message: Ingress.Message; rules: readonly Ingress.Rule[]; expected?: string }[] = [
   { name: "DM", message: { ...input, dm: true }, rules: [record, dm], expected: "dm" },
   { name: "mention", message: { ...input, event: "mention" }, rules: [record, dm], expected: "addressed" },
   { name: "bound thread followup", message: input, rules: [record], expected: "addressed" },
-  { name: "bot author", message: { ...input, author: { ...input.author, isBot: true } }, rules: [record, dm] },
-  { name: "reaction", message: { ...input, event: "reaction", mentionsBot: false }, rules: [record, dm] },
+  { name: "bot author", message: { ...input, author: { externalId: "user", isBot: true } }, rules: [record, dm] },
+  { name: "reaction", message: { ...input, event: "reaction", addressed: false }, rules: [record, dm] },
   { name: "DM reaction under a message-only DM rule", message: { ...input, dm: true, event: "reaction" }, rules: [{ ...dm, when: { ...dm.when, event: "message" } }] },
   { name: "explicit reaction", message: { ...input, event: "reaction" }, rules: [{ ...record, id: "react", when: { instance: "chat", event: "reaction" } }], expected: "react" },
   { name: "unknown sender", message: input, rules: [{ ...record, when: { instance: "chat", from: ["someone"] } }] },

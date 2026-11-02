@@ -5,9 +5,10 @@ import { match } from "../src/router/automation/match.js";
 import { runEffect } from "./helpers/effect.js";
 
 test("an event held by the first rule cannot fire a later rule", async () => {
-  const input = Ingress.Input.parse({
+  const input = Ingress.Message.parse({
     eventId: "one", instance: "telegram", surface: "telegram", event: "message", channelId: "room", threadId: "root",
-    author: { externalId: "user", isBot: false }, dm: false, mentionsBot: false, body: "alert", receivedAt: 0,
+    author: { externalId: "user", isBot: false }, dm: false, addressed: false, render: "alert", receivedAt: 0,
+    from: "user", addressees: [], payload: {},
   });
   const first: Ingress.Rule = {
     id: "group", position: 0, enabled: true, createdBy: "owner", when: { instance: "telegram" },

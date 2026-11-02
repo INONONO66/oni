@@ -8,7 +8,7 @@ import {
 } from "../event/ingress.js";
 import { SessionTransition } from "../ledger/session-transition.js";
 import * as RouteRecord from "./route-record.js";
-import { Input as InputSchema } from "./input.js";
+import { Message as MessageSchema } from "./input.js";
 import * as RuleSchemas from "./rule.js";
 import * as RuleWire from "./rule-wire.js";
 
@@ -104,8 +104,8 @@ const MetaSchemaImpl = z
   .catchall(z.unknown());
 
 export namespace Ingress {
-  export const Input = InputSchema;
-  export type Input = z.infer<typeof Input>;
+  export const Message = MessageSchema;
+  export type Message = z.infer<typeof Message>;
 
   export const WindowSeconds = RuleSchemas.WindowSeconds;
   export type WindowSeconds = z.infer<typeof WindowSeconds>;

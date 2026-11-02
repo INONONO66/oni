@@ -1,6 +1,6 @@
 import { Core } from "@oni/agent";
 import { createChannelStores } from "@oni/channels";
-import { Gateway, Ingress } from "@oni/protocol";
+import { Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { runAppEffect, channelStoreSource } from "../../src/gateway";
 import type { ResidentSuite } from "./resident-suite";
@@ -12,7 +12,7 @@ import { nextFrame } from "./ws";
 
 const automationSender = { kind: "external", surface: "discord", externalId: "source" } as const;
 
-export const automationFacts = Gateway.IngressFacts.parse({
+export const automationFacts = Ingress.Message.parse({
   eventId: "event", surface: "discord", channelId: "room", dm: false, addressees: [],
   author: { externalId: "source", isBot: false }, payload: {}, render: "BUILD_SENTINEL",
 });

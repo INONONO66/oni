@@ -2,7 +2,7 @@ import type { Channel, Gateway, Outbound } from "@oni/protocol";
 import type { AttachmentFetch, AttachmentFetchWithStream, EffectRunner, MediaResolver, PublishPort } from "../types.js";
 import type { ProviderHistoryRoute } from "./history.js";
 import type { ProviderVoiceRoute } from "./voice.js";
-import { z } from "zod";
+import type { z } from "zod";
 
 /**
  * Existing-agent delivery through this provider, keyed by ActorEndpoint
@@ -145,7 +145,7 @@ export interface ProviderRuntime {
   readonly historyRoute?: ProviderHistoryRoute;
   /** Notifies the mount owner once when a started account runtime withdraws readiness. */
   readonly onWithdrawn?: (listener: (reason: OwnerWithdrawal) => void) => void;
-  /** Streaming-capable intake; buffered providers keep `attachments`. */
+  /** Streaming-capable downloads; buffered providers keep `attachments`. */
   readonly streamingAttachments?: AttachmentFetchWithStream;
   readonly surface: Channel.Surface;
   readonly deliveryRoute?: ProviderDeliveryRoute;
@@ -183,33 +183,10 @@ export interface OwnerArm<TCredentials> {
   readonly listen: boolean;
   create(
     credentials: TCredentials,
-    posture: OwnerPosture,
     publish: PublishPort,
     options: ProviderOptions,
   ): ProviderRuntime;
 }
-
-/**
- * The Owner instance's declared intake (#1569 lane 6, `ChannelInstance.settings`
- * of an `identity: owner` row): what the account's listener hands to the
- * Resident. `mentions_and_dms` (the default) is a DM to the Owner or a
- * mention of the Owner; `all` is everything the account can see, the bot
- * posture; `none` mounts no listener at all. The account's own messages are
- * never an outside event; reactions are not intake.
- */
-export const OwnerPosture = z
-  .object({
-    intake: z.enum(["mentions_and_dms", "all", "none"]).default("mentions_and_dms"),
-    /**
-     * #1569 lane 7: whether the reply door may answer a conversation through
-     * this account on its own. False (the default) keeps the Resident's
-     * answer a draft the Owner sends; it needs `grant.outbound` as well.
-     * Meaningless where a bot instance of the platform answers.
-     */
-    autoReply: z.boolean().default(false),
-  })
-  .strict();
-export type OwnerPosture = z.infer<typeof OwnerPosture>;
 
 export interface ChannelProvider<TCredentials, TId extends string = string, TOwner = never> {
   readonly id: TId;

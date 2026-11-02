@@ -155,7 +155,7 @@ test("an oversize machine file is refused on stat, before any byte is read", asy
   try {
     const fake = fakeTelegramOwner();
     const arm = createTelegramProvider(undefined, fake.sdk).owner;
-    const runtime = arm?.create({ apiId: "123", apiHash: "a".repeat(32) }, { intake: "none", autoReply: false },
+    const runtime = arm?.create({ apiId: "123", apiHash: "a".repeat(32) },
       () => undefined, { ...injectedOptions(), telegramDataDir: dir, media: resolve });
     await runtime?.surface.start("start");
     expect(await runtime?.deliveryRoute?.("peer", { kind: "message", parts: [{ kind: "video", ref: "/tmp/huge.bin" }] }, "oversize"))

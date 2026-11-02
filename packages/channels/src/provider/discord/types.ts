@@ -28,6 +28,7 @@ export const DiscordMessageSchema = z.object({
     )
     .optional(),
   mentions: z.array(DiscordUserSchema).optional(),
+  referenced_message: z.object({ author: DiscordUserSchema }).nullable().optional(),
   message_reference: z
     .object({
       message_id: z.string().optional(),

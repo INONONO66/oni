@@ -14,7 +14,7 @@ import type { GatewayRouterPorts } from "./message-ports";
 import { evaluateSocialBudget } from "./messaging/social-budget";
 
 function resolveIngress(stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-  facts: Gateway.IngressFacts, ports: GatewayRouterPorts, at: number) {
+  facts: Ingress.Message, ports: GatewayRouterPorts, at: number) {
   const surfaceKey = ingressSurfaceKey(facts, sender.externalId);
   const existing = stores.surfaceKeys.lookup(surfaceKey);
   const reply = facts.reply ?? { chain: [] };
@@ -33,7 +33,7 @@ function resolveIngress(stores: ChannelStores, sender: Extract<Gateway.IngestSen
 /** The first rule alone controls delivery; no match records the inbound without preparing a session. */
 export function externalMessage(
   stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-  facts: Gateway.IngressFacts, ports: GatewayRouterPorts, at: number,
+  facts: Ingress.Message, ports: GatewayRouterPorts, at: number,
   budgets: readonly Gateway.SocialBudget[], pending: readonly PendingGroup[],
   ingress: ReturnType<typeof ingressInput>, closingRoute?: NonNullable<MatchDecision["route"]>,
 ) {
@@ -105,9 +105,9 @@ function policyMessage(ingress: ReturnType<typeof ingressInput>, decision: Ingre
   };
 }
 
-function matchedContent(automation: MatchDecision["route"], facts: Gateway.IngressFacts, fresh: boolean, from: string | undefined) {
+function matchedContent(automation: MatchDecision["route"], facts: Ingress.Message, fresh: boolean, from: string | undefined) {
   if (automation?.kind === "action") return JSON.stringify(automation.body);
-  return promptContent({ ...facts, render: automation?.kind === "prompt" ? automation.origin.body : facts.render }, fresh, from);
+  return promptContent({ ...facts, render: automation?.kind === "prompt" ? automation.origin.render : facts.render }, fresh, from);
 }
 
 /** A sender-controlled field stays on its own bracket line: no line breaks, no closing bracket. */
@@ -121,14 +121,14 @@ function playtime(durationMs: number): string {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-function attachedLine(attachment: NonNullable<Gateway.IngressFacts["attachments"]>[number]): string {
+function attachedLine(attachment: NonNullable<Ingress.Message["attachments"]>[number]): string {
   const label = attachment.voice === true ? "voice"
     : `${attachment.kind}${attachment.name === undefined ? "" : ` ${oneLine(attachment.name)}`}`;
   const length = attachment.durationMs === undefined ? "" : ` ${playtime(attachment.durationMs)}`;
   return `[attached: ${label}${length} → ${oneLine(attachment.ref)}]`;
 }
 
-function promptContent(facts: Gateway.IngressFacts, freshSession: boolean, from: string | undefined): string {
+function promptContent(facts: Ingress.Message, freshSession: boolean, from: string | undefined): string {
   const thread = freshSession ? (facts.context?.thread ?? []) : [];
   const quoted = facts.context?.quoted;
   const threadId = facts.reply?.threadId;
@@ -148,7 +148,7 @@ function promptContent(facts: Gateway.IngressFacts, freshSession: boolean, from:
 
 /** Replays use the frozen route, never current rule order or a new judge answer. */
 export function replayExternal(stores: ChannelStores,
-  sender: Extract<Gateway.IngestSender, { kind: "external" }>, facts: Gateway.IngressFacts,
+  sender: Extract<Gateway.IngestSender, { kind: "external" }>, facts: Ingress.Message,
   ports: GatewayRouterPorts, at: number, budgets: readonly Gateway.SocialBudget[],
   input: ReturnType<typeof ingressInput>) {
   return Effect.gen(function* () {

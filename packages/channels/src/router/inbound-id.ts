@@ -1,4 +1,4 @@
-import type { Gateway } from "@oni/protocol";
+import type { Ingress } from "@oni/protocol";
 
 /**
  * The one inbound-id construction: instance, workspace, channel and eventId,
@@ -8,7 +8,7 @@ import type { Gateway } from "@oni/protocol";
  * Owner's copy to. The composition keeps one instance's physical message
  * from being admitted twice (`inboundOnce`).
  */
-export function inboundIdOf(facts: Gateway.IngressFacts): string {
+export function inboundIdOf(facts: Ingress.Message): string {
   if (facts.surface === "alarm" && facts.event === "schedule") return facts.eventId;
   return [
     facts.instance ?? facts.surface,

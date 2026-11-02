@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { createRuleStore, createSurfaceKeyStore, decodeChannelFailure } from "@oni/channels";
 import type { Core } from "@oni/agent";
 type RunInput = Core.RunInput;
-import { Gateway, MessagingEvents, type Outbound } from "@oni/protocol";
+import { Ingress, Gateway, MessagingEvents, type Outbound } from "@oni/protocol";
 import {
   createResidentGateway,
 } from "../src/gateway";
@@ -102,7 +102,7 @@ describe("authenticated gateway ingress", () => {
       throw new Error("model must not run");
     }));
     expect(() =>
-      Gateway.IngressFacts.parse({ eventId: "invalid", surface: "ws", render: "text" }),
+      Ingress.Message.parse({ eventId: "invalid", surface: "ws", render: "text" }),
     ).toThrow();
     expect(resident.plane.listSessions()).toHaveLength(1);
     expect(resident.plane.openKernel("gateway-ingress").pendingMessages("gateway-ingress")).toEqual([]);

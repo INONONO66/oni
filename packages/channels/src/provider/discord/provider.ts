@@ -19,7 +19,7 @@ interface DiscordOwnerCredentials {
 
 /**
  * The Owner-identity arm (#1569 lane 6): the account's gateway listener
- * under the declared intake posture, delivery and typing as the Owner's
+ * emitting facts, delivery and typing as the Owner's
  * account through the package's REST client, mounted by declaration id
  * (a delivery route only when the declaration grants outbound).
  */
@@ -29,12 +29,12 @@ function createDiscordOwnerArm(sdk: DiscordOwnerSdk = discordOwnerSdk()): OwnerA
     credentials: z.object({ token: z.string().min(1).refine((token) => !token.startsWith("Bot ")) }).strict(),
     preconditions: [
       "Owner session from the Discord remote-auth (QR) login, sealed into the vault (the login helper lands with its own lane): the account token",
-      "the Owner accepts automation under their own account (declared outbound grant and intake posture)",
+      "the Owner accepts automation under their own account (declared outbound grant)",
     ],
     capabilities: { deliver: true, react: true, media: DISCORD_MEDIA_LIMITS, typing: true, voice: false },
     listen: true,
-    create(credentials, posture, publish, options) {
-      const surface = new DiscordOwnerAdapter(credentials, posture, publish, options, sdk);
+    create(credentials, publish, options) {
+      const surface = new DiscordOwnerAdapter(credentials, publish, options, sdk);
       return {
         surface,
         account: () => surface.accountIdentity(),

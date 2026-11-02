@@ -8,7 +8,7 @@ import { runEffect } from "../helpers/effect";
 import { openRequest, requestPort, seededRequests } from "../helpers/requests";
 import { replaceDecisionFacts } from "../helpers/ledger";
 import { beforeEach, expect, test } from "bun:test";
-import { Channel, Ingress, type Gateway, Outbound, type SessionTransition } from "@oni/protocol";
+import { Channel, Ingress, Outbound, type SessionTransition } from "@oni/protocol";
 import { Bus } from "../helpers/observation";
 import { createExistingAgentMessaging } from "../../src/router/messaging/send";
 import { commits, kernelRouter, makeRouter, resetRouterState, routingDecisions, } from "./_router-fixture";
@@ -16,8 +16,8 @@ import { commits, kernelRouter, makeRouter, resetRouterState, routingDecisions, 
 const sender = { kind: "external", surface: "telegram", externalId: "seller-1" } as const;
 function facts(
   eventId: string,
-  payload: Gateway.IngressFacts["payload"] = { action: "report_result", output: "SN-A2334" },
-): Gateway.IngressFacts {
+  payload: Ingress.Message["payload"] = { action: "report_result", output: "SN-A2334" },
+): Ingress.Message {
   return {
     eventId,
     surface: "telegram",

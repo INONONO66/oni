@@ -1,6 +1,6 @@
 import { Bundle, type Core } from "@oni/agent";
 import { ingressSurfaceKey, scheduleTickChannel, type GatewayRouter, type ChannelStores } from "@oni/channels";
-import { type Gateway, Ingress, PlainValueSchema } from "@oni/protocol";
+import { Ingress, PlainValueSchema } from "@oni/protocol";
 import { Context, Effect } from "effect";
 import { CauseText } from "../thrown";
 
@@ -24,7 +24,7 @@ export function automationAlarm(router: GatewayRouter, stores: ChannelStores): A
   }, true);
   // One alarm sender per session, registered and bound on its first tick rather than on every tick.
   const registered = new Set<string>();
-  const register = (sessionId: string, facts: Gateway.IngressFacts, externalId: string) => {
+  const register = (sessionId: string, facts: Ingress.Message, externalId: string) => {
     if (registered.has(sessionId)) return;
     const actorId = `alarm:${sessionId}`;
     stores.actors.registerIdentity({ id: actorId, kind: "service", trustTier: "observer" });
@@ -38,25 +38,19 @@ export function automationAlarm(router: GatewayRouter, stores: ChannelStores): A
     const payload = yield* Effect.try({ try: () => PlainValueSchema.parse(JSON.parse(fired.payload)), catch: (error) => malformed(CauseText.parse(error)) });
     const expr = payload !== null && typeof payload === "object" && !Array.isArray(payload)
       ? payload.expr : undefined;
-    const input = yield* Effect.try({
-      try: () => Ingress.Input.parse({
+    const externalId = `session:${ctx.sessionId}`;
+    const facts = yield* Effect.try({
+      try: () => Ingress.Message.parse({
         surface: "alarm", instance: "alarm", event: "schedule", eventId: fired.occurrenceId,
         channelId: typeof expr === "string" ? scheduleTickChannel(expr) : `monitor:${fired.alarmId}`,
-        author: { externalId: `session:${ctx.sessionId}`, isBot: true },
-        dm: true, mentionsBot: false, body: prompt.content, receivedAt: ctx.now,
+        author: { externalId, isBot: true },
+        dm: true, addressees: [], reply: { chain: [] },
+        render: prompt.content, payload: { receivedAt: ctx.now },
       }),
       catch: (error) => malformed(CauseText.parse(error)),
     });
-    const facts: Gateway.IngressFacts = {
-      eventId: input.eventId, surface: input.surface, instance: input.instance, event: input.event,
-      channelId: input.channelId ?? `monitor:${fired.alarmId}`, author: input.author,
-      reply: { chain: [] }, dm: input.dm, addressees: [],
-      render: input.body, payload: { receivedAt: input.receivedAt },
-    };
-    register(ctx.sessionId, facts, input.author.externalId);
-    yield* router.ingest(
-      { kind: "external", surface: input.surface, externalId: input.author.externalId },
-      facts,
+    register(ctx.sessionId, facts, externalId);
+    yield* router.ingest({ kind: "external", surface: facts.surface, externalId }, facts,
     ).pipe(
       Effect.provideService(AutomationWake, ctx),
       Effect.mapError((error) => new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: error._tag })),

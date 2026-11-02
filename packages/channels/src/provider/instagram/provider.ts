@@ -20,8 +20,8 @@ const SessionJson = z.string().min(1).refine(
 );
 
 /**
- * The Owner-identity arm (#1569 lane 7): the account's inbox listener under
- * the declared posture and delivery into threads as the Owner, mounted by
+ * The Owner-identity arm (#1569 lane 7): the account's inbox listener and
+ * delivery into threads as the Owner, mounted by
  * declaration id (a delivery route only when the declaration grants
  * outbound).
  */
@@ -34,8 +34,8 @@ function createInstagramOwnerArm(sdk: InstagramOwnerSdk = instagramOwnerSdk()): 
     ],
     capabilities: { deliver: true, react: false, media: false, typing: false, voice: false },
     listen: true,
-    create(credentials, posture, publish, options) {
-      const surface = new InstagramOwnerAdapter(credentials, posture, publish, options, sdk);
+    create(credentials, publish, options) {
+      const surface = new InstagramOwnerAdapter(credentials, publish, options, sdk);
       return {
         surface,
         account: () => surface.account(),

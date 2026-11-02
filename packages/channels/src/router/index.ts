@@ -1,6 +1,6 @@
 import { Effect, Semaphore } from "effect";
 import { ChannelsFailure, DeliveryNotSent } from "../errors";
-import { Gateway, Outbound } from "@oni/protocol";
+import { Gateway, Ingress, Outbound } from "@oni/protocol";
 import { advanceAutomationGroups } from "./automation/groups.js";
 import { ingressInput } from "./automation/input.js";
 import { inboundIdOf } from "./inbound-id.js";
@@ -75,7 +75,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
           stores,
           transaction: ports.transaction,
           routes,
-          autoReplies: () => messagingPorts.autoReplies?.() ?? new Set<string>(),
+
           deliver,
           publish: ports.sink,
         });
@@ -168,7 +168,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     envelope: Parameters<GatewayRouter["ingest"]>[1], at: number) {
     return Effect.gen(function* () {
       if (sender.kind !== "external") return { external: undefined, filtered: undefined };
-      const facts = Gateway.IngressFacts.parse(envelope);
+      const facts = Ingress.Message.parse(envelope);
       if (sender.surface !== facts.surface)
         throw new ChannelsFailure({ operation: "message.ingress", cause: "authenticated surface mismatch" });
       yield* stores.rules.ready;

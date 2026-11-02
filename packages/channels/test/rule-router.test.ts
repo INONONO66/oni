@@ -9,10 +9,10 @@ beforeEach(resetRouterState);
 
 test.each([
   { name: "DM", facts: ownerFacts, expected: "seed-owner-dm" },
-  { name: "mention", facts: { ...ownerFacts, dm: false, event: "mention" as const }, expected: "seed-owner-addressed" },
+  { name: "mention", facts: { ...ownerFacts, dm: false, account: "self", addressees: [{ externalId: "self" }] }, expected: "seed-owner-addressed" },
   { name: "bot author", facts: { ...ownerFacts, author: { externalId: "bot", isBot: true } }, expected: "none" },
   { name: "unaddressed reaction", facts: { ...ownerFacts, dm: false, event: "reaction" as const }, expected: "none" },
-])("router records the matched rule for $name", async ({ facts, expected }) => {
+] satisfies { name: string; facts: Ingress.Message; expected: string }[])("router records the matched rule for $name", async ({ facts, expected }) => {
   registerOwnerDm();
   await runEffect(makeRouter().ingest(ownerSender, facts));
   expect(ledger().stores.rules.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm")[0]).toMatchObject({ by: `rule/${expected}` });
@@ -69,7 +69,7 @@ test("conversation rules preserve the first claimed DM session without synthesiz
 test("a mention claims its root thread and a bound followup matches the same addressed rule", async () => {
   registerOwnerDm();
   const router = makeRouter();
-  const first = await runEffect(router.ingest(ownerSender, { ...ownerFacts, dm: false, event: "mention", eventId: "root" }));
+  const first = await runEffect(router.ingest(ownerSender, { ...ownerFacts, dm: false, account: "self", addressees: [{ externalId: "self" }], eventId: "root" }));
   const followup = await runEffect(router.ingest(ownerSender, { ...ownerFacts, dm: false, eventId: "reply", reply: { chain: [], threadId: "root" } }));
   expect(first.status).toBe("executed");
   expect(followup.status).toBe("executed");

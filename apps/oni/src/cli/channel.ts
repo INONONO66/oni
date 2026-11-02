@@ -38,12 +38,10 @@ const CHANNEL_CREDENTIALS: Readonly<Record<string, readonly { readonly key: stri
   ],
 };
 const OWNER_ONLY = new Set(["linear"]);
-const INTAKES = ["mentions_and_dms", "all", "none"] as const;
-type Intake = (typeof INTAKES)[number];
 
 export const CHANNEL_ADD_USAGE = `usage: oni channel add <slack|discord|telegram|github|webhook|a2a|linear> [--id channel:<provider>:<slug>]
                             [--from <platform-id>[,...]]
-                            [--intake ${INTAKES.join("|")}] [--outbound] [--auto-reply]   (linear: the Owner's account)
+                            [--outbound]   (linear: the Owner's account)
                             [--print]`;
 
 export interface ChannelAddOptions {
@@ -51,23 +49,15 @@ export interface ChannelAddOptions {
   readonly instanceId: string;
   readonly identity: "bot" | "owner";
   readonly from?: readonly string[];
-  readonly intake?: Intake;
   readonly outbound: boolean;
-  readonly autoReply: boolean;
   /** Print the declaration instead of sending it. */
   readonly print: boolean;
-}
-
-function isIntake(value: string): value is Intake {
-  return INTAKES.some((intake) => intake === value);
 }
 
 interface ParsedFlags {
   instanceId: string;
   from?: string[];
-  intake?: Intake;
   outbound: boolean;
-  autoReply: boolean;
   print: boolean;
 }
 
@@ -83,17 +73,8 @@ function applyFlag(options: ParsedFlags, flag: string, takes: (name: string) => 
       options.from = ids;
       break;
     }
-    case "--intake": {
-      const intake = takes("--intake");
-      if (!isIntake(intake)) throw new CliError(`--intake needs ${INTAKES.join(", ")}\n${CHANNEL_ADD_USAGE}`);
-      options.intake = intake;
-      break;
-    }
     case "--outbound":
       options.outbound = true;
-      break;
-    case "--auto-reply":
-      options.autoReply = true;
       break;
     case "--print":
       options.print = true;
@@ -103,12 +84,10 @@ function applyFlag(options: ParsedFlags, flag: string, takes: (name: string) => 
   }
 }
 
-/** The flags that contradict the platform: a peer row takes no sender restriction, a bot has no Owner posture, auto-reply needs outbound. */
+/** The flags that contradict the platform: only an Owner account needs an outbound grant. */
 function refuseIncoherent(provider: string, owner: boolean, options: ParsedFlags): void {
-  if (!owner && (options.intake !== undefined || options.outbound || options.autoReply))
-    throw new CliError(`--intake, --outbound and --auto-reply describe the Owner's own account; ${provider} is declared as the bot (sign the account in with oni login)\n${CHANNEL_ADD_USAGE}`);
-  if (options.autoReply && !options.outbound)
-    throw new CliError(`--auto-reply needs --outbound: the reply door answers as the Owner only from an instance that may send\n${CHANNEL_ADD_USAGE}`);
+  if (!owner && options.outbound)
+    throw new CliError(`--outbound describes the Owner's own account; ${provider} is declared as the bot (sign the account in with oni login)\n${CHANNEL_ADD_USAGE}`);
 }
 
 /** Parses `channel add`'s command line; a bad shape is a typed CLI error naming the usage. */
@@ -117,7 +96,7 @@ export function parseChannelAddArgs(args: readonly string[]): ChannelAddOptions 
   if (provider === undefined || CHANNEL_CREDENTIALS[provider] === undefined)
     throw new CliError(`channel add needs a platform\n${CHANNEL_ADD_USAGE}`);
   const owner = OWNER_ONLY.has(provider);
-  const options: ParsedFlags = { instanceId: `channel:${provider}:${owner ? "owner" : "main"}`, outbound: false, autoReply: false, print: false };
+  const options: ParsedFlags = { instanceId: `channel:${provider}:${owner ? "owner" : "main"}`, outbound: false, print: false };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index] ?? "";
     applyFlag(options, flag, (name) => {
@@ -156,9 +135,6 @@ export function channelDeclaration(
     id: options.instanceId,
     provider: options.provider,
     identity: options.identity,
-    ...(options.identity === "owner"
-      ? { settings: { intake: options.intake ?? "mentions_and_dms", autoReply: options.autoReply } }
-      : {}),
     ...(options.outbound ? { outbound: true } : {}),
     ...(options.from === undefined ? {} : { from: [...options.from] }),
     credential,

@@ -12,12 +12,11 @@ import { testClockRuntime } from "./helpers/effect";
 
 const credential = { token: "xoxc-owner", cookie: "owner-cookie" };
 const address = { surface: "channel:slack:hq", channelId: "C1", speakerExternalId: "T1:U-owner" };
-const posture = { intake: "all" as const, autoReply: false };
 
-function fixture(intake: "all" | "mentions_and_dms" | "none" = "all", run = injectedOptions().run) {
+function fixture(run = injectedOptions().run) {
   const fake = fakeSlackOwnerSdk();
   const warning = Promise.withResolvers<string>();
-  const adapter = new SlackOwnerAdapter(credential, { ...posture, intake }, (event, data) => {
+  const adapter = new SlackOwnerAdapter(credential, (event, data) => {
     if (event.name === Operational.Events.Warn.name)
       warning.resolve(z.object({ msg: z.string() }).parse(data).msg);
   }, { ...injectedOptions(run), instance: address.surface }, fake.sdk);
@@ -75,7 +74,7 @@ test("voice rejects malformed addresses and an unstarted arm before SDK I/O", as
 });
 
 test("a ready call passes the Owner session, maps departure once, and releases its reservation", async () => {
-  const f = fixture("none");
+  const f = fixture();
   const h = fakeHuddle();
   f.setJoin(async () => h.handle);
   await f.adapter.start("start");
@@ -97,7 +96,7 @@ test("a ready call passes the Owner session, maps departure once, and releases i
 });
 
 test("calling a DM selects the contact's speaker while retaining the Owner seat", async () => {
-  const f = fixture("none");
+  const f = fixture();
   const h = fakeHuddle();
   f.setJoin(async () => h.handle);
   await f.adapter.start("start");
@@ -115,7 +114,7 @@ test("calling a DM selects the contact's speaker while retaining the Owner seat"
 });
 
 test("a failed fork event iterator emits a safe error and releases the active seat", async () => {
-  const f = fixture("none");
+  const f = fixture();
   const h = fakeHuddle();
   f.setJoin(async () => ({
     ...h.handle,
@@ -137,7 +136,7 @@ test("a failed fork event iterator emits a safe error and releases the active se
 });
 
 test("stop retains terminal handle custody until cleanup settles", async () => {
-  const f = fixture("none");
+  const f = fixture();
   const h = fakeHuddle();
   const cleanup = Promise.withResolvers<void>();
   const entered = Promise.withResolvers<void>();
@@ -170,7 +169,7 @@ test("stop retains terminal handle custody until cleanup settles", async () => {
 });
 
 test("untrusted fork descriptions never expose a URL, cookie or response body", async () => {
-  const f = fixture("none");
+  const f = fixture();
   f.setJoin(async () => { throw new SlackHuddleError("voice_join_failed", "https://secret.test/?cookie=d"); });
   await f.adapter.start("start");
   await expect(f.adapter.joinVoice(address)).rejects.toMatchObject({
@@ -193,7 +192,7 @@ test.each([
   ["voice_aborted", "aborted"],
   ["voice_join_failed", "join_failed"],
 ] as const)("the SDK %s refusal is mapped to %s without leaking content", async (code, reason) => {
-  const f = fixture("none");
+  const f = fixture();
   f.setJoin(async () => { throw new SlackHuddleError(code, "workspace_mismatch"); });
   await f.adapter.start("start");
   await expect(f.adapter.joinVoice(address)).rejects.toMatchObject({
@@ -203,7 +202,7 @@ test.each([
 });
 
 test("a contact who does not answer preserves the typed huddle failure detail", async () => {
-  const f = fixture("none");
+  const f = fixture();
   f.setJoin(async () => { throw new SlackHuddleError("voice_join_failed", "speaker_no_answer"); });
   await f.adapter.start("start");
   await expect(f.adapter.joinVoice({
@@ -215,7 +214,7 @@ test("a contact who does not answer preserves the typed huddle failure detail", 
 });
 
 test("a failed browser step keeps its CDP method and step in the typed detail", async () => {
-  const f = fixture("none");
+  const f = fixture();
   const detail = "cdp_result_invalid:Runtime.evaluate:popup_observation";
   f.setJoin(async () => { throw new SlackHuddleError("voice_join_failed", detail); });
   await f.adapter.start("start");
@@ -249,7 +248,7 @@ test("voice refuses admission before the RTM hello", async () => {
   const entered = Promise.withResolvers<void>();
   const listener = new FakeSlackOwnerListener(() => entered.resolve());
   const fake = fakeSlackOwnerSdk({}, listener);
-  const adapter = new SlackOwnerAdapter(credential, posture, () => undefined, { ...injectedOptions(), instance: address.surface }, fake.sdk);
+  const adapter = new SlackOwnerAdapter(credential, () => undefined, { ...injectedOptions(), instance: address.surface }, fake.sdk);
   adapter.onMessage(() => Promise.resolve());
   fake.setJoin(async () => fakeHuddle().handle);
   const starting = adapter.start("start");
@@ -262,7 +261,7 @@ test("voice refuses admission before the RTM hello", async () => {
 });
 
 test("stop fences authentication completing after teardown", async () => {
-  const f = fixture("none");
+  const f = fixture();
   const entered = Promise.withResolvers<void>();
   const auth = Promise.withResolvers<{ user_id: string; team_id: string }>();
   f.client.testAuth = () => { entered.resolve(); return auth.promise; };
@@ -277,7 +276,7 @@ test("stop fences authentication completing after teardown", async () => {
 });
 
 test("stop reports rejected late-handle cleanup and join maps the refusal", async () => {
-  const f = fixture("none");
+  const f = fixture();
   const entered = Promise.withResolvers<void>();
   const raw = fakeHuddle();
   const resolved = Promise.withResolvers<typeof raw.handle>();
@@ -454,7 +453,7 @@ test("the 33rd conflict evicts the oldest of 32 room associations", async () => 
 
 test("an unresolved room emits a bounded warning and no fabricated call", async () => {
   const clock = testClockRuntime();
-  const f = fixture("all", clock.run);
+  const f = fixture(clock.run);
   try {
     await f.adapter.start("start");
     const warning = f.warning;
@@ -469,7 +468,7 @@ test("an unresolved room emits a bounded warning and no fabricated call", async 
 });
 
 test("same-room updates, old timestamps, other users and the user_change twin emit no extra call", async () => {
-  const f = fixture("mentions_and_dms");
+  const f = fixture();
   await f.adapter.start("start");
   f.room();
   const first = f.next();
@@ -525,15 +524,5 @@ test("a room association arriving after an active call leaves cannot replay its 
   f.changed("1700.2", "R2");
   expect((await next).facts.eventId).toBe("call:slack:T1:U-owner:1700.2:R2");
   expect(f.inbound).toHaveLength(1);
-  await f.adapter.stop("stop");
-});
-
-test("intake none does not emit a passive trigger", async () => {
-  const f = fixture("none");
-  await f.adapter.start("start");
-  f.changed("1700.1");
-  f.room();
-  expect(f.listener.started).toBe(0);
-  expect(f.inbound).toEqual([]);
   await f.adapter.stop("stop");
 });

@@ -12,7 +12,6 @@ test("channels barrel exposes only its runtime public surface", () => {
     "ChannelsFailure",
     "MediaTooLarge",
     "OwnerLogins",
-    "OwnerPosture",
     "SendAdmissionConflict",
     "StoredEndpoint",
     "StoredIdentity",

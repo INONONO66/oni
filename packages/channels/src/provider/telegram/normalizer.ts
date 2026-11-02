@@ -1,4 +1,4 @@
-import { type Channel, Gateway } from "@oni/protocol";
+import { type Channel, Ingress } from "@oni/protocol";
 import { kindOfMime } from "../../support/media-kind";
 import type { InboundNormalizer } from "../../types";
 import type { TelegramCallback, TelegramMessage, TelegramReaction } from "./types";
@@ -80,10 +80,11 @@ function telegramPostback(message: TelegramCallback, botId: string): Channel.Inb
       surface: "telegram",
       channelId: String(target.chat.id),
       addressees: [{ externalId: botId }],
+      account: botId,
       dm: target.chat.type === "private",
       ...(target.is_topic_message === true && target.message_thread_id !== undefined
         ? { reply: { chain: [], threadId: String(target.message_thread_id) } } : {}),
-      payload: Gateway.IngressFacts.shape.payload.parse(message),
+      payload: Ingress.Message.shape.payload.parse(message),
       render: label,
       postback: { id, label, messageRef: String(target.message_id) },
     },
@@ -136,10 +137,11 @@ export class TelegramNormalizer implements InboundNormalizer<TelegramMessage | T
         surface: "telegram",
         channelId: chatId,
         addressees,
+        account: this.ctx.botId,
         dm: message.chat.type === "private",
         ...(reaction ? {} : telegramReply(message, chain)),
         ...(reaction ? {} : quotedContext(message, this.ctx.botId)),
-        payload: Gateway.IngressFacts.shape.payload.parse(message),
+        payload: Ingress.Message.shape.payload.parse(message),
         render: text ?? "",
         ...(attachments.length === 0 ? {} : { attachments }),
       },
@@ -150,10 +152,12 @@ export class TelegramNormalizer implements InboundNormalizer<TelegramMessage | T
 /** The quoted message's author and text, so the model reads what the person is answering. */
 function quotedContext(message: TelegramMessage, botId: string) {
   const quoted = message.reply_to_message;
-  if (quoted?.text === undefined || quoted.from === undefined) return {};
+  if (quoted?.from === undefined) return {};
+  const quotes = String(quoted.from.id);
+  if (quoted.text === undefined) return { quotes };
   const author = String(quoted.from.id) === botId ? "assistant"
     : quoted.from.username !== undefined ? `@${quoted.from.username}` : quoted.from.first_name;
-  return { context: { quoted: { author, text: quoted.text } } };
+  return { quotes, context: { quoted: { author, text: quoted.text } } };
 }
 
 /** A forum topic is the thread; a quoted message is the reply-to. Neither alone makes a `reply`. */

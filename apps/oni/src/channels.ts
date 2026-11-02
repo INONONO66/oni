@@ -13,7 +13,7 @@
  */
 
 import type { AccountIdentity, AttachmentFetch, AttachmentFetchWithStream, ChannelProvider, EffectRunner, MediaResolver, OwnerArm, OwnerWithdrawal, ProviderDeliveryRoute, ProviderHistoryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
-import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider, OwnerPosture } from "@oni/channels";
+import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider } from "@oni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@oni/protocol";
 import { Result } from "effect";
 
@@ -42,8 +42,7 @@ export interface ChannelRuntimeDeps {
 
 export interface BuiltChannel {
   readonly surface: Channel.Surface;
-  /** #1569 lane 7: an Owner instance whose declaration lets the reply door answer through the account. */
-  readonly autoReply?: boolean;
+
   /** Outbound seam, keyed by the channel_instance row id (`surface.id`). */
   readonly deliveryRoute?: ProviderDeliveryRoute;
   readonly typingRoute?: ProviderTypingRoute;
@@ -62,9 +61,8 @@ export interface ChannelComponent {
   /** The account this instance speaks as; distinct from its channel_instance row id. */
   readonly identity: Channel.Identity;
   /**
-   * Whether this instance reads inbound (#1569 lane 6): every bot instance
-   * does; an Owner instance only under an intake posture on an arm that
-   * listens. A reading instance needs the platform's ingress grant.
+   * Whether this provider arm supports listening. Ordered rules decide
+   * which observed messages reach a session.
    */
   readonly listens: boolean;
   /** Constructs the surface and binds the Resident handler. Called once per boot. */
@@ -89,8 +87,7 @@ function providerRow(
   deps: ChannelRuntimeDeps & { readonly instance: string },
   /** #1569: an Owner instance without a declared outbound grant mounts no delivery route. */
   outbound = true,
-  /** #1569 lane 7: an Owner instance whose posture lets the reply door answer through the account. */
-  autoReply = false,
+
 ): ChannelComponent {
   const telegramOptions = id === "telegram" && identity === "owner" && deps.telegramDataDir !== undefined
     ? { telegramDataDir: deps.telegramDataDir } : {};
@@ -112,7 +109,7 @@ function providerRow(
         deps.inbox(runtime.attachments, handler, runtime.streamingAttachments));
       return {
         surface: runtime.surface,
-        ...(autoReply && outbound ? { autoReply: true } : {}),
+
         ...(runtime.deliveryRoute === undefined || !outbound ? {} : { deliveryRoute: runtime.deliveryRoute }),
         ...(runtime.typingRoute === undefined || !outbound ? {} : { typingRoute: runtime.typingRoute }),
         ...(runtime.voiceRoute === undefined || !outbound ? {} : { voiceRoute: runtime.voiceRoute }),
@@ -178,10 +175,8 @@ function credentialRow<TCredentials, TId extends keyof typeof ChannelProviders>(
 
 /**
  * The Owner-identity row (#1569): the provider's `owner` arm validates the
- * account session and builds the declared instance surface under the
- * declaration's intake posture (`settings.intake`, lane 6); the delivery
- * route mounts only when the declaration's `grant.outbound` says so, and
- * the instance reads inbound only when the arm listens under a posture.
+ * account session and builds the declared instance surface. The delivery
+ * route mounts only when the declaration's `grant.outbound` says so.
  */
 function ownerRow(
   provider: (typeof ChannelProviders)[keyof typeof ChannelProviders],
@@ -203,16 +198,16 @@ function ownerRow(
   }
   const parsed = arm.credentials.safeParse(decoded.success);
   if (!parsed.success) return { invalid: parsed.error.message };
-  const posture = OwnerPosture.safeParse(settings);
-  if (!posture.success) return { invalid: `settings: ${posture.error.message}` };
+  const parsedSettings = provider.settings.safeParse(settings);
+  if (!parsedSettings.success) return { invalid: `settings: ${parsedSettings.error.message}` };
   return providerRow(
     provider.id,
     "owner",
-    arm.listen && posture.data.intake !== "none",
-    (options) => arm.create(parsed.data, posture.data, deps.publish, options),
+    arm.listen,
+    (options) => arm.create(parsed.data, deps.publish, options),
     deps,
     outbound,
-    posture.data.autoReply,
+
   );
 }
 
@@ -364,8 +359,9 @@ export function validateProviderSettings(
   if (!isRegisteredProvider(provider)) {
     return `unknown provider ${provider}`;
   }
-  // #1569 lane 6: an Owner instance's knobs are its intake posture.
-  const schema = identity === "owner" ? OwnerPosture : ChannelProviders[provider].settings;
+  if (identity === "owner" && ChannelProviders[provider].owner === undefined)
+    return `${provider} has no Owner-account arm`;
+  const schema = ChannelProviders[provider].settings;
   const parsed = schema.safeParse(settings);
   return parsed.success ? undefined : parsed.error.message;
 }

@@ -26,7 +26,7 @@ export const ownerSender = {
   surface: "discord",
   externalId: "owner-external-id",
 } as const;
-export const ownerFacts: Gateway.IngressFacts = {
+export const ownerFacts: Ingress.Message = {
   eventId: "inbound-owner-dm",
   surface: "discord",
   workspaceId: "owner-workspace",
@@ -39,7 +39,7 @@ export const ownerFacts: Gateway.IngressFacts = {
 
 /** The prompt the owner's message becomes: the `[from …]` line a reply or reaction is addressed to, then the text (#1497). */
 export function ownerPrompt(
-  facts: Gateway.IngressFacts = ownerFacts,
+  facts: Ingress.Message = ownerFacts,
   actorId = "actor-owner",
 ): string {
   const threadId = facts.reply?.threadId;
@@ -87,7 +87,7 @@ export function kernelRouter(): GatewayRouter {
 }
 
 export async function ownerMessageTargets(
-  secondFacts: Gateway.IngressFacts = { ...ownerFacts, eventId: "second" },
+  secondFacts: Ingress.Message = { ...ownerFacts, eventId: "second" },
 ) {
   const first = await runEffect(kernelRouter().ingest(ownerSender, ownerFacts));
   const second = await runEffect(kernelRouter().ingest(ownerSender, secondFacts));
