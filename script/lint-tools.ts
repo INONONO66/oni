@@ -36,6 +36,7 @@ import { createMonitorTool } from "../apps/oni/src/bundles/alarms/monitor/index.
 import { fileBundle } from "../apps/oni/src/bundles/tools/file/index.js";
 import { bashBundle } from "../apps/oni/src/bundles/tools/bash/index.js";
 import { evalBundle } from "../apps/oni/src/bundles/tools/eval/index.js";
+import { imageBundle } from "../apps/oni/src/bundles/tools/image/index.js";
 import { completionBundle } from "../apps/oni/src/bundles/tools/completion/index.js";
 import { speechBundle } from "../apps/oni/src/bundles/tools/speech/index.js";
 import { provisionBundle } from "../apps/oni/src/bundles/provision/provision.js";
@@ -50,15 +51,16 @@ import * as protocolExports from "../packages/protocol/src/index.js";
 // Schema inspection never executes ports; absent capabilities are explicit test doubles.
 const schemaPorts: ToolPorts = {
   messages: undefined, machines: undefined, cells: undefined,
-  llm: undefined, speech: undefined, putOutput: undefined, provisioning: undefined, clock: () => 0, id: () => "schema",
+  llm: undefined, speech: undefined, putOutput: undefined, image: undefined, provisioning: undefined, clock: () => 0, id: () => "schema",
 };
-// Every tool is bundle-declared; the lint surface is the full 13 tools
+// Every tool is bundle-declared; the lint surface is the full 14 tools
 // in the reviewed snapshot order.
 const schemaSource = () => schemaPorts;
 const definitions: readonly AnyToolDefinition[] = [
   ...fileBundle(schemaSource).tools,
   ...bashBundle(schemaSource).tools,
   ...evalBundle(schemaSource).tools,
+  ...imageBundle(schemaSource).tools,
   ...sendMessageBundle(schemaSource).tools,
   ...provisionBundle(schemaSource).tools,
   ...speechBundle(schemaSource).tools,
@@ -434,7 +436,8 @@ async function locateExportedDefinitions(
     }
     for (const definition of definitions) {
       const escaped = definition.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const declaration = new RegExp(`(?:name\\s*:|=)\\s*["']${escaped}["']`);
+      // A comparison (`=== "name"`) is not a declaration; only `name:` and an assignment count.
+      const declaration = new RegExp(`(?:name\\s*:|(?<![=!])=)\\s*["']${escaped}["']`);
       if (!declaration.test(source)) continue;
       recordToolLocation(located, definition, filePath);
     }
