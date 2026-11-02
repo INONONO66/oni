@@ -40,5 +40,5 @@ test("shard commands execute each assigned test exactly once without hash shardi
   );
   expect(selected.sort()).toEqual(partitionOwned.sort());
   expect(scriptTests("clients-conformance")).toEqual(["check-clients-conformance.test.ts"]);
-  expect(() => scriptTestCommand("scripts-tooling-3")).toThrow("invalid script partition");
+  expect(() => scriptTestCommand("scripts-tooling-4")).toThrow("invalid script partition");
 });

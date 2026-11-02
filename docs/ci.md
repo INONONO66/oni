@@ -17,8 +17,8 @@ changes take the maximum class in the table; scopes are unions.
 | `docs` | Root `*.md` or `docs/**` only | None | No |
 | `desktop` | `apps/desktop/**`, `packages/ui/**` | Affected workspaces and consumers | No |
 | `kernel` | Other packages or `apps/oni/**` | Affected workspaces and consumers | No |
-| `tooling` | `script/**` except conformance contracts | Changed workspace lanes, if present | Two tooling shards |
-| `global` | Protocol, manifests/lockfile, conformance contracts, CI/root configuration, malformed or unowned paths | All | Two tooling shards |
+| `tooling` | `script/**` except conformance contracts | Changed workspace lanes, if present | Three tooling shards |
+| `global` | Protocol, manifests/lockfile, conformance contracts, CI/root configuration, malformed or unowned paths | All | Three tooling shards |
 
 Package-local documentation retains workspace impact. Main pushes, schedules,
 manual dispatch, and the planner's `merge_group` event mode select `global`.
@@ -35,8 +35,11 @@ The **Clients (Rust)** lane runs on full plans and when a PR changes
 `clients/**`, `packages/protocol/**`, `script/generate-machine-schema.ts`, or
 `.github/workflows/ci.yml`. It rebuilds the protocol schema before formatting,
 linting, and testing the `clients/` workspace. The setup action runs the sole
-`bun install`; the job pins `rust-toolchain` by SHA and gates workspace coverage
-on the `cargo llvm-cov --lcov` export: every `DA` line record must be executed.
+`bun install`; the job pins `rust-toolchain` by SHA and runs the suite exactly
+once, under `cargo llvm-cov --lcov`, gating workspace coverage on that export:
+every `DA` line record must be executed. Client conformance then runs against
+the debug `mclient` that pass built (`clients/target/llvm-cov-target/debug/`),
+handed over through `ONI_MCLIENT_BIN`.
 The `--fail-under-lines` summary is not used because it scores each function by
 its best single build (the unit-test harness or the `mclient` binary behind the
 integration tests), so a line only one build reaches beside a line only the
@@ -44,9 +47,11 @@ other reaches reads as a miss that no line view shows; the LCOV export unions
 the builds.
 Changes under `clients/**` also select the `machines`, `codemode`, and
 `oniApp` TypeScript test lanes because they exercise the client over the wire.
-Each of those matrix lanes installs the pinned Rust toolchain, caches the
-`clients/` workspace, builds `oni-machine-client --release --locked`, and
-exports `ONI_MCLIENT_BIN` before its tests. The local `bun run ci test --lane`
+Each of those matrix lanes restores the release `mclient` from the Actions
+cache keyed on `clients/**` and `packages/protocol/schema/machine/**` (no
+fallback key: a stale binary never stands in), builds
+`oni-machine-client --release --locked` only on a miss, and exports
+`ONI_MCLIENT_BIN` before its tests. The local `bun run ci test --lane`
 entry point builds the same binary when none is supplied.
 
 ## CI tiers and merge queue
@@ -93,7 +98,7 @@ baselines). A PR is admitted by:
   `apps/oni/src` code — comments and strings never count, a new app
   file starts at zero, and pin slack is judged only inside a git checkout
   (outside one the skip prints a NOTICE and growth is still judged).
-- **Tests**: selected workspace lanes and, for tooling/full plans, the two
+- **Tests**: selected workspace lanes and, for tooling/full plans, the three
   scripts-tooling shards; `scripts-contracts` always runs.
 - **Patch Coverage** (`patch-coverage`, PR-only): every changed executable line
   must be covered by the PR's own lcov evidence.
@@ -148,8 +153,8 @@ pull requests.
 `workflow_dispatch`. It is never a PR gate or a required check. Its matrix uses
 `script/ci-plan.ts`'s full plan plus `scripts-contracts`, and executes each lane
 through `bun run ci test --lane <key>` rather than maintaining another test list.
-Each coverage lane runs Bun LCOV once; separate artifacts retain both tooling
-shards. All lanes must succeed before the audit can publish issues.
+Each coverage lane runs Bun LCOV once; separate artifacts retain every tooling
+shard. All lanes must succeed before the audit can publish issues.
 
 `script/quality-audit.ts` writes the Zod-validated `quality-audit.json`:
 
@@ -240,8 +245,9 @@ test rejects missing, duplicate and newly unassigned `script/**/*.test.ts` files
 tsconfig inheritance, store contracts and repository-consumer tests; its
 command also runs dead-export, dependency and import-cycle self-tests. `scripts-tooling` contains the surviving mutation
 runner, quality-plan/inventory/receipt and type-census self-tests. It runs only
-when `toolingTests` is true, as two explicit matrix partitions packed by their
-measured heavy hitters. Contract tests reject unassigned or duplicate files
+when `toolingTests` is true, as three explicit matrix partitions packed by their
+measured CI wall time (the mutation runner suite with its fixture campaign, the
+compiler suite, and the operators/census/shard suites each anchor one shard). Contract tests reject unassigned or duplicate files
 across partitions and verify the actual commands select every recursive test
 exactly once. `scripts-tooling-1` also runs the Python analyzer self-tests
 (`pythonSelfTests` in `script/scripts-lanes.ts`, an explicit manifest its
