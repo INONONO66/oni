@@ -1,5 +1,6 @@
 import type { ComputerHandle, MachineHost } from "@oni/machines";
 import { machineWire } from "./composition/machine-wire";
+import { type ChildStateRows, childStateWire } from "./composition/child-state-wire";
 import { createStreamProbe } from "./composition/stream-probe";
 import { channelHistoryWire, type ChannelHistoryLookup } from "./composition/channel-history";
 import type { WsParts } from "./composition/ws-parts";
@@ -383,6 +384,8 @@ export function webSocketCallbacks(
   parts?: WsParts,
   history?: ChannelHistoryLookup,
   now?: () => number,
+  /** #1604: the admitted child rows `childActivity.state` folds, read for the `child_state` frame. */
+  children?: ChildStateRows,
 ) {
   const inflight = new Set<Promise<void>>();
   const readers = new Map<WsConnection, Map<string, () => void>>();
@@ -498,6 +501,12 @@ export function webSocketCallbacks(
         if (machine !== undefined) {
           ws.data.frameSeen = true;
           ws.send(JSON.stringify(machine));
+          return Promise.resolve();
+        }
+        const childState = childStateWire(data, children);
+        if (childState !== undefined) {
+          ws.data.frameSeen = true;
+          ws.send(JSON.stringify(childState));
           return Promise.resolve();
         }
         const captured = parts?.capture(ws.data.externalId, data);

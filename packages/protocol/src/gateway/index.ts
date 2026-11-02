@@ -1,3 +1,4 @@
+export { ChildState } from "./child-state.js";
 export { Gateway } from "./schema.js";
 export { MessagingEvents } from "./events.js";
 export { Outbound } from "./outbound.js";

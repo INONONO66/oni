@@ -1,5 +1,29 @@
 # Implementation Status
 
+## #1604 child current-state frame
+
+A console or `cli:` contact sends `{type: "child_state", requestId, sessionId,
+child, turn}` over the gateway socket and receives one `child_state` frame:
+`{phase, source, since, facts: [{toolUseId?, phase}], diagnostics}`
+(`ChildState` in `packages/protocol/src/gateway/child-state.ts`). The app
+derives it from the same admitted `child_fact` / `child_receipt` /
+`child_diagnostic` rows `childActivity.state` folds (`currentState` over
+`stateReceipts`): `phase` and `source` are the winning receipt's, `since` is
+that receipt's first observation, `facts` lists the turn's admitted facts in
+admission order, and `diagnostics` is the winning receipt's list followed by
+the turn's damaged-record rows. The frame carries references and phase names
+only; no transcript bytes cross it. Refusals are typed:
+`invalid_request`, `unavailable` (child activity not composed),
+`session_not_found`, `unknown` (no admitted receipt for that child turn). The
+read is served before chat like `machine_list`
+(`apps/oni/src/composition/child-state-wire.ts`, dispatched in
+`webSocketCallbacks`) and admits nothing. Receipts:
+`packages/protocol/test/gateway-child-state.test.ts` (round trip, strict
+refusal of transcript bytes) and `apps/oni/test/gateway-child-state.test.ts`
+(three reconciled pages of one fixture child turn through the gateway
+callbacks, the exact frame, the refusals). Not claimed: a console rendering
+of the frame (#1513) and a `screen` source, which no reconciler path emits.
+
 ## #1775 memory budget default and breach reporting
 
 `mclient`'s default `memoryBudgetMb` is 512 (was 96, below one Retina

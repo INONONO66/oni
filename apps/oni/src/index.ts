@@ -1494,7 +1494,8 @@ export async function startOni(options: StartOptions = {}) {
         id: services.entropy.id,
       }), { respond: automationWire(provisioningPort.automations), stores: channelStores }, host,
       { respond: channelWire(provisioningPort, services.now) }, wsMedia,
-      channelHistoryLookup(historyRoutes, supervisor), services.now);
+      channelHistoryLookup(historyRoutes, supervisor), services.now,
+      (id) => plane.read.index(id) === undefined ? undefined : childRows(id));
     const server = Bun.serve({
       hostname: config.host,
       port: config.wsPort,
