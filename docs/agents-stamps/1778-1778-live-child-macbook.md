@@ -1,1 +1,1 @@
-#1778 (G002 C002) | feat/1778-live-child-macbook | 2026-11-02 | base 2c223dd9d | PR pending | Self mclient uses 512 MiB; unverified omp launch removed; CLI refusal receipts and successful session-owned display capture recorded on #1778/#1776, blockers #1807/#1809/#1810/#1811.
+#1778 (G002 C002) | feat/1778-live-child-macbook | 2026-11-02 | base 2c223dd9d | PR #1812 | Self mclient uses 512 MiB; unverified omp launch removed; CLI refusal receipts and successful session-owned display capture recorded on #1778/#1776, blockers #1807/#1809/#1810/#1811.
