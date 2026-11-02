@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { Effect } from "effect";
 import type { Core } from "@oni/agent";
 import { createSurfaceKeyStore, decodeChannelFailure } from "@oni/channels";
-import type { GatewayRouter } from "../src/bundles/messaging/message-ports.js";
+import type { GatewayRouter } from "../src/bundles/message-ports.js";
 import { type Gateway, Outbound } from "@oni/protocol";
 import { commitReceivedMessage } from "../../../packages/agent/test/helpers/ingress";
 import { createSendMessageTool } from "../src/bundles/messaging/send-message/index";
@@ -241,12 +241,10 @@ test.each(["auto", "missing-owner", "child-settlement"] as const)("the resident 
     return yield* createResidentGateway({
       now: () => 10,
       id: testIds("reply-door-e2e"),
-      delivery: {
-        commit: (input) =>
+      deliver: (input) =>
           localDelivery(resident.plane, "reply-door-e2e", () => 10)(input).pipe(
             Effect.mapError(decodeChannelFailure("delivery.commit")),
           ),
-      },
       prepare: prepareMessage(resident.plane, resident.genesis),
       ...(yield* residentGatewayPorts(resident.plane, () => 10)),
     }, { deliveryRoutes: new Map([...slackRoute(delivered)].map(([id, route]) => [

@@ -5,7 +5,6 @@ import type {
   BusEvent, Channel, Gateway, Ingress, Delivery, LedgerAction, Outbound, PlainValue, SessionTransition,
 } from "@oni/protocol";
 import type { KernelDeliveryReceipt } from "@oni/channels";
-import type { ConversationBinding } from "./reply.js";
 
 export interface ChannelDeliveryRoute extends Channel.Instance {
   readonly deliver: (
@@ -85,7 +84,8 @@ export interface GatewayRouterPorts {
   };
   readonly sink: BusEvent.Sink["publish"];
   readonly observe?: (sender: Gateway.IngestSender, observation: Gateway.MessageObservation) => void;
-  readonly delivery: { readonly commit: (input: Delivery.Commit) => Effect.Effect<Delivery.Row, ChannelError> };
+  /** Composed Session entity delivery; never a raw session-store writer. */
+  readonly deliver: (input: Delivery.Commit) => Effect.Effect<Delivery.Row, ChannelError>;
   readonly prepare: (
     sender: Gateway.IngestSender, message: Gateway.SendMessage, target: string, messageId: string,
   ) => Effect.Effect<PreparedMessage, ChannelError>;
@@ -109,4 +109,22 @@ export interface GatewayRouter {
     message: Gateway.SendMessage | Ingress.Message | Gateway.RequestAnswer,
     context?: { readonly surfaceKey: string; readonly machineId?: string },
   ): Effect.Effect<Gateway.IngestResult, ChannelError>;
+}
+
+/** The conversation a delivered prompt came from, as the app folds it from the prompt's recorded origin. */
+export interface ConversationBinding {
+  readonly surface: string;
+  readonly instance?: string;
+  readonly externalId: string;
+  /** Empty for an anonymous sender admitted by a channel default. */
+  readonly actorId: string;
+  readonly workspaceId?: string;
+  readonly channelId: string;
+  readonly messageId: string;
+  readonly dm: boolean;
+  readonly threadId?: string;
+  /** The account identity that observed the prompt. */
+  readonly receivedBy?: Channel.Identity;
+  readonly reply?: "auto" | "draft" | "none";
+  readonly as?: string;
 }

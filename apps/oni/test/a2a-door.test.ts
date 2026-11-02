@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { type ProviderTypingRoute, Vault } from "@oni/channels";
-import type { ChannelDeliveryRoute } from "../src/bundles/messaging/message-ports.js";
+import type { ChannelDeliveryRoute } from "../src/bundles/message-ports.js";
 import { z } from "zod";
 import { A2A_DOOR_ID } from "../src/channels";
 import { desiredChannels } from "../src/bundles/provision/declared";

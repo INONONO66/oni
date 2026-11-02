@@ -1,5 +1,5 @@
 import type { ChannelError } from "@oni/channels";
-import type { GatewayRouter } from "../bundles/messaging/message-ports.js";
+import type { GatewayRouter } from "../bundles/message-ports.js";
 import { Effect, Schedule } from "effect";
 
 /** The app scope owns this clock; router windows also recover on its first tick after boot. */

@@ -10,7 +10,7 @@ const AgentFailure = Core.AgentFailure;
 type ExecutionError = Core.ExecutionError;
 type SessionEntryServices = Core.SessionEntryServices;
 import type { LedgerAction, PlainValue } from "@oni/protocol";
-import type { createGatewayRouter } from "../bundles/messaging/index.js";
+import type { createGatewayRouter } from "./gateway-router.js";
 import type { AppLedgerPlane } from "./cluster-runtime";
 import { ComposedGeneration } from "./composed";
 import { captureNow } from "./platform";

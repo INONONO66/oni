@@ -2,7 +2,7 @@ import { ChannelsFailure, SendAdmissionConflict } from "@oni/channels";
 import { Gateway, type DecisionFact, type Outbound } from "@oni/protocol";
 import type { ChannelStores } from "@oni/channels";
 import { z } from "zod";
-import type { GatewayRouterPorts } from "./message-ports.js";
+import type { GatewayRouterPorts } from "../message-ports.js";
 import { evaluateSocialBudget } from "./social-budget.js";
 
 const SEND_ADMITTED_FACT = "gateway.send.admitted";

@@ -60,11 +60,9 @@ test("native reply reaches the canonical receiving delivery once and retains its
         withinParentDeadline: true,
       },
     }),
-    delivery: {
-      commit: () => {
+    deliver: () => {
         throw new Error("native answer bypassed request admission");
       },
-    },
   });
   const deliver = () =>
     gateway.ingest(sender, {

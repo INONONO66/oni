@@ -3,7 +3,7 @@ import { Effect } from "effect";
 
 type SessionRequests = Effect.Success<ReturnType<typeof Core.createSessionRequests>>;
 import { decodeChannelFailure } from "../../../../../packages/channels/src/errors.js";
-import type { GatewayRouterPorts } from "../../../src/bundles/messaging/index.js";
+import type { GatewayRouterPorts } from "../../../src/composition/gateway-router.js";
 
 /** Keep real agent requests and translate only the channel boundary's error union. */
 export function channelRequests(requests: SessionRequests): GatewayRouterPorts["requests"] {

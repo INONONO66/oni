@@ -103,9 +103,10 @@ limits, target, reply mode, sending instance, agent and delivery kind.
 
 `apps/oni/src/composition/ingress-ledger.ts`, `ingress-route.ts` and
 `ingress-groups.ts` own ingress decision writes, group closure and replay
-checks. Messaging orchestration and delivery receipts live in
-`apps/oni/src/bundles/messaging`; channels retains physical request
-correlation, provider delivery custody and store primitives. Equivalent
+checks. `composition/gateway-router.ts` orchestrates delivery through the
+Session entity port; `apps/oni/src/bundles/messaging` owns messaging policy.
+Channels retains physical request correlation, provider delivery custody
+and store primitives. Equivalent
 redelivery still preserves the original routing and endpoint authority;
 divergent replay fails before another delivery.
 

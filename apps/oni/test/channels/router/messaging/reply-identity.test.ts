@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Outbound } from "@oni/protocol";
-import { type ConversationBinding, createReplyMessaging } from "../../../../src/bundles/messaging/reply.js";
+import { createReplyMessaging } from "../../../../src/bundles/messaging/reply.js";
+import type { ConversationBinding } from "../../../../src/bundles/message-ports.js";
 import { unconfiguredChannelStores } from "../../../../../../packages/channels/src/router/stores.js";
 import { effectFailure } from "../../../../../../packages/channels/test/helpers/effect-failure.js";
 

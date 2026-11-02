@@ -1,19 +1,19 @@
-import { routeRule, type MatchDecision } from "./rule-outcome.js";
-import { recordIngressRoute } from "../../composition/ingress-route.js";
+import { routeRule, type MatchDecision } from "../bundles/messaging/rule-outcome.js";
+import { recordIngressRoute } from "./ingress-route.js";
 import { Effect } from "effect";
 import type { ChannelStores } from "@oni/channels";
 import type { PolicyEvaluationInput } from "@oni/agent";
 import { type Gateway, Ingress } from "@oni/protocol";
 import type { PendingGroup } from "@oni/channels";
-import { type ingressInput, ingressSurfaceKey } from "./automation/input.js";
+import { type ingressInput, ingressSurfaceKey } from "../bundles/messaging/automation/input.js";
 import { match } from "@oni/channels";
-import { inboundIdOf as inboundEventId } from "./inbound-id.js";
+import { inboundIdOf as inboundEventId } from "../bundles/messaging/inbound-id.js";
 import { newTraceId } from "@oni/channels";
-import { resolveIngressActor } from "./actor-resolver.js";
-import { resolveKernelRoute } from "./routing-resolution.js";
-import { recordAutomationDuplicate } from "../../composition/ingress-ledger.js";
-import type { GatewayRouterPorts } from "./message-ports.js";
-import { evaluateSocialBudget } from "./social-budget.js";
+import { resolveIngressActor } from "../bundles/messaging/actor-resolver.js";
+import { resolveKernelRoute } from "../bundles/messaging/routing-resolution.js";
+import { recordAutomationDuplicate } from "./ingress-ledger.js";
+import type { GatewayRouterPorts } from "../bundles/message-ports.js";
+import { evaluateSocialBudget } from "../bundles/messaging/social-budget.js";
 
 function resolveIngress(stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
   facts: Ingress.Message, ports: GatewayRouterPorts, at: number) {

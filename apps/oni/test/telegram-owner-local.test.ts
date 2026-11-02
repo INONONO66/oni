@@ -123,7 +123,7 @@ test("local Owner login, mounted ingress stream and two CLI history pages share 
   expect(errors).toEqual([]);
   expect(prompts).toEqual([]);
   expect(output).toEqual([
-    "Signed in to Telegram as owner-1",
+    "Signed in to Telegram as account-1",
     "channel:telegram:owner [telegram] → ready",
     "channel:telegram:owner [channel:telegram:owner] → mounted",
   ]);

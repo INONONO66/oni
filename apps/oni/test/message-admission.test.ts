@@ -118,7 +118,7 @@ test("an explicit rule admits a stranger without assigning canonical trust", asy
   createRuleStore(fixture.plane.channel).add({
     id: "guest", position: 0, enabled: true, createdBy: "owner",
     when: { instance: "discord" }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
-  });
+  }, true);
   expect(
     (await runEffect(fixture.gateway.ingest(
       { kind: "external", surface: "discord", externalId: "guest" },

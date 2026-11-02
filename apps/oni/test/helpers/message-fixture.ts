@@ -61,7 +61,7 @@ export function messageFixture(
     id: testIds("message-fixture"),
     requests: channelRequests(requests),
     stores: createChannelStores(channelStoreSource(plane, () => 100)),
-    delivery: { commit: (input) => localDelivery(plane, "message-fixture", () => 100)(input).pipe(Effect.mapError(decodeChannelFailure("delivery.commit"))) },
+    deliver: (input) => localDelivery(plane, "message-fixture", () => 100)(input).pipe(Effect.mapError(decodeChannelFailure("delivery.commit"))),
     prepare: prepareMessage(plane, (id, parentId, childRole, runner) =>
       messageMaterialization(() => plane.openKernel(id).currentPolicyGeneration(), testIds("materialize"))({
         id,

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createExistingAgentMessaging } from "../../../../src/bundles/messaging/send.js";
 import { buildAwaitedSendInput, buildGrant, buildSendInput, registerAgentFixture } from "../../helpers/messaging.js";
 import { makeRouter, resetStores } from "../_router-fixture.js";
-import type { ChannelDeliveryRoute } from "../../../../src/bundles/messaging/message-ports.js";
+import type { ChannelDeliveryRoute } from "../../../../src/bundles/message-ports.js";
 
 beforeEach(() => {
   resetStores();

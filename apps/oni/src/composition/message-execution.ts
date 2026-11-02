@@ -11,12 +11,12 @@ import {
   type PlainValue,
   type PlainObject,
 } from "@oni/protocol";
-import type { createExistingAgentMessaging } from "./send.js";
-import type { ReplyMessaging } from "./reply.js";
+import type { createExistingAgentMessaging } from "../bundles/messaging/send.js";
+import type { ReplyMessaging } from "../bundles/messaging/reply.js";
 import type { externalMessage } from "./external-message.js";
-import type { GatewayRouterPorts } from "./message-ports.js";
-import { answerNativeRequest, openNativeRequest } from "./request/native.js";
-import { executeRequestRoute, requireRoutedDecision } from "./routing-execution.js";
+import type { GatewayRouterPorts } from "../bundles/message-ports.js";
+import { answerNativeRequest, openNativeRequest } from "../bundles/messaging/request/native.js";
+import { executeRequestRoute, requireRoutedDecision } from "./ingress-execution.js";
 
 interface MessageContext {
   stores: ChannelStores;
@@ -296,7 +296,7 @@ export function executeMessage(
     startedAt,
     admission,
   );
-  const row = yield* ports.delivery.commit(admission);
+  const row = yield* ports.deliver(admission);
   progress.commitMs = clock() - commitAt;
   progress.committed = row;
   return sessionResult;

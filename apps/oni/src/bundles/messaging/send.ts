@@ -10,7 +10,7 @@ import {
   type Outbound,
   type SessionTransition,
 } from "@oni/protocol";
-import type { GatewayRouterPorts } from "./message-ports.js";
+import type { GatewayRouterPorts } from "../message-ports.js";
 import type { KernelDeliveryReceipt } from "@oni/channels";
 import { authorizeSend } from "./authorize.js";
 import { activeBudgetFor, admitSend, ownerTarget } from "./admission.js";

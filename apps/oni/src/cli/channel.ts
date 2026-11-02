@@ -34,7 +34,7 @@ const CHANNEL_CREDENTIALS: Readonly<Record<string, readonly { readonly key: stri
   linear: [
     { key: "secret", secret: true },
     { key: "token", secret: true, optional: true },
-    { key: "ownerUserId", secret: false, optional: true },
+    { key: "accountUserId", secret: false, optional: true },
   ],
 };
 const OWNER_ONLY = new Set(["linear"]);

@@ -1,18 +1,18 @@
 import { Effect, Semaphore } from "effect";
 import { ChannelsFailure, DeliveryNotSent } from "@oni/channels";
 import { Gateway, Ingress, Outbound } from "@oni/protocol";
-import { advanceAutomationGroups } from "../../composition/ingress-groups.js";
-import { ingressInput } from "./automation/input.js";
-import { inboundIdOf } from "./inbound-id.js";
-import { automationReplay, recordAutomation } from "../../composition/ingress-ledger.js";
+import { advanceAutomationGroups } from "./ingress-groups.js";
+import { ingressInput } from "../bundles/messaging/automation/input.js";
+import { inboundIdOf } from "../bundles/messaging/inbound-id.js";
+import { automationReplay, recordAutomation } from "./ingress-ledger.js";
 import { actorTarget, executeMessage } from "./message-execution.js";
-import { createExistingAgentMessaging } from "./send.js";
-import { createReplyMessaging } from "./reply.js";
+import { createExistingAgentMessaging } from "../bundles/messaging/send.js";
+import { createReplyMessaging } from "../bundles/messaging/reply.js";
 import { externalMessage, replayExternal } from "./external-message.js";
-import { answerOwnerRequest } from "./request/owner-answer.js";
-import type { GatewayRouter, GatewayRouterPorts } from "./message-ports.js";
+import { answerOwnerRequest } from "../bundles/messaging/request/owner-answer.js";
+import type { GatewayRouter, GatewayRouterPorts } from "../bundles/message-ports.js";
 
-export type { ChannelDeliveryRoute, GatewayRouter, GatewayRouterPorts } from "./message-ports.js";
+export type { ChannelDeliveryRoute, GatewayRouter, GatewayRouterPorts } from "../bundles/message-ports.js";
 
 type External = Effect.Success<ReturnType<typeof externalMessage>>;
 

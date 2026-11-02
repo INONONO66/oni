@@ -3,7 +3,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { runEffect } from "../../../../../../packages/channels/test/helpers/effect.js";
 import { type Gateway, MessagingEvents, Outbound } from "@oni/protocol";
-import type { ChannelDeliveryRoute } from "../../../../src/bundles/messaging/index.js";
+import type { ChannelDeliveryRoute } from "../../../../src/composition/gateway-router.js";
 import { Bus } from "../../../../../../packages/channels/test/helpers/observation.js";
 import { bounded } from "../../../../../../packages/channels/test/helpers/bounded.js";
 import { makeRouter as makeFixtureRouter, resetRouterState } from "../_router-fixture.js";

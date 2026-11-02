@@ -299,7 +299,7 @@ describe("Linear as a user account (#1569 lane 9b): the linear:account instance"
   it("the provider is Account-only: the account arm declares what the runtime exposes and admits only the Account's shape; the bot arm refuses", () => {
     expect(LinearProvider.capabilities).toMatchObject({ deliver: true, webhook: true, react: false, typing: false, media: false });
     expect(LinearProvider.credentials.safeParse({ secret: "s" }).success).toBe(false);
-    expect(() => LinearProvider.create({} as never, {}, () => undefined, injectedOptions())).toThrow("identity: account");
+    expect(() => LinearProvider.create({} as never, {}, () => undefined, injectedOptions())).toThrow("use the account arm");
     expect(arm().credentials.safeParse({ secret: "s" }).success).toBe(true);
     expect(arm().credentials.safeParse({ secret: "s", token: "t", accountUserId: "u" }).success).toBe(true);
     expect(arm().credentials.safeParse({ token: "t" }).success).toBe(false);

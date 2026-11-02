@@ -7,11 +7,11 @@ import { runEffect } from "../../../../../packages/channels/test/helpers/effect.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Delivery, Gateway } from "@oni/protocol";
 import { z } from "zod";
-import { createGatewayRouter, type GatewayRouterPorts } from "../../../src/bundles/messaging/index.js";
+import { createGatewayRouter, type GatewayRouterPorts } from "../../../src/composition/gateway-router.js";
 import { resetStores } from "./_router-fixture.js";
 import { requestPort } from "../helpers/requests.js";
 import { messageExecutionReceipt } from "../../../../../packages/channels/test/helpers/message-execution.js";
-import { recordingDelivery } from "../../../../../packages/channels/test/router/_recording-delivery.js";
+import { recordingDelivery } from "./_recording-delivery";
 
 beforeEach(resetStores);
 afterEach(() => {
@@ -36,7 +36,7 @@ function recordingRouter(
     now: () => 1,
     id: testId("ingest"),
     sink: () => undefined,
-    delivery: recordingDelivery(commits),
+    deliver: recordingDelivery(commits),
     ...taps,
     prepare: () => Effect.succeed({
       target: "child",
@@ -229,7 +229,7 @@ test("a session send prepared without a session projection dies with the channel
     now: () => 1,
     id: testId("projection"),
     sink: () => undefined,
-    delivery: recordingDelivery(commits),
+    deliver: recordingDelivery(commits),
     prepare: () => Effect.succeed({
       target: "child",
       message: { sender: "external" as const, eventIdUnique: true },

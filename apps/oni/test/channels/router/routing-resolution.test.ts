@@ -19,12 +19,10 @@ test("records the channel-scoped decision before delivery commit", async () => {
   createMappedOwnerSession();
   const observed: Array<DecisionFact.Recorded | undefined> = [];
   const router = makeRouter({
-    delivery: {
-      commit: (row: Delivery.Commit) => Effect.sync(() => {
+    deliver: (row: Delivery.Commit) => Effect.sync(() => {
         observed.push(ledger().sessions.decisionFacts?.head(streamId()));
         return { ...row, status: "pending" as const, consumedBy: null, consumedAt: null, ordinal: 1 };
       }),
-    },
   });
   await runEffect(router.ingest(ownerSender, ownerFacts));
   expect(observed).toHaveLength(1);

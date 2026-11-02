@@ -1,7 +1,7 @@
 import { Effect, Result } from "effect";
 import { decodeChannelFailure, type ChannelError } from "@oni/channels";
 import { canonicalDigest, Gateway, SessionTransition } from "@oni/protocol";
-import type { GatewayRouterPorts } from "../message-ports.js";
+import type { GatewayRouterPorts } from "../../message-ports.js";
 
 /** Authenticate and normalize only. The injected kernel owns every transition. */
 export function answerOwnerRequest(

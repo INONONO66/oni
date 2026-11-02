@@ -7,9 +7,9 @@ import { runEffect } from "../../../../../packages/channels/test/helpers/effect.
 import { openRequest, requestPort } from "../helpers/requests.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { type Gateway, type Delivery, type BusEvent, type PlainValue, Ingress } from "@oni/protocol";
-import { createGatewayRouter, type GatewayRouterPorts } from "../../../src/bundles/messaging/index.js";
+import { createGatewayRouter, type GatewayRouterPorts } from "../../../src/composition/gateway-router.js";
 import { IngressRoutingError } from "../../../../../packages/channels/src/errors.js";
-import { recordingDelivery } from "../../../../../packages/channels/test/router/_recording-delivery.js";
+import { recordingDelivery } from "./_recording-delivery";
 
 beforeEach(() => {
   resetLedger();
@@ -57,7 +57,7 @@ test.each([
         decisions.push(Ingress.Events.RoutingDecision.schema.parse(data));
       }
     },
-    delivery: recordingDelivery(commits),
+    deliver: recordingDelivery(commits),
     prepare: (_sender: Gateway.IngestSender, _message: Gateway.SendMessage, target: string) => Effect.succeed({
       target,
       message: {

@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { type Gateway, Ingress, MessagingEvents, Outbound } from "@oni/protocol";
 import { ingressSurfaceKey } from "../../../../src/bundles/messaging/automation/input.js";
 import { registerRule } from "../../helpers/rule.js";
-import type { ChannelDeliveryRoute } from "../../../../src/bundles/messaging/index.js";
+import type { ChannelDeliveryRoute } from "../../../../src/composition/gateway-router.js";
 import { admitReply } from "../../../../src/bundles/messaging/admission.js";
 import { SendAdmissionConflict } from "../../../../../../packages/channels/src/errors.js";
 import { Bus } from "../../../../../../packages/channels/test/helpers/observation.js";

@@ -8,7 +8,7 @@ import { channelRequests } from "../helpers/channel-requests.js";
 import { afterEach, expect, test } from "bun:test";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
 import { kernelDeliveryReceipt } from "../../../../../packages/channels/src/support/deliver.js";
-import type { ChannelDeliveryRoute } from "../../../src/bundles/messaging/message-ports.js";
+import type { ChannelDeliveryRoute } from "../../../src/bundles/message-ports.js";
 import { TelegramAdapter } from "../../../../../packages/channels/src/provider/telegram/surface.js";
 import { TelegramNormalizer } from "../../../../../packages/channels/src/provider/telegram/normalizer.js";
 import { createExistingAgentMessaging } from "../../../src/bundles/messaging/send.js";

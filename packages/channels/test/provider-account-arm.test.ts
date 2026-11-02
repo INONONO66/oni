@@ -40,7 +40,7 @@ describe("provider account arms", () => {
       expect(() => provider.create({} as never, {}, noopPublish, injectedOptions())).toThrow(
         `${key} has no bot account; use the account arm`,
       );
-      expect(provider.preconditions[0]).toContain("identity: account");
+      expect(provider.preconditions[0]).toContain("use the account arm");
     }
   });
 

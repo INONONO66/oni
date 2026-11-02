@@ -1,3 +1,4 @@
+import type { ConversationBinding } from "../message-ports";
 import { Effect } from "effect";
 import {
   type BusEvent,
@@ -9,7 +10,7 @@ import {
 import { type ChannelError, decodeChannelFailure, SendAdmissionConflict } from "@oni/channels";
 import type { KernelDeliveryReceipt } from "@oni/channels";
 import type { ChannelStores } from "@oni/channels";
-import type { GatewayRouterPorts } from "./message-ports.js";
+import type { GatewayRouterPorts } from "../message-ports.js";
 import { admitReply } from "./admission.js";
 import { resolveInstance } from "./route.js";
 import { ingressSurfaceKey } from "./automation/input.js";
@@ -23,24 +24,6 @@ import { ingressSurfaceKey } from "./automation/input.js";
  * never cold outreach. Custody is unchanged: one admission fact per message
  * id and one physical attempt per key through the surface's delivery route.
  */
-
-/** The conversation a delivered prompt came from, as the app folds it from the prompt's recorded origin. */
-export interface ConversationBinding {
-  readonly surface: string;
-  readonly instance?: string;
-  readonly externalId: string;
-  /** Empty for an anonymous sender admitted by a channel default. */
-  readonly actorId: string;
-  readonly workspaceId?: string;
-  readonly channelId: string;
-  readonly messageId: string;
-  readonly dm: boolean;
-  readonly threadId?: string;
-  /** The account identity that observed the prompt. */
-  readonly receivedBy?: Channel.Identity;
-  readonly reply?: "auto" | "draft" | "none";
-  readonly as?: string;
-}
 
 /**
  * `draft`: the admitted rule keeps the answer for the Owner to send.

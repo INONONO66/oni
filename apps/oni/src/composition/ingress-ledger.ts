@@ -2,8 +2,8 @@ import { type Gateway, Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { decodeChannelFailure } from "@oni/channels";
 import type { StoredGroup } from "@oni/channels";
-import type { externalMessage } from "../bundles/messaging/external-message.js";
-import type { GatewayRouterPorts } from "../bundles/messaging/message-ports.js";
+import type { externalMessage } from "./external-message.js";
+import type { GatewayRouterPorts } from "../bundles/message-ports.js";
 import type { ChannelStores } from "@oni/channels";
 
 type External = Effect.Success<ReturnType<typeof externalMessage>>;

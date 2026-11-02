@@ -17,8 +17,8 @@ import {
   createGatewayRouter,
   type GatewayRouter,
   type GatewayRouterPorts,
-} from "../../../src/bundles/messaging/index.js";
-import type { ConversationBinding } from "../../../src/bundles/messaging/reply.js";
+} from "../../../src/composition/gateway-router.js";
+import type { ConversationBinding } from "../../../src/bundles/message-ports.js";
 import { ingressSurfaceKey } from "../../../src/bundles/messaging/automation/input.js";
 
 export const ownerSender = {
@@ -260,8 +260,7 @@ export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): Gateway
       }
       Bus.publish(event, data);
     },
-    delivery: {
-      commit: (row: Delivery.Commit) =>
+    deliver: (row: Delivery.Commit) =>
         Effect.gen(function* () {
           yield* ledger().kernel.materialize({
             id: row.sessionId,
@@ -280,7 +279,6 @@ export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): Gateway
           if (!existed) commits.push(row);
           return received.row;
         }).pipe(Effect.mapError(decodeChannelFailure("fixture.delivery"))),
-    },
     prepare: (sender: Gateway.IngestSender, send: Gateway.SendMessage, target: string) => {
       const binding = originBinding(sender, send);
       return Effect.succeed({

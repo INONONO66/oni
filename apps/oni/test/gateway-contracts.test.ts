@@ -34,7 +34,7 @@ function testResident(run: ResidentRun) {
     return yield* createResidentGateway({
       now: Date.now,
       id: testIds("gateway-contract"),
-      delivery: { commit: (input) => localDelivery(resident.plane, "gateway-contract", Date.now)(input).pipe(Effect.mapError(decodeChannelFailure("delivery.commit"))) },
+      deliver: (input) => localDelivery(resident.plane, "gateway-contract", Date.now)(input).pipe(Effect.mapError(decodeChannelFailure("delivery.commit"))),
       prepare: prepareMessage(resident.plane, resident.genesis),
       ...(yield* residentGatewayPorts(resident.plane, Date.now)),
     }, undefined);
@@ -45,7 +45,7 @@ function testResident(run: ResidentRun) {
     plane: resident.plane,
     async ingest(content: string) {
       createRuleStore(resident.plane.channel).add({ id: "ws", position: 0, enabled: true, createdBy: "owner",
-        when: { instance: "ws" }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } });
+        when: { instance: "ws" }, outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" } }, true);
       const result = await runEffect(gateway.ingest(
         { kind: "external", surface: "ws", externalId: "observer" },
         {

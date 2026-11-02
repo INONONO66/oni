@@ -10,7 +10,7 @@ type AgentFailure = Core.AgentFailure;
 type SessionError = Core.SessionError;
 type SessionHostRuntime = Core.SessionHostRuntime;
 import { createChannelStores, decodeChannelFailure } from "@oni/channels";
-import { createGatewayRouter } from "./bundles/messaging/index.js";
+import { createGatewayRouter } from "./composition/gateway-router.js";
 import { Effect, Logger } from "effect";
 import {
   acquireAppResource,
@@ -185,7 +185,7 @@ export function serveProcessSession(
     id: entropy.id,
     stores: createChannelStores(channelStoreSource(plane, now)),
     transaction: channelTransaction(plane),
-    delivery: { commit: (input) => commitDelivery(input).pipe(Effect.mapError(decodeChannelFailure("message.commit"))) },
+    deliver: (input) => commitDelivery(input).pipe(Effect.mapError(decodeChannelFailure("message.commit"))),
     prepare: prepareMessage(plane, resident.genesis),
     run: (sender, execution, body) => Effect.gen(function* () {
       const outbound = yield* outboundMessage;

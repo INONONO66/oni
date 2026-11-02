@@ -5,7 +5,7 @@ import { runEffect } from "../../../../../packages/channels/test/helpers/effect.
 import { Effect } from "effect";
 import { z } from "zod";
 
-import type { GatewayRouterPorts } from "../../../src/bundles/messaging/index.js";
+import type { GatewayRouterPorts } from "../../../src/composition/gateway-router.js";
 import { commits, makeRouter, resetRouterState } from "./_router-fixture.js";
 
 beforeEach(resetRouterState);

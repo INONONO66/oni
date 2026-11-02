@@ -7,9 +7,9 @@ import {
   type RouteNotDelivered,
 } from "@oni/protocol";
 import type { ChannelStores } from "@oni/channels";
-import { targetsOfRequest, responderCandidates, ingressEvidence } from "./request/matcher.js";
-import type { GatewayRouterPorts } from "./message-ports.js";
-import type { resolveKernelRoute } from "./routing-resolution.js";
+import { targetsOfRequest, responderCandidates, ingressEvidence } from "../bundles/messaging/request/matcher.js";
+import type { GatewayRouterPorts } from "../bundles/message-ports.js";
+import type { resolveKernelRoute } from "../bundles/messaging/routing-resolution.js";
 import { IngressRoutingError } from "@oni/channels";
 
 // A rejected request-correlated delivery records a correction without changing

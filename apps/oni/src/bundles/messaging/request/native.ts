@@ -8,7 +8,7 @@ import {
   type Delivery,
   type PlainValue,
 } from "@oni/protocol";
-import type { GatewayRouterPorts } from "../message-ports.js";
+import type { GatewayRouterPorts } from "../../message-ports.js";
 
 export function answerNativeRequest(
   requests: GatewayRouterPorts["requests"],

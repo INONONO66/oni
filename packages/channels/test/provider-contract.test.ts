@@ -264,7 +264,7 @@ describe("provider conformance", () => {
       test("the bot arm refuses every credential and never constructs", () => {
         expect(kase.provider.credentials.safeParse(kase.credential).success).toBe(false);
         expect(kase.provider.credentials.safeParse({}).success).toBe(false);
-        expect(() => kase.provider.create({} as never, {}, noopPublish, injectedOptions())).toThrow("identity: account");
+        expect(() => kase.provider.create({} as never, {}, noopPublish, injectedOptions())).toThrow("use the account arm");
         expect(kase.provider.capabilities.webhook).toBe(kase.webhook ?? false);
       });
       test("the account arm's seams match its capabilities and declared instance", () => {
@@ -292,7 +292,7 @@ describe("provider conformance", () => {
       test("preconditions are a verbatim operator checklist naming the account arm", () => {
         for (const precondition of [...kase.provider.preconditions, ...accountArmOf(kase.provider).preconditions])
           expect(precondition.length).toBeGreaterThan(0);
-        expect(kase.provider.preconditions.some((text) => text.includes("identity: account"))).toBe(true);
+        expect(kase.provider.preconditions.some((text) => text.includes("use the account arm"))).toBe(true);
       });
       test("construction is pure — nothing published before start", () => {
         let published = 0;
