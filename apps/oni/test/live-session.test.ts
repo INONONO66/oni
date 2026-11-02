@@ -78,12 +78,19 @@ test("C002 commits one utterance and continues after the same dispatcher denial 
     parts: [{ type: "text", text: "Before tools." }, { type: "file" },
       { type: "tool" }, { type: "tool" }, { type: "text", text: "Still speaking." }],
   }]);
-  const denial = f.rows().find((row) => row.kind === "policy.decision" &&
-    JSON.stringify(row.effect.value).includes("fixture_denied"));
-  expect(denial?.effect.value).toMatchObject({
-    terminal: "blocked_pre", evidence: { failures: [{ tag: "PolicyDenied", phase: "pre" }] },
-  });
-  expect(f.rows().filter((row) => row.kind === "tool")).toHaveLength(4);
+  // The denial is the executor's own pre-gate row: one policy.decision with
+  // the deny verdict and zero tool rows, exactly what a text turn commits.
+  const decisions = f.rows().filter((row) => row.kind === "policy.decision");
+  expect(decisions.map((row) => row.intent.value)).toContainEqual(expect.objectContaining({
+    hook: "tool.pre", op: "denied_probe", verdict: "deny", matchedRuleIds: ["deny-live"],
+  }));
+  expect(decisions.map((row) => row.effect.value)).toContainEqual(expect.objectContaining({
+    reason: "fixture_denied", terminal: "blocked_pre",
+    evidence: { failures: [{ tag: "PolicyDenied", phase: "pre", ruleIds: ["deny-live"] }], defects: [], interrupted: false },
+  }));
+  expect(f.rows().filter((row) => row.kind === "tool").map((row) => row.intent.value)).toMatchObject([
+    { phase: "intent", op: "probe", value: { n: 1 } }, { phase: "result", op: "probe" },
+  ]);
   expect(f.stream.closed()).toBe(true);
 });
 
