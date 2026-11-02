@@ -20,6 +20,7 @@ const allKeys = [
   ...TOPOLOGY.map((workspace) => workspace.key),
   "scripts-tooling-1",
   "scripts-tooling-2",
+  "scripts-tooling-3",
 ];
 const cli = join(import.meta.dir, "ci-plan.ts");
 const planSchema = z

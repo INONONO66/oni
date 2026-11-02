@@ -101,10 +101,25 @@ jobs:
       - run: bun run --cwd packages/protocol build
       - run: bun run script/generate-machine-schema.ts --check
       - run: bun run clients:lint
-      - run: bun run clients:test
+      - name: Test and gate native line coverage (build.rs is not measured)
+        run: |
+          cd clients
+          # The one test pass: cargo llvm-cov runs every test target itself,
+          # so a separate `cargo test` would compile and run the suite twice.
+          cargo llvm-cov --workspace --tests --locked --lcov --output-path /tmp/oni-clients.lcov
+          # `--fail-under-lines` scores each function by its best single build
+          # (unit-test harness or the mclient binary behind the integration
+          # tests), so a line only one build reaches beside a line only the
+          # other reaches reads as a miss that no line view shows. The LCOV
+          # export unions the builds; gate on its lines.
+          awk -F'[:,]' '/^SF:/ { file = $2 } /^DA:/ && $3 == 0 { print file ":" $2; misses++ } END { exit misses > 0 }' /tmp/oni-clients.lcov
       - name: Permission hook module tests
         run: bun test ./script/conformance/agent/permission.spec.ts
-      - run: bun run clients:conformance
+      - name: Client conformance against the debug build the coverage pass produced
+        env:
+          ONI_MCLIENT_BIN: ${{ github.workspace }}/clients/target/llvm-cov-target/debug/mclient
+          LLVM_PROFILE_FILE: /tmp/oni-conformance-%p.profraw
+        run: bun run clients:conformance
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -116,16 +131,6 @@ jobs:
             script/coverage/
           if-no-files-found: warn
           retention-days: 14
-      - name: Gate native line coverage (build.rs is not measured)
-        run: |
-          cd clients
-          cargo llvm-cov --workspace --tests --locked --lcov --output-path /tmp/oni-clients.lcov
-          # `--fail-under-lines` scores each function by its best single build
-          # (unit-test harness or the mclient binary behind the integration
-          # tests), so a line only one build reaches beside a line only the
-          # other reaches reads as a miss that no line view shows. The LCOV
-          # export unions the builds; gate on its lines.
-          awk -F'[:,]' '/^SF:/ { file = $2 } /^DA:/ && $3 == 0 { print file ":" $2; misses++ } END { exit misses > 0 }' /tmp/oni-clients.lcov
 
   desktop-smoke:
     name: Desktop production smoke
@@ -253,7 +258,7 @@ jobs:
       ONI_CHILD_COVERAGE_DIR: ${{ github.workspace }}/apps/oni/coverage/children
     strategy:
       fail-fast: false
-      # ci-plan derives scripts-tooling-1 and scripts-tooling-2 from scriptPartitions.
+      # ci-plan derives scripts-tooling-1..3 from scriptPartitions.
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

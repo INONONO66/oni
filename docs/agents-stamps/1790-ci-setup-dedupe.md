@@ -1,0 +1,1 @@
+#1790 | ci/faster-ci-20261102 | 2026-11-02 | base 129e998b4 | PR pending | mclient release binary cached across the machines/codemode/oniApp lanes, Clients (Rust) runs its suite once under cargo llvm-cov with conformance on that debug build, scripts-tooling packed into three shards by measured wall time; receipt: issue #1790 timing table.
