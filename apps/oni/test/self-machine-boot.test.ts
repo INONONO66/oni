@@ -1,6 +1,6 @@
 import { type MachinePlane, validateMachinePlane, type OniConfig } from "../src/config";
 import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, realpathSync, writeFileSync, statSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { Effect, Exit, Result, Scope } from "effect";
@@ -152,6 +152,7 @@ test("boot creates a private inbox and self settings before serving files", asyn
     writeFileSync(join(inbox, "ordinary.txt"), "inbox-data");
     expect(statSync(inbox).mode & 0o777).toBe(0o700);
     expect(statSync(selfSettings(fixture.root, "self")).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(readFileSync(selfSettings(fixture.root, "self"), "utf8")).memoryBudgetMb).toBe(512);
     const file = await runEffect(fixture.host.get("self").fs.read(join(inbox, "ordinary.txt")));
     expect(new TextDecoder().decode(file.data)).toBe("inbox-data");
   } finally { await fixture.close(); }
