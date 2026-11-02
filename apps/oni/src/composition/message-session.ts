@@ -25,7 +25,8 @@ export function deliveryOrigin(origin: Delivery.Origin): Delivery.Origin {
   const fallback = value.kind === "external"
     ? value.receivedBy === "owner" ? "draft" : "auto"
     : "none";
-  return { ...origin, value: { ...value, reply: value.rule?.reply ?? value.reply ?? fallback } };
+  const reply = value.rule?.reply ?? value.reply ?? fallback;
+  return value.reply === reply ? origin : { ...origin, value: { ...value, reply } };
 }
 
 /** The origin a channel prompt was recorded with (`message-execution.ts`); other origins bind no conversation. */
