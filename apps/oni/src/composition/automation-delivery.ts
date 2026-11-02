@@ -1,6 +1,6 @@
 import { Core } from "@oni/agent";
 import type { createAutomationStore } from "@oni/channels";
-import type { Delivery } from "@oni/protocol";
+import { Provisioning, type Delivery } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
 import {
@@ -28,6 +28,10 @@ export function createAutomationDelivery(
   genesis: ReturnType<typeof createResident>["genesis"],
 ) {
   const commit = createMessageDeliveryCommit(deps);
+  const refuse = (id: string, reason: string) => Effect.try({
+    try: () => store.refused(id, reason),
+    catch: (error) => new Core.AgentFailure({ operation: "automation.receipt", cause: String(error) }),
+  }).pipe(Effect.andThen(Effect.fail(new Core.AgentFailure({ operation: "automation.deliver", cause: reason }))));
   const deliver = (input: Delivery.Commit) => Effect.gen(function* () {
     const wake = yield* AutomationWake;
     if (wake?.sessionId !== input.sessionId) return yield* commit(input);
@@ -47,18 +51,20 @@ export function createAutomationDelivery(
       const exists = deps.plane.read.sessions.list().some((row) => row.id === input.sessionId);
       if (!automation.newSession && !exists) {
         // The app records the refusal through the channels store; channels never learns why.
-        yield* Effect.try({
-          try: () => store.refused(input.id, "target_not_found"),
-          catch: (error) => new Core.AgentFailure({ operation: "automation.receipt", cause: String(error) }),
-        });
-        return yield* new Core.AgentFailure({ operation: "automation.deliver", cause: "target_not_found" });
+        return yield* refuse(input.id, "target_not_found");
       }
       const target = exists
         ? input
-        : {
-            ...input,
-            createSession: genesis(input.sessionId, null, "resident", "resident", automation.agent),
-          };
+        : yield* Effect.try({
+            try: () => ({
+              ...input,
+              createSession: genesis(input.sessionId, null, "resident", "resident", automation.agent),
+            }),
+            catch: (error) => {
+              if (Provisioning.AgentError.isInstance(error)) return error;
+              throw error;
+            },
+          }).pipe(Effect.catch((error) => refuse(input.id, `agent_${error.data.code}`)));
       yield* materializeDeliveryTarget(deps.plane, target, deps.clock);
       const instructions = automation.newSession ? automation.instructions : undefined;
       if (instructions !== undefined && input.kind === "action") {

@@ -1,13 +1,14 @@
 import { expect, test } from "bun:test";
 import type { Core } from "@oni/agent";
 import { Gateway, Outbound, Provisioning, SessionGeneration, type Delivery } from "@oni/protocol";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { materializeDeliveryTarget, prepareMessage } from "../src/composition/message-session";
 import { buildAgentPrompt } from "../src/bundles/prompt/build";
 import { runEffect } from "./helpers/effect";
 import { residentRunner } from "./helpers/resident-runner";
 import { fakeProviderModel } from "./helpers/resident-suite";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
+import { testToolPorts, toolComposition } from "./helpers/tool-ports";
 
 const custom = {
   id: "x",
@@ -99,8 +100,43 @@ test.each(["x", undefined])("delegation selects %s independently of the child's 
     ...(profile.tools.includes("send_message") ? { structuredMessages: `Structured messages\n\n${Outbound.prompt()}` } : {}),
   })}\n\nnative`);
   expect(child?.model.id).toBe(agent === undefined ? "default" : "family/custom");
-  expect(child?.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(profile.tools.filter((name) => name === "eval")));
-  if (agent !== undefined) expect(child?.tools.map((tool) => tool.name)).toEqual(["eval"]);
+  const expected = agent === undefined
+    ? toolComposition(testToolPorts).generation.tools.filter((tool) => tool.visibility.model.includes("child")).map((tool) => tool.name)
+    : ["eval"];
+  expect(child?.tools.map((tool) => tool.name)).toEqual(expected);
+});
+
+test.each(["missing", "disabled", "defect"])("delegation handles a %s agent selection at admission", async (state) => {
+  const resident = residentRunner({
+    model: { provider: "fake", id: "default" }, apiKey: "test", tools: {},
+    llm: {
+      resolveModel: fakeProviderModel,
+      run: (input, sink) => Effect.sync(() => {
+        sink.onMessage(assistantMessage(input, { text: "DONE" }));
+        return { type: "stop" as const };
+      }),
+    },
+  });
+  if (state === "disabled") {
+    resident.plane.stores.agents.add(custom);
+    resident.plane.stores.agents.disable("x");
+  }
+  await resident.prompt("parent", "PARENT");
+  const defect = new Error("GENESIS_DEFECT");
+  const prepare = prepareMessage(resident.plane, state === "defect" ? () => { throw defect; } : resident.genesis)(
+    { kind: "session", id: "parent" },
+    { to: { kind: "new_session", role: "child", runner: "native", parent: "me", agent: "x" }, type: "message", content: "CHILD" },
+    "refused-child", "refused-send",
+  );
+  if (state === "defect") {
+    const exit = await runEffect(Effect.exit(prepare));
+    expect(Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined).toBe(defect);
+  } else {
+    const failure = await runEffect(Effect.flip(prepare));
+    expect(failure._tag).toBe("SendAdmissionConflict");
+    expect(failure.message).toBe(`agent_${state === "missing" ? "not_found" : "disabled"}: x`);
+  }
+  expect(resident.plane.read.sessions.list().map((row) => row.id)).toEqual(["parent"]);
 });
 
 test("disabled profiles refuse new sessions but existing sessions keep their persona", async () => {
