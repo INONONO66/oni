@@ -28,7 +28,7 @@ pub struct Dialect {
     pub format: Format,
 }
 
-pub const DIALECTS: [Dialect; 4] = [
+pub const DIALECTS: [Dialect; 3] = [
     Dialect {
         cli: "claude-code",
         discovery: "~/.claude/projects/<encoded-project>/<session-id>.jsonl",
@@ -55,15 +55,6 @@ pub const DIALECTS: [Dialect; 4] = [
         assigns_id: false,
         ready: None,
         format: Format::PiJsonlV3,
-    },
-    Dialect {
-        cli: "omp",
-        discovery: "~/.omp/agent/sessions/<encoded-canonical-cwd>/<timestamp>_<session-id>.jsonl",
-        permission_hook: "tool_call",
-        permission: Permission::Hook,
-        assigns_id: false,
-        ready: None,
-        format: Format::OmpJsonlV3,
     },
 ];
 
