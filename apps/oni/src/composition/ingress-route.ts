@@ -31,20 +31,10 @@ function recordRouteDecided(
   }
   if (outcome.kind === "recorded") return decision;
   const fact = outcome.fact;
-  let recorded: Ingress.RoutingDecisionPayload | undefined;
-  try {
-    // Pre-0025 facts are upcast by the protocol's bounded persisted-wire reader.
-    recorded =
-      fact.type === Ingress.ROUTE_DECIDED_FACT_TYPE
-        ? Ingress.recordedRoutingDecision(fact.data)
-        : undefined;
-  } catch (error) {
-    throw new IngressRoutingError(
-      "route_record_failed",
-      `recorded routing decision read failed: ${error instanceof Error ? error.message : String(error)}`,
-      decision,
-    );
-  }
+  // The persisted-wire reader returns undefined for invalid or unsupported data.
+  const recorded = fact.type === Ingress.ROUTE_DECIDED_FACT_TYPE
+    ? Ingress.recordedRoutingDecision(fact.data)
+    : undefined;
   if (recorded === undefined) {
     throw new IngressRoutingError(
       "route_record_failed",
