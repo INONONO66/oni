@@ -75,9 +75,11 @@ function harness(options: Parameters<typeof machine>[0] & {
   const exports = () => options.exported === false ? [{ path: "/" }] : [{ path: "/inbox" }];
   const warnings: MediaWarning[] = [];
   const heard: string[] = [];
+  const traced: string[] = [];
   const stt: Stt = {
-    transcribe: ({ bytes }) => Effect.sync(() => {
+    transcribe: ({ bytes, traceId }) => Effect.sync(() => {
       heard.push(new TextDecoder().decode(bytes));
+      traced.push(traceId);
       return { text: "see you at noon" };
     }),
   };
@@ -95,7 +97,7 @@ function harness(options: Parameters<typeof machine>[0] & {
     ...(options.npm === undefined ? {} : { api: { npm: options.npm, style: options.style } }),
   };
   const consume = (part: Gateway.MediaPart, candidate = model) => derive(part, candidate);
-  return { consume, derive, model, ports, commands, writes, exports, warnings, heard };
+  return { consume, derive, model, ports, commands, writes, exports, warnings, heard, traced };
 }
 
 const voice: Gateway.MediaPart = { kind: "audio", ref: "mac:/inbox/k1-note.ogg", voice: true };
@@ -213,12 +215,13 @@ test("a voice note the model cannot hear becomes its transcript in the prompt te
 
 test("an audio-capable OpenAI chat model transcribes an ogg voice note it cannot transport", async () => {
   const ogg = { ...voice, mime: "audio/ogg" };
-  const { consume, heard, warnings } = harness({
+  const { consume, heard, traced, warnings } = harness({
     input: ["text", "image", "audio"], npm: "@ai-sdk/openai", style: "chat",
     files: { "/inbox/k1-note.ogg": encode("ogg-bytes") },
   });
   const result = await runEffect(consume(ogg));
   expect(heard).toEqual(["ogg-bytes"]);
+  expect(traced).toEqual(["derived1"]);
   expect(result.text).toBe("[voice transcript]\nsee you at noon");
   expect(warnings).toEqual([]);
 });

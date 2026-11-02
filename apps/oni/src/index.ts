@@ -1103,7 +1103,7 @@ export async function startOni(options: StartOptions = {}) {
     const generationDefinitions: GenerationDefinitions = { resident: [], child: [], deliverLate };
     await runAppBoot(runtime, services.generations.initialize(generationDefinitions));
 
-    inboundMedia(config, machinery.inbox, tools.machines, (machine) => machinery.host.exports(machine), () => crypto.randomUUID(), services.media, (warning) =>
+    inboundMedia(config, machinery.inbox, tools.machines, (machine) => machinery.host.exports(machine), () => crypto.randomUUID(), services.media, { events: services.observations, now: services.now }, (warning) =>
       services.observations.publish(Operational.Events.Warn, {
         traceId: traceIdFromUuid(services.entropy.id()),
         time: services.now(),
@@ -1719,6 +1719,7 @@ function inboundMedia(
   exports: MediaInputPorts["exports"],
   id: MediaInputPorts["id"],
   media: DeliveryMedia,
+  observe: { readonly events: BusEvent.Sink; readonly now: () => number },
   warn: MediaInputPorts["warn"],
 ): void {
   if (inbox === undefined || machines === undefined) return;
@@ -1730,6 +1731,7 @@ function inboundMedia(
     stt: makeStt({
       authFilePath: resolveAuthFilePath(),
       ...(config.model.transcriptionRows === undefined ? {} : { rows: config.model.transcriptionRows }),
+      ...observe,
     }),
     warn,
   }));
