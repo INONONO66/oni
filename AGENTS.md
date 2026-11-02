@@ -134,7 +134,7 @@ ui <- apps/desktop
 | Shared schema or event | `packages/protocol/src/` |
 | Session/store behavior | `packages/agent/src/core/store/` |
 | Policy mechanism | `packages/agent/src/core/gate/` |
-| Model/provider behavior | `packages/ai/src/` (port: `packages/agent/src/core/llm.ts`) |
+| Model/provider behavior | `packages/ai/src/` (port: `packages/agent/src/core/ports/llm.ts`) |
 | Session loop, executor, and compaction | `packages/agent/src/core/run.ts`, `packages/agent/src/core/turn.ts`, `packages/agent/src/core/gate/decide.ts`, `packages/agent/src/plugins/compaction/` |
 | Channel driver or perimeter route | `packages/channels/src/` |
 | Messaging identity, reply door vs `send_message`, SDK transport (#1569) | `docs/conversation-and-message-io.md`, `packages/channels/src/provider/slack/sdk.ts` |

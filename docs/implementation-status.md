@@ -2,7 +2,7 @@
 
 ## #1781 gate-review follow-ups (docs)
 
-On `docs/1781-gate-followups` (PR #1823), docs only. The #1786 section below and `docs/agents-stamps/1786-image.md` now count thirteen model-door tools (the #1785 and #1786 lanes each added one over the twelve of `docs/kernel-contract.md` before them); the five historical mentions of the pre-#1784 package name read `@oni/ai` (then `llm`); `docs/compaction-design.md` refers to its reference harness generically. No code changed.
+On `docs/1781-gate-followups` (PR #1823), docs only. The #1786 section below and `docs/agents-stamps/1786-image.md` now count thirteen model-door tools (the #1785 and #1786 lanes each added one over the twelve of `docs/kernel-contract.md` before them); the five historical mentions of the pre-#1784 package name read `@oni/ai` (then `llm`); `docs/compaction-design.md` refers to its reference harness generically. No code changed. The 25 MiB caps of the speech and image tools guard the session output store, not transport: the AI SDK returns materialized bytes, and the check runs before any byte is persisted or enters the model context.
 
 ## #1786 image tool
 
@@ -74,12 +74,12 @@ receives into `MediaResolver = (part, sender)`; the resolver in
 `apps/oni/src/composition/media.ts` tests that form before `asUrl` and reads
 the bytes through the sender session's fence only. A foreign or missing id is
 refused typed as `MediaRefused{code:"output_missing"}`; there is no fallback.
-`Inspect.toolOutput` reads raw bytes by media type, and one media type to
+`Inspect.toolOutputBytes` reads raw bytes by media type, and one media type to
 extension map names the upload. Receipts: the PR Verification section.
 
 ## #1784 `@oni/ai` and generation rows
 
-Shipped on `refactor/1784-ai-rename` (PR #1818). `packages/llm` is
+Shipped on `refactor/1784-ai-rename` (PR #1818). `packages/ai (then llm)` is
 `packages/ai` (`@oni/ai`); the agent port `packages/agent/src/core/ports/llm.ts`
 and its `Llm` tag keep their names. Provider rows gain strict
 `speech{model, voice, format?}` and `image{model}` objects (the bundled openai
@@ -219,7 +219,7 @@ runner owns the turn; the ws-door receipt proves the selection end to end.
 Port adapters own bytes and socket lifetime. `ai@7.0.93` exposes only the
 experimental client-side `AbstractRealtimeSession` scaffolding (token/setup
 endpoint, browser `MediaStream` capture), not a server-side realtime provider,
-so no SDK adapter is adopted; the hand-written `packages/llm` realtime
+so no SDK adapter is adopted; the hand-written `packages/ai (then llm)` realtime
 WebSocket (`makeRealtime`, PR #1656) stays the Discord voice bridge and is not
 yet mapped onto this port. The only production adapter is the scripted
 fixture `apps/oni/test/helpers/scripted-live.ts`.
@@ -672,7 +672,7 @@ current open contract.
 The journal constructs ordered user text and file message parts from the
 delivery; history replay reconstructs the same parts with deterministic
 part IDs (`packages/agent/src/core/journal/message-factory.ts`,
-`packages/agent/src/inspect/history.ts`). `packages/llm/src/message/parts.ts`
+`packages/agent/src/inspect/history.ts`). `packages/ai/src/message/parts.ts`
 resolves file parts through the injected media byte port for a selected model,
 using `Delivery.text` placeholders when the port is absent or a part is
 unreadable or unaccepted. `apps/oni/src/composition/delivery-media.ts` now
@@ -684,10 +684,10 @@ passes replayed file parts through the same model service and byte binding
 includes file identity and metadata
 (`packages/agent/src/plugins/compaction/candidate.ts`).
 
-Review fixes on the same branch: `packages/llm/src/message/index.ts` renders
+Review fixes on the same branch: `packages/ai/src/message/index.ts` renders
 a user message's parts in sequence (text stays on its side of each file),
 and a derivation that returns no parts and no text keeps the original
-`Delivery.text` placeholder (`packages/llm/test/run-media.test.ts`). A
+`Delivery.text` placeholder (`packages/ai/test/run-media.test.ts`). A
 `prompt.pre` rewrite is accepted only when the rewritten row parses as a
 `Delivery.Row`; a string or empty body is refused typed as `invalid_output`
 and the original prompt is never delivered in its place
@@ -708,7 +708,7 @@ and show labelled attachment rows, including attachment-only prompts
 references; it does not fetch media in the browser. Regression coverage
 includes `packages/agent/test/store/session/media-replay.test.ts`,
 `packages/agent/test/session/entity-typed-refusals.test.ts`,
-`packages/llm/test/run-media.test.ts`,
+`packages/ai/test/run-media.test.ts`,
 `apps/oni/test/compaction-summarizer.test.ts`,
 `apps/oni/test/ws-outbound-parts.test.ts` and
 `packages/ui/test/timeline-attachments.test.tsx`. A live model or desktop
@@ -2276,7 +2276,7 @@ A complete mutation campaign is not established.
 
 On `feat/g2-model-consumption` (2026-10-25, base `87f8f33c8` after #1645, no
 issue; its transient media registry and parts-in-call shape are superseded by
-#1671 above). `packages/llm` catalog rows carry `input` modalities (`text`, `image`,
+#1671 above). `packages/ai (then llm)` catalog rows carry `input` modalities (`text`, `image`,
 `audio`, `video`), overlaid from the bundled snapshot when a cached
 catalog predates the field, and `Capability.accepts(model, {kind, mime})`
 admits an image or audio format against the effective call surface the SDK
@@ -2309,10 +2309,10 @@ the reply channel). Review rounds r1 (2 High, 4 Medium) and r2 (4 High,
 1 Medium) were fixed in the same tree. Not established: a live Resident proof
 (the hub route is blocked on #1647/#1648) and a derivation against a real STT
 model (blocked on the realtime key, #1641). Receipts:
-`packages/llm/test/{run-media,stt}.test.ts`,
-`packages/llm/test/model/capability.test.ts`,
-`packages/llm/test/message/parts.test.ts`,
-`packages/llm/test/provider/media-wire.test.ts`,
+`packages/ai/test/{run-media,stt}.test.ts`,
+`packages/ai/test/model/capability.test.ts`,
+`packages/ai/test/message/parts.test.ts`,
+`packages/ai/test/provider/media-wire.test.ts`,
 `packages/protocol/test/media-part.test.ts`,
 `apps/oni/test/{delivery-media,media-input,ws-parts}.test.ts`,
 `apps/oni/test/{process-media,process-media-transport,process-replies-timeout}.test.ts`.
@@ -2335,7 +2335,7 @@ inbound `event: "call"` fact (the newest sequence wins), an unrouted call is
 filtered as `call_unrouted`, a refused author lookup is logged and emits no
 call, a failing event pump emits one error event and frees the guild, and
 `stop()` leaves every live handle. `Ingress.Trigger` gains `{type: "call",
-surface}`. `packages/llm` `makeRealtime` opens one realtime WebSocket per
+surface}`. `packages/ai (then llm)` `makeRealtime` opens one realtime WebSocket per
 call: the `session.update` echo is checked (PCM16 24 kHz both ways, semantic
 VAD, transcription, voice, tool names), the handshake is bounded at 10 s,
 frames parse through Zod, queued model audio is capped at 48,000 bytes, each
@@ -2361,7 +2361,7 @@ the same tree. Not established: a live call, which needs a voice-capable guild
 (#1639), host audio packages (#1640) and a realtime model lane (#1641).
 Receipts: `packages/channels/test/{discord-surface,discord-sdk,discord-normalizer,provider-contract}.test.ts`,
 `packages/channels/test/{automation-router,automation-matcher}.test.ts`,
-`packages/llm/test/realtime.test.ts`,
+`packages/ai/test/realtime.test.ts`,
 `packages/agent/test/session/{tool-turn,admission-writer-fiber}.test.ts`,
 `apps/oni/test/{live-voice,live-pcm,automation-delivery,npm-package}.test.ts`,
 and the fork's `src/platforms/discordbot/voice.test.ts`.
@@ -3683,7 +3683,7 @@ presets. Receipts: `apps/oni/test/prompt-wiring.test.ts` and
 ## #1562 provider rows
 
 On `feat/1562-provider-rows` (2026-10-15, base `35d60a491`). Providers are
-data: `packages/llm/src/provider/rows.ts` defines the `ProviderRow` schema
+data: `packages/ai/src/provider/rows.ts` defines the `ProviderRow` schema
 (id, npm package among `@ai-sdk/anthropic` | `@ai-sdk/openai`, optional
 baseUrl, headers, auth environment-variable name and API surface
 `responses` | `chat`) and `readProviderRows`. The two bundled providers ship
@@ -3699,7 +3699,7 @@ row ids are admitted in `ONI_MODEL_FALLBACKS`. Env-only deployments are
 unchanged. A malformed, unreadable or unsupported-npm file refuses boot with
 `invalid_providers_file` (config) / `ProviderRowsError` (llm), never a
 fallback. The scope named `packages/agent/src/model`; that code now lives in
-`packages/llm` (#1352).
+`packages/ai (then llm)` (#1352).
 
 
 ## #1560 prompts and skills as data
@@ -4132,7 +4132,7 @@ messages as an automation action.
 On `fix/llm-refusal-stop` (2026-10-14). A completed provider stream whose last
 step closed as `content-filter` (Anthropic `stop_reason: refusal`) or `error`
 with nothing visible no longer leaves `run()` as `{ type: "stop" }` with empty
-text: `packages/llm/src/run.ts` returns `{ type: "error" }` carrying an
+text: `packages/ai/src/run.ts` returns `{ type: "error" }` carrying an
 `LlmRunFailure` with the new optional `contentFiltered` fact (`errors.ts`,
 read structurally by `error.ts` `errorFacts`), and `classifyFailure`
 (`classify.ts`) decides that fact `terminal / content_policy` after abort and
@@ -4143,8 +4143,8 @@ the production trace this fixes: three identical calls (3.9s, 5.4s, 2.9s) judged
 as empty stops and an `AgentStopError exact_repeat` terminal. A refusal that
 already showed text stays a stop (the visible-stop rule the overflow path
 uses). The processor exposes the raw last-step `finishReason` for the message.
-Tests: `packages/llm/test/run-outcome.test.ts` (refused stream fails; refusal
-after visible text stays a stop) and `packages/llm/test/failure-classification.test.ts`
+Tests: `packages/ai/test/run-outcome.test.ts` (refused stream fails; refusal
+after visible text stays a stop) and `packages/ai/test/failure-classification.test.ts`
 (declared `contentFiltered` is `content_policy` without an SDK error). No loop,
 agent-port or app change.
 
@@ -4502,9 +4502,9 @@ On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
 
 On `epic1356/1352-llm-package` (2026-10-13, base `c99bb6d5c`).
 
-`packages/agent/src/model/` (provider resolution and adapters, the stream-event processor, usage accounting, credential storage, the `ai@7.0.93` pin and the provider majors) and its tests moved by `git mv` into the new `packages/llm` workspace (`@oni/ai` (then `llm`), depends on `@oni/protocol` only; `Provider` is package-internal, `Model` survives only as protocol `Model.Ref`). The dependency is reversed from the pre-#1246 package: the core declares the port in `packages/agent/src/core/ports/llm.ts` — the `Llm` tag keeps its `@oni/agent/Llm` key, `LlmPort { resolveModel(ref, now), run(input, sink), classifyFailure(facts) }`, `LlmSink`, `RunInput`, `ResolvedModel`, a `_tag`-identified `LlmRunFailure` and the closed `FailureClass` (`aborted | overflow | retryable{reason, afterMs?, directed, instant} | terminal{reason, code?}`) — and `packages/agent` never imports `@oni/ai` (then `llm`), `ai` or `@ai-sdk/*` (`script/check-deps.ts` workspace table and core band). `core/loop/retry.ts` keeps the retry decision: reason codes, the 60s directed and 30s ladder caps, the instant-failure streak, the 3-attempt cap and overflow -> compaction producer; `runAttempts` takes a `classify` callback and `turn.ts` asks the port about a successful stop that showed nothing, so a usage-proven overflow enters the same recovery; a stop that already showed output is the answer and is never replayed (the between-turn compaction trigger owns that window, as before). An error result whose payload is not a typed failure settles as a terminal `AgentFailure`, not a retry input. `makeLlmService(authFilePath)` in `packages/llm/src/services.ts` is the port value; `apps/oni/src/runtime.ts` binds it to `Core.Llm` (`LlmLive`), `composition/completion.ts` classifies through the bound port, and `observation/llm-failure.ts` maps the class to a `ProviderReason`. `classifyFailure` is pure: overflow for a declared or text-matched overflow, a normal stop whose input + cacheRead exceeds the window, or a length stop with zero output at >= `NEAR_WINDOW_RATIO` (0.99, named once) of the window; missing usage never reclassifies. The agent test suite runs against the port-only fake (`packages/agent/test/helpers/fake-llm.ts`, whose classifier mirrors the real one: no provider cause is terminal); the shared seven-signature `ai` mock lives in `packages/llm/test/helpers/retry.ts` only. New tests: `packages/agent/test/core/llm-port.test.ts` (facts, directed delay, terminal, overflow routing, the silent and the visible stop), `packages/llm/test/failure-classification.test.ts`, `packages/llm/test/run.test.ts` (one attempt per invocation); `packages/llm/test/retry/retry.test.ts` relocated; `packages/agent/test/core/provider-retry-ownership.test.ts` kept. Topology: `script/topology.ts` adds the `llm` workspace (nine workspaces; `apps/oni` may depend on it), `check-deps.ts` drops the model band, the `Model` namespace and the moved-file pins, `check-comment-residue.ts` drops the moved pins (the residue gate covers `packages/agent/src` only) and lowers the JSDoc ceiling 126 -> 109, `knip.json` and `.github/workflows/ci.yml` gain the lane, the AGENTS topology table is regenerated, and `script/effect-error-contract.test.ts`, `gate-discovery.test.ts`, `lint-side-effects.ts` and `generate-models-snapshot.ts` follow the moved paths.
+`packages/agent/src/model/` (provider resolution and adapters, the stream-event processor, usage accounting, credential storage, the `ai@7.0.93` pin and the provider majors) and its tests moved by `git mv` into the new `packages/ai (then llm)` workspace (`@oni/ai` (then `llm`), depends on `@oni/protocol` only; `Provider` is package-internal, `Model` survives only as protocol `Model.Ref`). The dependency is reversed from the pre-#1246 package: the core declares the port in `packages/agent/src/core/ports/llm.ts` — the `Llm` tag keeps its `@oni/agent/Llm` key, `LlmPort { resolveModel(ref, now), run(input, sink), classifyFailure(facts) }`, `LlmSink`, `RunInput`, `ResolvedModel`, a `_tag`-identified `LlmRunFailure` and the closed `FailureClass` (`aborted | overflow | retryable{reason, afterMs?, directed, instant} | terminal{reason, code?}`) — and `packages/agent` never imports `@oni/ai` (then `llm`), `ai` or `@ai-sdk/*` (`script/check-deps.ts` workspace table and core band). `core/loop/retry.ts` keeps the retry decision: reason codes, the 60s directed and 30s ladder caps, the instant-failure streak, the 3-attempt cap and overflow -> compaction producer; `runAttempts` takes a `classify` callback and `turn.ts` asks the port about a successful stop that showed nothing, so a usage-proven overflow enters the same recovery; a stop that already showed output is the answer and is never replayed (the between-turn compaction trigger owns that window, as before). An error result whose payload is not a typed failure settles as a terminal `AgentFailure`, not a retry input. `makeLlmService(authFilePath)` in `packages/ai/src/services.ts` is the port value; `apps/oni/src/runtime.ts` binds it to `Core.Llm` (`LlmLive`), `composition/completion.ts` classifies through the bound port, and `observation/llm-failure.ts` maps the class to a `ProviderReason`. `classifyFailure` is pure: overflow for a declared or text-matched overflow, a normal stop whose input + cacheRead exceeds the window, or a length stop with zero output at >= `NEAR_WINDOW_RATIO` (0.99, named once) of the window; missing usage never reclassifies. The agent test suite runs against the port-only fake (`packages/agent/test/helpers/fake-llm.ts`, whose classifier mirrors the real one: no provider cause is terminal); the shared seven-signature `ai` mock lives in `packages/ai/test/helpers/retry.ts` only. New tests: `packages/agent/test/core/llm-port.test.ts` (facts, directed delay, terminal, overflow routing, the silent and the visible stop), `packages/ai/test/failure-classification.test.ts`, `packages/ai/test/run.test.ts` (one attempt per invocation); `packages/ai/test/retry/retry.test.ts` relocated; `packages/agent/test/core/provider-retry-ownership.test.ts` kept. Topology: `script/topology.ts` adds the `llm` workspace (nine workspaces; `apps/oni` may depend on it), `check-deps.ts` drops the model band, the `Model` namespace and the moved-file pins, `check-comment-residue.ts` drops the moved pins (the residue gate covers `packages/agent/src` only) and lowers the JSDoc ceiling 126 -> 109, `knip.json` and `.github/workflows/ci.yml` gain the lane, the AGENTS topology table is regenerated, and `script/effect-error-contract.test.ts`, `gate-discovery.test.ts`, `lint-side-effects.ts` and `generate-models-snapshot.ts` follow the moved paths.
 
-Verification: `check-types`, `lint`, `script/check-deps.ts`, `script/check-topology.ts`, `script/check-comment-residue.ts`, `script/check-dead-exports.ts` and `lint:tools` on the branch; the changed test files of `packages/llm`, `packages/agent` and `apps/oni` run per file under the shared flock lock (never the whole suite); the issue's zero-hit searches (`from "ai"`/`@ai-sdk` and `../model`/`@oni/ai` (then `llm`) under `packages/agent/src`, `from "ai"`/`@ai-sdk` under `packages/agent/test`, `@oni/agent` under `packages/llm/src`, the model band and `Model` namespace in `check-deps.ts`) return nothing. The full gate is lead-owned.
+Verification: `check-types`, `lint`, `script/check-deps.ts`, `script/check-topology.ts`, `script/check-comment-residue.ts`, `script/check-dead-exports.ts` and `lint:tools` on the branch; the changed test files of `packages/ai (then llm)`, `packages/agent` and `apps/oni` run per file under the shared flock lock (never the whole suite); the issue's zero-hit searches (`from "ai"`/`@ai-sdk` and `../model`/`@oni/ai` (then `llm`) under `packages/agent/src`, `from "ai"`/`@ai-sdk` under `packages/agent/test`, `@oni/agent` under `packages/ai/src`, the model band and `Model` namespace in `check-deps.ts`) return nothing. The full gate is lead-owned.
 
 ## #1346 one-call session creation and the four entity RPCs (epic #1356, rung 4)
 
@@ -5973,7 +5973,7 @@ permissive defaults become explicit typed outcomes.
   `OniConfig.kek` via `resolveKek(env, home)` and injected into declared
   provisioning), `apps/oni/src/cli/env-file.ts` (`processEnvironment()`
   for cli/main and watch-sources spawn env), and
-  `packages/llm/src/model/loader.ts` (`resolveAuthFilePath(env)`, called
+  `packages/ai/src/model/loader.ts` (`resolveAuthFilePath(env)`, called
   once when `LlmLive` is constructed; the Layer closes over the path and
   `Auth.all/get/set/resolve` and raw `run`/`Provider.resolveModel` take
   `authFilePath` explicitly, so `auth/storage.ts` has no env read and no
@@ -6176,7 +6176,7 @@ under `.omo/reports/kernel-campaign-w53/`.
   `Cursor` / `Page` / `Gap` / `Receipt`); the `session_snapshot`,
   `session_page`, and `session_gap` frames are additive. Usage provenance is
   `reported | estimated | unknown`, forked at the provider accounting site
-  (`packages/llm/src/processor/stream-events.ts`) and written once by the
+  (`packages/ai/src/processor/stream-events.ts`) and written once by the
   durable attempt-result writer. Inspection is bounded
   (`packages/agent/src/inspect/index.ts`: limit 1-256, shared
   descendant budget, indexed catalog child pages, zero `kernel.listRows`
@@ -6458,7 +6458,7 @@ WebSocket/path wake still commits one fired pair and reaches revision 59.
 | Tool catalog and prompts | The catalog is sealed (#949): eleven model-door tools `read`, `write`, `edit`, `ls`, `find`, `grep`, `bash`, `eval`, `monitor`, `send_message`, `provision` plus the cell-only `completion`; snake_case names, one `op` discriminator under `operation` for eval/monitor/provision, flat `tools/<name>.ts` (`_` written `-` in file names; `lint:tools` `[tool-file-name]` pins the correspondence). There is no `approval` tool: `provision.contact_promote`/`contact_merge` carry `require_approval` policy rows resolved through the kernel request path. `lint:tools` and the catalog test pin the exact set and refuse retired names. The prompt builder accepts model tuning only; deleted-domain injection/instructions are absent. Dispatcher-only model truncation caps at 32,000 UTF-16 code units on a Unicode code-point boundary, with exact dropped/original UTF-8 byte counts; cell values stay full. | `apps/oni/src/bundles/tools/core/catalog.ts`, `apps/oni/src/bundles/prompt/`, `packages/agent/src/core/loop/tool.ts` |
 | CLI and composition | Start/onboard/Resident daemon/doctor/logs and npm staging belong to the app. The portable npm package bundles the TypeScript app and native addons but not the platform-specific Rust `mclient`: an operator installs it beside `dist/app/` or sets `ONI_MCLIENT_BIN`. Self attaches as a spawned child; remote machines use `mclient join` and `mclient run --config <settings.json>`. Reversible composition owns boot rollback and reverse-order shutdown. | `apps/oni/src/cli/`, `apps/oni/script/build-npm-package.ts`, `apps/oni/src/composition/mclient.ts` |
 
-#949 stage 1 removes the target-selection workspace and capability-based catalog fold; call-time admission belongs to executor `tool.pre`. Model fallback selection belongs to `packages/llm`. Together with #991's codemode workspace, the generated topology describes twelve workspaces. The standalone waiting/approval folds and stores are removed by #969. #949 stage 2 seals the catalog, folds approval into `provision`, and drops the catalog's conditional Proxy port scaffolding: every tool is constructed statically and refuses at execution when its port is absent. #949 stage 3 adds `eval` `peek`/`stop` over a background cell registry with streamed partial output, `completion` options `{model, system, schema}`, and renames the codemode handle methods to the tool names.
+#949 stage 1 removes the target-selection workspace and capability-based catalog fold; call-time admission belongs to executor `tool.pre`. Model fallback selection belongs to `packages/ai (then llm)`. Together with #991's codemode workspace, the generated topology describes twelve workspaces. The standalone waiting/approval folds and stores are removed by #969. #949 stage 2 seals the catalog, folds approval into `provision`, and drops the catalog's conditional Proxy port scaffolding: every tool is constructed statically and refuses at execution when its port is absent. #949 stage 3 adds `eval` `peek`/`stop` over a background cell registry with streamed partial output, `completion` options `{model, system, schema}`, and renames the codemode handle methods to the tool names.
 
 ## G002 ledger authority cut (#930)
 
@@ -6492,7 +6492,7 @@ The producer manifest no longer permits independent waiting/approval streams or 
 
 The provider retry owner is unchanged (`createAttemptRunner` in `packages/agent/src/executor-attempts.ts`, since #1247 `packages/agent/src/kernel/gate/decide.ts`); each attempt intent pins `attempt`, `maxAttempts` and `retryReason`, and the settled result carries the llm `AttemptEvidence` (usage, `visibleOutput`, finish reason, `Auth.reference` credential handle: type plus a 16-hex digest, never the key). Provider retry, crash-open resume and goal continuation remain distinct budgets with their own durable parents and IDs.
 
-`restore_model_selection` (`packages/agent/src/model-selection.ts`, `packages/agent/src/core/execution/run.ts`; since #1247 `plugins/model-selection.ts` and `kernel/turn.ts`) runs at the turn boundary when the earlier turn's last chat attempt ended on a configured fallback: an executed action releases the primary, a refused one keeps the fallback pinned for the turn with the policy decision as the only record. `restore_context_projection` (`packages/agent/src/bundles/compaction/restore.ts` — since #1247 `plugins/compaction/restore.ts` — `SessionHandle.restoreContext`, `createSessionAdmission.restoreContextProjection`) rebuilds the projection from the compaction's own recipe under the held lease and appends it as a compensation with the compaction as parent; unknown or unexecuted compactions are refused before anything is recorded, and the original compaction facts are untouched. The contract's proposed relocation of admission/turn code into `session-lifecycle/*.ts` did not happen; the owners stayed in place until #1247 moved them into `session/` and `kernel/`. Tests: `packages/agent/test/executor-recovery.test.ts`, `core/model-restore.test.ts`, `model-selection.test.ts`, `session-context-restore.test.ts`, `session-chat-runner.test.ts`, `core/execution/llm-attempts.test.ts`, `packages/llm/test/run-outcome.test.ts`, `packages/llm/test/auth/storage.test.ts`.
+`restore_model_selection` (`packages/agent/src/model-selection.ts`, `packages/agent/src/core/execution/run.ts`; since #1247 `plugins/model-selection.ts` and `kernel/turn.ts`) runs at the turn boundary when the earlier turn's last chat attempt ended on a configured fallback: an executed action releases the primary, a refused one keeps the fallback pinned for the turn with the policy decision as the only record. `restore_context_projection` (`packages/agent/src/bundles/compaction/restore.ts` — since #1247 `plugins/compaction/restore.ts` — `SessionHandle.restoreContext`, `createSessionAdmission.restoreContextProjection`) rebuilds the projection from the compaction's own recipe under the held lease and appends it as a compensation with the compaction as parent; unknown or unexecuted compactions are refused before anything is recorded, and the original compaction facts are untouched. The contract's proposed relocation of admission/turn code into `session-lifecycle/*.ts` did not happen; the owners stayed in place until #1247 moved them into `session/` and `kernel/`. Tests: `packages/agent/test/executor-recovery.test.ts`, `core/model-restore.test.ts`, `model-selection.test.ts`, `session-context-restore.test.ts`, `session-chat-runner.test.ts`, `core/execution/llm-attempts.test.ts`, `packages/ai/test/run-outcome.test.ts`, `packages/ai/test/auth/storage.test.ts`.
 
 ## #971 monitor occurrences and evaluator recovery
 
