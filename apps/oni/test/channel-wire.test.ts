@@ -51,7 +51,7 @@ async function declare(socket: WebSocket, request: Provisioning.ChannelDeclareRe
 test("re-declaration replaces stale Owner settings and mounts a row refused at boot", async () => {
   const config = suite.config("channel-stale-settings-", { wsToken: "owner-token" });
   const kek = declareChannel(config.catalogPath ?? "", "linear",
-    { secret: "signed-hook", ownerUserId: "owner" }, { settings: { intake: "none" } });
+    { secret: "signed-hook", accountUserId: "owner" }, { settings: { intake: "none" } });
   const app = await suite.boot({ config: { ...config, kek }, llm: { resolveModel: fakeProviderModel } });
   expect(app.channels.statuses).toContainEqual(expect.objectContaining({
     id: "channel:linear:owner", state: "credential_invalid",
