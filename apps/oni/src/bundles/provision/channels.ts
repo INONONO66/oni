@@ -30,7 +30,7 @@ export const CHANNEL_DECLARE_INPUT = z
     settings: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
       .optional()
-      .describe("Provider-specific non-secret settings. A re-declaration keeps the stored settings."),
+      .describe("Provider-specific non-secret settings. A re-declaration replaces the stored settings."),
     credential: z
       .record(z.string(), z.string())
       .optional()
@@ -214,8 +214,7 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
   ) => {
     const existing = port.instances.get(input.id);
     const identity = declaredIdentity(input, existing);
-    // A re-declaration keeps stored settings; a fresh declaration carries none.
-    const settings = input.settings ?? existing?.settings ?? {};
+    const settings = input.settings ?? {};
     // §4: knobs must parse under the provider's settings declaration before
     // the row lands; a
     // cli contact's (#1512) are its dialect, machine and cwd, judged by the

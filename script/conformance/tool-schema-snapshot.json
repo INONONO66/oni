@@ -680,7 +680,7 @@
                       "type": "boolean"
                     },
                     "settings": {
-                      "description": "Provider-specific non-secret settings. A re-declaration keeps the stored settings.",
+                      "description": "Provider-specific non-secret settings. A re-declaration replaces the stored settings.",
                       "type": "object",
                       "propertyNames": {
                         "type": "string"

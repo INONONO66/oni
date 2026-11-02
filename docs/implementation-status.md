@@ -3,6 +3,9 @@
 ## #1794 one Message
 
 PR #1814 removes `OwnerPosture` and provider-side admission branches.
+Stale Owner rows carrying removed settings refuse at boot and recover when
+`oni login` or `oni channel add` re-declares them with replacement settings.
+There is no migration.
 Account listeners emit observed messages for the ordered rule table rather
 than filtering by an instance setting. `Ingress.Message` replaces
 `Gateway.IngressFacts` and `Ingress.Input` across provider output, router

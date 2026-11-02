@@ -9,6 +9,7 @@ import { channelStoreSource } from "../src/gateway";
 import { planeOf } from "./helpers/ledger";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { closeSocket, nextFrame } from "./helpers/ws";
+import { declareChannel } from "./helpers/declared-channel";
 
 const suite = residentSuite();
 const homes: string[] = [];
@@ -46,6 +47,28 @@ async function declare(socket: WebSocket, request: Provisioning.ChannelDeclareRe
   socket.send(JSON.stringify(request));
   return Provisioning.ChannelDeclareResponse.parse(await response);
 }
+
+test("re-declaration replaces stale Owner settings and mounts a row refused at boot", async () => {
+  const config = suite.config("channel-stale-settings-", { wsToken: "owner-token" });
+  const kek = declareChannel(config.catalogPath ?? "", "linear",
+    { secret: "signed-hook", ownerUserId: "owner" }, { settings: { intake: "none" } });
+  const app = await suite.boot({ config: { ...config, kek }, llm: { resolveModel: fakeProviderModel } });
+  expect(app.channels.statuses).toContainEqual(expect.objectContaining({
+    id: "channel:linear:owner", state: "credential_invalid",
+  }));
+  const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "owner-token"]);
+  const response = await declare(socket, {
+    type: "channel_add", requestId: "replace-settings", id: "channel:linear:owner",
+    provider: "linear", identity: "owner",
+  });
+  expect(response).toMatchObject({ type: "channel_declared", statuses: expect.arrayContaining([
+    expect.objectContaining({ id: "channel:linear:owner", state: "mounted" }),
+  ]) });
+  const plane = await planeOf(app.runtime);
+  expect(plane.stores.instances.get("channel:linear:owner")?.settings).toEqual({});
+  expect((await fetch(`http://127.0.0.1:${app.port}/linear/webhook`, { method: "POST", body: "{}" })).status).toBe(401);
+  await closeSocket(socket);
+});
 
 /**
  * The Owner's channel declaration over the socket (#1569 lane 5b): the
