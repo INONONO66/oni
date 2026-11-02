@@ -46,8 +46,8 @@ export function createRuleStore(source: { readonly rule?: RuleAdapter }) {
       const entry = { record: Ingress.Rule.parse(record), approved };
       if (adapter().get(record.id)?.record.seed === true && entry.record.seed !== true)
         throw new RuleEnableRefused({ reason: "seed_protected", id: record.id });
-      if (entry.record.enabled && entry.record.createdBy !== "owner" && !approved) {
-        throw new RuleEnableRefused({ reason: "approval_required", id: entry.record.id });
+      if (entry.record.enabled && !approved) {
+        throw new RuleEnableRefused({ reason: "not_authorized", id: entry.record.id });
       }
       adapter().set(entry);
       return entry;
@@ -63,8 +63,8 @@ export function createRuleStore(source: { readonly rule?: RuleAdapter }) {
     enable(id: string): StoredRule {
       const entry = adapter().get(id);
       if (entry === undefined) throw new RuleEnableRefused({ reason: "not_found", id });
-      if (entry.record.createdBy !== "owner" && !entry.approved) {
-        throw new RuleEnableRefused({ reason: "approval_required", id });
+      if (!entry.approved) {
+        throw new RuleEnableRefused({ reason: "not_authorized", id });
       }
       const enabled = { ...entry, record: { ...entry.record, enabled: true } };
       adapter().set(enabled);

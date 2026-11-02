@@ -53,7 +53,7 @@ export function ruleWire(port: RulePort | undefined) {
     if (Result.isSuccess(result)) return result.success;
     const error = result.failure;
     if (error instanceof RuleEnableRefused)
-      return refused(request, error.reason === "approval_required" ? "require_approval" : error.reason);
+      return refused(request, error.reason === "not_authorized" ? "require_approval" : error.reason);
     if (error instanceof RuleConfigurationError) return refused(request, "store_unconfigured");
     if (error instanceof z.ZodError) return refused(request, "invalid_record", error.message);
     // Any other failure is the store's, not the record's: the frame names the cause so nothing reads as a bad request.
