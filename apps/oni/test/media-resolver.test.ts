@@ -1,7 +1,8 @@
 /**
  * #1497 media resolver: an outbound media part's `ref` becomes bytes only at
- * delivery time, from an attached machine (the `read` tool's door) or an
- * https URL; anything else is a typed refusal before any channel call.
+ * delivery time, from an attached machine (the `read` tool's door), an
+ * https URL or (#1783) the sending session's own stored tool output; anything
+ * else is a typed refusal before any channel call.
  */
 import { expect, spyOn, test } from "bun:test";
 import {
@@ -10,15 +11,22 @@ import {
   type MediaLookup,
   MediaRefused,
   createMediaResolver,
+  mediaExtension,
   mediaMime,
 } from "../src/composition/media";
 import type { FilePorts } from "../src/bundles/tools/core/filesystem";
 import { eventSignal } from "./helpers/event-signal";
-import { mkdtempSync, rmSync } from "node:fs";
+import { testPlane } from "./helpers/ledger";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MediaTooLarge } from "@oni/channels";
+import type { Gateway, Outbound } from "@oni/protocol";
+import { createHash } from "node:crypto";
+import { createSlackProvider } from "../../../packages/channels/src/provider/slack/provider";
 import { createTelegramProvider } from "../../../packages/channels/src/provider/telegram/provider";
+import { recordHttp } from "../../../packages/channels/test/helpers/http";
+import { fakeSlackSdk } from "../../../packages/channels/test/helpers/slack-sdk";
 import { fakeTelegramOwner } from "../../../packages/channels/test/helpers/telegram-owner-sdk";
 import { injectedOptions } from "../../../packages/channels/test/helpers/injected";
 
@@ -93,11 +101,45 @@ const lookupTable: MediaLookup = (hostname) => {
 };
 
 type Resolve = ReturnType<typeof createMediaResolver>;
-async function refusal(resolve: Resolve, part: Parameters<Resolve>[0]): Promise<string> {
-  const error = await resolve(part).then(() => undefined, (caught: Error) => caught);
+async function refusal(resolve: Resolve, part: Parameters<Resolve>[0], sender?: Gateway.IngestSender): Promise<string> {
+  const error = await resolve(part, sender).then(() => undefined, (caught: Error) => caught);
   expect(error).toBeInstanceOf(MediaRefused);
   if (!(error instanceof MediaRefused)) throw new Error("expected a media refusal");
   return error.data.code;
+}
+
+/**
+ * Session A holds one PNG tool output in a file-backed ledger; the resolver's
+ * URL and machine doors record every entry so the output door proves it never
+ * falls through. `close` releases the plane and its directory.
+ */
+function outputFixture() {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00]);
+  // The id names the bytes: the same digest the capture store writes (`sha256:<hex>` of the raw frame).
+  const outputId = `sha256:${createHash("sha256").update(png).digest("hex")}`;
+  const dir = mkdtempSync(join(tmpdir(), "oni-media-outputs-"));
+  const plane = testPlane({ sessionsDir: dir });
+  const session = (id: string) => {
+    plane.catalog.indexSession({ id, parentId: null, role: "resident", createdAt: 1 });
+    return plane.openKernel(id);
+  };
+  session("session-a").putToolOutput({ outputId, bytes: png, mediaType: "image/png" });
+  const reads: string[] = [];
+  const fetched: string[] = [];
+  const resolve = createMediaResolver(
+    { ...ports(machineWith({ [outputId]: png }, Number.POSITIVE_INFINITY, reads)), outputs: plane.read },
+    (url) => {
+      fetched.push(url.href);
+      return Promise.resolve(new Response(png));
+    },
+    lookupTable,
+  );
+  const sender = (id: string): Gateway.IngestSender => ({ kind: "session", id });
+  const close = () => {
+    plane.close();
+    rmSync(dir, { recursive: true, force: true });
+  };
+  return { png, outputId, dir, session, reads, fetched, resolve, sender, close, name: `${outputId.slice(7, 19)}.png` };
 }
 
 test("a machine path is read whole through the daemon's bounded reads; name and mime follow the part or the path", async () => {
@@ -337,6 +379,101 @@ test("mime follows the extension table and falls back to octet-stream", () => {
   expect(mediaMime("noext")).toBe("application/octet-stream");
 });
 
+test("a stored output's upload extension inverts the mime table, first-listed extension wins, unknown is bin (#1783)", () => {
+  expect(mediaExtension("image/png")).toBe("png");
+  expect(mediaExtension("image/jpeg")).toBe("jpg");
+  expect(mediaExtension("audio/ogg")).toBe("ogg");
+  expect(mediaExtension("Audio/OGG; codecs=opus")).toBe("ogg");
+  expect(mediaExtension("application/x-unknown")).toBe("bin");
+});
+
+test("a sha256 ref attaches the sender session's stored output: bytes, mime and a digest-named file reach the Telegram and Slack bots (#1783)", async () => {
+  const fixture = outputFixture();
+  const part: Outbound.Part = { kind: "image", ref: fixture.outputId, caption: "the frame" };
+  // The resolver alone: the stored row's media type names the mime and the extension; a part's own name wins.
+  expect(await fixture.resolve(part, fixture.sender("session-a"))).toEqual({
+    bytes: fixture.png, name: fixture.name, mime: "image/png",
+  });
+  expect(await fixture.resolve({ kind: "file", ref: fixture.outputId, name: "frame.bin", mime: "application/x-frame" }, fixture.sender("session-a")))
+    .toEqual({ bytes: fixture.png, name: "frame.bin", mime: "application/x-frame" });
+
+  // Telegram bot: the upload carries the stored bytes under the digest-named PNG.
+  const wire = recordHttp(() => Response.json({ ok: true, result: { message_id: 17 } }));
+  try {
+    const telegram = createTelegramProvider().create(
+      { token: "tg-test" }, {}, () => undefined, { ...injectedOptions(), media: fixture.resolve },
+    );
+    expect(await telegram.deliveryRoute?.("123", { kind: "message", parts: [part] }, "upload-output", undefined, fixture.sender("session-a")))
+      .toEqual({ value: "accepted", externalMessageId: "17" });
+    expect(wire.requests).toHaveLength(1);
+    const request = wire.requests[0];
+    if (request === undefined) throw new Error("missing request");
+    expect(request.url).toEndWith("/sendPhoto");
+    const form = await request.formData();
+    expect(form.get("caption")).toBe("the frame");
+    const file = form.get("photo");
+    if (!(file instanceof File)) throw new Error("missing file");
+    expect(file.name).toBe(fixture.name);
+    expect(file.type).toBe("image/png");
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(fixture.png);
+  } finally {
+    wire.restore();
+  }
+
+  // Slack bot: the same letter uploads the same bytes under the same name.
+  const slack = fakeSlackSdk();
+  const runtime = createSlackProvider(slack.sdk).create(
+    { botToken: "xoxb-test", appToken: "xapp-test" }, {}, () => undefined, { ...injectedOptions(), media: fixture.resolve },
+  );
+  expect(await runtime.deliveryRoute?.("T1:U1", { kind: "message", parts: [part] }, "upload-output-slack", { channelId: "C1" }, fixture.sender("session-a")))
+    .toEqual({ value: "accepted" });
+  expect(slack.client.calls).toEqual([
+    { method: "uploadFile", args: ["C1", [...fixture.png], fixture.name, { initial_comment: "the frame" }] },
+  ]);
+  // Neither door behind the output door was entered.
+  expect(fixture.reads).toEqual([]);
+  expect(fixture.fetched).toEqual([]);
+  fixture.close();
+});
+
+test("a sha256 ref another session holds, a never-stored digest, an unindexed sender or a letter without a session sender is refused output_missing before any URL or machine read (#1783)", async () => {
+  const fixture = outputFixture();
+  const part: Outbound.Part = { kind: "image", ref: fixture.outputId };
+  const unknown = `sha256:${"00".repeat(32)}`;
+  // Session B exists (it holds its own, different output) but not this digest.
+  fixture.session("session-b").putToolOutput({ outputId: unknown, bytes: new Uint8Array([1]), mediaType: "image/png" });
+  expect(await refusal(fixture.resolve, part, fixture.sender("session-b"))).toBe("output_missing");
+  expect(await refusal(fixture.resolve, { kind: "image", ref: unknown }, fixture.sender("session-a"))).toBe("output_missing");
+  expect(await refusal(fixture.resolve, part)).toBe("output_missing");
+  expect(await refusal(fixture.resolve, part, { kind: "external", surface: "telegram", externalId: "u1" })).toBe("output_missing");
+  // A sender id the catalog never indexed is refused without opening a session: the read mints no session file.
+  expect(await refusal(fixture.resolve, part, fixture.sender("session-ghost"))).toBe("output_missing");
+  expect(readdirSync(fixture.dir).filter((file) => file.startsWith("session-ghost"))).toEqual([]);
+  const error = await fixture.resolve(part, fixture.sender("session-b")).then(() => undefined, (caught: Error) => caught);
+  expect(error instanceof MediaRefused ? error.data : undefined).toEqual({
+    code: "output_missing", ref: fixture.outputId, detail: "not a stored tool output of session session-b",
+  });
+  // A composition without an outputs port refuses the same way rather than reading a path named like a digest.
+  const portless = createMediaResolver(ports(machineWith({ [fixture.outputId]: fixture.png }, Number.POSITIVE_INFINITY, fixture.reads)));
+  expect(await refusal(portless, part, fixture.sender("session-a"))).toBe("output_missing");
+
+  // Through the Telegram bot the refusal is the letter's receipt, not an upload.
+  const wire = recordHttp(() => Response.json({ ok: true, result: { message_id: 17 } }));
+  try {
+    const telegram = createTelegramProvider().create(
+      { token: "tg-test" }, {}, () => undefined, { ...injectedOptions(), media: fixture.resolve },
+    );
+    expect(await telegram.deliveryRoute?.("123", { kind: "message", parts: [part] }, "upload-foreign", undefined, fixture.sender("session-b")))
+      .toMatchObject({ value: "rejected" });
+    expect(wire.requests).toHaveLength(0);
+  } finally {
+    wire.restore();
+  }
+  expect(fixture.reads).toEqual([]);
+  expect(fixture.fetched).toEqual([]);
+  fixture.close();
+});
+
 test.each([
   { status: 200, headers: new Headers({ "content-length": String(MEDIA_BYTE_CAP + 1) }), code: "too_large" },
   { status: 503, headers: new Headers(), code: "fetch_failed" },
@@ -372,7 +509,7 @@ test("one deadline follows redirects and interrupts a pending public response bo
       ? Response.redirect("https://cdn.test/body")
       : new Response(body));
   }, lookupTable);
-  const running = resolve({ kind: "file", ref: "https://cdn.test/start", name: "file" }, {
+  const running = resolve({ kind: "file", ref: "https://cdn.test/start", name: "file" }, undefined, {
     maxBytes: MEDIA_BYTE_CAP, signal: controller.signal,
   });
   const outcome = running.then(() => undefined, (error: Error) => error);
@@ -398,7 +535,7 @@ test("an aborted lookup settles without waiting for DNS or invoking transport", 
     entered.resolve();
     return held.promise;
   });
-  const running = resolve({ kind: "file", ref: "https://cdn.test/held", name: "held" }, {
+  const running = resolve({ kind: "file", ref: "https://cdn.test/held", name: "held" }, undefined, {
     maxBytes: MEDIA_BYTE_CAP, signal: controller.signal,
   }).then(() => undefined, (error: Error) => error);
 

@@ -1,19 +1,22 @@
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
+import { type Core, Inspect } from "@oni/agent";
 import { type AttachmentBounds, type MediaBytes, MediaTooLarge } from "@oni/channels";
-import { NamedError, type Outbound } from "@oni/protocol";
+import { type Gateway, NamedError, type Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { type FilePorts, filesystem } from "../bundles/tools/core/filesystem";
 
 /**
  * The composition root's media resolver (#1497): an outbound media part's
- * `ref` is a path on an attached machine or an https URL, and the channel
+ * `ref` is a path on an attached machine, an https URL or the id of one of
+ * the sending session's own stored tool outputs (#1783), and the channel
  * driver receives bytes only at delivery time. Promise-shaped because the
  * drivers' `MediaResolver` port is; the machine read goes through the same
  * filesystem door the `read` tool uses, never a local path. The read is
  * admitted by the `send_message` call's own policy gate (the parts are in
  * its input) and by the daemon's export enforcement; it does not re-enter
- * the `read` tool's gate.
+ * the `read` tool's gate. A stored output is read through the sender
+ * session's own fence, so a letter can attach only what its session holds.
  */
 
 export const MEDIA_BYTE_CAP = 50 * 1024 * 1024;
@@ -23,7 +26,7 @@ const REDIRECT_HOPS = 3;
 export const MediaRefused = NamedError.create(
   "OniMediaRefused",
   z.object({
-    code: z.enum(["scheme", "host", "fetch_failed", "too_large"]),
+    code: z.enum(["scheme", "host", "fetch_failed", "too_large", "output_missing"]),
     ref: z.string(),
     detail: z.string(),
   }),
@@ -61,6 +64,31 @@ export function mediaMime(name: string): string {
   const extension = dot < 0 ? "" : name.slice(dot + 1).toLowerCase();
   return MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
 }
+
+/**
+ * The inverse table, for a stored output's upload filename: a mime that
+ * several extensions share keeps the FIRST one listed above (`jpg` over
+ * `jpeg`, `ogg` over `oga`/`opus`), hence the reversed fill.
+ */
+const EXTENSION_BY_MIME: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(MIME_BY_EXTENSION).reverse().map(([extension, mime]) => [mime, extension]),
+);
+
+export function mediaExtension(mime: string): string {
+  return EXTENSION_BY_MIME[mime.split(";")[0]?.trim().toLowerCase() ?? ""] ?? "bin";
+}
+
+/** A bare stored-output id: the `ToolOutputRef` outputId, the digest of the stored bytes. */
+const OUTPUT_ID = /^sha256:[0-9a-f]{64}$/;
+
+/**
+ * The sender session's tool outputs, behind the ledger's catalog index: a
+ * sender id the catalog does not index opens no session file (a read mints
+ * nothing), so its output is simply missing.
+ */
+export type MediaOutputPorts = {
+  readonly outputs?: Pick<Core.LedgerHost["read"], "index" | "session">;
+};
 
 type MediaPart = Outbound.Part & { kind: "image" | "file" | "audio" | "video" };
 
@@ -251,6 +279,32 @@ async function fromUrl(
   return { bytes, name, mime };
 }
 
+/**
+ * A stored tool output of the SENDER session (#1783): the id is dereferenced
+ * through that session's fence alone, so another session's output, a digest
+ * nothing stored, or a letter without a session sender is refused typed and
+ * never falls through to a URL or machine read.
+ */
+function fromOutput(
+  part: MediaPart,
+  sender: Gateway.IngestSender | undefined,
+  outputs: MediaOutputPorts["outputs"],
+): MediaBytes {
+  const model =
+    sender?.kind === "session" && outputs !== undefined && outputs.index(sender.id) !== undefined
+      ? outputs.session(sender.id)
+      : undefined;
+  const stored = model === undefined ? undefined : Inspect.toolOutputBytes(model, part.ref);
+  if (stored?.kind !== "output") {
+    const owner = sender?.kind === "session" ? `session ${sender.id}` : "the sender";
+    throw new MediaRefused({ code: "output_missing", ref: part.ref, detail: `not a stored tool output of ${owner}` });
+  }
+  assertMediaSize(part.ref, stored.bytes.byteLength);
+  const mime = declaredMime(part) ?? stored.mediaType ?? "application/octet-stream";
+  const name = part.name ?? `${part.ref.slice(7, 19)}.${mediaExtension(mime)}`;
+  return { bytes: stored.bytes, name, mime };
+}
+
 /** The daemon's stat answers before any byte moves, so an oversize file is refused unread. */
 async function fromMachine(part: MediaPart, ports: FilePorts): Promise<MediaBytes> {
   const file = filesystem(part.ref, ports);
@@ -275,13 +329,23 @@ function asUrl(ref: string): URL | undefined {
 /** The one call shape the resolver makes: the hop's URL, its request options and the address it was admitted at. */
 export type MediaFetch = (url: URL, init: RequestInit, address: MediaAddress) => Promise<Response>;
 
+/**
+ * `sender` is the letter's admitted sender, which the channel router hands
+ * the resolver with every media part (#1783); the attachment path and the
+ * tests resolve URLs and paths without one.
+ */
 export function createMediaResolver(
-  ports: FilePorts,
+  ports: FilePorts & MediaOutputPorts,
   fetchImpl: MediaFetch = pinnedFetch,
   lookupImpl: MediaLookup = lookupAll,
 ) {
   const transport = { fetch: fetchImpl, lookup: lookupImpl };
-  return (part: MediaPart, bounds: AttachmentBounds = mediaBounds()): Promise<MediaBytes> => {
+  return async (
+    part: MediaPart,
+    sender?: Gateway.IngestSender,
+    bounds: AttachmentBounds = mediaBounds(),
+  ): Promise<MediaBytes> => {
+    if (OUTPUT_ID.test(part.ref)) return fromOutput(part, sender, ports.outputs);
     const url = asUrl(part.ref);
     return url === undefined ? fromMachine(part, ports) : fromUrl(part, url, transport, bounds);
   };

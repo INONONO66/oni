@@ -40,7 +40,7 @@ const definitions = {
   Table: { props: TableProps, description: "Use for aligned columns; every row carries exactly one value per column." },
   Image: {
     props: ImageProps,
-    description: "Use for visual media. A ref is an /absolute path on the attached machine (machineId:/path) or an https URL; the channel uploads it where it can.",
+    description: "Use for visual media. A ref is an /absolute path on the attached machine (machineId:/path), an https URL, or the sha256:<hex> output id of one of your own tool outputs; the channel uploads it where it can.",
   },
   File: {
     props: FileProps,
@@ -48,11 +48,11 @@ const definitions = {
   },
   Audio: {
     props: AudioProps,
-    description: "Use for audio media; set voice for a voice note, which platforms render as a playable bubble rather than a music file.",
+    description: "Use for audio media. A ref is an /absolute path on the attached machine (machineId:/path), an https URL, or the sha256:<hex> output id of one of your own tool outputs; set voice for a voice note, which platforms render as a playable bubble rather than a music file.",
   },
   Video: {
     props: VideoProps,
-    description: "Use for video media. A ref is an /absolute path on the attached machine (machineId:/path) or an https URL; the channel uploads it where it can.",
+    description: "Use for video media. A ref is an /absolute path on the attached machine (machineId:/path), an https URL, or the sha256:<hex> output id of one of your own tool outputs; the channel uploads it where it can.",
   },
   Buttons: { props: EmptyProps, description: "Use for a short set of choices; children are 1 to 5 Button elements." },
   Button: {

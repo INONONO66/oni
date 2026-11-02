@@ -13,9 +13,11 @@ import * as catalogModule from "./catalog.js";
 const Id = z.string().min(1);
 
 /**
- * Where an image's or file's bytes live: a path on the attached machine or
- * an `https` URL. The composition root resolves it at delivery time; the
- * letter's journal row carries the reference only, never the bytes.
+ * Where an image's or file's bytes live: a path on the attached machine, an
+ * `https` URL, or the bare id of one of the sending session's own stored
+ * tool outputs (`sha256:<64 hex>`, the `ToolOutputRef` outputId, #1783). The
+ * composition root resolves it at delivery time; the letter's journal row
+ * carries the reference only, never the bytes.
  */
 const Ref = z.string().min(1);
 
