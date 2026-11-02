@@ -799,16 +799,19 @@ consumer is a separate app concern.
 
 **Memory budget and metrics.** Every 5 s heartbeat appends one line to
 `metrics.jsonl` (`at`, `rssBytes`, `inFlight`, `retainedPtyBytes`,
-`transfers`) and samples RSS against `memoryBudgetMb` (default 96). The
-first beat over budget sheds (every open transfer is aborted, then the
-terminal holding the most output releases its buffers; its cursors stay
-valid and a reader inside the released range gets `data: ""` with
-`truncated: true`) and enters a restricted state in which `machine.exec` is
-refused `exec_not_available` and `fs_stream` `begin` is refused `too_large`;
-two consecutive beats under budget lift the restriction, and the third
-consecutive beat over budget exits 4 (`memory budget exceeded`). Replay-cache
-bytes held by open transfers are measured but not yet written to
-`metrics.jsonl`.
+`transfers`) and samples RSS against `memoryBudgetMb` (default 512, sized
+for one Retina `screen()` capture plus encode buffers). The first beat over
+budget sheds (every open transfer is aborted, then the terminal holding the
+most output releases its buffers; its cursors stay valid and a reader inside
+the released range gets `data: ""` with `truncated: true`) and enters a
+restricted state in which `machine.exec` is refused `exec_not_available` and
+`fs_stream` `begin` is refused `too_large`; two consecutive beats under
+budget lift the restriction. Six consecutive beats over budget (30 s) exit 4
+(`memory budget exceeded`); every beat while restricted carries a
+`memoryBudget` fact (`restricted`, `overSamples`, `limitBytes`, `rssBytes`)
+in its `machine.report`, so the host sees the breach building before the
+client exits rather than only in the final disconnect. Replay-cache bytes
+held by open transfers are measured but not yet written to `metrics.jsonl`.
 
 **Conformance.** `bun run clients:conformance`
 (`script/check-clients-conformance.ts`) drives a prebuilt

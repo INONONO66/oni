@@ -461,7 +461,7 @@ mod tests {
                 host: "localhost".to_owned(),
                 exports: vec![],
                 tags: vec![],
-                memory_budget_mb: 96,
+                memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
                 unix: Some(socket),
                 tmux_socket: None,
             },

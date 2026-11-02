@@ -275,7 +275,9 @@ fn budget_sheds_once_and_recovers_after_two_under_samples() {
     assert_eq!(budget.sample(0), BudgetAction::Healthy);
     assert!(!budget.restricted());
     assert_eq!(budget.sample(1_048_577), BudgetAction::Shed);
-    assert_eq!(budget.sample(1_048_577), BudgetAction::Healthy);
+    for _ in 2..budget::EXIT_GRACE_SAMPLES {
+        assert_eq!(budget.sample(1_048_577), BudgetAction::Healthy);
+    }
     assert_eq!(budget.sample(1_048_577), BudgetAction::Exit);
 }
 
@@ -1189,7 +1191,7 @@ async fn refused_and_terminal_attach_outcomes_reprobe_without_external_retry() {
 }
 
 #[tokio::test]
-async fn memory_pressure_sheds_gates_new_work_and_exits_on_third_sample() {
+async fn memory_pressure_sheds_once_then_exits_after_exit_grace_samples() {
     let mut host = FakeHost::unix().await;
     let directory = tempfile::tempdir().expect("client directory");
     let mut settings = unix_settings(&host, directory.path()).await;
@@ -1227,7 +1229,25 @@ async fn memory_pressure_sheds_gates_new_work_and_exits_on_third_sample() {
         assert_eq!(answers["x3"], json!({"served":"machine.fs_stream"}));
         host.send(reply(&report, json!({"status":"accepted"})))
             .await;
+        for over_samples in 2..budget::EXIT_GRACE_SAMPLES {
+            let report = expect(&mut host, "machine.report").await;
+            assert_eq!(
+                report["params"]["memoryBudget"]["overSamples"],
+                over_samples
+            );
+            host.send(reply(&report, json!({"status":"accepted"})))
+                .await;
+        }
         let report = expect(&mut host, "machine.report").await;
+        assert_eq!(
+            report["params"]["memoryBudget"],
+            json!({
+                "restricted": true,
+                "overSamples": budget::EXIT_GRACE_SAMPLES,
+                "limitBytes": 1024 * 1024,
+                "rssBytes": 2 * 1024 * 1024,
+            })
+        );
         host.send(reply(&report, json!({"status":"accepted"})))
             .await;
         host
@@ -1252,7 +1272,7 @@ async fn memory_budget_exit_ends_reconnect_loop_without_retry() {
     let exchange = async {
         let offer = expect(&mut host, "machine.attach").await;
         host.send(attached(&offer, 1)).await;
-        for _ in 0..2 {
+        for _ in 0..budget::EXIT_GRACE_SAMPLES {
             let report = expect(&mut host, "machine.report").await;
             host.send(reply(&report, json!({"status":"accepted"})))
                 .await;
@@ -1284,7 +1304,7 @@ async fn memory_budget_exit_passes_through_default_runner() {
     let exchange = async {
         let offer = expect(&mut host, "machine.attach").await;
         host.send(attached(&offer, 1)).await;
-        for _ in 0..2 {
+        for _ in 0..budget::EXIT_GRACE_SAMPLES {
             let report = expect(&mut host, "machine.report").await;
             host.send(reply(&report, json!({"status":"accepted"})))
                 .await;

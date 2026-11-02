@@ -588,7 +588,10 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         }
     }
 
-    fn beat(&mut self, mut screen: crate::screen::probe::Verdict) -> Result<Value, AttachError> {
+    fn beat(
+        &mut self,
+        mut screen: crate::screen::probe::Verdict,
+    ) -> Result<(Value, bool), AttachError> {
         let at = now_ms();
         let in_flight = self.in_flight.load(Ordering::Relaxed);
         let rss_bytes = self.probe.rss()?;
@@ -607,11 +610,14 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
                 streams: budget::StreamTotals::of(&streams),
             },
         )?;
-        match self.budget.sample(rss_bytes) {
-            BudgetAction::Exit => return Err(AttachError::MemoryBudget),
-            BudgetAction::Shed => self.hooks.pressure.shed(),
-            BudgetAction::Healthy => {}
+        let budget_action = self.budget.sample(rss_bytes);
+        if budget_action == BudgetAction::Shed {
+            self.hooks.pressure.shed();
         }
+        // Grace runs for budget::EXIT_GRACE_SAMPLES before the attach exits,
+        // so the host sees this fact over several beats, not only in the
+        // final log line (#1775).
+        let exit_after_report = budget_action == BudgetAction::Exit;
         self.restricted
             .store(self.budget.restricted(), Ordering::Relaxed);
         #[cfg(target_os = "macos")]
@@ -642,8 +648,16 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         ) {
             report["humanInput"] = json!(input);
         }
+        if self.budget.restricted() {
+            report["memoryBudget"] = json!({
+                "restricted": true,
+                "overSamples": self.budget.over_samples(),
+                "limitBytes": self.budget.limit_bytes(),
+                "rssBytes": rss_bytes,
+            });
+        }
         report::with_streams(&mut report, streams);
-        Ok(report)
+        Ok((report, exit_after_report))
     }
 
     async fn heartbeat(
@@ -655,6 +669,7 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         let mut reports = JoinSet::new();
         #[cfg(target_os = "macos")]
         let mut restart_after_report = false;
+        let mut exit_after_report = false;
         let mut probes = JoinSet::new();
         let mut uplinks = JoinSet::new();
         let mut frames = client.frames();
@@ -701,8 +716,13 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
                         ) {
                             #[cfg(target_os = "macos")]
                             if restart_after_report { break Err(AttachError::GrantRestart); }
+                            if exit_after_report { break Err(AttachError::MemoryBudget); }
                             break Ok(());
                         }
+                    }
+                    if exit_after_report {
+                        // The budget report above already told the host why.
+                        break Err(AttachError::MemoryBudget);
                     }
                     #[cfg(target_os = "macos")]
                     if restart_after_report {
@@ -729,7 +749,10 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
                         }
                     }
                     let report = match self.beat(screen) {
-                        Ok(report) => report,
+                        Ok((report, exit)) => {
+                            exit_after_report = exit;
+                            report
+                        }
                         Err(error) => {
                             #[cfg(target_os = "macos")]
                             if restart_after_report { break Err(AttachError::GrantRestart); }
@@ -1059,7 +1082,7 @@ mod tests {
 
     use crate::{
         attach::{Negotiated, Session},
-        config::ClientConfig,
+        config::{self, ClientConfig},
         handlers::Service,
         input::watch::Source,
         pty::ops::Pty,
@@ -1090,7 +1113,7 @@ mod tests {
                 name: "notes".into(),
                 path: root.path().to_str().expect("root").into(),
             }],
-            memory_budget_mb: 96,
+            memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
             tmux_socket: None,
         };

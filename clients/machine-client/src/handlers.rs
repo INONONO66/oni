@@ -1399,7 +1399,7 @@ mod private_tests {
             host: "127.0.0.1:7643".into(),
             tags: vec![],
             exports: vec![],
-            memory_budget_mb: 96,
+            memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
             tmux_socket: None,
         };
@@ -1478,7 +1478,7 @@ mod private_tests {
             host: "127.0.0.1:7643".into(),
             tags: vec![],
             exports: vec![],
-            memory_budget_mb: 96,
+            memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
             tmux_socket: None,
         };

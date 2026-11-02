@@ -8,6 +8,13 @@ pub enum BudgetAction {
     Exit,
 }
 
+/// Consecutive over-budget samples tolerated before `sample` returns `Exit`.
+/// A capture that maps pages the allocator never releases (#1775) stays over
+/// budget for a while after the frame itself is freed, so this is several
+/// heartbeats (at `attach::HEARTBEAT` cadence), not the one that would fire
+/// on the very first spike.
+pub const EXIT_GRACE_SAMPLES: u8 = 6;
+
 pub struct Budget {
     limit_bytes: u64,
     over: u8,
@@ -31,7 +38,7 @@ impl Budget {
             self.under = 0;
             let shed = !self.restricted;
             self.restricted = true;
-            if self.over >= 3 {
+            if self.over >= EXIT_GRACE_SAMPLES {
                 BudgetAction::Exit
             } else if shed {
                 BudgetAction::Shed
@@ -50,6 +57,16 @@ impl Budget {
 
     pub fn restricted(&self) -> bool {
         self.restricted
+    }
+
+    /// Consecutive over-budget samples observed so far; reported to the host
+    /// so a breach is a visible fact before the grace runs out.
+    pub fn over_samples(&self) -> u8 {
+        self.over
+    }
+
+    pub fn limit_bytes(&self) -> u64 {
+        self.limit_bytes
     }
 }
 
@@ -139,5 +156,62 @@ impl StreamTotals {
             stream_dropped_frames: total.stream_dropped_frames
                 + stream["droppedFrames"].as_u64().unwrap_or(0),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sample_sheds_once_then_holds_healthy_until_the_grace_runs_out() {
+        let mut budget = Budget::new(1);
+        let over_limit = 2 * 1024 * 1024;
+        assert_eq!(budget.sample(over_limit), BudgetAction::Shed);
+        for sample in 2..EXIT_GRACE_SAMPLES {
+            assert_eq!(
+                budget.sample(over_limit),
+                BudgetAction::Healthy,
+                "sample {sample} must not shed or exit again before the grace runs out"
+            );
+            assert_eq!(budget.over_samples(), sample);
+        }
+        assert_eq!(budget.sample(over_limit), BudgetAction::Exit);
+    }
+
+    #[test]
+    fn a_single_capture_spike_never_reaches_exit() {
+        let mut budget = Budget::new(1);
+        let over_limit = 2 * 1024 * 1024;
+        let under_limit = 1024;
+        assert_eq!(budget.sample(over_limit), BudgetAction::Shed);
+        assert_eq!(budget.sample(under_limit), BudgetAction::Healthy);
+        assert!(
+            budget.restricted(),
+            "one under-sample alone must not clear restricted"
+        );
+        assert_eq!(budget.sample(under_limit), BudgetAction::Healthy);
+        assert!(!budget.restricted());
+    }
+
+    #[test]
+    fn restricted_clears_only_after_two_consecutive_under_budget_samples() {
+        let mut budget = Budget::new(1);
+        let over_limit = 2 * 1024 * 1024;
+        let under_limit = 1024;
+        budget.sample(over_limit);
+        budget.sample(under_limit);
+        budget.sample(over_limit);
+        assert!(budget.restricted());
+        assert_eq!(budget.over_samples(), 1);
+    }
+
+    #[test]
+    fn over_samples_and_limit_bytes_expose_state_for_the_host_report() {
+        let mut budget = Budget::new(2);
+        assert_eq!(budget.limit_bytes(), 2 * 1024 * 1024);
+        assert_eq!(budget.over_samples(), 0);
+        budget.sample(3 * 1024 * 1024);
+        assert_eq!(budget.over_samples(), 1);
     }
 }
