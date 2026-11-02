@@ -11,21 +11,21 @@ beforeEach(() => {
   registerOwnerDm();
 });
 
-const facts = { ...ownerFacts, dm: false };
+const facts = { ...ownerFacts, dm: false, reply: { chain: [], threadId: "root" } };
 const inboundId = "discord:owner-workspace:owner-dm:inbound-owner-dm";
 
-function add(record: Partial<Ingress.Automation> = {}) {
-  ledger().stores.automations.add(Ingress.Automation.parse({
-    id: "trigger", name: "Trigger", enabled: true, createdBy: "owner",
-    triggers: [{ type: "message", surface: facts.surface, event: "message" }],
-    target: "session:worker", ...record,
+function add(record: Partial<Ingress.Rule> = {}) {
+  ledger().stores.rules.add(Ingress.Rule.parse({
+    id: "trigger", position: 0, enabled: true, createdBy: "owner",
+    when: { instance: facts.surface, dm: false },
+    then: { target: "session:worker", kind: "action", reply: "none" }, ...record,
   }));
 }
 
 test.each(["failure", "defect"] as const)("a group dispatch %s closes once without blocking unrelated ingress or later groups", async (mode) => {
-  add({ conditions: { contains: ["broken"] }, grouping: { by: "channel", windowSeconds: 10 } });
-  add({ id: "healthy", target: "session:healthy", conditions: { contains: ["healthy"] },
-    grouping: { by: "channel", windowSeconds: 10 } });
+  add({ when: { instance: facts.surface, channel: facts.channelId, dm: false }, group: { by: "thread", windowSeconds: 10 } });
+  add({ id: "healthy", position: 1, then: { target: "session:healthy", kind: "action", reply: "none" }, when: { instance: facts.surface, channel: "healthy", dm: false },
+    group: { by: "thread", windowSeconds: 10 } });
   const clock = { now: 0 };
   let failures = 0;
   const router = makeRouter({
@@ -40,16 +40,16 @@ test.each(["failure", "defect"] as const)("a group dispatch %s closes once witho
     },
   });
   await runEffect(router.ingest(ownerSender, { ...facts, render: "broken" }));
-  await runEffect(router.ingest(ownerSender, { ...facts, eventId: "healthy", render: "healthy" }));
+  await runEffect(router.ingest(ownerSender, { ...facts, eventId: "healthy", channelId: "healthy", render: "healthy" }));
   clock.now = 10_000;
   expect(await runEffect(router.ingest(ownerSender, { ...ownerFacts, eventId: "unrelated" })))
     .toMatchObject({ status: "executed" });
   await runEffect(router.advance());
-  expect(ledger().stores.automations.groups()).toEqual([]);
+  expect(ledger().stores.rules.groups()).toEqual([]);
   expect(commits).toHaveLength(2);
   expect(commits.some((row) => row.sessionId === "healthy")).toBe(true);
   expect(commits.some((row) => row.sessionId === "worker")).toBe(false);
-  expect(ledger().stores.automations.decisions(inboundId)).toEqual([
+  expect(ledger().stores.rules.decisions(inboundId)).toEqual([
     expect.objectContaining({ decision: "grouped" }),
     expect.objectContaining({ decision: "refused", reason: expect.stringContaining("broken target") }),
   ]);
@@ -58,7 +58,7 @@ test.each(["failure", "defect"] as const)("a group dispatch %s closes once witho
 });
 
 test("interrupted group closure remains recoverable rather than recording a refusal", async () => {
-  add({ grouping: { by: "channel", windowSeconds: 10 } });
+  add({ group: { by: "thread", windowSeconds: 10 } });
   await runEffect(makeRouter({ now: () => 0 }).ingest(ownerSender, facts));
   await runEffect(Effect.scoped(Effect.gen(function* () {
     const started = yield* Deferred.make<void>();
@@ -68,18 +68,18 @@ test("interrupted group closure remains recoverable rather than recording a refu
     const closing = yield* router.advance(10_000).pipe(Effect.forkScoped);
     yield* Deferred.await(started);
     yield* Fiber.interrupt(closing);
-    expect(ledger().stores.automations.groups()).toHaveLength(1);
-    expect(ledger().stores.automations.decisions(inboundId)).toEqual([
+    expect(ledger().stores.rules.groups()).toHaveLength(1);
+    expect(ledger().stores.rules.decisions(inboundId)).toEqual([
       expect.objectContaining({ decision: "grouped", reason: "grouped" }),
     ]);
   })));
   await runEffect(makeRouter().advance(10_000));
   expect(commits).toHaveLength(1);
-  expect(ledger().stores.automations.decisions(inboundId).at(-1)).toMatchObject({ decision: "matched" });
+  expect(ledger().stores.rules.decisions(inboundId).at(-1)).toMatchObject({ decision: "matched" });
 });
 
 test("clock-only closure keeps full and expired windows separate without losing members", async () => {
-  add({ target: "new", grouping: { by: "channel", windowSeconds: 10 } });
+  add({ then: { target: "new", kind: "action", reply: "none" }, group: { by: "thread", windowSeconds: 10 } });
   const clock = { now: 0 };
   const router = makeRouter({ now: () => clock.now });
   for (let index = 0; index < 65; index++)
@@ -87,27 +87,27 @@ test("clock-only closure keeps full and expired windows separate without losing 
   clock.now = 10_000;
   await runEffect(router.ingest(ownerSender, { ...facts, eventId: "next-window" }));
   expect(commits).toEqual([]);
-  expect(ledger().stores.automations.groups().map((group) => group.pending.inputs.length).sort((a, b) => a - b))
+  expect(ledger().stores.rules.groups().map((group) => group.pending.inputs.length).sort((a, b) => a - b))
     .toEqual([1, 1, 64]);
   await runEffect(router.advance());
   expect(commits).toHaveLength(2);
-  expect(ledger().stores.automations.groups()).toHaveLength(1);
+  expect(ledger().stores.rules.groups()).toHaveLength(1);
   await runEffect(router.advance(20_000));
   expect(commits).toHaveLength(3);
-  const bodies = commits.map((row) => Ingress.TriggerContext.parse(JSON.parse(Delivery.text(row.content))));
+  const bodies = commits.map((row) => Ingress.MatchContext.parse(JSON.parse(Delivery.text(row.content))));
   expect(bodies.flatMap((body) => body.event.messages)).toHaveLength(66);
   expect(new Set(commits.map((row) => row.sessionId)).size).toBe(3);
 });
 
 test("fired group members retain durable close decisions and the firing row pointer", async () => {
-  add({ grouping: { by: "channel", windowSeconds: 10 } });
+  add({ group: { by: "thread", windowSeconds: 10 } });
   const router = makeRouter({ now: () => 0 });
   await runEffect(router.ingest(ownerSender, facts));
   await runEffect(router.ingest(ownerSender, { ...facts, eventId: "second" }));
   await runEffect(router.advance(10_000));
   const firing = commits[0];
   if (firing === undefined) throw new Error("group did not fire");
-  const store = ledger().stores.automations;
+  const store = ledger().stores.rules;
   const first = store.decisions(inboundId);
   const second = store.decisions("discord:owner-workspace:owner-dm:second");
   expect(first).toEqual([

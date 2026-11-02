@@ -11,47 +11,47 @@ import { commits, makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRou
 
 beforeEach(resetRouterState);
 
-function trigger(extras: Partial<Ingress.Automation> = {}) {
-  ledger().stores.automations.add(Ingress.Automation.parse({
-    id: "admission", name: "Admission", enabled: true, createdBy: "owner",
-    triggers: [{ type: "message", surface: "discord", event: "message" }],
-    target: "session:worker", ...extras,
+function trigger(extras: Partial<Ingress.Rule> = {}) {
+  ledger().stores.rules.add(Ingress.Rule.parse({
+    id: "admission", position: 0, enabled: true, createdBy: "owner",
+    when: { instance: "discord" },
+    then: { target: "session:worker", kind: "action", reply: "none" }, ...extras,
   }));
 }
-const facts = { ...ownerFacts, dm: false };
+const facts = { ...ownerFacts, dm: false, reply: { chain: [], threadId: "root" } };
 const id = "discord:owner-workspace:owner-dm:inbound-owner-dm";
 
 test.each([0, 10] as const)("blocked routing cannot enter a %s-second automation", async (windowSeconds) => {
-  trigger({ grouping: { by: "channel", windowSeconds } });
+  trigger({ enabled: false, group: { by: "thread", windowSeconds } });
   const router = makeRouter();
   expect(await runEffect(router.ingest(ownerSender, facts))).toMatchObject({ status: "blocked_pre" });
   await runEffect(router.advance(10_001));
   expect(commits).toEqual([]);
-  expect(ledger().stores.automations.decisions(id)).toEqual([]);
-  expect(ledger().stores.automations.groups()).toEqual([]);
-  expect(ledger().stores.automations.matchedToday("admission", 10_001)).toBe(0);
+  expect(ledger().stores.rules.decisions(id)).toEqual([expect.objectContaining({ by: "rule/none" })]);
+  expect(ledger().stores.rules.groups()).toEqual([]);
+  expect(ledger().stores.rules.matchedToday("admission", 10_001)).toBe(0);
 });
 
-test.each(["matched", "filtered", "refused", "grouped", "superseded"] as const)(
+test.each(["matched", "filtered", "refused", "grouped"] as const)(
   "%s replay preserves original facts and records delivered duplicates", async (decision) => {
     registerOwnerDm();
-    trigger(decision === "filtered" ? { conditions: { contains: ["missing"] } }
-      : decision === "refused" ? { limits: { maxRunsPerDay: 1 } }
-      : decision === "grouped" ? { grouping: { by: "channel", windowSeconds: 10 } } : {});
+    trigger(decision === "filtered" ? { when: { instance: "other" } }
+      : decision === "refused" ? { then: { target: "session:worker", kind: "action", reply: "none", maxRunsPerDay: 1 } }
+      : decision === "grouped" ? { group: { by: "thread", windowSeconds: 10 } } : {});
     if (decision === "refused") {
-      ledger().stores.automations.record(Ingress.Events.RoutingDecision.schema.parse({
+      ledger().stores.rules.record(Ingress.Events.RoutingDecision.schema.parse({
         traceId: "seed", time: 0, inboundId: "seed", surface: "discord", mode: "direct",
-        stage: "automation", outcome: "record", decision: "matched", by: "automation/admission",
+        stage: "automation", outcome: "record", decision: "matched", by: "rule/admission",
         reason: "matched", factsUsed: [], factsDigest: "seed",
       }));
     }
     const router = makeRouter();
-    const event = decision === "superseded" ? ownerFacts : facts;
+    const event = facts;
     const original = await runEffect(router.ingest(ownerSender, event));
-    const originalRows = ledger().stores.automations.decisions(id);
+    const originalRows = ledger().stores.rules.decisions(id);
     expect(originalRows).toEqual([expect.objectContaining({ decision })]);
     if (decision === "grouped") await runEffect(router.advance(10_001));
-    const rows = ledger().stores.automations.decisions(id);
+    const rows = ledger().stores.rules.decisions(id);
     expect(rows[0]).toEqual(originalRows[0]);
     expect(rows).toHaveLength(decision === "grouped" ? 2 : 1);
     const before = commits.length;
@@ -62,10 +62,10 @@ test.each(["matched", "filtered", "refused", "grouped", "superseded"] as const)(
         : decision === "refused" ? "limit" : "message.external.event_id_dedupe",
     });
     expect(commits).toHaveLength(before);
-    const expected = decision === "matched" || decision === "superseded"
+    const expected = decision === "matched"
       ? [...rows, expect.objectContaining({ decision: "deduped", inboundId: id, reason: "event_id_dedupe" })]
       : rows;
-    expect(ledger().stores.automations.decisions(id)).toEqual(expected);
+    expect(ledger().stores.rules.decisions(id)).toEqual(expected);
     expect(routingDecisions().filter((row) => row.stage === "automation" && row.inboundId === id))
       .toEqual(expected);
   },
@@ -73,11 +73,11 @@ test.each(["matched", "filtered", "refused", "grouped", "superseded"] as const)(
 
 test.each(["action", "prompt"] as const)("a restored %s group uses gated dispatch and aggregated content", async (kind) => {
   registerOwnerDm();
-  trigger({ kind, grouping: { by: "channel", windowSeconds: 10 } });
+  trigger({ then: { target: "session:worker", kind, reply: "none" }, group: { by: "thread", windowSeconds: 10 } });
   const router = makeRouter({ now: () => 0 });
   await runEffect(router.ingest(ownerSender, facts));
   await runEffect(router.ingest(ownerSender, { ...facts, eventId: "second", render: "second body" }));
-  expect(ledger().stores.automations.decisions(id)).toEqual([expect.objectContaining({ decision: "grouped" })]);
+  expect(ledger().stores.rules.decisions(id)).toEqual([expect.objectContaining({ decision: "grouped" })]);
   const observations: Gateway.MessageObservation[] = [];
   await runEffect(makeRouter({ observe: (_sender, observation) => observations.push(observation) }).advance(10_000));
   expect(commits).toHaveLength(1);
@@ -86,12 +86,12 @@ test.each(["action", "prompt"] as const)("a restored %s group uses gated dispatc
   expect(Delivery.text(commits[0]?.content ?? [])).toContain("second body");
   expect(observations.map((observation) => observation.kind))
     .toEqual(["message.sent", "message.admitted", "message.committed"]);
-  expect(ledger().stores.automations.groups()).toEqual([]);
-  expect(ledger().stores.automations.decisions(id)).toEqual([
+  expect(ledger().stores.rules.groups()).toEqual([]);
+  expect(ledger().stores.rules.decisions(id)).toEqual([
     expect.objectContaining({ decision: "grouped" }),
     expect.objectContaining({ decision: "grouped", reason: `firing:${commits[0]?.id}` }),
   ]);
-  expect(ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:second")).toEqual([
+  expect(ledger().stores.rules.decisions("discord:owner-workspace:owner-dm:second")).toEqual([
     expect.objectContaining({ decision: "grouped" }),
     expect.objectContaining({ decision: "matched" }),
   ]);
@@ -99,7 +99,7 @@ test.each(["action", "prompt"] as const)("a restored %s group uses gated dispatc
 
 test.each([0, 10] as const)("the event-id gate refuses %s-second automation delivery", async (windowSeconds) => {
   registerOwnerDm();
-  trigger({ grouping: { by: "channel", windowSeconds } });
+  trigger({ group: { by: "thread", windowSeconds } });
   const observations: Gateway.MessageObservation[] = [];
   const router = makeRouter({
     now: () => 0,
@@ -114,7 +114,7 @@ test.each([0, 10] as const)("the event-id gate refuses %s-second automation deli
   expect(observations).toContainEqual(expect.objectContaining({
     kind: "message.rejected", matchedRuleIds: ["message.external.event_id_dedupe"],
   }));
-  if (windowSeconds === 10) expect(ledger().stores.automations.decisions(id)).toEqual([
+  if (windowSeconds === 10) expect(ledger().stores.rules.decisions(id)).toEqual([
     expect.objectContaining({ decision: "grouped" }),
     expect.objectContaining({ decision: "refused", reason: "message.external.event_id_dedupe" }),
   ]);
@@ -122,13 +122,13 @@ test.each([0, 10] as const)("the event-id gate refuses %s-second automation deli
 
 test("revoked admission cannot be revived by closing an existing group", async () => {
   registerOwnerDm();
-  trigger({ grouping: { by: "channel", windowSeconds: 10 } });
+  trigger({ group: { by: "thread", windowSeconds: 10 } });
   const router = makeRouter({ now: () => 0 });
   await runEffect(router.ingest(ownerSender, facts));
-  ledger().stores.blacklist.put({ id: "block", kind: "channel", value: ownerFacts.channelId, createdBy: "owner" });
+  ledger().stores.rules.disable("admission");
   await runEffect(router.advance(10_000));
   expect(commits).toEqual([]);
-  expect(ledger().stores.automations.groups()).toEqual([]);
+  expect(ledger().stores.rules.groups()).toEqual([]);
 });
 
 test("a grouped new target and all members survive closing and reopening SQLite", async () => {
@@ -137,10 +137,10 @@ test("a grouped new target and all members survive closing and reopening SQLite"
   resetLedger(paths);
   try {
     registerOwnerDm();
-    trigger({ target: "new", grouping: { by: "author", windowSeconds: 10 } });
+    trigger({ then: { target: "new", kind: "action", reply: "none" }, group: { by: "thread", windowSeconds: 10 } });
     const router = makeRouter({ now: () => 0 });
     await runEffect(router.ingest(ownerSender, facts));
-    const target = ledger().stores.automations.groups()[0]?.target;
+    const target = ledger().stores.rules.groups()[0]?.target;
     if (target === undefined) throw new Error("group target was not persisted");
     await runEffect(router.ingest(ownerSender, { ...facts, eventId: "second" }));
     resetLedger(paths);
@@ -149,9 +149,9 @@ test("a grouped new target and all members survive closing and reopening SQLite"
     expect(commits).toHaveLength(1);
     expect(`session:${commits[0]?.sessionId}`).toBe(target);
     expect(JSON.parse(Delivery.text(commits[0]?.content ?? [])).event.messages).toHaveLength(2);
-    expect(ledger().stores.automations.matchedToday("admission", 10_000)).toBe(1);
+    expect(ledger().stores.rules.matchedToday("admission", 10_000)).toBe(1);
     await runEffect(resumed.ingest(ownerSender, facts));
-    expect(ledger().stores.automations.decisions(id)).toEqual([
+    expect(ledger().stores.rules.decisions(id)).toEqual([
       expect.objectContaining({ decision: "grouped" }),
       expect.objectContaining({ decision: "grouped", reason: `firing:${commits[0]?.id}` }),
     ]);
@@ -164,17 +164,17 @@ test("a grouped new target and all members survive closing and reopening SQLite"
 
 test.each(["disabled", "removed", "limited"] as const)("a %s group closes without session delivery", async (state) => {
   registerOwnerDm();
-  trigger({ grouping: { by: "thread", windowSeconds: 10 } });
+  trigger({ group: { by: "thread", windowSeconds: 10 } });
   const router = makeRouter({ now: () => 0 });
   await runEffect(router.ingest(ownerSender, facts));
-  const store = ledger().stores.automations;
+  const store = ledger().stores.rules;
   if (state === "disabled") store.disable("admission");
   else if (state === "removed") store.remove("admission");
   else {
-    trigger({ grouping: { by: "thread", windowSeconds: 10 }, limits: { maxRunsPerDay: 1 } });
+    trigger({ group: { by: "thread", windowSeconds: 10 }, then: { target: "session:worker", kind: "action", reply: "none", maxRunsPerDay: 1 } });
     store.record(Ingress.Events.RoutingDecision.schema.parse({
       traceId: "seed", time: 0, inboundId: "seed", surface: "discord", mode: "direct",
-      stage: "automation", outcome: "record", decision: "matched", by: "automation/admission",
+      stage: "automation", outcome: "record", decision: "matched", by: "rule/admission",
       reason: "matched", factsUsed: [], factsDigest: "seed",
     }));
   }
@@ -190,9 +190,9 @@ test.each(["disabled", "removed", "limited"] as const)("a %s group closes withou
   ]);
 });
 
-test("a request created after grouping cannot acquire the held event", async () => {
+test("a request created after group cannot acquire the held event", async () => {
   registerOwnerDm();
-  trigger({ grouping: { by: "channel", windowSeconds: 10 } });
+  trigger({ group: { by: "thread", windowSeconds: 10 } });
   const router = makeRouter({ now: () => 0 });
   await runEffect(router.ingest(ownerSender, { ...facts, reply: { chain: [], tokenHash: "late" } }));
   await runEffect(await openRequest("late", {
@@ -202,7 +202,7 @@ test("a request created after grouping cannot acquire the held event", async () 
   await runEffect(router.advance(10_000));
   expect(commits).toEqual([]);
   expect(ledger().kernel.requestById("late")?.state).toBe("open");
-  expect(ledger().stores.automations.decisions(id)).toEqual([
+  expect(ledger().stores.rules.decisions(id)).toEqual([
     expect.objectContaining({ decision: "grouped" }),
     expect.objectContaining({ decision: "refused", reason: "request_correlation" }),
   ]);
@@ -210,7 +210,7 @@ test("a request created after grouping cannot acquire the held event", async () 
 
 test.each([0, 10] as const)("egress denial also governs %s-second automation delivery", async (windowSeconds) => {
   registerOwnerDm();
-  trigger({ grouping: { by: "channel", windowSeconds } });
+  trigger({ group: { by: "thread", windowSeconds } });
   const router = makeRouter({
     now: () => 0,
     messaging: { grants: () => [], deliveryRoutes: new Map(), budgets: () => [{
@@ -221,7 +221,7 @@ test.each([0, 10] as const)("egress denial also governs %s-second automation del
   if (windowSeconds === 0) expect(result).toMatchObject({ reasonCode: "message.external.egress_budget" });
   await runEffect(router.advance(10_000));
   expect(commits).toEqual([]);
-  if (windowSeconds === 10) expect(ledger().stores.automations.decisions(id)).toEqual([
+  if (windowSeconds === 10) expect(ledger().stores.rules.decisions(id)).toEqual([
     expect.objectContaining({ decision: "grouped" }),
     expect.objectContaining({ decision: "refused", reason: "message.external.egress_budget" }),
   ]);

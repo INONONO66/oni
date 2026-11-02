@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { ChannelStores } from "./stores.js";
 import type { PolicyEvaluationInput } from "@oni/agent";
-import { type Gateway } from "@oni/protocol";
+import { type Gateway, Ingress } from "@oni/protocol";
 import { routeRule, type MatchDecision, type PendingGroup } from "../automation/matcher.js";
 import { type ingressInput, ingressSurfaceKey } from "./automation/input.js";
 import { match } from "./automation/match.js";
@@ -54,7 +54,7 @@ export function externalMessage(
       ...selected, newSession: selected.newSession || (selected.conversation && existing === undefined),
     };
     const granted = request ? resolved.route : resolveKernelRoute(event, ports.requests, at, automation, target);
-    const route = closingRoute === undefined ? recordKernelRoute(stores, granted, ports.sink, at) : granted;
+    const route = closingRoute === undefined ? recordKernelRoute(stores, granted, ports.sink, at, granted.decision.stage !== "automation") : granted;
     const budget = budgets.find((candidate) => candidate.targetActorId === event.meta?.actor?.actorId);
     const egressBudget = request || budget === undefined || evaluateSocialBudget(budget,
       stores.egressBudgets.read(target, budget.targetActorId, at - budget.windowMs), { class: "converse", at }) === "allow";
@@ -119,6 +119,20 @@ export function replayExternal(stores: ChannelStores,
   ports: GatewayRouterPorts, at: number, budgets: readonly Gateway.SocialBudget[],
   input: ReturnType<typeof ingressInput>) {
   return Effect.gen(function* () {
+    const resolved = resolveIngress(stores, sender, facts, ports, at);
+    const fact = stores.decisionFacts.port()?.head(Ingress.routeStreamId(resolved.event));
+    const original = fact === undefined ? undefined : Ingress.recordedRoutingDecision(fact.data);
+    if (original?.outcome === "route" && original.stage === "surface_default") {
+      const actor = resolved.event.meta?.actor;
+      const { actorId: _actorId, trustTier: _trustTier, inboundTreatment: _treatment, ...recorded } = original;
+      const treatment = resolved.event.meta?.inboundTreatment;
+      recordKernelRoute(stores, { ...resolved.route, decision: { ...recorded,
+        ...(actor?.actorId === undefined ? {} : { actorId: actor.actorId }),
+        ...(actor?.trustTier === undefined ? {} : { trustTier: actor.trustTier }),
+        ...(treatment === undefined ? {} : { inboundTreatment: treatment }),
+        factsUsed: original.factsUsed.filter((entry) => entry.startsWith("rule:")),
+      } }, ports.sink, at, false);
+    }
     const retry = stores.rules.pendingDelivery(input.input.eventId);
     if (retry === undefined) {
       const record = stores.rules.decisions(input.input.eventId)[0];
