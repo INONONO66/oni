@@ -14,6 +14,7 @@ import { bashBundle } from "./bundles/tools/bash/index";
 import { completionBundle } from "./bundles/tools/completion/index";
 import { evalBundle } from "./bundles/tools/eval/index";
 import { fileBundle } from "./bundles/tools/file/index";
+import { speechBundle } from "./bundles/tools/speech/index";
 import { AppInvariantError } from "./invariant";
 import type { ToolPorts } from "./composition/catalog";
 import { SHIPPED_OWNER_POLICY, type OwnerPolicy } from "./composition/policy";
@@ -82,6 +83,7 @@ export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition 
     approvalPolicyBundle(() => input.tools()?.provisioning?.computer?.guard),
     sendMessageBundle(input.tools),
     provisionBundle(input.tools),
+    speechBundle(input.tools),
     completionBundle(input.tools),
     compactionSummarizerBundle(),
     compactionBundle(),

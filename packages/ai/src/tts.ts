@@ -1,0 +1,89 @@
+import { type BusEvent, LlmCall } from "@oni/protocol";
+import { generateSpeech } from "ai";
+import { Effect } from "effect";
+import { Auth } from "./auth/storage";
+import { decodeLlmFailure } from "./error";
+import { ModelResolutionError, type LlmError } from "./errors";
+import { Provider } from "./provider";
+import { BUNDLED_ROWS, type ProviderRow } from "./provider/rows";
+import { getSDK, type Transport } from "./provider/sdk";
+
+/** The audio one call produced: the container bytes and the media type the SDK read off them. */
+export interface Speech {
+  readonly bytes: Uint8Array;
+  readonly mediaType: string;
+}
+
+type SpeechRow = NonNullable<ProviderRow["speech"]>;
+
+export interface Tts {
+  /**
+   * `traceId` correlates the call's observation row; the caller mints it. `model` is an id on the
+   * selected row's provider; `voice`/`format` override the row's.
+   */
+  readonly speak: (call: {
+    readonly text: string;
+    readonly traceId: string;
+    readonly model?: string;
+    readonly voice?: string;
+    readonly format?: SpeechRow["format"];
+  }) => Effect.Effect<Speech, LlmError>;
+}
+
+interface Selection {
+  readonly row: ProviderRow;
+  readonly speech: SpeechRow;
+}
+
+/** The first row naming a speech model serves every call; a per-call `model` id stays on that row. */
+function select(rows: readonly ProviderRow[]): Effect.Effect<Selection, ModelResolutionError> {
+  const row = rows.find((candidate) => candidate.speech !== undefined);
+  return row?.speech === undefined
+    ? Effect.fail(new ModelResolutionError({ message: "No provider row names a speech model", provider: "", model: "", reason: "model_not_found" }))
+    : Effect.succeed({ row, speech: row.speech });
+}
+
+export function makeTts(input: {
+  readonly authFilePath: string;
+  readonly rows?: readonly ProviderRow[];
+  readonly transport?: Transport;
+  /** Receives one row per settled provider call: `llm.speech.completed` or `llm.speech.failed`. */
+  readonly events: BusEvent.Sink;
+  readonly now: () => number;
+}): Tts {
+  const rows = input.rows ?? BUNDLED_ROWS;
+  return {
+    speak: (call) => Effect.gen(function* () {
+      const { row, speech } = yield* select(rows);
+      const modelId = call.model ?? speech.model;
+      const auth = yield* Auth.resolve(row.id, input.authFilePath);
+      const sdk = getSDK(Provider.withRow({ id: modelId, providerID: row.id, name: modelId }, row), auth, input.transport);
+      if (!("speech" in sdk)) {
+        return yield* new ModelResolutionError({
+          message: `Provider ${row.id} has no speech surface`, provider: row.id, model: modelId, reason: "model_not_found",
+        });
+      }
+      const startedAt = input.now();
+      const identity = { traceId: call.traceId, provider: row.id, model: modelId, inputChars: call.text.length };
+      const result = yield* Effect.tryPromise({
+        // Retries belong to the caller, as for `run`: one attempt per invocation.
+        try: (abortSignal) => generateSpeech({
+          model: sdk.speech(modelId),
+          text: call.text,
+          voice: call.voice ?? speech.voice,
+          outputFormat: call.format ?? speech.format ?? "mp3",
+          maxRetries: 0,
+          abortSignal,
+        }),
+        catch: decodeLlmFailure("tts.speak"),
+      }).pipe(Effect.tapError((error) => Effect.sync(() => {
+        const time = input.now();
+        input.events.publish(LlmCall.Events.SpeechFailed, { ...identity, time, durationMs: time - startedAt, error: error.message });
+      })));
+      const bytes = result.audio.uint8Array;
+      const time = input.now();
+      input.events.publish(LlmCall.Events.SpeechCompleted, { ...identity, time, outputBytes: bytes.byteLength, durationMs: time - startedAt });
+      return { bytes, mediaType: result.audio.mediaType };
+    }),
+  };
+}

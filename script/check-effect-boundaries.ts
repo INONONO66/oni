@@ -35,6 +35,7 @@ export const TOOL_BODY_PATHS: ReadonlyMap<string, string> = new Map([
   ["monitor", "apps/oni/src/bundles/alarms/monitor/index.ts"],
   ["send_message", "apps/oni/src/bundles/messaging/send-message/index.ts"],
   ["provision", "apps/oni/src/bundles/provision/provision.ts"],
+  ["speech", "apps/oni/src/bundles/tools/speech/index.ts"],
   ["completion", "apps/oni/src/bundles/tools/completion/index.ts"],
 ]);
 function isToolBodyPath(file: string): boolean {

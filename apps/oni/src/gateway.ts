@@ -8,6 +8,8 @@ import type { WsParts } from "./composition/ws-parts";
 import type { ComposedCodemode } from "./composition/codemode";
 import type { ToolPorts } from "./composition/catalog";
 import type { createCompletionPort } from "./composition/completion";
+import type { Tts } from "@oni/ai";
+import type { OutputPort } from "./bundles/tools/speech/index";
 import {
   type ChannelDeliveryRoute,
   type ChannelStores,
@@ -29,7 +31,7 @@ const AgentFailure = Core.AgentFailure;
 const scopeObservation = Core.scopeObservation;
 const attemptUsage = Inspect.attemptUsage;
 const toolWallMs = Inspect.toolWallMs;
-import { Gateway as GatewayProtocol, L0Observation, type Provisioning, SessionGeneration, type PlainValue, type SessionFork, SessionRead, toolOutputRefSchema } from "@oni/protocol";
+import { Gateway as GatewayProtocol, L0Observation, type Provisioning, SessionGeneration, type PlainValue, type SessionFork, SessionRead, toolOutputRefSchema, traceIdFromUuid } from "@oni/protocol";
 import { messageDecisionRules } from "./composition/message-decision";
 import { createIngressExecutor, GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { SHIPPED_OWNER_POLICY } from "./composition/policy";
@@ -125,6 +127,9 @@ export function toolPorts(
     readonly machines?: { readonly host: MachineHost; readonly defaultMachine: string };
     readonly cells?: ComposedCodemode;
     readonly completion: ReturnType<typeof createCompletionPort>;
+    /** Text-to-speech and the session output store the `speech` tool writes into; absent leaves the tool refusing. */
+    readonly speech?: Tts;
+    readonly putOutput?: OutputPort;
     readonly messages: Pick<GatewayRouter, "ingest">;
     /** Injected clock + id entropy (#1245): required, no ambient Date/crypto. */
     readonly now: () => number;
@@ -133,6 +138,7 @@ export function toolPorts(
 ): ToolPorts {
   const cells = ports.cells;
   const machines = ports.machines;
+  const speech = ports.speech;
   return {
     provisioning: undefined,
     clock: ports.now,
@@ -172,6 +178,10 @@ export function toolPorts(
             },
           },
     llm: (call) => runAppEffect(runtime, currentInvocation().generation.provide(ports.completion(call))),
+    speech: speech === undefined
+      ? undefined
+      : (call) => runAppEffect(runtime, speech.speak({ ...call, traceId: traceIdFromUuid(ports.id()) })),
+    putOutput: ports.putOutput,
     messages: { ingest: (...args) =>
       runAppEffect(runtime, ports.messages.ingest(...args).pipe(
         Effect.provideService(Core.ExecutorContext, Core.currentExecutor()),
