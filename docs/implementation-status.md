@@ -36,7 +36,11 @@ An Owner instance still needs its outbound grant and auto-reply declaration.
 
 An actor/contact target's `surface` can name the instance directly. A platform
 target selects the sole mounted route with the requested identity; two or more
-refuse with `target_ambiguous`, and missing or mismatched routes fail closed.
+refuse with `target_ambiguous`, projected by the app's policy row as
+`message.resident.target_ambiguous`. Missing or mismatched routes fail closed.
+Any surface name other than the endpoint's platform is an exact instance id;
+revoked instances never fall through to sibling accounts. Draft delivery to the
+Owner reads the provider's declared `capabilities.direct`, not a platform list.
 `Channel.instanceId(platform, identity)` is removed. Platform-based ingress
 grants and translation remain unchanged; rule-table and Message consolidation
 are separate work.
