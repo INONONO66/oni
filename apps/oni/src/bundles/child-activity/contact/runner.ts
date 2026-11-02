@@ -56,6 +56,8 @@ export interface CliRunnerDeps {
 export interface CliRunner {
   run(input: CliRunInput): Effect.Effect<CliTurn, CliRefusal>;
   interrupt(child: string): Effect.Effect<void, CliRefusal>;
+  /** The session whose turn is running agent session `child`; undefined once that turn stopped. */
+  owner(child: string): string | undefined;
   close(): Effect.Effect<void>;
 }
 
@@ -243,6 +245,7 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       running.wake?.();
       yield* stop(running);
     }),
+    owner: (child) => byChild.get(child)?.sender,
     close: () => Effect.forEach([...active.values()], stop, { discard: true }).pipe(Effect.catch(() => Effect.void)),
   };
 }

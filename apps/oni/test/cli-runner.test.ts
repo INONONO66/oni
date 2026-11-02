@@ -116,8 +116,10 @@ test("a cli turn opens a machine-client session, sends, and ends on the terminal
 test("an interrupt wakes the pending turn with the landed refusal and stops the child", async () => {
   const { runner, calls, listeners } = harness({ silent: true });
   const pending = runEffect(Effect.flip(runner.run({ agent: "reviewer", message: "review", sender: SENDER, turnId: "t-1", key: "k-1" })));
+  expect(runner.owner("agent-1")).toBe(SENDER);
   await runEffect(runner.interrupt("agent-1"));
   expect(await pending).toEqual({ reason: "deadline expired; the child was interrupted", landed: true });
+  expect(runner.owner("agent-1")).toBeUndefined();
   expect(calls).toEqual(["open:claude-code:/work", "send:agent-1:review", "stop:agent-1", "close:cli:agent-1"]);
   expect(listeners.size).toBe(0);
 });

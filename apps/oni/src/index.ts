@@ -40,6 +40,7 @@ import { computerCapture } from "./bundles/approval-policy/computer-capture";
 import { computerTurn } from "./bundles/approval-policy/computer-turn";
 import { computerEvents } from "./bundles/approval-policy/computer-events";
 import { consentOrigin } from "./bundles/approval-policy/consent-origin";
+import { AGENT_PERMISSION_HOST_DEADLINE_MS, type AgentPermissionPort, createAgentPermissionPort } from "./bundles/approval-policy/agent-permission";
 import computerExclusions from "../policy/computer-exclusions.json";
 import { gateRowPolicySeeds } from "./bundles/core-policy/index";
 import { seedKernelPolicyRows } from "./composition/policy";
@@ -213,6 +214,7 @@ async function composeMachinePlane(
     readonly callTool: (
       call: Machine.ToolCall,
     ) => Effect.Effect<Machine.ToolCallResult, MachineError>;
+    readonly agentPermission: AgentPermissionPort["decide"];
   },
 ): Promise<{
   readonly host: MachineHost;
@@ -261,6 +263,8 @@ async function composeMachinePlane(
             deps.enrollments.request(offer.machineId, excess, offer.offeredAt, deps.now());
         },
         pendingCapabilities: (machineId) => machineId === plane.self.id ? [] : deps.enrollments.pending(machineId),
+        decideAgentPermission: deps.agentPermission,
+        agentPermissionDeadlineMs: AGENT_PERMISSION_HOST_DEADLINE_MS,
         events: deps.events,
         id: deps.id,
         // #1312: injected IPC callback bound — queue depth and callback fan-out
@@ -730,6 +734,7 @@ export async function startOni(options: StartOptions = {}) {
       },
       // The machine port is read at access time, never captured.
       get machines() { return machineProvision; },
+      get permissions() { return agentPermission; },
       automations,
       persons: plane.stores.persons,
       instances: plane.stores.instances,
@@ -786,7 +791,22 @@ export async function startOni(options: StartOptions = {}) {
     let cells: ComposedCodemode | undefined;
     const releasePath = config.mclientRelease ?? resolveMclientRelease();
     const clientRelease = () => readClientRelease(releasePath);
+    // #1665: a child cli's permission request is decided by the session running
+    // its turn; the cli runner that knows that session is composed after the host.
+    let cliOwner: CliRunner["owner"] = () => undefined;
+    const agentPermission = createAgentPermissionPort({
+      owner: (child) => cliOwner(child),
+      deliver: (sessionId, input) =>
+        entityClient(sessionId).Deliver(input).pipe(
+          Effect.asVoid,
+          Effect.mapError((error) => (error instanceof Error ? error : new Error(String(error)))),
+        ),
+      decisions: (sessionId) => plane.session(sessionId).decisions,
+      incident,
+      now: services.now,
+    });
     const machinery = await composeMachinePlane(runtime, machinesConfig, resolveMachineGenerationsPath(config), {
+      agentPermission: agentPermission.decide,
       enrollments,
       events: computerEvents(computer, services.observations),
       mclientBin,
@@ -945,6 +965,7 @@ export async function startOni(options: StartOptions = {}) {
     });
     await acquire(Effect.succeed(cliRunner), (runner) => runner.close());
     cliInterrupt = (child) => cliRunner.interrupt(child);
+    cliOwner = (child) => cliRunner.owner(child);
     // #1308: bind the live alarm ports the wake bundle's ONE tool
     // declaration executes against — injected holders (tests) bind here too.
     services.composed.alarms.bind(await createMonitorPorts(runtime, alarmPlane));

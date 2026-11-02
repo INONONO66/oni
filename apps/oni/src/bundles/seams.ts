@@ -18,6 +18,23 @@ export interface ComputerPort {
   watch(machineId: string): void;
 }
 
+export type PermissionAnswerOutcome =
+  /** `exists` carries the earlier fact's status, not the input's. */
+  | { readonly kind: "recorded" | "exists"; readonly status: "allowed" | "denied" }
+  | { readonly kind: "not_owner" };
+
+/** A cli child's permission request, answered by the session whose turn runs the child (#1665). */
+export interface PermissionPort {
+  answer(input: {
+    /** The answering session; `not_owner` when its cli turn does not run the agent session. */
+    readonly sessionId: string;
+    readonly machineId: Machine.MachineId;
+    readonly agentSessionId: string;
+    readonly requestId: string;
+    readonly status: "allowed" | "denied";
+  }): PermissionAnswerOutcome;
+}
+
 /**
  * App-owned capability ports (#1255/#1258), declared outside `manifest.ts` so
  * bundles can require them without importing the manifest that lists the

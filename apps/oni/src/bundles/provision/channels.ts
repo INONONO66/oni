@@ -10,7 +10,7 @@ import type { BundlePort } from "./bundles";
 import { Statuses } from "./status";
 import type { AutomationPort } from "./automation";
 import type { MachinePort } from "./machines";
-import type { ComputerPort } from "../seams";
+import type { ComputerPort, PermissionPort } from "../seams";
 
 export const CHANNEL_DECLARE_INPUT = z
   .object({
@@ -92,6 +92,7 @@ export const ChannelResult = z.discriminatedUnion("op", [
 export interface ProvisionPort {
   readonly computer?: ComputerPort;
   readonly machines?: MachinePort;
+  readonly permissions?: PermissionPort;
   readonly automations?: AutomationPort;
   readonly persons: Pick<PersonStore, "put" | "get" | "list" | "remove">;
   readonly instances: Pick<ChannelInstanceStore, "put" | "get" | "list">;
