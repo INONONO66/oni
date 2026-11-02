@@ -13,6 +13,10 @@ export function createAgentStore(database: Database) {
     data TEXT NOT NULL CHECK (json_valid(data))
   )`);
   return {
+    seed(input: Provisioning.Agent & { readonly id: "resident" | "child" }): void {
+      database.query("INSERT INTO agent (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data")
+        .run(input.id, JSON.stringify(input));
+    },
     list: (): Provisioning.Agent[] =>
       AgentRow.array().parse(database.query("SELECT data FROM agent ORDER BY id").all()),
     get(id: string): Provisioning.Agent {

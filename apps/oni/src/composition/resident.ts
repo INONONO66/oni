@@ -13,14 +13,13 @@ export type ResidentOptions = Omit<ResidentBundleOptions, "prompt" | "id" | "clo
   readonly agents: AgentStore;
 };
 
-/** Seeds preserve every lineage-visible face, including currently disabled bundles. */
+/** Code-owned seeds track the shipped prompt and manifest on every boot. */
 export function seedAgents(store: AgentStore, tools: readonly Pick<AnyToolDefinition, "name" | "visibility">[]): void {
-  const present = new Set(store.list().map((agent) => agent.id));
   for (const [id, preset] of [["resident", RESIDENT_PRESET], ["child", CHILD_PRESET]] as const) {
-    if (present.has(id)) continue;
     const { identity, mandate, policies, style } = preset;
-    store.add({
+    store.seed({
       id,
+      enabled: true,
       prompt: { identity, mandate, ...(policies === undefined ? {} : { policies }), ...(style === undefined ? {} : { style }) },
       tools: [...new Set(tools.filter((tool) =>
         tool.visibility.model.includes(id) || tool.visibility.cell.includes(id),
