@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { SessionGeneration, type LedgerAction } from "@oni/protocol";
 import { testNow, withDiskStores } from "../helpers/storage";
-import { adoptWriter, materializeSession } from "../helpers/session";
+import { adoptWriter } from "../helpers/session";
 import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";
 import { RETIRED_ROLE, rawCatalogRows, writeOldCatalog } from "../helpers/old-catalog";
 import { openCatalogStore } from "../../../src/core/store/catalog";
@@ -37,7 +37,11 @@ const DeliveryIntent = z.looseObject({ deliveryId: z.string() });
 describe("Session.fork", () => {
   test("reads a persisted child fork anchor after reopening its file", () => {
     withDiskStores("fork-reopen", ({ kernel, catalog, directory }) => {
-      materializeSession(kernel, PARENT);
+      runLedgerSync(kernel.materialize({
+        id: PARENT, parentId: null, role: "resident", agent: "persona-x",
+        tools: [], system: { preset: "", blocks: [] }, policyGeneration: 0,
+        actionId: `${PARENT}:configure`, at: 1,
+      }));
       const authority = adoptWriter(kernel, PARENT);
       const anchor = "parent-prompt";
       Result.getOrThrowWith(runLedgerSync(Effect.result(kernel.commit({
@@ -78,6 +82,10 @@ describe("Session.fork", () => {
       const reopened = openSessionStore(childPath, { now: testNow });
       try {
         expect(forkAncestryOf(SessionHandleStore.createSessionKernel(reopened, catalog), CHILD)?.anchor).toBe(anchor);
+        expect(reopened.sessions.get(CHILD)?.agent).toBe("persona-x");
+        expect(SessionGeneration.ConfigureIntent.parse(
+          SessionHandleStore.createSessionKernel(reopened, catalog).actionById(`${CHILD}:genesis`)?.intent.value,
+        ).agent).toBe("persona-x");
       } finally {
         reopened.close();
       }

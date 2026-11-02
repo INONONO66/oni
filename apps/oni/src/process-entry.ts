@@ -162,6 +162,7 @@ export function serveProcessSession(
   const tools = toolPorts(appRuntime, { messages, completion: llm, now, id: entropy.id });
   composed.tools.bind(tools);
   const resident = createResident({
+    agents: plane.stores.agents,
     composed: { current: composed.current },
     model: request.model,
     apiKey: request.apiKey,

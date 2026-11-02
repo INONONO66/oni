@@ -42,6 +42,7 @@ export function createIngressExecutor(
     yield* plane.session(id).create({
       parentId: null, role: "resident",
       genesis: {
+        agent: "resident",
         tools: [], bundles: composed.current().generation.bundles, system: { preset: "", blocks: [] },
         policyGeneration: reads.currentPolicyGeneration(), actionId: nextId(), at: clock(),
       },

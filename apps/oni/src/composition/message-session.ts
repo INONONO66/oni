@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { Core } from "@oni/agent";
 const AgentFailure = Core.AgentFailure;
 type AgentFailure = Core.AgentFailure;
-import { Delivery, Gateway, SessionGeneration, type ConsumptionSettings, type LedgerSession } from "@oni/protocol";
+import { Delivery, Gateway, Provisioning, SessionGeneration, type ConsumptionSettings, type LedgerSession } from "@oni/protocol";
 import { type ConversationBinding, SendAdmissionConflict, type createGatewayRouter } from "@oni/channels";
 import { z } from "zod";
 import type { AppLedgerPlane } from "./cluster-runtime";
@@ -134,6 +134,7 @@ export function materializeDeliveryTarget(
         policyGeneration: snapshot.policyGeneration,
         ...(snapshot.manifestHash === undefined ? {} : { manifestHash: snapshot.manifestHash }),
         ...(settings === undefined ? {} : { settings }),
+        ...(create.row.agent === undefined ? {} : { agent: create.row.agent }),
         actionId: create.initialAction.id,
         at: clock(),
       },
@@ -238,6 +239,7 @@ export function messageMaterialization(
   readonly id: string;
   readonly parentId: string | null;
   readonly role: LedgerSession.Role;
+  readonly agent?: string;
   readonly tools: readonly SessionGeneration.Tool[];
   readonly bundles?: readonly string[];
   /** The composed generation's hash (#1255 P3): stamped so an unchanged manifest appends no adoption row. */
@@ -254,6 +256,7 @@ export function messageMaterialization(
       parentId: input.parentId,
       role: input.role,
       genesis: {
+        ...(input.agent === undefined ? {} : { agent: input.agent }),
         tools: [...input.tools],
         bundles: input.bundles ?? [],
         ...(input.manifestHash === undefined ? {} : { manifestHash: input.manifestHash }),
@@ -306,6 +309,7 @@ function prepareExternal(
     parentId: string | null,
     role: LedgerSession.Role,
     runner: string,
+    agent?: string,
   ) => LedgerSession.Materialize,
   send: Parameters<Ports["prepare"]>[1],
   target: string,
@@ -433,6 +437,7 @@ function childCreation(
     parentId: string | null,
     role: LedgerSession.Role,
     runner: string,
+    agent?: string,
   ) => LedgerSession.Materialize,
   target: string,
 ): Effect.Effect<
@@ -445,9 +450,17 @@ function childCreation(
   const depths = bounds.flatMap((check) => (check.kind === "depth" ? [check.max] : []));
   if (fanout.length === 0 || depths.length === 0)
     return Effect.fail(new SendAdmissionConflict({ message: "child admission bounds missing from pinned policy" }));
-  return Effect.succeed({
-    createSession: genesis(target, source.id, send.to.role, send.to.runner),
-    limits: { fanout: Math.min(...fanout), depth: Math.min(...depths) },
+  const to = send.to;
+  return Effect.try({
+    try: () => ({
+      createSession: genesis(target, source.id, to.role, to.runner, to.agent ?? "child"),
+      limits: { fanout: Math.min(...fanout), depth: Math.min(...depths) },
+    }),
+    catch: (error) => {
+      if (Provisioning.AgentError.isInstance(error))
+        return new SendAdmissionConflict({ message: `agent_${error.data.code}: ${error.data.id}` });
+      throw error;
+    },
   });
 }
 
@@ -458,6 +471,7 @@ export function prepareMessage(
     parentId: string | null,
     role: LedgerSession.Role,
     runner: string,
+    agent?: string,
   ) => LedgerSession.Materialize,
 ): Ports["prepare"] {
   return (sender, send, target, messageId) =>

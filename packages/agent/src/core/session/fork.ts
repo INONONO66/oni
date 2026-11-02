@@ -1,4 +1,4 @@
-import { configurationSnapshot, configureAction } from "../store/configure";
+import { configurationSnapshot, materializationSeed } from "../store/configure";
 /**
  * The child genesis pins the parent, anchor action id, parent ordinal and latest
  * action id so later parent appends never alter the child's history. Arms,
@@ -260,29 +260,15 @@ export function forkSession(
         detail: `child session ${input.childId} already exists`,
       });
     const receipt: SessionForkReceipt = yield* child.fork({
-      materialize: {
-        row: {
-          id: input.childId,
-          parentId: input.from,
-          role: parentRow.role,
-          fenceOwner: null,
-          fence: 0,
-          revision: 0,
-          state: "idle",
-          toolsGeneration: snapshot.generation,
-          systemHash: snapshot.systemHash,
-          policyGeneration: snapshot.policyGeneration,
-        },
-        initialAction: configureAction({
-          id: input.genesisActionId,
-          sessionId: input.childId,
-          parentId: null,
-          operation: "fork",
-          snapshot,
-          forkedFrom,
-          at: input.now,
-        }),
-      },
+      materialize: materializationSeed({
+        id: input.childId,
+        parentId: input.from,
+        role: parentRow.role,
+        ...(parentRow.agent === undefined ? {} : { agent: parentRow.agent }),
+        actionId: input.genesisActionId,
+        forkedFrom,
+        at: input.now,
+      }, snapshot),
       index: ports.catalog,
       createdAt: input.now,
       copies,

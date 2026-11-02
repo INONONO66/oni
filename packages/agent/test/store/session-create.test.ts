@@ -36,6 +36,7 @@ function openPlane(): { plane: LedgerPlane; sessionsDir: string; close: () => vo
 }
 
 const genesis: CreateSessionInput["genesis"] = {
+  agent: "persona-x",
   tools: [
     { name: "zeta", inputSchema: {}, category: "query" },
     { name: "alpha", inputSchema: {}, category: "mutation" },
@@ -58,6 +59,7 @@ test("createSession writes genesis and catalog index together and preserves the 
       id: "s-1",
       parentId: null,
       role: "resident",
+      agent: "persona-x",
       fenceOwner: null,
       fence: 0,
       revision: 1,
@@ -81,6 +83,7 @@ test("createSession writes genesis and catalog index together and preserves the 
     expect(kernel.row("s-1").revision).toBe(1);
     const intent = SessionGeneration.ConfigureIntent.parse(kernel.latestAction("s-1")?.intent.value);
     expect(intent.settings).toEqual({ steering: "one", followUp: "all", forkCopyByteCap: 4096 });
+    expect(intent.agent).toBe("persona-x");
     expect(plane.listSessions().map((row) => row.id)).toEqual(["s-1"]);
   } finally {
     close();
@@ -98,7 +101,7 @@ test("a duplicate id refuses typed without rewriting genesis or touching the ind
         id: "s-dup",
         parentId: null,
         role: "resident",
-        genesis: { ...genesis, actionId: "s-dup:second", at: 99 },
+        genesis: { ...genesis, agent: "persona-y", actionId: "s-dup:second", at: 99 },
       }),
     ));
     expect(Result.isFailure(again)).toBe(true);
@@ -108,11 +111,34 @@ test("a duplicate id refuses typed without rewriting genesis or touching the ind
     expect(error?.message).toBe("session creation refused (duplicate): s-dup");
     const kernel = plane.openKernel("s-dup");
     expect(kernel.row("s-dup").revision).toBe(1);
+    expect(kernel.row("s-dup").agent).toBe("persona-x");
     expect(kernel.latestAction("s-dup")?.id).toBe(first.genesis.action.id);
     expect(plane.catalog.sessionIndex("s-dup")?.createdAt).toBe(17);
     expect(plane.listSessions()).toHaveLength(1);
   } finally {
     close();
+  }
+});
+
+test("session persona survives reopening both catalog and session files", () => {
+  const directory = mkdtempSync(join(tmpdir(), "session-agent-reopen-"));
+  const open = () => openLedgerPlane({
+    now: testNow, catalog: { path: join(directory, "catalog.sqlite") },
+    sessions: { dir: join(directory, "sessions") },
+  });
+  const plane = open();
+  try {
+    runLedgerSync(createSession(plane, { id: "persisted", parentId: null, role: "resident", genesis }));
+  } finally {
+    plane.close();
+  }
+  const reopened = open();
+  try {
+    expect(reopened.read.session("persisted").row("persisted")).toMatchObject({ agent: "persona-x", role: "resident" });
+    expect(reopened.read.sessions.list()).toEqual([expect.objectContaining({ agent: "persona-x" })]);
+  } finally {
+    reopened.close();
+    rmSync(directory, { recursive: true });
   }
 });
 

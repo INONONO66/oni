@@ -317,6 +317,10 @@
                   "type": "string",
                   "enum": ["resident", "child"]
                 },
+                "agent": {
+                  "type": "string",
+                  "minLength": 1
+                },
                 "runner": {
                   "type": "string",
                   "minLength": 1

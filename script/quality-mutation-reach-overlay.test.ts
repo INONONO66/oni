@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { decodeOverlay, encodeOverlay, installOverlay, OVERLAY_ENVIRONMENT, reachPlugin, type ReachOverlay, stagePreload } from "./quality-mutation-reach-overlay";
 import { instrument, sha256, stageMacroPreload } from "./run-quality-mutations";
 import { parseNativeLcov } from "./quality-native-lcov";
@@ -220,32 +220,5 @@ test("inherited preload", async () => {
 		if (selection === "external") expect(records.map((record) => record.path)).toEqual(["value.ts"]);
 		expect(readdirSync(markers).sort()).toEqual(selection === "consumer"
 			? ["other-implementation", "other-ordinary", "src-implementation", "src-ordinary"] : []);
-	} finally { rmSync(temporary, { recursive: true, force: true }); }
-});
-
-test.each(["boot", "unrelated"])("real isolated boot graph retains implementation attribution: %s", async (selection) => {
-	const temporary = mkdtempSync(join(tmpdir(), "oni-reach-boot-"));
-	try {
-		const root = resolve(import.meta.dir, ".."), path = "apps/oni/src/bundles/prompt/embed.ts";
-		const source = readFileSync(join(root, path), "utf8");
-		const consumer = join(root, "apps/oni/src/bundles/prompt/roles.ts");
-		const instrumented = join(temporary, "instrumented"), markers = join(temporary, "markers");
-		mkdirSync(markers);
-		mkdirSync(dirname(join(instrumented, path)), { recursive: true });
-		writeFileSync(join(instrumented, path), instrument(source, [
-			reachSite("implementation", path, source, `readFileSync(join(import.meta.dir, "..", "..", "..", "prompts", "roles", \`\${name}.md\`), "utf-8")`),
-		], markers));
-		const overlay = join(temporary, "overlay.txt");
-		writeFileSync(overlay, encodeOverlay({ root, instrumented, paths: [path] }));
-		const primer = stageMacroPreload([
-			{ path: join(root, path), source }, { path: consumer, source: readFileSync(consumer, "utf8") },
-		], join(temporary, "macros.ts"));
-		if (!primer) throw new Error("macro primer missing");
-		const unrelated = join(temporary, "unrelated.test.ts");
-		writeFileSync(unrelated, 'import { expect, test } from "bun:test"; test("unrelated", () => expect(1).toBe(1));\n');
-		const lcov = await runReachTest(join(root, "apps/oni"),
-			selection === "boot" ? "./test/boot-cleanup-failures.test.ts" : unrelated, overlay, primer, temporary);
-		expect(parseNativeLcov(lcov, "apps/oni").length).toBeGreaterThan(0);
-		expect(readdirSync(markers)).toEqual(selection === "boot" ? ["implementation"] : []);
 	} finally { rmSync(temporary, { recursive: true, force: true }); }
 });

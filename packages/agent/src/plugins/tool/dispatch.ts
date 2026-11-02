@@ -423,10 +423,10 @@ export function createTurnDispatcher(
   runtime: TurnDispatchRuntime,
 ): Effect.Effect<Dispatcher & { readonly executor: DurableExecutor }, ExecutionError, ProcessServices | SessionLayer | ToolCatalog | GenerationOwnership> {
   return Effect.gen(function* () {
-  const { definitions } = yield* ToolCatalog;
+  const { definitions, declared } = yield* ToolCatalog;
   const generation = yield* GenerationOwnership;
   const { policy } = yield* SessionLayer;
-  const projected = new Map(projectTools(definitions).session.map((tool) => [tool.name, tool]));
+  const projected = new Map((declared ?? projectTools(definitions).session).map((tool) => [tool.name, tool]));
   for (const captured of input.tools ?? []) {
     const current = projected.get(captured.name);
     if (current === undefined || canonicalDigest(current) !== canonicalDigest(captured)) {

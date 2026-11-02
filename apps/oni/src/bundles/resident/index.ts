@@ -16,6 +16,7 @@ type SessionRunner = Core.SessionRunner;
 type SessionRuntimeOptions = Core.SessionRuntimeOptions;
 import {
   Operational,
+  Provisioning,
   traceIdFromUuid,
   type Gateway,
   type LedgerSession,
@@ -381,7 +382,8 @@ export interface ResidentOptions {
     readonly sessionId: string;
     readonly system: string;
   }) => Effect.Effect<NonNullable<ChatAgentConfig["compaction"]>, never, Core.Llm | ObservationSink>;
-  readonly presets: Readonly<Record<LedgerSession.Role, string>>;
+  readonly agents: { readonly get: (id: string) => Provisioning.Agent };
+  readonly prompt: (agent: Provisioning.Agent) => string;
   readonly id: () => string;
   readonly clock: () => number;
   readonly sessionRuntime: SessionRuntimeOptions;
@@ -428,6 +430,11 @@ export function createResident(options: ResidentOptions) {
   const runnerFor =
     (row: LedgerSession.Row): SessionRunner =>
     (input) => Effect.gen(function* () {
+      const agent = options.agents.get(row.agent ?? row.role);
+      const separator = agent.model?.indexOf("/");
+      const model = agent.model === undefined || separator === undefined
+        ? options.model
+        : { provider: agent.model.slice(0, separator), id: agent.model.slice(separator + 1) };
       const dispatcher = yield* createTurnDispatcher(input, options.sessionRuntime);
       const observations = yield* ObservationSink;
       // #1307: compaction runs only while the composed generation keeps the
@@ -446,7 +453,7 @@ export function createResident(options: ResidentOptions) {
         sessionId: input.sessionId,
         runId: input.resultId,
         actorId: row.role,
-        agentName: row.role,
+        agentName: agent.id,
         componentId: `${row.role}.agent`,
         componentGeneration: input.resumeCount + 1,
         pluginName: `builtin.${row.role}`,
@@ -476,7 +483,7 @@ export function createResident(options: ResidentOptions) {
                 : dispatcher.executeWave(passed, { sessionId: input.sessionId, turnId: input.turnId, signal });
               return wave.pipe(Effect.map((results) => [...results, ...refusals.map((call) => refused(call, SAME_CONVERSATION))]));
             },
-            model: options.model,
+            model,
             ...(options.modelFallbacks === undefined
               ? {}
               : { modelFallbacks: [...options.modelFallbacks] }),
@@ -490,7 +497,7 @@ export function createResident(options: ResidentOptions) {
             traceId,
             sessionId: input.sessionId,
             runId: input.resultId,
-            agentName: row.role,
+            agentName: agent.id,
           },
           around: (operation) => observation.run(operation),
         }),
@@ -530,19 +537,23 @@ export function createResident(options: ResidentOptions) {
      * door (`Core.createSession`) writes. A description only - it never
      * touches a store.
      */
-    genesis(id: string, parentId: string | null, role: LedgerSession.Role, runner: string) {
+    genesis(id: string, parentId: string | null, role: LedgerSession.Role, runner: string, agentId: string = role) {
       if (!["resident", "child", "native", "process"].includes(runner)) {
         throw new AppInvariantError(`runner is not registered: ${runner}`);
       }
       const composed = options.composed?.current();
+      const agent = options.agents.get(agentId);
+      if (!agent.enabled)
+        throw new Provisioning.AgentError({ code: "disabled", id: agent.id, message: `agent is disabled: ${agent.id}` });
       return messageMaterialization(options.policyGeneration, options.id)({
         id,
         parentId,
         role,
+        agent: agent.id,
         runner,
         tools: composedFaces(role),
         bundles: composed?.generation.bundles ?? [],
-        preset: options.presets[role],
+        preset: options.prompt(agent),
         at: options.clock(),
         // #1306: an off cascade leaves genesis unstamped so the first turn's
         // adoption appends the `session.configure{operation: "compose"}` row
@@ -570,8 +581,9 @@ export function createResident(options: ResidentOptions) {
     },
     /**
      * The rotation adoption face (#1255 S3): `SessionRuntimeOptions.composed.current()`.
-     * Tools are the role union — the dispatcher still filters per role at
-     * capture, and `manifestHash` equality keeps unchanged sessions append-free.
+     * Journaled faces are a declared-capability superset. At capture the core
+     * loadout fold intersects them with lineage visibility and the profile
+     * allowlist; `manifestHash` equality keeps unchanged sessions append-free.
      */
     adoption(): Core.ComposedManifest | undefined {
       const composed = options.composed?.current();

@@ -3350,6 +3350,38 @@ written-types exit 0, patch coverage all changed lines covered.
 - `provision{op:"bundle_disable", name:"bash"}` drops `bash` from the next generation: `apps/oni/test/tool-bundles.test.ts` asserts the next turn's offered tools, the generation bump and the journaled compose `disabled` entry. Turning the `tool` capability off now cascades every tool bundle.
 - Tool order on the model door is the composed bundle order (dependency-sorted, then manifest order).
 
+## #1796 agent profiles independent of lineage
+
+Since #1796, `apps/oni/src/agents.ts` stores persona rows beside the
+provisioning rows in the existing catalog SQLite. The plain `agents.add`,
+`list`, `get` and `disable` API has no tool or WebSocket method. Boot refreshes
+the code-owned `resident` and `child` seeds from embedded text imports, with every
+manifest tool visible to that lineage; disabling either seed is refused
+with `AgentProfileError{code: "seed_protected"}`.
+
+Every app-created conversation records its agent id in the genesis
+`session.configure` intent. `row(id).agent` reads that immutable journal
+fact, including after restart and fork; `role` still governs lineage,
+delegation and visibility. No session column or file format change is
+needed. Journaled genesis and adoption tool lists are declared-capability
+supersets, not execution authority. The core `filterLoadout` intersects
+offered names, lineage visibility and the profile allowlist once at capture;
+an empty allowlist permits no tools. Its prompt sections
+replace the embedded preset, and an optional `provider/model` reference
+feeds the existing model resolver; absence keeps the configured model.
+Disabled profiles cannot create sessions, while existing sessions retain
+their persona and continue. Unknown or disabled selections produce typed
+send admission refusals or recorded automation refusals, never defects.
+Structured-message guidance follows the `send_message` tool in the profile.
+
+`send_message.to.new_session.agent` selects a profile and defaults to
+`child`. App automation delivery accepts `origin.automation.agent` for a
+new session, defaults to `resident`, and keeps automation instructions as
+prompt content. An existing target is not reassigned. The rule-table
+transport of `then.agent` is owned by #1793, and the external store API by
+#1797. Receipts: `apps/oni/test/{agent-store,agent-profiles,automation-agent}.test.ts`
+and the session creation/fork tests in `packages/agent/test/store/`.
+
 ## #1563 prompt catalog session wiring
 
 On `feat/1563-prompt-wiring` (2026-10-15, base `3364537f6`), the booted
@@ -3386,10 +3418,12 @@ fallback. The scope named `packages/agent/src/model`; that code now lives in
 ## #1560 prompts and skills as data
 
 On `feat/1560-prompts-skills-data` (2026-10-15, base `b74f3c652`). The
-Resident and child role presets are markdown files with `name`/`role`
+Resident and child seed presets are markdown files with `name`/`role`
 frontmatter and `## Identity`, `Mandate`, `Policies`, `Style` sections under
 `apps/oni/prompts/roles/`; `bundles/prompt/roles.ts` parses them into the
 same `RolePreset` shape (imported as text, so the bundled CLI carries them).
+Since #1796 these seed durable agent rows; a session's persona is its agent
+id, independently of its `resident | child` lineage role.
 `ONI_SKILLS_DIR` lists every `<dir>/<skill>/SKILL.md` (frontmatter
 `name` + `description`) and `ONI_PROMPTS_DIR` every `<dir>/*.md`
 template (`description`, optional `name`) as `<skills>` and

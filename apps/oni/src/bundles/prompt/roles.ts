@@ -1,7 +1,9 @@
+/// <reference path="./assets.d.ts" />
 import type { Model } from "@oni/protocol";
 import { z } from "zod";
 import { PromptDataError, parseMarkdown } from "./data";
-import { roleText } from "./embed" with { type: "macro" };
+import residentText from "../../../prompts/roles/resident.md" with { type: "text" };
+import childText from "../../../prompts/roles/child.md" with { type: "text" };
 
 export interface RolePreset {
   readonly name: string;
@@ -60,5 +62,5 @@ export function parseRolePreset(text: string, path: string): RolePreset {
   };
 }
 
-export const RESIDENT_PRESET: RolePreset = parseRolePreset(roleText("resident"), "prompts/roles/resident.md");
-export const CHILD_PRESET: RolePreset = parseRolePreset(roleText("child"), "prompts/roles/child.md");
+export const RESIDENT_PRESET: RolePreset = parseRolePreset(residentText, "prompts/roles/resident.md");
+export const CHILD_PRESET: RolePreset = parseRolePreset(childText, "prompts/roles/child.md");
