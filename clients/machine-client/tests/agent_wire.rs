@@ -364,6 +364,17 @@ async fn tail_refuses_foreign_rotated_or_truncated_cursors_and_bounds_reads() {
         registry
             .observe(observed(project, "pi", "gone", base.join("gone.jsonl")))
             .expect("missing transcript");
+        // A transcript path under a regular file: opening it fails with
+        // something other than "not found" (ENOTDIR), which is not the
+        // not-yet-written case.
+        registry
+            .observe(observed(
+                project,
+                "pi",
+                "unreadable",
+                base.join("transcript.jsonl").join("unreadable.jsonl"),
+            ))
+            .expect("unreadable transcript");
     })
     .await;
     fixture.grant(1, &[AGENT]);
@@ -398,6 +409,7 @@ async fn tail_refuses_foreign_rotated_or_truncated_cursors_and_bounds_reads() {
         ("missing", "session_not_found"),
         ("outside", "session_not_available"),
         ("unknown-cli", "session_not_available"),
+        ("unreadable", "session_not_available"),
     ] {
         assert_eq!(
             tail(json!({"sessionId": id})).await,

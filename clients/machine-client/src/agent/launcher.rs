@@ -302,6 +302,20 @@ fn discover(cli: &impl Cli, home: &Path, project: &Path) -> Vec<Found> {
 const TAIL: usize = 4096;
 
 /// Append `output` without its escape sequences, keeping the last `TAIL` bytes.
+/// The longest single `pty read` long-poll the wire admits (`waitMs`).
+const PTY_READ_WAIT_MAX: Duration = Duration::from_secs(30);
+
+/// A read that answered no output: when the capped long-poll returned before
+/// the deadline the pane is still being watched, otherwise it stayed quiet
+/// through the deadline.
+fn quiet(waited: Duration, remaining: Duration) -> Change {
+    if waited < remaining {
+        Change::Progress
+    } else {
+        Change::Timeout
+    }
+}
+
 fn keep_tail(tail: &mut String, output: &str) {
     tail.push_str(&strip_ansi(output));
     if tail.len() > TAIL {
@@ -847,9 +861,8 @@ impl ProcessSpawner for PtySpawner {
     }
 
     async fn changed(&self, handle: &mut PtyHandle, deadline: Instant) -> io::Result<Change> {
-        let wait = deadline
-            .saturating_duration_since(Instant::now())
-            .min(Duration::from_secs(30));
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let wait = remaining.min(PTY_READ_WAIT_MAX);
         let mut request = json!({"name": handle.name, "waitMs": wait.as_millis()});
         if let Some(cursor) = &handle.cursor {
             request["cursor"] = cursor.as_str().into();
@@ -861,11 +874,7 @@ impl ProcessSpawner for PtySpawner {
             let bytes = STANDARD.decode(data).map_err(io::Error::other)?;
             return Ok(Change::Output(String::from_utf8_lossy(&bytes).into_owned()));
         }
-        Ok(if Instant::now() < deadline {
-            Change::Progress
-        } else {
-            Change::Timeout
-        })
+        Ok(quiet(wait, remaining))
     }
 
     async fn send(&self, handle: &PtyHandle, text: &str) -> io::Result<()> {
@@ -905,7 +914,20 @@ impl ProcessSpawner for PtySpawner {
 
 #[cfg(test)]
 mod tests {
-    use super::{keep_tail, strip_ansi, TAIL};
+    use super::{keep_tail, quiet, strip_ansi, Change, PTY_READ_WAIT_MAX, TAIL};
+    use std::time::Duration;
+
+    #[test]
+    fn a_quiet_capped_poll_is_progress_until_the_deadline() {
+        let over = PTY_READ_WAIT_MAX + Duration::from_secs(1);
+        assert!(matches!(quiet(PTY_READ_WAIT_MAX, over), Change::Progress));
+        let under = Duration::from_millis(200);
+        assert!(matches!(quiet(under, under), Change::Timeout));
+        assert!(matches!(
+            quiet(Duration::ZERO, Duration::ZERO),
+            Change::Timeout
+        ));
+    }
 
     #[test]
     fn strip_ansi_removes_csi_osc_and_two_character_escapes() {
