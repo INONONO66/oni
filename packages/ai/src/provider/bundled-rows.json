@@ -16,6 +16,14 @@
         "model": "gpt-realtime-2.1",
         "endpoint": "wss://api.openai.com/v1/realtime",
         "voice": "marin"
+      },
+      "speech": {
+        "model": "gpt-4o-mini-tts",
+        "voice": "alloy",
+        "format": "mp3"
+      },
+      "image": {
+        "model": "gpt-image-1"
       }
     }
   ]
