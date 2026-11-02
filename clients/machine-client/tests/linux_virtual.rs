@@ -270,7 +270,7 @@ async fn public_virtual_computer_serves_opaque_pixels_input_and_window_refusals(
         .await
         .expect("capture");
         assert_eq!(frame["status"], "ok", "{frame}");
-        oni_protocol::decode::<oni_protocol::ScreenCaptureResult>(frame.clone())
+        oni_protocol::decode::<oni_protocol::PeerScreenCapture>(frame.clone())
             .expect("wire image");
         let bytes = STANDARD
             .decode(frame["data"].as_str().expect("png data"))

@@ -164,6 +164,7 @@ macro_rules! decode_fixture {
                 InputStatusRequest,
                 InputStatusResult,
                 InputTextRequest,
+                PeerScreenCapture,
                 ScreenCaptureRequest,
                 ScreenCaptureResult,
                 ScreenDisplay,

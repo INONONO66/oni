@@ -291,6 +291,8 @@ export namespace Machine {
   export type ScreenCaptureRequest = Schema.ScreenCaptureRequest;
   export const ScreenCaptureResult = Schema.ScreenCaptureResult;
   export type ScreenCaptureResult = Schema.ScreenCaptureResult;
+  export const PeerScreenCapture = Schema.PeerScreenCapture;
+  export type PeerScreenCapture = Schema.PeerScreenCapture;
   export const ClipboardReadRequest = Schema.ClipboardReadRequest;
   export type ClipboardReadRequest = Schema.ClipboardReadRequest;
   export const ClipboardReadResult = Schema.ClipboardReadResult;

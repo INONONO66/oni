@@ -1508,11 +1508,11 @@ export const ScreenCaptureRequest = z
 export type ScreenCaptureRequest = z.infer<typeof ScreenCaptureRequest>;
 
 /**
- * A captured frame is a typed wire payload, never a file on the host.
+ * The peer payload retains base64 on the NDJSON connection.
  * `width`/`height` are the encoded pixels; `captureId` is the anchor every
  * `machine.input.*` call names, and only the latest one is accepted.
  */
-export const ScreenCaptureResult = z.discriminatedUnion("status", [
+export const PeerScreenCapture = z.discriminatedUnion("status", [
   z
     .object({
       status: z.literal("ok"),
@@ -1524,11 +1524,32 @@ export const ScreenCaptureResult = z.discriminatedUnion("status", [
       height: Extent,
       downscaled: z.boolean(),
       observedAt: EpochMs,
+      scale: z.number().positive().max(SCREEN_MAX_SCALE).optional(),
+      capturedAtUs: z.number().int().nonnegative().optional(),
       accessibilityTree: BoundedAccessibilityTree.optional(),
       /** A per-window accessibility lookup failed; the frame is unmasked for that window. */
       accessibilityUnavailable: z.boolean().optional(),
     })
     .strict(),
+  CaptureRefusal,
+]);
+export type PeerScreenCapture = z.infer<typeof PeerScreenCapture>;
+
+/** Null timing or scale means the attached peer did not report that measurement. */
+export const ScreenCaptureResult = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    captureId: CaptureId,
+    display: DisplayIndex,
+    width: Extent,
+    height: Extent,
+    scale: z.number().positive().max(SCREEN_MAX_SCALE).nullable(),
+    format: z.enum(["png", "jpeg"]),
+    bytes: z.number().int().positive().max(SCREEN_PNG_MAX_BYTES),
+    sha256: Digest,
+    capturedAtUs: z.number().int().nonnegative().nullable(),
+    accessibilityUnavailable: z.boolean().optional(),
+  }).strict(),
   CaptureRefusal,
 ]);
 export type ScreenCaptureResult = z.infer<typeof ScreenCaptureResult>;

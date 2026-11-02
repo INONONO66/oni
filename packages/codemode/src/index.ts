@@ -1,4 +1,4 @@
-import { MachinesFailure, MachineRefusalError, type LeaseHandle, type LeaseClass, type MachineError, type MachineHandle, type MachineHost, type MachineInfo } from "@oni/machines";
+import { CaptureOutputs, captureData, MachinesFailure, MachineRefusalError, type CaptureOutputStore, type LeaseHandle, type LeaseClass, type MachineError, type MachineHandle, type MachineHost, type MachineInfo } from "@oni/machines";
 import type { ChannelListeners, ComputerChannel, ComputerHandle, ComputerStream, StreamListeners } from "@oni/machines";
 import { listenForAbort, Machine } from "@oni/protocol";
 import { Deferred, Effect, Exit, Fiber, Scope } from "effect";
@@ -8,6 +8,8 @@ import { decodeCodeFailure } from "./failure";
 export * from "./errors";
 
 type Failure = CodeError | MachineError;
+type CellScreenCapture = (Extract<Machine.ScreenCaptureResult, { status: "ok" }> & { readonly data: Buffer })
+  | Exclude<Machine.ScreenCaptureResult, { status: "ok" }>;
 type Caller = (call: Machine.ToolCall) => Effect.Effect<Machine.ToolCallResult, Failure>;
 export interface RunOptions {
   readonly timeoutMs?: number;
@@ -40,6 +42,14 @@ export interface CodemodeOptions {
   readonly toolOutput?: (tenant: string, outputId: string) => Effect.Effect<{ readonly text: string; readonly bytes: number; readonly mediaType?: string } | undefined, Failure>;
   readonly tools?: (tenant: string) => Caller;
   readonly boundary?: (tenant: string) => (call: Machine.ToolCall, body: () => Effect.Effect<Machine.ToolCallResult, Failure>) => Effect.Effect<Machine.ToolCallResult, Failure>;
+  /**
+   * #1776: the tenant's session-owned output store, provided to every host op
+   * a cell issues. `codemode.screen` writes its PNG there and answers the
+   * envelope; the prelude reads the bytes back through `capture_data`, named
+   * outside the `codemode.` family so a boundary that records that family
+   * keeps the pixels out of the ledger. Unbound, both fail typed.
+   */
+  readonly captureOutputs?: (tenant: string) => CaptureOutputStore;
 }
 const LeaseInput = z.object({ leaseId: z.string().min(1).nullish() }).strict();
 const PathLeaseInput = z.object({ machineId: Machine.MachineId, path: Machine.AbsolutePath }).merge(LeaseInput);
@@ -47,6 +57,7 @@ const WriteLeaseInput = PathLeaseInput.extend({ data: z.string() });
 const ShellInput = Machine.ExecRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
 const RunInput = z.object({ machineId: Machine.MachineId, code: z.string() }).merge(LeaseInput);
 const ToolOutputInput = z.object({ outputId: z.string().regex(/^sha256:[0-9a-f]{64}$/) }).strict();
+const CaptureDataInput = z.object({ sha256: Machine.ScreenCaptureResult.options[0].shape.sha256 }).strict();
 const ScreenInput = Machine.ScreenReadRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
 const InputInput = Machine.InputWriteRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
 const FindInput = Machine.PlacementRequest.extend({
@@ -64,7 +75,7 @@ export function createCodemode(options: CodemodeOptions) {
   return Effect.gen(function* () {
     const scope = yield* Scope.Scope;
     const handles = new Map<string, ReturnType<typeof makeHandle>>();
-    const live = new Map<string, { caller: Caller; tenant: string; timeoutMs: number; signal?: AbortSignal; ownership?: RunOptions["ownership"]; boundary?: ReturnType<NonNullable<CodemodeOptions["boundary"]>> }>();
+    const live = new Map<string, { caller: Caller; tenant: string; timeoutMs: number; signal?: AbortSignal; ownership?: RunOptions["ownership"]; boundary?: ReturnType<NonNullable<CodemodeOptions["boundary"]>>; captureOutputs?: CaptureOutputStore }>();
     const lifetime = new AbortController();
     const running = new Set<Deferred.Deferred<void>>();
     const background = new Map<string, BackgroundCell>();
@@ -179,7 +190,11 @@ export function createCodemode(options: CodemodeOptions) {
         },
         screen: {
           list: (request?: Machine.ScreenListRequest) => use((computer) => computer.list(request)),
-          capture: (request: Machine.ScreenCaptureRequest) => use((computer) => computer.capture(request)),
+          capture: (request: Machine.ScreenCaptureRequest) => use((computer) => computer.capture(request)).pipe(
+            Effect.flatMap((capture): Effect.Effect<CellScreenCapture, MachinesFailure> => capture.status === "ok"
+              ? captureData(capture.sha256).pipe(Effect.map((data) => ({ ...capture, data })))
+              : Effect.succeed(capture)),
+          ),
           observe: (request: Machine.ScreenObserveRequest) => use((computer) => computer.observe(request)),
           settle: (request: Machine.ScreenSettleRequest) => use((computer) => computer.settle(request)),
         },
@@ -258,7 +273,9 @@ export function createCodemode(options: CodemodeOptions) {
           const input = yield* Effect.try({ try: () => ScreenInput.parse(call.arguments), catch: decodeCodeFailure("screen.arguments") });
           const { machineId, leaseId, ...request } = input;
           const value = yield* getMachine(machineId, leaseId).screen(request);
-          return { status: "completed", value: value.status === "ok" ? { ...value, png: Buffer.from(value.png).toString("base64") } : value };
+          if (value.status !== "ok") return { status: "completed", value };
+          const { png: _png, capture, ...read } = value;
+          return { status: "completed", value: { ...read, ...capture } };
         }
         if (call.name === "codemode.input") {
           const input = yield* Effect.try({ try: () => InputInput.parse(call.arguments), catch: decodeCodeFailure("input.arguments") });
@@ -321,7 +338,7 @@ export function createCodemode(options: CodemodeOptions) {
       return Effect.gen(function* () {
         if (call.name === "codemode.eval") {
           const input = yield* Effect.try({ try: () => RunInput.parse(call.arguments), catch: decodeCodeFailure("eval.arguments") });
-          const started = yield* launch(input.machineId, input.code, `${binding.tenant}/nested`, binding.caller, { timeoutMs: binding.timeoutMs, signal: binding.signal, ownership: binding.ownership, leaseId: input.leaseId }, binding.boundary);
+          const started = yield* launch(input.machineId, input.code, `${binding.tenant}/nested`, binding.caller, { timeoutMs: binding.timeoutMs, signal: binding.signal, ownership: binding.ownership, leaseId: input.leaseId }, binding.boundary, binding.captureOutputs);
           return { status: "completed", value: yield* Fiber.join(started.entry.execution) };
         }
         if (call.name === "completion" && options.completion) {
@@ -330,6 +347,10 @@ export function createCodemode(options: CodemodeOptions) {
         }
         if (call.name === "tool_output" && options.toolOutput)
           return yield* readStoredOutput(call, binding.tenant, options.toolOutput);
+        if (call.name === "capture_data") {
+          const input = yield* Effect.try({ try: () => CaptureDataInput.parse(call.arguments), catch: decodeCodeFailure("captureData.arguments") });
+          return { status: "completed", value: { data: (yield* captureData(input.sha256)).toString("base64") } };
+        }
         return undefined;
       });
     }
@@ -339,7 +360,7 @@ export function createCodemode(options: CodemodeOptions) {
         if (!binding) return yield* new CodemodeError({ reason: "unknown_cell_id", message: "cell has settled" });
         const resolvers = [dispatchCatalog, dispatchMachineOp, dispatchComputerOp, dispatchPtyIo, dispatchPtyControl, (op: Machine.ToolCall) => dispatchHostOp(op, binding)];
         for (const resolve of resolvers) {
-          const result = yield* resolve(call);
+          const result = yield* binding.captureOutputs === undefined ? resolve(call) : resolve(call).pipe(Effect.provideService(CaptureOutputs, binding.captureOutputs));
           if (result !== undefined) return result;
         }
         return yield* binding.caller(call);
@@ -371,7 +392,7 @@ export function createCodemode(options: CodemodeOptions) {
     function stop(cellId: string, tenant: string): Effect.Effect<Machine.CellResult, Failure> {
       return Effect.try({ try: () => tenantCell(cellId, tenant), catch: decodeCodeFailure("cell.stop") }).pipe(Effect.flatMap((entry) => { entry.controller.abort(); return settle(cellId, entry); }));
     }
-    function launch(id: string, code: string, tenant: string, caller: Caller, runOptions: RunOptions & { readonly leaseId?: string | null }, boundary = (runOptions.bindings ?? options).boundary?.(tenant)) {
+    function launch(id: string, code: string, tenant: string, caller: Caller, runOptions: RunOptions & { readonly leaseId?: string | null }, boundary = (runOptions.bindings ?? options).boundary?.(tenant), captureOutputs = options.captureOutputs?.(tenant)) {
       return Effect.uninterruptibleMask((restore) => Effect.gen(function* () {
         const timeoutMs = runOptions.timeoutMs ?? 15_000;
         const cellId = options.id();
@@ -381,7 +402,7 @@ export function createCodemode(options: CodemodeOptions) {
         const release = runOptions.ownership?.retain();
         const interrupt = () => runOptions.ownership?.interrupt?.();
         const detach = listenForAbort(signal, interrupt);
-        live.set(cellId, { caller, tenant, timeoutMs, signal, boundary, ownership: runOptions.ownership });
+        live.set(cellId, { caller, tenant, timeoutMs, signal, boundary, ownership: runOptions.ownership, captureOutputs });
         const settled = yield* Deferred.make<void>();
         running.add(settled);
         let done = false;

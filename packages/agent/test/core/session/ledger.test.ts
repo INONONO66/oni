@@ -46,6 +46,19 @@ test("ledger reads committed sessions and actions without write capabilities", (
   expect("adoptFence" in reads.session("s")).toBe(false);
 });
 
+test("ledger session output writes are readable through the session read surface", () => {
+  using state = fixture();
+  const outputId = `sha256:${"a".repeat(64)}`;
+  const bytes = Uint8Array.from([1, 2, 3]);
+  runAgentSync(state.plane.session("s").create({ parentId: null, role: "resident", genesis: genesis("s") }));
+
+  state.plane.session("s").putOutput({ outputId, bytes, mediaType: "image/png" });
+
+  expect(state.plane.read.session("s").toolOutput(outputId)).toMatchObject({
+    outputId, bytes, mediaType: "image/png",
+  });
+});
+
 test("ledger.session creation refuses a duplicate without replacing genesis", () => {
   using state = fixture();
   const input = { parentId: null, role: "resident" as const, genesis: genesis("s") };

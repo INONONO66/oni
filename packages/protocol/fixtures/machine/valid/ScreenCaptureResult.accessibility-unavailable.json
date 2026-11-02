@@ -2,11 +2,12 @@
   "status": "ok",
   "captureId": "cap-1",
   "display": 1,
-  "format": "png",
-  "data": "cG5nLWJ5dGVz",
   "width": 3024,
   "height": 1964,
-  "downscaled": false,
-  "observedAt": 1700000000000,
+  "scale": null,
+  "format": "png",
+  "bytes": 12345,
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "capturedAtUs": null,
   "accessibilityUnavailable": true
 }

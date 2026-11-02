@@ -1,6 +1,6 @@
 import { createCodemode, type RunOptions } from "@oni/codemode";
 import { Inspect } from "@oni/agent";
-import { MachinesFailure } from "@oni/machines";
+import { MachinesFailure, type CaptureOutputStore } from "@oni/machines";
 import { Core } from "@oni/agent";
 const forkInvocation = Core.forkInvocation;
 const AgentFailure = Core.AgentFailure;
@@ -102,6 +102,8 @@ export function composeCodemode(
     readonly selfMachineId?: string;
     /** #1305: resolve a tenant's stored tool output for the prelude's `tool_output`. */
     readonly outputs?: (sessionId: string, outputId: string) => { readonly text: string; readonly bytes: number; readonly mediaType?: string } | undefined;
+    /** #1776: the tenant's session-owned output store, bound to every host op its cells issue. */
+    readonly captureOutputs?: (sessionId: string) => CaptureOutputStore;
   },
 ): Effect.Effect<ComposedCodemode, never, Scope.Scope> {
   return Effect.gen(function* () {
@@ -113,6 +115,7 @@ export function composeCodemode(
       ...(outputs === undefined
         ? {}
         : { toolOutput: (tenant: string, outputId: string) => Effect.sync(() => outputs(tenant, outputId)) }),
+      ...(sources.captureOutputs === undefined ? {} : { captureOutputs: sources.captureOutputs }),
     });
     return {
       ...mode,
@@ -130,9 +133,10 @@ export function composeCodemode(
               if (owners === 0) owned.close("settled");
             };
           } };
-          return owned.frame.generation.provide(mode.cell.run(code, tenant, {
+          const run = mode.cell.run(code, tenant, {
             ...options, ownership, bindings: bindings(owned.frame, sources.id),
-          })).pipe(Effect.onExit((exit) => Effect.sync(() => {
+          });
+          return owned.frame.generation.provide(run).pipe(Effect.onExit((exit) => Effect.sync(() => {
             if (owners === 0) owned.close(Exit.isFailure(exit) ? "interrupted" : "settled");
           })));
         },

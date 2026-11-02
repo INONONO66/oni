@@ -829,6 +829,10 @@ export async function startOni(options: StartOptions = {}) {
       composeCodemode(host, {
         id: services.entropy.id, selfMachineId: machinery.self.machineId,
         outputs: sessionOutputsSource(plane.read.session),
+        captureOutputs: (sessionId) => ({
+          put: (write) => plane.session(sessionId).putOutput(write),
+          get: (outputId) => plane.read.session(sessionId).toolOutput(outputId),
+        }),
       }),
     );
 

@@ -139,6 +139,14 @@ the same raw endpoint; the plain-tool locus door belongs to #949.
   wire values. Exec and code retain typed terminal/refusal values. Invalid
   schemas and transport loss throw typed schema/IPC errors.
 
+Screen capture uses a bounded base64 field only on the existing NDJSON peer
+reply (`PeerScreenCapture`). The host decodes that field at the transport
+boundary and writes the PNG to the requesting session's tool-output store
+under its SHA-256 digest. The durable `ScreenCaptureResult` and
+approval/ledger paths retain only `captureId`, display geometry, format, byte
+count, digest and capture time; a cell's `screen()` reads the stored output
+back through the unrecorded `capture_data` host op to keep its PNG bytes.
+
 ### 2.2 Computer use (`screen.read` / `input.write`, #1274)
 
 - Wire methods `machine.screen_read` and `machine.input_write`; both gate on

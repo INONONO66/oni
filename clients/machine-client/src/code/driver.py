@@ -226,7 +226,9 @@ class _Machine:
             args['region'] = region
         value = tool['codemode.screen'](**args)
         if value['status'] == 'ok':
-            value['png'] = base64.b64decode(value['png'])
+            # The envelope carries the digest only; the pixels live in the
+            # session output store and never pass through a recorded call.
+            value['png'] = base64.b64decode(tool['capture_data'](sha256=value['sha256'])['data'])
             self._capture_id = value['captureId']
         return value
 
