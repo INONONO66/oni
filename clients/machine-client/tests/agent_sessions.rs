@@ -1146,6 +1146,14 @@ async fn pty_spawner_launches_reclaims_and_stops_real_terminals() {
         script: script(&base, "mute", "#!/bin/sh\nexec cat\n"),
         transcripts: transcripts.clone(),
     };
+    let brief = ScriptCli {
+        script: script(
+            &base,
+            "brief",
+            "#!/bin/sh\nprintf '{}\\n' > \"$1/$2.jsonl\"\necho ready\nread line\nexit 0\n",
+        ),
+        transcripts: transcripts.clone(),
+    };
     let socket = format!(
         "oni-p4-{}-{}",
         std::process::id(),
@@ -1201,6 +1209,31 @@ async fn pty_spawner_launches_reclaims_and_stops_real_terminals() {
         .stop(&project, "script", &held.session.session_id)
         .await
         .expect("kill after grace");
+
+    // An owned occupant that exits on its own takes its terminal with it
+    // before anything lists it; stop still closes the record instead of
+    // refusing the session over the screen it can no longer capture.
+    let exited = restarted
+        .start(&brief, &project, None)
+        .await
+        .expect("brief launch");
+    let gone = exited.session.terminal.clone().expect("brief terminal");
+    restarted
+        .send(&project, "script", &exited.session.session_id, "bye")
+        .await
+        .expect("release the occupant");
+    let screen = oni_protocol::decode(json!({"name": gone, "source": "screen"})).expect("screen");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while pty.screen(&screen).await.is_ok() {
+        assert!(Instant::now() < deadline, "occupant never exited");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let closed = restarted
+        .stop(&project, "script", &exited.session.session_id)
+        .await
+        .expect("stop after exit");
+    assert_eq!(closed.terminal, None);
+    assert!(!terminals(&pty).await.to_string().contains(&gone));
 
     let mut hurried = Launcher::new(registry(), spawner(), settings(Duration::ZERO));
     assert!(matches!(

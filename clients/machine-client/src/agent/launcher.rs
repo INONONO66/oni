@@ -788,13 +788,18 @@ impl ProcessSpawner for PtySpawner {
     }
 
     async fn stop(&self, handle: PtyHandle) -> io::Result<()> {
-        let screen = wire(json!({"name": handle.name, "source": "screen"}))?;
-        let screen = value(self.pty.screen(&screen).await)?;
-        let pid = screen["occupant"]["pid"]
-            .as_i64()
-            .and_then(|pid| i32::try_from(pid).ok());
-        if let Some(pid) = pid {
-            terminate(Pid::from_raw(pid), self.grace).await;
+        // An occupant that already exited (a resumed CLI whose binary is
+        // absent on this machine) leaves a lost terminal with no screen to
+        // capture; only a live one is signalled before its record is closed.
+        if self.reclaim(&handle.name).await?.is_some() {
+            let screen = wire(json!({"name": handle.name, "source": "screen"}))?;
+            let screen = value(self.pty.screen(&screen).await)?;
+            let pid = screen["occupant"]["pid"]
+                .as_i64()
+                .and_then(|pid| i32::try_from(pid).ok());
+            if let Some(pid) = pid {
+                terminate(Pid::from_raw(pid), self.grace).await;
+            }
         }
         value(self.pty.close(&wire(json!({"name": handle.name}))?).await).map(drop)
     }
