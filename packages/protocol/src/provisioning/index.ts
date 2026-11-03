@@ -1,5 +1,6 @@
 import * as Schema from "./schema.js";
 import * as Wire from "./wire.js";
+import * as AgentWire from "./agent-wire.js";
 
 /**
  * Provisioning namespace (docs/provisioning-and-providers.md §3): Person /
@@ -12,6 +13,10 @@ export namespace Provisioning {
   export type Agent = Schema.Agent;
   export const AgentError = Schema.AgentError;
   export type AgentError = Schema.AgentError;
+  export const AgentRequest = AgentWire.Request;
+  export type AgentRequest = AgentWire.Request;
+  export const AgentResponse = AgentWire.Response;
+  export type AgentResponse = AgentWire.Response;
 
   export const Person = Schema.Person;
   export type Person = Schema.Person;

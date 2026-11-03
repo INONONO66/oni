@@ -1,1 +1,1 @@
-#1797 (epic #1791) | feat/1797-ws-store-api | 2026-11-03 | base cb978e821 (#1795 tip) | PR pending | rule.* and agents.* ws store methods over DB rows; lane fills in the receipts.
+#1797 (epic #1791) | feat/1797-ws-store-api | 2026-11-03 | base cb978e821 (#1795 tip) | PR #1827 | Owner-authenticated rule_* and agent_list/add/disable frames; app-owned store_edit receipts commit with each mutation, seed protections retained; WebSocket regression and gate receipts on PR #1827.
