@@ -10,7 +10,7 @@ const PEERS = [
   { id: "scout", token: "scout-token" },
   { id: "planner", token: "planner-token" },
 ];
-const CARD = { name: "Oni Resident", description: "one Resident, delegating through evidence", version: "0.1.0" };
+const CARD = { id: "test-agent", name: "Test agent", description: "test messaging endpoint", version: "0.1.0" };
 /** The driver's run port with every sleep elided: a blocking wait expires at once. */
 const immediate: EffectRunner = () => Promise.resolve(undefined as never);
 
@@ -54,7 +54,7 @@ async function answer(response: Response | undefined) {
   return { status: response.status, body: Answer.parse(await response.json()) };
 }
 
-describe("A2A door (#1569 lane 9c): other agents reach the Resident through ordinary ingress", () => {
+describe("A2A door (#1569 lane 9c): other agents reach the Agent through ordinary ingress", () => {
   it("serves the card at the well-known path with the door the request came through as its url", async () => {
     const { runtime } = door();
     await runtime.surface.start("boot");
@@ -72,7 +72,7 @@ describe("A2A door (#1569 lane 9c): other agents reach the Resident through ordi
       preferredTransport: "JSONRPC",
       version: "0.1.0",
       capabilities: { streaming: false, pushNotifications: false },
-      skills: [{ id: "resident" }],
+      skills: [{ id: CARD.id }],
       securitySchemes: { bearer: { type: "http", scheme: "bearer" } },
     });
   });
@@ -112,7 +112,7 @@ describe("A2A door (#1569 lane 9c): other agents reach the Resident through ordi
     expect(bare.history).toBeUndefined();
   });
 
-  it("the Resident's answer lands on the context's newest open task and completes it; the peer reads it back, bounded by historyLength; another peer can neither read nor continue it", async () => {
+  it("the Agent's answer lands on the context's newest open task and completes it; the peer reads it back, bounded by historyLength; another peer can neither read nor continue it", async () => {
     const { runtime, received } = door();
     await runtime.surface.start("boot");
     const task = TaskShape.parse((await answer(await runtime.webhookHandler?.(rpc("message/send", letter("status?"))))).body.result);
@@ -179,7 +179,7 @@ describe("A2A door (#1569 lane 9c): other agents reach the Resident through ordi
     expect(TaskShape.parse((await answer(await second)).body.result).status.state).toBe("completed");
   });
 
-  it("a peer cancels its open task, never a finished one; the Resident's later answer finds nothing to land on", async () => {
+  it("a peer cancels its open task, never a finished one; the Agent's later answer finds nothing to land on", async () => {
     const infos: string[] = [];
     const { runtime } = door((event, data) => {
       if (event.name === Operational.Events.Info.name) infos.push(z.object({ msg: z.string() }).parse(data).msg);
@@ -193,7 +193,7 @@ describe("A2A door (#1569 lane 9c): other agents reach the Resident through ordi
     expect(infos).toEqual(["a2a door ready", "a2a message received", "a2a task canceled by its peer"]);
   });
 
-  it("the door remembers a bounded number of tasks: finished ones go first, then the oldest open one is canceled and the Owner told", async () => {
+  it("the door remembers a bounded number of tasks: finished ones go first, then the oldest open one is canceled and the Account told", async () => {
     const warns: { msg: string; context?: Record<string, string | number> }[] = [];
     const { runtime } = door((event, data) => {
       if (event.name === Operational.Events.Warn.name) warns.push(z.object({ msg: z.string(), context: z.record(z.string(), z.union([z.string(), z.number()])).optional() }).parse(data));

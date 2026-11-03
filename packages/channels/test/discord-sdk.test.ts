@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { DiscordApiError } from "../src/errors";
-import { discordOwnerSdk } from "../src/provider/discord/owner-sdk";
+import { discordAccountSdk } from "../src/provider/discord/account-sdk.js";
 import { DiscordBotClient, DiscordBotListener } from "../src/provider/discord/sdk";
 import { DISCORD_INTENTS, discordSdk } from "../src/provider/discord/sdk";
-import { FakeDiscordOwnerClient } from "./helpers/discord-owner-sdk";
+import { FakeDiscordAccountClient } from "./helpers/discord-account-sdk.js";
 import { emptyVoiceStream, fakeDiscordSdk } from "./helpers/discord-sdk";
 
 /**
@@ -43,10 +43,10 @@ describe("agent-messenger discord bot SDK seam", () => {
     });
     const client = sdk.client();
     const listener = sdk.listener(client, { intents: DISCORD_INTENTS });
-    await sdk.joinVoice("guild", "channel", { listener, speakerId: "owner" });
-    expect(joined).toEqual(["guild", "channel", "owner"]);
+    await sdk.joinVoice("guild", "channel", { listener, speakerId: "account" });
+    expect(joined).toEqual(["guild", "channel", "account"]);
     expect(() => sdk.joinVoice("guild", "channel",
-      { listener: fakeDiscordSdk().listener, speakerId: "owner" })).toThrow(DiscordApiError);
+      { listener: fakeDiscordSdk().listener, speakerId: "account" })).toThrow(DiscordApiError);
   });
 
   test("the real listener fails start when the gateway connect is refused, instead of hanging", async () => {
@@ -69,13 +69,13 @@ describe("agent-messenger discord bot SDK seam", () => {
   });
 });
 
-describe("agent-messenger discord owner SDK seam", () => {
+describe("agent-messenger discord account SDK seam", () => {
   test("the listener rejects a structurally compatible foreign client with a typed error", () => {
-    expect(() => discordOwnerSdk().listener(new FakeDiscordOwnerClient())).toThrow(DiscordApiError);
+    expect(() => discordAccountSdk().listener(new FakeDiscordAccountClient())).toThrow(DiscordApiError);
   });
 
-  test("the listener accepts the real owner client", () => {
-    const sdk = discordOwnerSdk();
+  test("the listener accepts the real account client", () => {
+    const sdk = discordAccountSdk();
     const listener = sdk.listener(sdk.client());
     expect(listener.constructor.name).toBe("DiscordListener");
     expect(listener.on("error", () => undefined)).toBe(listener);

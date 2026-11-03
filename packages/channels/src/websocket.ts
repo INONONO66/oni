@@ -36,7 +36,7 @@ const FrameDocument = z.record(z.string(), z.json());
 type FrameDocument = z.infer<typeof FrameDocument>;
 
 /**
- * The Owner's channel declaration rides its own frame (#1569 lane 5b); a
+ * The Account's channel declaration rides its own frame (#1569 lane 5b); a
  * malformed one is answered with its issues, never routed as chat.
  */
 function decodeChannelDeclare(
@@ -135,7 +135,7 @@ export class WebSocketHandler {
   /**
    * Live connections by declared externalId, last-wins: a reconnect replaces
    * the previous socket as the delivery target. Everyone on this socket is
-   * already behind the owner-tier upgrade gate, so the declaration is an
+   * already behind the account-tier upgrade gate, so the declaration is an
    * address, not an authentication.
    */
   private readonly connections = new Map<string, WsConnection>();
@@ -229,7 +229,7 @@ export class WebSocketHandler {
 
     // An actor declaration binds this connection to a registered identity
     // (delegated instructions are pushed to it, its replies settle requests), so
-    // it requires the shared token — unlike plain owner chat, which loopback
+    // it requires the shared token — unlike plain account chat, which loopback
     // trust covers. On a tokenless bind the declaration is simply not taken.
     const declaredId = authenticated
       ? new URL(req.url).searchParams.get("actor")?.trim()

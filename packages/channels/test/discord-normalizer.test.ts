@@ -12,12 +12,12 @@ const message = {
 describe("Discord ingress facts", () => {
   it("normalizes voice joins from parsed gateway state without a chat prompt", () => {
     const state = {
-      guild_id: "guild", channel_id: "voice", user_id: "owner", session_id: "voice-session",
+      guild_id: "guild", channel_id: "voice", user_id: "account", session_id: "voice-session",
       deaf: false, mute: false, self_deaf: false, self_mute: false, self_video: false, suppress: false,
     };
     expect(discordCall(state, 42, "gateway-session", "BOT")?.facts).toEqual({
-      eventId: "call:guild:owner:gateway-session:42", event: "call", surface: "discord",
-      workspaceId: "guild", channelId: "voice", author: { externalId: "owner", isBot: false },
+      eventId: "call:guild:account:gateway-session:42", event: "call", surface: "discord",
+      workspaceId: "guild", channelId: "voice", author: { externalId: "account", isBot: false },
       account: "BOT", addressees: [{ externalId: "BOT" }], dm: false, payload: state, render: "joined voice channel voice",
     });
     expect(discordCall({ ...state, channel_id: null }, 43, "gateway-session", "BOT")).toBeNull();

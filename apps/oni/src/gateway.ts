@@ -12,14 +12,9 @@ import type { ImageCall, ImagePort } from "./bundles/tools/image/index";
 import type { Image } from "@oni/ai";
 import type { Tts } from "@oni/ai";
 import type { OutputPort } from "./bundles/tools/speech/index";
-import {
-  type ChannelDeliveryRoute,
-  type ChannelStores,
-  createGatewayRouter,
-  type GatewayRouter,
-  type WebSocketHandler,
-  type WsConnection,
-} from "@oni/channels";
+import type { ChannelStores, WebSocketHandler, WsConnection } from "@oni/channels";
+import type { ChannelDeliveryRoute, GatewayRouter } from "./bundles/message-ports.js";
+import { createGatewayRouter } from "./composition/gateway-router.js";
 import { type ChannelError, decodeChannelFailure, type ChannelStoreSource } from "@oni/channels";
 import { Core, type Bundle, Inspect } from "@oni/agent";
 import type { Gateway, Ingress, LedgerAction } from "@oni/protocol";

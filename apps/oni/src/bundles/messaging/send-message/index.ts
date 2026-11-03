@@ -1,9 +1,10 @@
 import { Bundle, Core } from "@oni/agent";
-import { activeBudgetFor, type PersonStore } from "@oni/channels";
+import type { PersonStore } from "@oni/channels";
 import { Gateway, type Ingress, Outbound } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
 import { boundTool, ToolCapabilityPort } from "../../seams";
+import { activeBudgetFor } from "../admission.js";
 
 const defineTool = Core.defineTool;
 const ToolRefused = Core.ToolRefused;

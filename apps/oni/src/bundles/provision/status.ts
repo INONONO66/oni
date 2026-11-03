@@ -45,7 +45,7 @@ function surfacePreconditions(status: ChannelRuntimeStatus, port: ProvisionPort)
   const platform = instance?.provider ?? status.surface;
   if (!isRegisteredProvider(platform)) return [];
   const provider = ChannelProviders[platform];
-  return instance?.identity === "owner" ? (provider.owner?.preconditions ?? []) : provider.preconditions;
+  return instance?.identity === "owner" ? (provider.account?.preconditions ?? []) : provider.preconditions;
 }
 
 export function executeProvisionStatus(port: ProvisionPort) {

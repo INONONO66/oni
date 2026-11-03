@@ -34,7 +34,7 @@ export class VoiceJoinRefused extends Data.TaggedError("VoiceJoinRefused")<{
 }> {}
 
 export class RuleEnableRefused extends Data.TaggedError("RuleEnableRefused")<{
-  readonly reason: "approval_required" | "not_found" | "seed_protected" | "invalid_position";
+  readonly reason: "not_authorized" | "not_found" | "seed_protected" | "invalid_position";
   readonly id: string;
 }> {}
 

@@ -7,7 +7,7 @@ import { instanceHandler, requireHandler } from "../../support/handler-frame";
 import { newTraceId } from "../../support/trace";
 import type { EffectRunner, PublishPort } from "../../types";
 import { LinearClient } from "./client";
-import { type LinearOwnerCredentials, LinearWebhookEnvelope, LinearWebhookPayloadSchemas } from "./types";
+import { type LinearAccountCredentials, LinearWebhookEnvelope, LinearWebhookPayloadSchemas } from "./types";
 
 /**
  * How far from the injected clock a delivery's `webhookTimestamp` may be,
@@ -97,17 +97,17 @@ type PreparedWebhook = Readonly<{
 type WebhookPreparation = PreparedWebhook | Readonly<{ response: Response }>;
 
 /**
- * Linear as the Owner's own account (#1569 lane 9b): the declared
+ * Linear as a user account (#1569 lane 9b): the declared
  * instance — a personal API key is a person's, so there is no bot account
  * to declare. Ingress is the workspace webhook for new issues and comments
  * (signed, within Linear's own minute of replay window, deduplicated by
  * delivery). The account's own actions are
  * never an outside event — the key's user, read from `viewer` at start
  * (the start fails closed when a key cannot say who it is), else the
- * declared `ownerUserId`. A perimeter refusal is answered 200 (Linear must
+ * declared `accountUserId`. A perimeter refusal is answered 200 (Linear must
  * not redeliver a message the router refused); a failure 500 so it does.
- * Replies as the Owner land as comments on the issue the conversation
- * names, under the reply door's Owner path.
+ * Replies as the Account land as comments on the issue the conversation
+ * names, under the reply door's Account path.
  */
 export class LinearAdapter implements Channel.Surface {
   get id(): string { return this.options.instance; }
@@ -116,17 +116,17 @@ export class LinearAdapter implements Channel.Surface {
   private readonly dedupe: Dedupe;
   private readonly outbound = new DeliveryReconciliation();
   private handler: Channel.MessageHandler | null = null;
-  private ownerUserId: string | undefined;
-  private ownerNames: string[] = [];
+  private accountUserId: string | undefined;
+  private accountNames: string[] = [];
 
   constructor(
-    private readonly credentials: LinearOwnerCredentials,
+    private readonly credentials: LinearAccountCredentials,
     private readonly publish: PublishPort,
     private readonly options: { readonly instance: string; readonly now: () => number; readonly id: () => string; readonly run: EffectRunner },
   ) {
     this.dedupe = new Dedupe(options.now);
     this.client = new LinearClient(publish, options.now, options.run, credentials.token);
-    this.ownerUserId = credentials.ownerUserId;
+    this.accountUserId = credentials.accountUserId;
   }
 
   /** A comment on the issue carries the payload's text reading; a reaction has no comment to land in and is not sent. */
@@ -159,27 +159,27 @@ export class LinearAdapter implements Channel.Surface {
     this.handler = instanceHandler(this.id, handler);
   }
 
-  /** The key's own user is what tells the Owner's actions apart; a key that cannot say fails the start. */
+  /** The key's own user is what tells the Account's actions apart; a key that cannot say fails the start. */
   async start(traceId: string): Promise<void> {
     requireHandler(this.handler, this.id);
     if (this.credentials.token !== undefined) {
       const me = await this.client.viewer(traceId);
       if (me === undefined)
-        throw new ChannelsFailure({ operation: "linear.owner.start", cause: "the api key cannot name its own user" });
-      this.ownerUserId = this.credentials.ownerUserId ?? me.id;
-      this.ownerNames = [me.name, me.displayName].flatMap((name) => (name === undefined || name === "" ? [] : [name]));
+        throw new ChannelsFailure({ operation: "linear.account.start", cause: "the api key cannot name its own user" });
+      this.accountUserId = this.credentials.accountUserId ?? me.id;
+      this.accountNames = [me.name, me.displayName].flatMap((name) => (name === undefined || name === "" ? [] : [name]));
     }
-    if (this.ownerUserId === undefined)
+    if (this.accountUserId === undefined)
       throw new ChannelsFailure({
-        operation: "linear.owner.start",
-        cause: "no api key and no ownerUserId: the account identity is required",
+        operation: "linear.account.start",
+        cause: "no api key and no accountUserId: the account identity is required",
       });
     this.publish(Operational.Events.Info, {
       traceId,
       time: this.options.now(),
       component: "server",
-      msg: "linear owner instance started",
-      context: { ownerUserId: this.ownerUserId },
+      msg: "linear account instance started",
+      context: { accountUserId: this.accountUserId },
     });
   }
 
@@ -223,10 +223,10 @@ export class LinearAdapter implements Channel.Surface {
     return { response: Response.json(observation) };
   }
 
-  /** Whether the Owner is named: by user id, or by `@` and either name the key reports. */
-  private mentionsOwner(text: string): boolean {
-    if (this.ownerUserId !== undefined && text.includes(this.ownerUserId)) return true;
-    return this.ownerNames.some((name) => text.includes(`@${name}`));
+  /** Whether the Account is named: by user id, or by `@` and either name the key reports. */
+  private mentionsAccount(text: string): boolean {
+    if (this.accountUserId !== undefined && text.includes(this.accountUserId)) return true;
+    return this.accountNames.some((name) => text.includes(`@${name}`));
   }
 
   private prepareWebhook(request: Request, envelope: LinearWebhookEnvelope, traceId: string): WebhookPreparation {
@@ -238,9 +238,9 @@ export class LinearAdapter implements Channel.Surface {
     const acquisition = this.dedupe.acquire(deliveryId);
     if (acquisition.duplicate) return { response: new Response("Already processed", { status: 200 }) };
     if (content.kind === "unsupported_event") return this.observeUnsupported(content, deliveryId, traceId);
-    if (this.ownerUserId !== undefined && content.sender === this.ownerUserId)
+    if (this.accountUserId !== undefined && content.sender === this.accountUserId)
       return { response: new Response("Own action", { status: 200 }) };
-    const mentioned = this.mentionsOwner(content.text);
+    const mentioned = this.mentionsAccount(content.text);
     this.publish(Operational.Events.Info, {
       traceId,
       time: this.options.now(),
@@ -257,10 +257,9 @@ export class LinearAdapter implements Channel.Surface {
         surface: "linear",
         ...(envelope.organizationId === undefined || envelope.organizationId === null ? {} : { workspaceId: envelope.organizationId }),
         channelId: content.issueId,
-        addressees: mentioned && this.ownerUserId !== undefined ? [{ externalId: this.ownerUserId }] : [],
-        account: this.ownerUserId,
+        addressees: mentioned && this.accountUserId !== undefined ? [{ externalId: this.accountUserId }] : [],
+        account: this.accountUserId,
         dm: false,
-        receivedBy: "owner",
         reply: {
           chain: [],
           threadId: content.issueId,

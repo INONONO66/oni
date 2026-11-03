@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { ChannelProviders, type ChannelDeliveryRoute, type ProviderTypingRoute } from "@oni/channels";
+import { ChannelProviders, type ProviderTypingRoute } from "@oni/channels";
+import type { ChannelDeliveryRoute } from "../src/bundles/message-ports.js";
 import type { Provisioning } from "@oni/protocol";
 import { bindOwnerAccount, ownerAccountBinder } from "../src/bundles/provision/declared";
 import {
@@ -125,7 +126,7 @@ describe("declared Owner instances", () => {
       state: "identity_unsupported",
       detail: "kakaotalk has no bot account; declare the instance with identity: owner",
     });
-    expect(validateProviderCredential("instagram", { token: "x" })).toContain("identity: owner");
+    expect(validateProviderCredential("instagram", { token: "x" })).toContain("use the account arm");
     expect(validateProviderCredential("kakaotalk", { oauthToken: "o", userId: "1" }, "owner")).toBeUndefined();
   });
 

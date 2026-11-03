@@ -778,7 +778,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     expect(instanceStatus).toContain(
       "channel:slack:hq precondition: Socket Mode enabled with an app-level token granted connections:write",
     );
-    expect(instanceStatus).toContain("channel:slack:personal precondition: Owner session from the Slack QR login");
+    expect(instanceStatus).toContain("channel:slack:personal precondition: Account session from the Slack QR login");
     expect(instanceStatus).not.toContain("channel:slack:personal precondition: Socket Mode");
 
     const locked = portWith({ kek: { kind: "locked", reason: "no ONI_VAULT_KEY" } });

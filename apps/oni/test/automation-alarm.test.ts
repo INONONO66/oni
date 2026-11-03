@@ -36,7 +36,7 @@ test.each(["action", "prompt"] as const)("cron tick routes %s to the same entity
   f.stores.rules.add(automationRecord({
     when: { instance: "alarm", channel: `cron:${cron.expr}` },
     outcome: { kind: "deliver", target: `session:${target}`, deliveryKind: kind, reply: "none" },
-  }));
+  }), true);
   const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
     purpose: CRON_TICK, at: 0, alarmId: "watch", sourceKey: source, payload: cron, ts: f.time.now,
   });
@@ -58,7 +58,7 @@ test("a monitor tick falls through a channel-restricted cron rule to the seeded 
   f.stores.rules.add(automationRecord({
     when: { instance: "alarm", channel: "cron:watch" },
     outcome: { kind: "deliver", target: `session:${target}`, deliveryKind: "action", reply: "none" },
-  }));
+  }), true);
   const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
     purpose: Bundle.MONITOR_HIT, at: 0, alarmId: "watch", sourceKey: "monitor", payload: monitor, ts: f.time.now,
   });
@@ -76,7 +76,7 @@ test("a filtered schedule tick writes no local prompt shortcut", async () => {
   f.stores.rules.add(automationRecord({
     when: { instance: "alarm", from: ["ABSENT"] },
     outcome: { kind: "deliver", target: `session:${target}`, deliveryKind: "action", reply: "none" },
-  }));
+  }), true);
   f.stores.rules.disable("seed:alarm");
   const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
     purpose: CRON_TICK, at: 0, alarmId: "filtered", sourceKey: "cron", payload: cron, ts: f.time.now,

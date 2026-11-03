@@ -49,7 +49,7 @@ export const Bus = {
 
 type Info = Pick<ReturnType<typeof Operational.Events.Info.schema.parse>, "msg" | "context">;
 
-/** Collects every Info event's msg/context as a publish port the Owner adapters accept. */
+/** Collects every Info event's msg/context as a publish port the Account adapters accept. */
 export const infoCollector = () => {
   const infos: Info[] = [];
   const publish: BusEvent.Sink["publish"] = (event, data) => {

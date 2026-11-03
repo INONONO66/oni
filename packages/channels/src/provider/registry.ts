@@ -23,7 +23,7 @@ export const ChannelProviders: Readonly<{
   github: typeof GitHubProvider;
   slack: typeof SlackProvider;
   webhook: typeof WebhookProvider;
-  /** #1569 lane 7: Owner-only platforms — no bot account; reached through the `owner` arm alone. */
+  /** #1569 lane 7: Account-only platforms — no bot account; reached through the `account` arm alone. */
   instagram: typeof InstagramProvider;
   kakaotalk: typeof KakaoTalkProvider;
   /** #1569 lane 9b: Linear, hand-rolled — signed webhook ingress, comments out through the GraphQL API. */
@@ -39,5 +39,5 @@ export const ChannelProviders: Readonly<{
   instagram: InstagramProvider,
   kakaotalk: KakaoTalkProvider,
   linear: LinearProvider,
-  a2a: createA2AProvider(async () => [], { name: "Oni Resident", description: "unbound", version: "0" }),
+  a2a: createA2AProvider(async () => [], { id: "unbound", name: "unbound", description: "unbound", version: "0" }),
 } as const;

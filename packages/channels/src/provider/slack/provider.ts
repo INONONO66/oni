@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { ChannelProvider, OwnerArm } from "../contract.js";
+import type { ChannelProvider, AccountArm } from "../contract.js";
 import { kernelDeliveryRoute } from "../delivery-route.js";
 import { SLACK_MEDIA_LIMITS, SLACK_RENDER } from "./format.js";
-import { SlackOwnerAdapter } from "./owner.js";
-import { type SlackOwnerSdk, slackOwnerSdk } from "./owner-sdk.js";
+import { SlackAccountAdapter } from "./account.js";
+import { type SlackAccountSdk, slackAccountSdk } from "./account-sdk.js";
 import { type SlackSdk, slackSdk } from "./sdk.js";
 import { SlackAdapter } from "./surface.js";
 
@@ -14,19 +14,19 @@ interface SlackCredentials {
   readonly appToken: string;
 }
 
-/** The Owner's own account session (#1569): the client token and the `d` cookie the QR login produced. */
-interface SlackOwnerCredentials {
+/** The user account session (#1569): the client token and the `d` cookie the QR login produced. */
+interface SlackAccountCredentials {
   readonly token: string;
   readonly cookie: string;
 }
 
 /**
- * The Owner-identity arm (#1569 lanes 5 and 6): delivery as the Owner's
+ * The Account-identity arm (#1569 lanes 5 and 6): delivery as the Account's
  * account through the user SDK, mounted by declaration id (a delivery route
  * only when the declaration grants outbound), and the account's RTM listener
  * emitting facts for the router. No media upload through the account.
  */
-function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<SlackOwnerCredentials> {
+function createSlackAccountArm(sdk: SlackAccountSdk = slackAccountSdk()): AccountArm<SlackAccountCredentials> {
   return {
     credentials: z
       .object({
@@ -35,15 +35,15 @@ function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<Sla
       })
       .strict(),
     preconditions: [
-      "Owner session from the Slack QR login, sealed into the vault (the login helper lands with its own lane): client token xoxc- plus the d cookie",
-      "the Owner accepts automation under their own account (declared outbound grant)",
-      "live huddles require Linux Chromium, PipeWire-Pulse devices and an active room that the Owner account can join without switching away from its existing device",
+      "Account session from the Slack QR login, sealed into the vault (the login helper lands with its own lane): client token xoxc- plus the d cookie",
+      "the Account accepts automation under their own account (declared outbound grant)",
+      "live huddles require Linux Chromium, PipeWire-Pulse devices and an active room that the Account account can join without switching away from its existing device",
       "automatic huddle handling requires the RTM room-to-conversation association and a rule that admits unaddressed call facts",
     ],
     capabilities: { deliver: true, react: true, media: false, typing: false, voice: true },
     listen: true,
     create(credentials, publish, options) {
-      const surface = new SlackOwnerAdapter(credentials, publish, options, sdk);
+      const surface = new SlackAccountAdapter(credentials, publish, options, sdk);
       return {
         surface,
         account: () => surface.account(),
@@ -68,8 +68,8 @@ function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<Sla
  */
 export function createSlackProvider(
   sdk: SlackSdk = slackSdk(),
-  ownerSdk: SlackOwnerSdk = slackOwnerSdk(),
-): ChannelProvider<SlackCredentials, "slack", SlackOwnerCredentials> {
+  accountSdk: SlackAccountSdk = slackAccountSdk(),
+): ChannelProvider<SlackCredentials, "slack", SlackAccountCredentials> {
   return {
     id: "slack",
     ingest: "socket",
@@ -83,14 +83,13 @@ export function createSlackProvider(
       typing: false,
       voice: false,
     },
-    owner: createSlackOwnerArm(ownerSdk),
+    account: createSlackAccountArm(accountSdk),
     credentials: z
       .object({
         botToken: z.string().startsWith("xoxb-"),
         appToken: z.string().startsWith("xapp-"),
       })
       .strict(),
-    settings: z.record(z.string(), z.never()),
     preconditions: [
       "Socket Mode enabled with an app-level token granted connections:write",
       "event subscriptions: message.channels and message.im",
@@ -108,5 +107,5 @@ export function createSlackProvider(
   };
 }
 
-export const SlackProvider: ChannelProvider<SlackCredentials, "slack", SlackOwnerCredentials> =
+export const SlackProvider: ChannelProvider<SlackCredentials, "slack", SlackAccountCredentials> =
   createSlackProvider();

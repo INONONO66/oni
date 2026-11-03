@@ -25,7 +25,7 @@ const CapabilityRequestRow = z.object({
 const INSERT = `INSERT INTO machine_enrollment (machineId, enrollment, revision, removedAt, updatedAt)
   VALUES (?, ?, 0, NULL, ?)`;
 
-/** Enrollment tombstones retain revisions so a remove/re-add cannot revive stale consent. */
+/** Enrollment tombstones retain revisions so a remove/re-add cannot revive stale authorization. */
 export function createMachineEnrollmentStore(client: Parameters<typeof openChannelStore>[0]) {
   if (QueryOnly.parse(client.query("PRAGMA query_only").get()).query_only === 0) {
     client.run(`CREATE TABLE IF NOT EXISTS machine_enrollment (
@@ -43,7 +43,7 @@ export function createMachineEnrollmentStore(client: Parameters<typeof openChann
     )`);
   }
   const store = {
-    /** Includes tombstones for approval revision checks; removed rows confer no authority. */
+    /** Includes tombstones for authorization revision checks; removed rows confer no authority. */
     get(machineId: string) {
       return EnrollmentRow.nullable().parse(client.query(
         "SELECT machineId, enrollment, revision, removedAt, updatedAt FROM machine_enrollment WHERE machineId = ?",

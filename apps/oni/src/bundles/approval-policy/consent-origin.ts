@@ -1,4 +1,5 @@
-import { decodeChannelFailure, type createGatewayRouter } from "@oni/channels";
+import { decodeChannelFailure } from "@oni/channels";
+import type { GatewayRouterPorts } from "../message-ports";
 import { Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -11,7 +12,7 @@ const ComputerApproval = z.object({
   }),
 });
 
-type AnswerPort = Parameters<typeof createGatewayRouter>[0]["requests"];
+type AnswerPort = GatewayRouterPorts["requests"];
 
 /** The client filters tagged injections before publishing the person-only humanInput.lastAt. */
 export function consentOrigin(

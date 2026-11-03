@@ -167,7 +167,7 @@ describe("Resident terminal LLM failure surfacing", () => {
       return yield* createResidentGateway({
         now: Date.now,
         id: testIds("resilience-gateway"),
-        delivery: { commit: (input) => localDelivery(resident.plane, "resilience-gateway", Date.now)(input).pipe(Effect.mapError(decodeDeliveryFailure("delivery.commit"))) },
+        deliver: (input) => localDelivery(resident.plane, "resilience-gateway", Date.now)(input).pipe(Effect.mapError(decodeDeliveryFailure("delivery.commit"))),
         prepare: prepareMessage(resident.plane, resident.genesis),
         ...(yield* residentGatewayPorts(resident.plane, Date.now)),
       }, undefined);

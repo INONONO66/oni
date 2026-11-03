@@ -68,7 +68,7 @@ describe("provider retry and receipt paths", () => {
       {},
       () => undefined,
       injectedOptions(),
-    ).deliveryRoute?.("owner/repo#1", Outbound.payload("hello"), "key-4");
+    ).deliveryRoute?.("account/repo#1", Outbound.payload("hello"), "key-4");
 
     expect(telegram).toEqual({ value: "accepted", externalMessageId: "42" });
     expect(discord).toEqual({ value: "accepted", externalMessageId: "m-17" });

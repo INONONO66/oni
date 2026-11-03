@@ -71,7 +71,7 @@ export class WebhookAdapter implements Channel.Surface {
    * Awaits the inbound handler (#1600 lane R3; the first cut let a throw
    * escape and reset the connection). A perimeter refusal is this surface's
    * own verdict — answered 200 so the sender never redelivers what the
-   * Owner's policy refused; a failure answers 500 so it can.
+   * Account's policy refused; a failure answers 500 so it can.
    */
   private async dispatch(inbound: Channel.InboundMessage): Promise<Response> {
     try {

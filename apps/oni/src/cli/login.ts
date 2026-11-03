@@ -1,4 +1,4 @@
-import type { OwnerLoginWithTelegram } from "@oni/channels";
+import type { AccountLoginWithTelegram } from "@oni/channels";
 import type { Provisioning } from "@oni/protocol";
 import { CliError } from "./errors";
 import type { Ask } from "./onboard";
@@ -11,7 +11,7 @@ export type LoginPlatform = (typeof LOGIN_PLATFORMS)[number];
 
 export interface LoginDeps {
   /** The platform sign-in flows; the shipped ones ride the agent-messenger SDK. */
-  readonly logins: OwnerLoginWithTelegram;
+  readonly logins: AccountLoginWithTelegram;
   /** Declares the instance over the Owner's socket; absent when no daemon is reachable. */
   readonly declare: (request: Provisioning.ChannelDeclareRequest) => Promise<Provisioning.ChannelDeclareResponse>;
   readonly id: () => string;

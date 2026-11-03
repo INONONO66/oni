@@ -22,8 +22,8 @@ export function createSurfaceKeyStore(source: {
     },
 
     /**
-     * Attempt to claim a surfaceKey for a session without clobbering a concurrent owner.
-     * With expectedSessionId, replaces only if the current owner still equals it.
+     * Attempt to claim a surfaceKey for a session without clobbering a concurrent account.
+     * With expectedSessionId, replaces only if the current account still equals it.
      * Without expectedSessionId, inserts only when the key is absent.
      * Returns the session ID that owns the key after the claim attempt.
      */

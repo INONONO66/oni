@@ -1,6 +1,6 @@
 import type { Channel } from "@oni/protocol";
 
-/** Bot and Owner copies of one platform message share its workspace/channel/event key. */
+/** Bot and Account copies of one platform message share its workspace/channel/event key. */
 function inboundKey(message: Channel.InboundMessage): string {
   const { facts } = message;
   return [facts.surface, facts.workspaceId ?? "", facts.channelId, facts.eventId]

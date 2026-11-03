@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { DeliveryNotSent } from "../../errors.js";
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import { type ChannelProvider, WEBHOOK_TEXT_CAPABILITIES } from "../contract.js";
@@ -19,7 +18,6 @@ export function createA2AProvider(peers: PeerResolver, card: A2ACardFacts): Chan
     // The answer is a text part; the peer renders it as it sees fit.
     capabilities: WEBHOOK_TEXT_CAPABILITIES,
     credentials: A2ACredentials,
-    settings: z.record(z.string(), z.never()),
     preconditions: [
       "the peer presents its declared bearer at POST /a2a and reads the card at /.well-known/agent-card.json; a peer with a url is written to with the same bearer",
     ],

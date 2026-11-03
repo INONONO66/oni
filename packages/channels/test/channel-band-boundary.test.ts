@@ -15,11 +15,11 @@ const SDK_SUBPATH_HOMES: ReadonlyMap<string, string> = new Map([
   ["agent-messenger/slackbot", "src/provider/slack/sdk.ts"],
   ["agent-messenger/discordbot", "src/provider/discord/sdk.ts"],
   ["agent-messenger/telegrambot", "src/provider/telegram/sdk.ts"],
-  ["agent-messenger/telegram", "src/provider/telegram/owner-sdk.ts"],
-  ["agent-messenger/slack", "src/provider/slack/owner-sdk.ts"],
-  ["agent-messenger/discord", "src/provider/discord/owner-sdk.ts"],
-  ["agent-messenger/instagram", "src/provider/instagram/owner-sdk.ts"],
-  ["agent-messenger/kakaotalk", "src/provider/kakaotalk/owner-sdk.ts"],
+  ["agent-messenger/telegram", "src/provider/telegram/account-sdk.ts"],
+  ["agent-messenger/slack", "src/provider/slack/account-sdk.ts"],
+  ["agent-messenger/discord", "src/provider/discord/account-sdk.ts"],
+  ["agent-messenger/instagram", "src/provider/instagram/account-sdk.ts"],
+  ["agent-messenger/kakaotalk", "src/provider/kakaotalk/account-sdk.ts"],
 ]);
 const JUDGMENT_ALLOWED_PACKAGES = new Set(["@oni/agent"]);
 const JUDGMENT_DIRS = ["src/router/", "src/authn/", "src/store/"] as const;
@@ -81,7 +81,7 @@ function isAllowed(specifier: string, path: string): boolean {
     return true;
   }
   if (specifier === "bun:sqlite" && path.startsWith(SQLITE_BAND_DIR)) return true;
-  if (specifier === "bun:ffi" && path === "src/provider/telegram/owner-custody.ts") return true;
+  if (specifier === "bun:ffi" && path === "src/provider/telegram/account-custody.ts") return true;
   const dependency = packageName(specifier);
   if (DRIVER_ALLOWED_PACKAGES.has(dependency)) return true;
   if (SDK_SUBPATH_HOMES.get(specifier) === path) return true;
@@ -132,9 +132,9 @@ describe("channels band import boundary", () => {
           path: "src/router/index.ts",
           text: 'import { SlackBotClient } from "agent-messenger/slackbot";',
         },
-        // #1569 lane 5: the Owner-account subpath has its own one home.
+        // #1569 lane 5: the Account-account subpath has its own one home.
         {
-          path: "src/provider/slack/owner-sdk.ts",
+          path: "src/provider/slack/account-sdk.ts",
           text: 'import { SlackClient } from "agent-messenger/slack";',
         },
         {
@@ -143,11 +143,11 @@ describe("channels band import boundary", () => {
         },
         // #1569 lane 6: the Discord account SDK has its own one home too.
         {
-          path: "src/provider/discord/owner-sdk.ts",
+          path: "src/provider/discord/account-sdk.ts",
           text: 'import { DiscordClient } from "agent-messenger/discord";',
         },
         {
-          path: "src/provider/discord/owner.ts",
+          path: "src/provider/discord/account.ts",
           text: 'import { DiscordClient } from "agent-messenger/discord";',
         },
         {
@@ -155,11 +155,11 @@ describe("channels band import boundary", () => {
           text: 'import { DiscordBotError } from "agent-messenger/discordbot";',
         },
         {
-          path: "src/provider/telegram/owner-sdk.ts",
+          path: "src/provider/telegram/account-sdk.ts",
           text: 'import { createTelegramAccountClient } from "agent-messenger/telegram";',
         },
         {
-          path: "src/provider/telegram/owner.ts",
+          path: "src/provider/telegram/account.ts",
           text: 'import { createTelegramAccountClient } from "agent-messenger/telegram";',
         },
       ]),
@@ -168,9 +168,9 @@ describe("channels band import boundary", () => {
       "src/provider/slack/sdk.ts: imports agent-messenger/discordbot",
       "src/router/index.ts: imports agent-messenger/slackbot",
       "src/provider/slack/sdk.ts: imports agent-messenger/slack",
-      "src/provider/discord/owner.ts: imports agent-messenger/discord",
+      "src/provider/discord/account.ts: imports agent-messenger/discord",
       "test/helpers/discord-sdk.ts: imports agent-messenger/discordbot",
-      "src/provider/telegram/owner.ts: imports agent-messenger/telegram",
+      "src/provider/telegram/account.ts: imports agent-messenger/telegram",
     ]);
   });
 

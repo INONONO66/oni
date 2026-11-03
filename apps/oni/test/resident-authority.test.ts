@@ -50,13 +50,13 @@ for (const scenario of [
       return yield* createResidentGateway({
         now: Date.now,
         id: testIds("authority-gateway"),
-        delivery: { commit: (input) =>
+        deliver: (input) =>
           localDelivery(resident.plane, "authority-gateway", Date.now)({
             ...input,
             origin: { encodingVersion: 1, value: { kind: "external", inboundTreatment: scenario.authority === "evidence_only" ? "evidence_only" : "full_access" } },
           }).pipe(
             Effect.mapError(decodeChannelFailure("delivery.commit")),
-          ) },
+          ),
         prepare: prepareMessage(resident.plane, resident.genesis),
         ...(yield* residentGatewayPorts(resident.plane, Date.now)),
       }, undefined);
@@ -64,7 +64,7 @@ for (const scenario of [
     createRuleStore(resident.plane.channel).add({
       id: "authority", position: 0, enabled: true, createdBy: "owner", when: { instance: "ws" },
       outcome: { kind: "deliver", target: "conversation", deliveryKind: "prompt", reply: "auto" },
-    });
+    }, true);
     createSurfaceKeyStore(resident.plane.channel).claim("ws:dm:owner", "authority-session");
     const admission = await runEffect(gateway.ingest(
       { kind: "external", surface: "ws", externalId: "owner" },

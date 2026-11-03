@@ -36,7 +36,7 @@ export function createSqliteSurfaceKeyAdapter(db: Database, now: () => number): 
           if (row === null) {
             // Impossible state: the INSERT OR IGNORE above ran inside this
             // same immediate transaction, so the key MUST exist here. Falling
-            // back to the candidate sessionId would fabricate an ownership
+            // back to the candidate sessionId would fabricate an custody
             // answer.
             throw new ChannelStoreInvariant({
               operation: "surfaceKey.claim",

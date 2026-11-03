@@ -29,7 +29,7 @@ export type WebhookFetch = (
     readonly headers: Readonly<Record<string, string>>;
     readonly body: Uint8Array;
     readonly signal: AbortSignal;
-    /** Never followed: a redirect is the target's refusal, and the signed body goes nowhere the Owner did not declare. */
+    /** Never followed: a redirect is the target's refusal, and the signed body goes nowhere the Account did not declare. */
     readonly redirect: "manual";
   },
 ) => Promise<{
@@ -80,7 +80,7 @@ async function answerOf(answered: {
  * `not_sent`; a request that never left this host (connection refused, no
  * such host, a failed TLS handshake) is `not_sent`; a request that may have
  * landed — a timeout, a reset after it left — is `unknown`, surfaced to the
- * Owner once and never re-sent. Custody is this process's: a daemon that
+ * Account once and never re-sent. Custody is this process's: a daemon that
  * crashes between the POST and the journaled receipt, or a second daemon
  * over the same store, holds no memory of the attempt.
  */

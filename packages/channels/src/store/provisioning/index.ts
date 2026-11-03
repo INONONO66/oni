@@ -24,29 +24,13 @@ function requireAdapter(source: ProvisioningSource): ProtocolStorage.Provisionin
   return sub;
 }
 
-/**
- * Durable Person manifests (docs/provisioning-and-providers.md §3.1).
- * THE sole-owner enforcement layer: at most one Person carries
- * `trustTier: "owner"`, and a second is a typed `owner_exists` refusal —
- * checked inside the adapter's transaction so two concurrent declares
- * cannot both pass the read.
- */
+/** Durable person records; product constraints are enforced by composition. */
 export function createPersonStore(source: ProvisioningSource) {
   return {
     put(input: Provisioning.Person): Provisioning.Person {
       const person = Provisioning.Person.parse(input);
       const adapter = requireAdapter(source);
       return source.transaction(() => {
-        if (person.trustTier === "owner") {
-          const owner = adapter.listPersons().find((row) => row.trustTier === "owner");
-          if (owner !== undefined && owner.id !== person.id) {
-            throw new Provisioning.StoreError({
-              message: `Sole-owner invariant: ${owner.id} already holds trustTier "owner"`,
-              code: "owner_exists",
-              id: owner.id,
-            });
-          }
-        }
         adapter.setPerson(person);
         return person;
       });

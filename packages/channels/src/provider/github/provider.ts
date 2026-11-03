@@ -25,7 +25,6 @@ export const GitHubProvider: ChannelProvider<GitHubCredentials, "github"> = {
       botUsername: z.string().min(1).optional(),
     })
     .strict(),
-  settings: z.record(z.string(), z.never()),
   preconditions: [
     "repository webhook posts issues/issue_comment events to the public endpoint with the shared secret",
   ],
@@ -39,7 +38,7 @@ export const GitHubProvider: ChannelProvider<GitHubCredentials, "github"> = {
     );
     return {
       surface,
-      // A conversation names the issue (`owner/repo#N`, #1600 lane R2): the answer is a comment there; a cold send keeps the direct address.
+      // A conversation names the issue (`account/repo#N`, #1600 lane R2): the answer is a comment there; a cold send keeps the direct address.
       deliveryRoute: async (externalId, payload, key, conversation) =>
         kernelDeliveryReceipt(await surface.deliver(conversation?.channelId ?? externalId, payload, key)),
       webhookHandler: (request) => surface.handleWebhook(request),

@@ -3,7 +3,7 @@ import { Outbound } from "@oni/protocol";
 import { deliveryFixture, installDeliveryFetch } from "./helpers/delivery";
 import { recordHttp } from "./helpers/http";
 
-const providers = ["discord", "discord-owner", "telegram"] as const;
+const providers = ["discord", "discord-account", "telegram"] as const;
 const neverConnected = ["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ConnectionRefused"];
 
 async function expectHeldUncertain(provider: (typeof providers)[number], respond: () => Response) {
@@ -73,7 +73,7 @@ for (const provider of providers) {
   );
 }
 
-for (const provider of ["discord", "discord-owner"] as const) {
+for (const provider of ["discord", "discord-account"] as const) {
   test.each(["503", "missing-id", "numeric-id", "reset"] as const)(
     `${provider}: DM preflight %s permits a same-key retry before posting`, async (failure) => {
       let preflights = 0;

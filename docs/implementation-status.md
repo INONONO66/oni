@@ -93,6 +93,34 @@ the existing sink, and `apps/oni/src/config.ts` exposes `speechRows` and
 `imageRows` beside `transcriptionRows`. No speech or image tool ships here
 (#1785, #1786). Receipts: the PR Verification section.
 
+## #1795 match() returns a value
+
+PR #1816 makes `channels.match(message, rules, judge?)` return
+`{ rule, factsUsed, verdict? } | undefined`. Matching retains ordered
+first-match and fail-closed judge behavior without recording a decision.
+The app's messaging bundle interprets the selected outcome, grouping,
+limits, target, reply mode, sending instance, agent and delivery kind.
+
+`apps/oni/src/composition/ingress-ledger.ts`, `ingress-route.ts` and
+`ingress-groups.ts` own ingress decision writes, group closure and replay
+checks. `composition/gateway-router.ts` orchestrates delivery through the
+Session entity port; `apps/oni/src/bundles/messaging` owns messaging policy.
+Channels retains physical request correlation, provider delivery custody
+and store primitives. Equivalent
+redelivery still preserves the original routing and endpoint authority;
+divergent replay fails before another delivery.
+
+The app owns trust-tier interpretation, Owner budget exemption, reply
+drafting, sole-Owner Person admission and rule activation authorization.
+Channels stores no distinguished creator or tier policy. Provider account
+arms use transport vocabulary; composition injects `receivedBy` before
+attachment processing. A2A card identity, including its skill id, is
+app-supplied. Empty instance-settings validation is app-owned rather than
+a provider contract seam. Routing, receipt, replay and product-policy tests
+move with their app implementation; the transport tests remain in channels.
+
+A Linear instance declared before #1795 with `ownerUserId` is refused at mount (fail-closed) and must be re-declared with `accountUserId`.
+
 ## #1794 one Message
 
 PR #1814 removes `OwnerPosture` and provider-side admission branches.
@@ -169,7 +197,7 @@ top-level messages as their own roots, or `<instance>:dm:<peerId>`. The first
 claim owns the binding. Physical request correlation remains independent.
 Replay retains the recorded choice, including reply policy; grouped windows
 and delivery receipts survive reopening. Provider admission branches were
-removed by #1794; moving ledger writes out of channels remains #1795.
+removed by #1794; #1795 moves ingress ledger writes and receipts into the app.
 
 This section supersedes older inbound grant, blacklist, environment posture
 and automation policy descriptions below. Verification receipts are in PR #1805.
@@ -2775,7 +2803,7 @@ so there is no bot account; the bot arm refuses every declaration
 (`identity_unsupported`) and the platform is reached through its `owner`
 arm alone, mounted by its channel instance id under the identity axis
 (`packages/channels/src/provider/linear/{types,client,surface,provider}.ts`).
-The Owner arm's credential is `{ secret, token?, ownerUserId? }` — the
+The Owner arm's credential is `{ secret, token?, accountUserId? }` — the
 webhook's signing secret, the Owner's personal API key for commenting back
 as the Owner (absent leaves the instance ingress-only, loudly: a reply
 without a key is a Warn and `not_sent`), and the Owner's user id for when

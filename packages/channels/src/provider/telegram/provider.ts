@@ -2,9 +2,9 @@ import { z } from "zod";
 import type { ChannelProvider } from "../contract.js";
 import { kernelDeliveryRoute } from "../delivery-route.js";
 import { TELEGRAM_MEDIA_LIMITS, TELEGRAM_RENDER } from "./format.js";
-import { TelegramOwnerCredentials } from "./owner-contract.js";
-import { TelegramOwnerAdapter } from "./owner.js";
-import { type TelegramOwnerSdk, telegramOwnerSdk } from "./owner-sdk.js";
+import { TelegramAccountCredentials } from "./account-contract.js";
+import { TelegramAccountAdapter } from "./account.js";
+import { type TelegramAccountSdk, telegramAccountSdk } from "./account-sdk.js";
 import { type TelegramSdk, telegramSdk } from "./sdk.js";
 import { TelegramAdapter } from "./surface.js";
 
@@ -21,8 +21,8 @@ interface TelegramCredentials {
  */
 export function createTelegramProvider(
   sdk: TelegramSdk = telegramSdk(),
-  ownerSdk: TelegramOwnerSdk = telegramOwnerSdk(),
-): ChannelProvider<TelegramCredentials, "telegram", TelegramOwnerCredentials> {
+  accountSdk: TelegramAccountSdk = telegramAccountSdk(),
+): ChannelProvider<TelegramCredentials, "telegram", TelegramAccountCredentials> {
   return {
     id: "telegram",
     ingest: "poll",
@@ -37,10 +37,9 @@ export function createTelegramProvider(
       voice: false,
     },
     credentials: z.object({ token: z.string().min(1) }).strict(),
-    settings: z.record(z.string(), z.never()),
     preconditions: [],
-    owner: {
-      credentials: TelegramOwnerCredentials,
+    account: {
+      credentials: TelegramAccountCredentials,
       preconditions: ["Telegram account API credentials and an exclusive private data directory"],
       listen: true,
       capabilities: {
@@ -52,7 +51,7 @@ export function createTelegramProvider(
         media: TELEGRAM_MEDIA_LIMITS,
       },
       create(credentials, publish, options) {
-        const surface = new TelegramOwnerAdapter(credentials, publish, options, ownerSdk);
+        const surface = new TelegramAccountAdapter(credentials, publish, options, accountSdk);
         return {
           surface,
           account: () => surface.accountIdentity(),
@@ -80,5 +79,5 @@ export function createTelegramProvider(
   };
 }
 
-export const TelegramProvider: ChannelProvider<TelegramCredentials, "telegram", TelegramOwnerCredentials> =
+export const TelegramProvider: ChannelProvider<TelegramCredentials, "telegram", TelegramAccountCredentials> =
   createTelegramProvider();

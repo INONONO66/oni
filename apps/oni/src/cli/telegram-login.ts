@@ -1,5 +1,5 @@
-import type { OwnerLoginWithTelegram } from "@oni/channels";
-import { TelegramOwnerCredentials } from "@oni/channels";
+import type { AccountLoginWithTelegram } from "@oni/channels";
+import { TelegramAccountCredentials } from "@oni/channels";
 import { CliError } from "./errors";
 import type { Ask } from "./onboard";
 
@@ -19,14 +19,14 @@ const ACTIONS = {
 } as const;
 
 export async function telegramSignIn(
-  login: OwnerLoginWithTelegram["telegram"],
+  login: AccountLoginWithTelegram["telegram"],
   environment: TelegramLoginEnvironment,
   ask: Ask,
-): Promise<{ readonly credential: TelegramOwnerCredentials; readonly userId: string }> {
+): Promise<{ readonly credential: TelegramAccountCredentials; readonly userId: string }> {
   if (!environment.isTTY) throw new CliError("Telegram login requires an interactive terminal");
   const apiId = environment.apiId ?? await ask("Telegram API id", { required: true });
   const apiHash = environment.apiHash ?? await ask("Telegram API hash", { required: true, secret: true });
-  const parsed = TelegramOwnerCredentials.safeParse({ apiId, apiHash });
+  const parsed = TelegramAccountCredentials.safeParse({ apiId, apiHash });
   if (!parsed.success) throw new CliError("Invalid Telegram API credentials");
   const result = await login({
     credentials: parsed.data,

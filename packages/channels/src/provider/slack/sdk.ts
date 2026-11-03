@@ -155,7 +155,7 @@ export class CustodySlackBotClient extends SlackBotClient implements SlackBotApi
    * run): Slack reads the app-level token from the Authorization header,
    * which `@slack/web-api` fills from the client's own token — a per-call
    * `token` argument rides the body, and the bot client's header answered
-   * `invalid_auth` on the Owner's server. So the app token gets a client of
+   * `invalid_auth` on the Account's server. So the app token gets a client of
    * its own, built from the pinned bot client's class and pinned the same
    * way; a test swaps this seam for a scripted client.
    */
@@ -245,7 +245,7 @@ export type SlackFailure = "rejected" | "not_connected" | "uncertain";
  */
 /**
  * Both Slack SDK error classes (`SlackBotError` from the bot seam,
- * `SlackError` from the Owner seam) carry a `code` string and name
+ * `SlackError` from the Account seam) carry a `code` string and name
  * themselves; custody reads the shape, not the class, so one classifier
  * serves both instances.
  */
@@ -263,7 +263,7 @@ export function classifySlackFailure(error: Error): SlackFailure {
   if (error.code === HTTP_ERROR) return "uncertain";
   // Platform `ok:false`, a typed rate-limit refusal after the SDK's bounded
   // retries, and the SDK's own preflight refusals all mean nothing was posted.
-  // The Owner seam's own `ok:false` check names the Slack error as the code.
+  // The Account seam's own `ok:false` check names the Slack error as the code.
   return error.code === PLATFORM_REFUSED ||
     error.code === RATE_LIMITED ||
     SDK_PREFLIGHT.has(error.code) ||
@@ -272,7 +272,7 @@ export function classifySlackFailure(error: Error): SlackFailure {
     : "uncertain";
 }
 
-/** Owner-seam codes raised after a request may have been accepted, or that name no refusal. */
+/** Account-seam codes raised after a request may have been accepted, or that name no refusal. */
 const SDK_CUSTODY = new Set(["unknown_error", "file_not_found", "api_error"]);
 
 /**
@@ -283,7 +283,7 @@ const SDK_CUSTODY = new Set(["unknown_error", "file_not_found", "api_error"]);
 export function isSettledState(error: Error, states: readonly string[]): boolean {
   if (!isSlackSdkError(error)) return false;
   if (error.code === PLATFORM_REFUSED) return states.some((state) => error.message.endsWith(`: ${state}`));
-  // The Owner seam's own `ok:false` check carries the state as the code.
+  // The Account seam's own `ok:false` check carries the state as the code.
   return error.name === "SlackError" && states.includes(error.code);
 }
 
@@ -307,7 +307,7 @@ const LISTENER_TERMINAL = new Set([
 ]);
 
 export function isSlackTerminal(error: Error): boolean {
-  // Both SDK listeners (Socket Mode bot, RTM Owner account) raise their own
+  // Both SDK listeners (Socket Mode bot, RTM Account account) raise their own
   // error class with the Slack code; the RTM one keeps reopening on a revoked
   // session, so custody reads the code and stops it.
   if (!isSlackSdkError(error)) return false;

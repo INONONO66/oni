@@ -55,20 +55,8 @@ type SessionHostRuntime = Core.SessionHostRuntime;
 const AgentFailure = Core.AgentFailure;
 const ExecutionApprovalError = Core.ExecutionApprovalError;
 import { canonicalJson, SessionTransition, type PlainValue } from "@oni/protocol";
-import {
-  type ChannelDeliveryRoute,
-  type ChannelProviders,
-  type ProviderTypingRoute,
-  type ProviderVoiceRoute,
-  type ProviderHistoryRoute,
-  type GatewayRouter,
-  createChannelStores,
-  decodeChannelFailure,
-  ChannelsFailure,
-  WebSocketHandler,
-  createWebhookSender,
-  A2AClient,
-} from "@oni/channels";
+import { type ChannelProviders, type ProviderTypingRoute, type ProviderVoiceRoute, type ProviderHistoryRoute, createChannelStores, decodeChannelFailure, ChannelsFailure, WebSocketHandler, createWebhookSender, A2AClient } from "@oni/channels";
+import type { ChannelDeliveryRoute, GatewayRouter } from "./bundles/message-ports.js";
 
 import {
   createFileGenerationStore,
@@ -1299,10 +1287,8 @@ export async function startOni(options: StartOptions = {}) {
       runtime,
       createResidentGateway(
         {
-          delivery: {
-            commit: (input) =>
-              commitDelivery(input).pipe(Effect.mapError(decodeChannelFailure("message.commit"))),
-          },
+          deliver: (input) =>
+            commitDelivery(input).pipe(Effect.mapError(decodeChannelFailure("message.commit"))),
           prepare: drainAdmission(prepareMessage(plane, resident.genesis), {
             draining: () => drainGate.state() === "draining",
             live: work.live,

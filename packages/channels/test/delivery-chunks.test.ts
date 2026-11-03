@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Outbound } from "@oni/protocol";
 import { deliveryFixture, installDeliveryFetch } from "./helpers/delivery";
 
-for (const provider of ["discord", "discord-owner", "telegram"] as const) {
+for (const provider of ["discord", "discord-account", "telegram"] as const) {
   test(`${provider}: chunk delivery reports the final distinct message id`, async () => {
     let sends = 0;
     const restore = installDeliveryFetch(() => {

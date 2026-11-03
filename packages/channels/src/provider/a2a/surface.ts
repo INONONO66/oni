@@ -19,7 +19,7 @@ import {
   textOf,
 } from "./types";
 
-/** How long a blocking `message/send` waits for the Resident's answer before returning the task as it stands. */
+/** How long a blocking `message/send` waits for the Agent's answer before returning the task as it stands. */
 const A2A_BLOCKING_WAIT_MS = 30_000;
 
 /** How many tasks the door remembers; the oldest finished ones go first, then the oldest open one is canceled. */
@@ -36,6 +36,7 @@ export type PeerResolver = () => Promise<readonly A2APeer[]>;
 
 /** What the card says about this agent; the url is the door the request came through. */
 export interface A2ACardFacts {
+  readonly id: string;
   readonly name: string;
   readonly description: string;
   readonly version: string;
@@ -92,13 +93,13 @@ function withHistory(task: Task, historyLength: number | undefined): Task {
 }
 
 /**
- * The inbound A2A door (#1569 lane 9c): other agents reach the Resident
+ * The inbound A2A door (#1569 lane 9c): other agents reach the Agent
  * through ordinary ingress with their own actor and tier. A JSON-RPC
  * `message/send` from a declared peer (its bearer, compared in constant
  * time against every declared peer, names it) becomes one inbound message
  * — the context is the conversation, the task one exchange in it — and is
  * answered with the task; `configuration.blocking` waits for the
- * Resident's answer, bounded. The reply door's delivery into the context
+ * Agent's answer, bounded. The reply door's delivery into the context
  * lands on its newest open task, appends the agent's message and completes
  * it; `tasks/get` reads a task back; `tasks/cancel` cancels one still open.
  * A task is its peer's alone. Streaming and push notifications are
@@ -202,7 +203,7 @@ export class A2AAdapter implements Channel.Surface {
     return undefined;
   }
 
-  /** The newest task still open in a context: the one the Resident's answer lands on. */
+  /** The newest task still open in a context: the one the Agent's answer lands on. */
   private openTaskIn(contextId: string): TaskRecord | undefined {
     let found: TaskRecord | undefined;
     for (const record of this.tasks.values()) {
@@ -224,7 +225,7 @@ export class A2AAdapter implements Channel.Surface {
       defaultOutputModes: ["text/plain"],
       skills: [
         {
-          id: "resident",
+          id: this.card.id,
           name: this.card.name,
           description: this.card.description,
           tags: ["assistant"],

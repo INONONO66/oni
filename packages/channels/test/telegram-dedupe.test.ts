@@ -27,7 +27,7 @@ function expectStaleReleasePreservesReplacement(
 }
 
 const config = {};
-type DeliveryOwner = Readonly<{
+type DeliveryAccount = Readonly<{
   deliver(
     externalId: string,
     payload: Outbound.Payload,
@@ -38,36 +38,36 @@ type DeliveryOwner = Readonly<{
   }>;
 }>;
 
-function telegramFixture(): { owner: DeliveryOwner; outboundCalls: () => number } {
+function telegramFixture(): { account: DeliveryAccount; outboundCalls: () => number } {
   const fake = fakeTelegramSdk();
   return {
-    owner: new TelegramAdapter("token", config, () => undefined, injectedOptions(), fake.sdk),
+    account: new TelegramAdapter("token", config, () => undefined, injectedOptions(), fake.sdk),
     outboundCalls: () => fake.client.calls.filter(({ method }) => method === "sendMessage").length,
   };
 }
 
-function discordFixture(): { owner: DeliveryOwner; outboundCalls: () => number } {
+function discordFixture(): { account: DeliveryAccount; outboundCalls: () => number } {
   const fake = fakeDiscordSdk();
   return {
-    owner: new DiscordAdapter("token", config, () => undefined, injectedOptions(), fake.sdk),
+    account: new DiscordAdapter("token", config, () => undefined, injectedOptions(), fake.sdk),
     outboundCalls: () => fake.client.calls.filter(({ method }) => method === "createMessage").length,
   };
 }
 
-const owners = [
+const accounts = [
   ["Telegram", telegramFixture],
   ["Discord", discordFixture],
 ] as const;
 
 describe("outbound adapter delivery dedupe capability", () => {
   test.each(
-    owners,
+    accounts,
   )("%s reuses one outbound result when an idempotency key is supplied", async (_name, fixture) => {
-    const { owner, outboundCalls } = fixture();
+    const { account, outboundCalls } = fixture();
 
     const [first, retry] = await Promise.all([
-      owner.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-1"),
-      owner.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-1"),
+      account.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-1"),
+      account.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-1"),
     ]);
 
     expect(outboundCalls()).toBe(1);
@@ -75,19 +75,19 @@ describe("outbound adapter delivery dedupe capability", () => {
   });
 
   test.each(
-    owners,
+    accounts,
   )("%s delivers independently for distinct idempotency keys", async (_name, fixture) => {
-    const { owner, outboundCalls } = fixture();
+    const { account, outboundCalls } = fixture();
 
-    await owner.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-2");
-    await owner.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-3");
+    await account.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-2");
+    await account.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-3");
     expect(outboundCalls()).toBe(2);
   });
 
   test("Discord returns the final chunk id as the reply correlation", async () => {
-    const { owner, outboundCalls } = discordFixture();
+    const { account, outboundCalls } = discordFixture();
 
-    const receipt = await owner.deliver(
+    const receipt = await account.deliver(
       "recipient-1",
       Outbound.payload("a".repeat(2001)),
       "chunked-message",

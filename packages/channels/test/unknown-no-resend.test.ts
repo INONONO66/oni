@@ -23,10 +23,10 @@ function harness() {
 
 /**
  * #1248: an uncertain send is terminal — unknown receipt, ONE physical
- * attempt, and ONE Owner-visible notice. A retry with the same idempotency
+ * attempt, and ONE Account-visible notice. A retry with the same idempotency
  * key reuses the recorded receipt instead of resending or re-warning.
  */
-test("a mid-write failure is unknown: one attempt, one Owner notice, no resend", async () => {
+test("a mid-write failure is unknown: one attempt, one Account notice, no resend", async () => {
   const h = harness();
   let sends = 0;
   const send = () => {
@@ -48,7 +48,7 @@ test("a mid-write failure is unknown: one attempt, one Owner notice, no resend",
 });
 
 /** A platform accepting the send without a message id is equally uncertain. */
-test("a missing platform message id is unknown with the same Owner notice", async () => {
+test("a missing platform message id is unknown with the same Account notice", async () => {
   const h = harness();
   let sends = 0;
   const send = () => {

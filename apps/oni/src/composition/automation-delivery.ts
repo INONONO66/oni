@@ -21,7 +21,7 @@ function withInstructions(instructions: string, content: Delivery.Content): Deli
     : [{ kind: "text", text: instructions }, ...content];
 }
 
-/** Genesis and both inputs use the core create/Deliver doors; channels alone owns receipts. */
+/** Genesis and both inputs use the core create/Deliver doors; the app records receipts. */
 export function createAutomationDelivery(
   deps: MessageDeliveryDeps,
   store: ReturnType<typeof createRuleStore>,

@@ -8,7 +8,7 @@ export function runEffect<A, E>(program: Effect.Effect<A, E, never>, mode?: "syn
 }
 
 // All test-side Effect execution for this package stays in THIS file (the
-// package's named runner owner); suites import these helpers instead of
+// package's named runner account); suites import these helpers instead of
 // minting their own runner sites.
 import { ManagedRuntime } from "effect";
 import { TestClock } from "effect/testing";

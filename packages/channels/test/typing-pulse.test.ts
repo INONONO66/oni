@@ -54,13 +54,13 @@ test("Discord typing pulses use the SDK action and open a DM once", async () => 
     await clock.adjust(0);
     expect(fake.client.calls).toMatchObject([
       { method: "createDm", channelId: "123" },
-      { method: "triggerTyping", channelId: "D-owner" },
+      { method: "triggerTyping", channelId: "D-account" },
     ]);
     await clock.adjust(7_999);
     expect(fake.client.calls).toHaveLength(2);
     await clock.adjust(1);
     expect(fake.client.calls.map(({ method }) => method)).toEqual(["createDm", "triggerTyping", "triggerTyping"]);
-    expect(fake.client.calls[2]).toMatchObject({ channelId: "D-owner" });
+    expect(fake.client.calls[2]).toMatchObject({ channelId: "D-account" });
   } finally {
     await clock.run(Deferred.succeed(stop, undefined));
     await running;

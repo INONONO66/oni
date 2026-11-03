@@ -2,17 +2,17 @@ export { WebSocketHandler } from "./websocket.js";
 export type { WsConnection } from "./websocket.js";
 export { AttachmentRefused, RuleConfigurationError, ChannelsFailure, decodeChannelFailure, MediaTooLarge, SendAdmissionConflict, VoiceJoinRefused } from "./errors.js";
 export type { ChannelError } from "./errors.js";
-export type { AccountIdentity, ChannelProvider, OwnerArm, OwnerWithdrawal, ProviderDeliveryRoute, ProviderTypingRoute } from "./provider/contract.js";
+export type { AccountIdentity, ChannelProvider, AccountArm, AccountWithdrawal, ProviderDeliveryRoute, ProviderTypingRoute } from "./provider/contract.js";
 
 export type { PcmVoiceHandle, ProviderVoiceRoute, VoiceEvent } from "./provider/voice.js";
-export { OwnerLogins, type OwnerLogin } from "./provider/owner-login.js";
-export type { OwnerLoginWithTelegram } from "./provider/owner-login.js";
+export { AccountLogins, type AccountLogin } from "./provider/account-login.js";
+export type { AccountLoginWithTelegram } from "./provider/account-login.js";
 export type { ProviderHistoryResult, ProviderHistoryRoute } from "./provider/history.js";
-export { TelegramOwnerCredentials } from "./provider/telegram/owner-contract.js";
-export type { TelegramOwnerProviderFactory, TelegramOwnerSurface } from "./provider/telegram/owner-contract.js";
-export type { TelegramOwnerLogin, TelegramOwnerLoginInput, TelegramOwnerSdk } from "./provider/telegram/owner-sdk.js";
+export { TelegramAccountCredentials } from "./provider/telegram/account-contract.js";
+export type { TelegramAccountProviderFactory, TelegramAccountSurface } from "./provider/telegram/account-contract.js";
+export type { TelegramAccountLogin, TelegramAccountLoginInput, TelegramAccountSdk } from "./provider/telegram/account-sdk.js";
 export { inboundOnce } from "./support/inbound-once.js";
-export { activeBudgetFor } from "./router/messaging/admission.js";
+
 export { typingPulse } from "./support/typing-pulse.js";
 export type { AttachmentBounds, AttachmentFetch, EffectRunner, MediaBytes, MediaResolver } from "./types.js";
 export type { AttachmentFetchResult, AttachmentFetchWithStream, MediaStream } from "./types.js";
@@ -23,11 +23,11 @@ export { WebhookCredentials } from "./provider/webhook/types.js";
 export { A2AClient, type A2AAnswer, type A2ACardRead, type A2AFetch } from "./provider/a2a/client.js";
 export { A2ACredentials, textOf as textOfA2A } from "./provider/a2a/types.js";
 export { createA2AProvider, type A2ACardFacts, type PeerResolver } from "./provider/a2a/provider.js";
-export { createGatewayRouter } from "./router/index.js";
-export type { ChannelDeliveryRoute, GatewayRouter } from "./router/index.js";
+
+
 // #1569: the reply door's binding is folded by the composing app from the
 // prompt's recorded origin and verified here; the shape is the contract.
-export type { ConversationBinding } from "./router/messaging/reply.js";
+
 export {
   createChannelStores,
   unconfiguredChannelStores,
@@ -39,7 +39,7 @@ export {
 export { createActorRegistry, type ActorRegistry } from "./store/actor/index.js";
 export { createRuleStore, RuleEnableRefused } from "./store/rule/index.js";
 export { scheduleTickChannel } from "./automation/matcher.js";
-export { ingressSurfaceKey } from "./router/automation/input.js";
+
 export { createEgressBudgetStore } from "./store/egress/index.js";
 export {
   createChannelInstanceStore,
@@ -56,3 +56,17 @@ export { openChannelStore, type ChannelStore } from "./store/sqlite/index.js";
 export { createSurfaceKeyStore } from "./store/surface-key/index.js";
 export { createMachineEnrollmentStore } from "./store/provisioning/machine-enrollment.js";
 export { StoredEndpoint, StoredIdentity } from "./store/sqlite/actor-schema.js";
+
+export { Route, type PendingGroup } from "./automation/matcher.js";
+
+export type { StoredGroup } from "./store/rule/group.js";
+
+export { DeliveryNotSent, IngressRoutingError } from "./errors.js";
+
+export { match } from "./router/automation/match.js";
+
+export { newTraceId } from "./support/trace.js";
+
+export type { KernelDeliveryReceipt } from "./support/deliver.js";
+
+export { findRequestCandidates } from "./router/request/correlation.js";
