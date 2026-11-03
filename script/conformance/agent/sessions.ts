@@ -51,20 +51,30 @@ const LATE_REQUEST = "call-late";
 const HOOK_BLOCK_EXIT = 2;
 
 /**
- * The `claude` the client launches, shaped like the real one: it shows its
- * prompt hint (styled, so the marker is split by escape sequences on the
- * wire) and waits for input; only the first turn writes the transcript,
+ * The `claude` the client launches, shaped like the real one: it runs the
+ * `SessionStart` hook its `--settings` carry (the installed `mclient hook
+ * ready`, with the launch environment and the event on stdin), shows its
+ * prompt and waits for input; only the first turn writes the transcript,
  * whole, under the session id it was given; then it idles on stdin.
  */
 const FAKE_CLAUDE = `#!/bin/sh
 id=
+settings=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --session-id) id=$2; shift 2 ;;
+    --settings) settings=$2; shift 2 ;;
     *) shift ;;
   esac
 done
-printf '\\033[2m?\\033[0m\\033[2m for shortcuts\\033[0m\\r\\n'
+case "$settings" in
+  *'"SessionStart"'*'"args":["hook","ready"]'*) ;;
+  *) echo 'no SessionStart ready hook' >&2; exit 3 ;;
+esac
+hook=$(printf '%s' "$settings" | sed -n 's/.*"command":"\\([^"]*\\)".*/\\1/p')
+printf '{"session_id":"%s","hook_event_name":"SessionStart","source":"startup"}' "$id" \\
+  | "$hook" hook ready || exit 4
+printf '\\033[2m\\342\\235\\257\\033[0m \\r\\n'
 read line || exit 0
 dir="$HOME/.claude/projects/$(pwd -P | tr -c 'A-Za-z0-9\\n' '-' | tr -d '\\n')"
 mkdir -p "$dir"

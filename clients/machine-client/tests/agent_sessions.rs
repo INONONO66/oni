@@ -23,6 +23,7 @@ use oni_machine_client::agent::{
     pi,
     registry::{Registry, RegistryError, Session},
 };
+use oni_machine_client::config::AGENT_READY_FILE_VARIABLE;
 use oni_machine_client::pty::ops::Pty;
 use oni_protocol::{AgentPermissionDecision, AgentPermissionRequest};
 use serde_json::{json, Value};
@@ -36,20 +37,22 @@ struct Fake {
     appear: Appear,
     live: Mutex<Vec<String>>,
     fail_changed: bool,
+    /// `launch` refuses with an I/O error before any process exists.
+    fail_launch: bool,
     /// After writing its transcripts, `changed` never resolves again.
     hang: AtomicBool,
     /// Signalled when a hanging `changed` starts waiting.
     waiting: Arc<tokio::sync::Notify>,
     launches: Mutex<Vec<LaunchCommand>>,
     log: Mutex<Vec<String>>,
-    prompt: bool,
+    /// Run the startup hook: create the ready file the launch env names.
+    ready: bool,
     on_send: Option<(PathBuf, String)>,
 }
 
 struct FakeHandle {
     terminal: String,
     pending: Vec<(PathBuf, String)>,
-    prompt: bool,
 }
 
 impl Fake {
@@ -58,11 +61,12 @@ impl Fake {
             appear,
             live: Mutex::new(Vec::new()),
             fail_changed: false,
+            fail_launch: false,
             hang: AtomicBool::new(false),
             waiting: Arc::new(tokio::sync::Notify::new()),
             launches: Mutex::new(Vec::new()),
             log: Mutex::new(Vec::new()),
-            prompt: false,
+            ready: false,
             on_send: None,
         }
     }
@@ -92,7 +96,13 @@ impl ProcessSpawner for Fake {
     type Handle = FakeHandle;
 
     async fn launch(&self, project: &Path, command: &LaunchCommand) -> io::Result<FakeHandle> {
-        let pending = (self.appear)(command, project);
+        if self.fail_launch {
+            return Err(io::Error::other("no tmux"));
+        }
+        let mut pending = (self.appear)(command, project);
+        if self.ready {
+            pending.push((ready_file(command), String::new()));
+        }
         let mut launches = self.launches.lock().expect("launch log");
         launches.push(command.clone());
         let terminal = format!("fake-{}", launches.len());
@@ -100,11 +110,7 @@ impl ProcessSpawner for Fake {
             .lock()
             .expect("live terminals")
             .push(terminal.clone());
-        Ok(FakeHandle {
-            terminal,
-            pending,
-            prompt: self.prompt,
-        })
+        Ok(FakeHandle { terminal, pending })
     }
 
     fn terminal(&self, handle: &FakeHandle) -> String {
@@ -124,12 +130,7 @@ impl ProcessSpawner for Fake {
             self.waiting.notify_one();
             return std::future::pending().await;
         }
-        if std::mem::take(&mut handle.prompt) {
-            // Styled like a real prompt line: the marker is split by escapes.
-            Ok(Change::Output(
-                "\x1b[2m?\x1b[0m\x1b[2m for shortcuts\x1b[0m\r\n".to_owned(),
-            ))
-        } else if pending.is_empty() {
+        if pending.is_empty() {
             Ok(Change::Timeout)
         } else {
             Ok(Change::Progress)
@@ -163,9 +164,18 @@ impl ProcessSpawner for Fake {
             .then(|| FakeHandle {
                 terminal: terminal.to_owned(),
                 pending: Vec::new(),
-                prompt: false,
             }))
     }
+}
+
+/// The ready file a launch names for its startup hook.
+fn ready_file(command: &LaunchCommand) -> PathBuf {
+    command
+        .env
+        .iter()
+        .find(|(name, _)| name == AGENT_READY_FILE_VARIABLE)
+        .map(|(_, value)| PathBuf::from(value))
+        .expect("launch env names the ready file")
 }
 
 #[tokio::test]
@@ -176,7 +186,7 @@ async fn assigned_id_opens_on_prompt_before_first_transcript_and_reclaims_after_
     let id = "assigned-before-send";
     let path = transcript(cli, &world.home, &project, id);
     let mut fake = Fake::silent();
-    fake.prompt = true;
+    fake.ready = true;
     fake.on_send = Some((
         path.clone(),
         format!(
@@ -196,6 +206,10 @@ async fn assigned_id_opens_on_prompt_before_first_transcript_and_reclaims_after_
     assert_eq!(opened.session.session_id, id);
     assert_eq!(opened.session.transcript, path);
     assert!(!path.exists());
+    // The ready file lived under the hook directory and is gone once read.
+    let ready = ready_file(&launcher.spawner().launches()[0]);
+    assert!(ready.starts_with(world.hooks.join("ready")));
+    assert!(!ready.exists());
     let mut restarted = Fake::silent();
     restarted.live = Mutex::new(vec!["fake-1".to_owned()]);
     let mut restarted = world.launcher(restarted);
@@ -432,6 +446,14 @@ async fn launch_argv_and_hooks_stay_in_dialect_data() {
             "onFailure": "block",
             "timeout": 170,
         })
+    );
+    assert_eq!(
+        settings["hooks"]["SessionStart"][0],
+        json!({"matcher": "startup", "hooks": [{
+            "type": "command",
+            "command": "/opt/it's/mclient",
+            "args": ["hook", "ready"],
+        }]})
     );
     assert_eq!(claude.args[2..], ["--session-id", "chosen"]);
     assert_eq!(claude.requires, None);
@@ -691,11 +713,17 @@ async fn launch_refusals_are_typed_and_never_leave_a_process() {
             .await,
         Err(LaunchError::SessionNotAvailable)
     ));
-    fs::remove_dir(&world.hooks).expect("unblock hooks");
+    // The launches above left their `ready/` directory behind the module.
+    fs::remove_dir_all(&world.hooks).expect("unblock hooks");
     fs::write(&world.hooks, "not a directory").expect("block hooks");
     assert!(matches!(
         silent.start(&dialect("pi"), &project, None).await,
         Err(LaunchError::HookUnavailable(module)) if module == world.hooks.join(PERMISSION_FILE)
+    ));
+    // A dialect without a module still needs the directory for its ready file.
+    assert!(matches!(
+        silent.start(&dialect("claude-code"), &project, None).await,
+        Err(LaunchError::Io(_))
     ));
     assert_eq!(silent.spawner().launches().len(), 1);
     fs::remove_file(&world.hooks).expect("unblock hooks");
@@ -742,6 +770,25 @@ async fn launch_refusals_are_typed_and_never_leave_a_process() {
         Err(LaunchError::Io(_))
     ));
     assert_eq!(broken.spawner().log(), ["stop fake-1"]);
+
+    // A launch that never produced a process leaves no ready file and
+    // nothing to stop.
+    let mut unlaunched = Fake::silent();
+    unlaunched.fail_launch = true;
+    let mut unlaunched = world.launcher(unlaunched);
+    assert!(matches!(
+        unlaunched
+            .start(&dialect("claude-code"), &project, None)
+            .await,
+        Err(LaunchError::Io(_))
+    ));
+    assert!(unlaunched.spawner().log().is_empty());
+    assert_eq!(
+        fs::read_dir(world.hooks.join("ready"))
+            .expect("ready directory")
+            .count(),
+        0
+    );
 
     let claude = dialect("claude-code");
     let mut unsaved = world.launcher(Fake::new(writes(claude, &world.home, None)));
@@ -1134,10 +1181,6 @@ impl Cli for ScriptCli {
 
     fn assigns_id(&self) -> bool {
         true
-    }
-
-    fn ready(&self) -> Option<&'static str> {
-        None
     }
 
     fn command(&self, context: &LaunchContext<'_>) -> LaunchCommand {

@@ -42,6 +42,15 @@ waited for a transcript (#1807); Codex required login (#1809); the installed
 its missing rows are recorded on #1778. `omp` was absent and its dialect
 was removed rather than treated as verified.
 
+The 2026-11-03 run on the same Mac completed the claude-code cycle without
+hands: `open` is answered by the SessionStart `mclient hook ready` file,
+the letter submits on its own, the child's `Write` reaches the lead as the
+`agent_permission` action, and the child's terminal turn returns the
+`cli_turn` pointer. The permission itself expired: the lead's turn is parked
+inside `send_message` for the whole child turn, so nothing can call
+`permission_allow` before the 100 s deadline (#1828); expect
+`refused (timeout)` and no written file until that lands.
+
 ## Session-owned capture receipt
 
 For `machine("self").screen()`, enroll `screen.read`; `computer.use` alone

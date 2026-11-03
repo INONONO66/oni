@@ -898,7 +898,9 @@ reconnect and damage cases as test receipts.
 dialect in hook mode asks the running client over a private local socket
 (`hook.sock` in the client's config directory, 0600, named to every
 launched CLI in `ONI_MCLIENT_HOOK_SOCKET`) through `mclient hook permission
---cli <name>`; the client relays `agent.session.permission` to the host,
+--cli <name>`; the same hook surface carries readiness: a dialect's startup
+hook runs `mclient hook ready`, which creates the file the launch named in
+`ONI_MCLIENT_READY_FILE`. The client relays `agent.session.permission` to the host,
 which answers through the application's injected decision port (the
 captured `tool.pre` gate). The app binds this port to the owning session's
 `agent_permission` action and `agent_permission.decided` fact (#1665).

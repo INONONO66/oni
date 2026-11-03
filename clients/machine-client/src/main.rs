@@ -70,6 +70,7 @@ enum Hook {
         #[arg(long)]
         cli: String,
     },
+    Ready,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -103,6 +104,16 @@ async fn main() -> ExitCode {
             print!("{}", outcome.stdout);
             eprint!("{}", outcome.stderr);
             return ExitCode::from(outcome.code);
+        }
+        Some(Command::Hook(Hook::Ready)) => {
+            let file = std::env::var_os(config::AGENT_READY_FILE_VARIABLE).map(PathBuf::from);
+            return match hook::ready(file, std::io::stdin().lock()) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("oni: ready hook: {error}");
+                    ExitCode::from(1)
+                }
+            };
         }
         None => {
             eprintln!("usage: mclient --version | join <host> | status | run | update | probe");

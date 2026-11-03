@@ -1241,17 +1241,22 @@ header, nested tool calls, tool-result messages). `launcher.rs` is
 vendor-free: `start` reclaims a registry terminal that is observed live,
 adopts the transcript of a requested id, or launches one named tmux terminal
 per session (`agent-<hex nanos>-<n>`, cwd = project, shell-quoted `exec env
-K=V cli args`) and then waits for either readiness (#1807): the layout
-directory, scanned up to four levels deep, shows a new, unowned `.jsonl`,
-or, for a dialect that assigned the id, the ANSI-stripped rolling tail of
-the terminal (last 4 KiB) shows the manifest's `ready` marker (`claude-code`:
-`? for shortcuts`), in which case the session's transcript is the known
-`<layout>/<id>.jsonl` path and nothing is written to it. `changed` answers
+K=V cli args`) and then waits for either readiness (#1807, #1778): the
+layout directory, scanned up to four levels deep, shows a new, unowned
+`.jsonl`, or, for a dialect that assigned the id, the CLI's startup hook
+(`claude-code`: a `SessionStart` hook on `startup` in the same
+`--settings`, running `mclient hook ready`) creates the file the launch
+named in `ONI_MCLIENT_READY_FILE` (a fresh path under `<hooks>/ready/`,
+removed once the launch settles), in which case the session's transcript is
+the known `<layout>/<id>.jsonl` path and nothing is written to it. The
+prompt's hint text is never read: Claude Code 2.1 shows `? for shortcuts`
+only as one rotating footer hint, absent in auto mode. `changed` answers
 `Change::{Output, Progress, Timeout}`; the deadline is
 `Machine.AGENT_SESSION_OPEN_TIMEOUT_MS` (20 s; the host's `open` call waits
 one second longer), and a missed deadline stops the process and answers
-`session_not_available`. `attach` never launches; `send` (text plus `\r`)
-and `stop` (SIGTERM, SIGKILL after the 5 s grace, then close) refuse
+`session_not_available`. `attach` never launches; `send` (the text, a
+300 ms settle, then `\r` as its own write — one chunk holding both is read
+as a paste and never submits, #1778) and `stop` (SIGTERM, SIGKILL after the 5 s grace, then close) refuse
 `NotOwned` unless the session is owned. `registry.rs` persists
 `~/.oni/machine-client/agent-sessions.json` under a lock file with temp-file
 rename; the saved terminal is a reclaim hint, never proof of life; projects
@@ -1355,9 +1360,9 @@ without them `available()` drops it from the offer.
 **Not yet.** The client's terminals still share the user's default tmux
 server (follow-up: the client should own its socket). Transcript discovery
 re-scans on terminal output or at the ready deadline, so a dialect without a
-`ready` marker (`codex`, `pi`) that stays silent until its first
-prompt takes up to 20 s to discover; `claude-code` opens at its prompt
-(#1807). An existing hook module file is accepted by path without comparing
+startup hook (`codex`, `pi`) that stays silent until its first prompt takes
+up to 20 s to discover; `claude-code` opens at its prompt (#1807, #1778).
+An existing hook module file is accepted by path without comparing
 its bytes to the embedded copy. The `pi` hook module is installed and
 probed but not yet exercised inside a live `pi` process, and `codex` is
 served without a permission hook. `MemoryBundleStore.publish` hashes each
