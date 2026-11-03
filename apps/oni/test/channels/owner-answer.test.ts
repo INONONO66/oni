@@ -4,7 +4,7 @@ import { channelRequests } from "./helpers/channel-requests.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 import { Effect } from "effect";
-import { decodeChannelFailure } from "../../../../packages/channels/src/errors.js";
+import { decodeChannelFailure } from "@oni/channels";
 import { testWebSocketId, websocketCallbacks } from "../../../../packages/channels/test/helpers/websocket-server.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +14,7 @@ import { TEST_APPROVAL_POLICY } from "../../../../packages/agent/test/helpers/ap
 const decideRequestTransition = Core.decideRequestTransition;
 const requestBindingDigest = Core.requestBindingDigest;
 import { Gateway, PlainValueSchema, canonicalDigest, type Channel, type SessionTransition, } from "@oni/protocol";
-import { WebSocketHandler } from "../../../../packages/channels/src/websocket.js";
+import { WebSocketHandler } from "@oni/channels";
 import { makeRouter } from "./router/_router-fixture.js";
 import { originalAction, requestPort } from "./helpers/requests.js";
 import { requestFixture } from "./helpers/request-record.js";

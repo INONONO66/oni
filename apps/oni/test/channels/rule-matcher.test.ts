@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { Ingress } from "@oni/protocol";
-import { match } from "../../../../packages/channels/src/router/automation/match.js";
+import { match } from "@oni/channels";
 import { routeRule } from "../../src/bundles/messaging/rule-outcome.js";
 import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 

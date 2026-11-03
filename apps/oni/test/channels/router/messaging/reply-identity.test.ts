@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Outbound } from "@oni/protocol";
 import { createReplyMessaging } from "../../../../src/bundles/messaging/reply.js";
 import type { ConversationBinding } from "../../../../src/bundles/message-ports.js";
-import { unconfiguredChannelStores } from "../../../../../../packages/channels/src/router/stores.js";
+import { unconfiguredChannelStores } from "@oni/channels";
 import { effectFailure } from "../../../../../../packages/channels/test/helpers/effect-failure.js";
 
 const binding: ConversationBinding = {

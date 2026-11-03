@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Ingress } from "@oni/protocol";
 import { routeRule } from "../../src/bundles/messaging/rule-outcome.js";
-import { match } from "../../../../packages/channels/src/router/automation/match.js";
+import { match } from "@oni/channels";
 import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 
 test("an event held by the first rule cannot fire a later rule", async () => {

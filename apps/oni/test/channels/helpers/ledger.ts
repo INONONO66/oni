@@ -3,8 +3,8 @@ type LedgerError = Core.LedgerError;
 import { Effect } from "effect";
 import { basename, dirname } from "node:path";
 import type { Delivery, LedgerAction, Storage as ProtocolStorage } from "@oni/protocol";
-import { createChannelStores, type ChannelStores } from "../../../../../packages/channels/src/router/stores.js";
-import { openChannelStore, type ChannelStore } from "../../../../../packages/channels/src/store/sqlite/index.js";
+import { createChannelStores, type ChannelStores } from "@oni/channels";
+import { openChannelStore, type ChannelStore } from "@oni/channels";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
 
 /**

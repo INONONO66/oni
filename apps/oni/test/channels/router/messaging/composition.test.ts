@@ -8,7 +8,7 @@ import { ingressSurfaceKey } from "../../../../src/bundles/messaging/automation/
 import { registerRule } from "../../helpers/rule.js";
 import type { ChannelDeliveryRoute } from "../../../../src/composition/gateway-router.js";
 import { admitReply } from "../../../../src/bundles/messaging/admission.js";
-import { SendAdmissionConflict } from "../../../../../../packages/channels/src/errors.js";
+import { SendAdmissionConflict } from "@oni/channels";
 import { Bus } from "../../../../../../packages/channels/test/helpers/observation.js";
 import { bounded } from "../../../../../../packages/channels/test/helpers/bounded.js";
 import {

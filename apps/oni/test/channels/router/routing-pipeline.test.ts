@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Gateway } from "@oni/protocol";
 import { resolveKernelRoute } from "../../../src/bundles/messaging/routing-resolution.js";
-import { Route } from "../../../../../packages/channels/src/automation/matcher.js";
+import { Route } from "@oni/channels";
 
 const event: Gateway.DeliveredEvent = {
   id: "message", traceId: "trace", surface: "chat", mode: "direct",

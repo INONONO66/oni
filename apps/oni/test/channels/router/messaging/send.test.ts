@@ -11,7 +11,7 @@ import { z } from "zod";
 import { type Gateway, Outbound, type PlainObject, type SessionTransition, type Storage } from "@oni/protocol";
 import { Bus } from "../../../../../../packages/channels/test/helpers/observation.js";
 import { createExistingAgentMessaging } from "../../../../src/bundles/messaging/send.js";
-import type { KernelDeliveryReceipt } from "../../../../../../packages/channels/src/support/deliver.js";
+import type { KernelDeliveryReceipt } from "@oni/channels";
 
 type OutboundMessage = Parameters<Parameters<typeof createExistingAgentMessaging>[0]["deliver"]>[0];
 import { expectAwaited, expectDenied, expectRequestSpecViolation, buildAwaitedSendInput, buildGrant, buildSendInput, messagingNow, registerAgentFixture, } from "../../helpers/messaging.js";

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { FIXED_NOW, testRun } from "../../../../packages/channels/test/helpers/injected.js";
+import { FIXED_NOW, testRun } from "./helpers/injected.js";
 import { z } from "zod";
-import { GitHubClient } from "../../../../packages/channels/src/provider/github/client.js";
-import { fetchWithRetry } from "../../../../packages/channels/src/support/fetch-retry.js";
+import { GitHubClient } from "../src/provider/github/client.js";
+import { fetchWithRetry } from "../src/support/fetch-retry.js";
 
 describe("GitHubClient", () => {
   it("reconciles encoded delivery markers across comment pages without prefix collisions", async () => {
@@ -29,14 +29,14 @@ describe("GitHubClient", () => {
     );
     try {
       const client = new GitHubClient(() => undefined, () => FIXED_NOW, testRun, "token");
-      expect(await client.postComment("owner/repo", 1, "answer", "trace", "id:long")).toEqual({
+      expect(await client.postComment("org/repo", 1, "answer", "trace", "id:long")).toEqual({
         value: "sent",
         externalMessageId: "1",
       });
-      expect(await client.postComment("owner/repo", 1, "answer", "trace", "id:long")).toEqual({
+      expect(await client.postComment("org/repo", 1, "answer", "trace", "id:long")).toEqual({
         value: "sent",
       });
-      expect(await client.postComment("owner/repo", 1, "answer", "trace", "id")).toEqual({
+      expect(await client.postComment("org/repo", 1, "answer", "trace", "id")).toEqual({
         value: "sent",
         externalMessageId: "2",
       });
@@ -82,7 +82,7 @@ describe("GitHubClient", () => {
     );
     try {
       const client = new GitHubClient(() => undefined, () => FIXED_NOW, testRun, "token");
-      await expect(client.postComment("owner/repo", 1, "answer", "trace", "id")).rejects.toMatchObject({
+      await expect(client.postComment("org/repo", 1, "answer", "trace", "id")).rejects.toMatchObject({
         _tag: "DeliveryNotSent",
         operation: "github.listComments",
       });
@@ -100,7 +100,7 @@ describe("GitHubClient", () => {
     );
     try {
       const client = new GitHubClient(() => undefined, () => FIXED_NOW, testRun, "token");
-      await expect(client.postComment("owner/repo", 1, "answer", "trace", "id")).rejects.toMatchObject({
+      await expect(client.postComment("org/repo", 1, "answer", "trace", "id")).rejects.toMatchObject({
         _tag: "DeliveryNotSent",
         operation: "github.listComments",
       });

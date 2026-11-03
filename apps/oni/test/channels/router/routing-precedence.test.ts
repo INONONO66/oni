@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Ingress } from "@oni/protocol";
 import { requireRoutedDecision } from "../../../src/composition/ingress-execution.js";
-import { IngressRoutingError } from "../../../../../packages/channels/src/errors.js";
+import { IngressRoutingError } from "@oni/channels";
 
 const base = { traceId: "trace", time: 1, inboundId: "input", surface: "chat", mode: "direct", reason: "refused", factsUsed: [] };
 

@@ -8,7 +8,7 @@ import { openRequest, requestPort } from "../helpers/requests.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { type Gateway, type Delivery, type BusEvent, type PlainValue, Ingress } from "@oni/protocol";
 import { createGatewayRouter, type GatewayRouterPorts } from "../../../src/composition/gateway-router.js";
-import { IngressRoutingError } from "../../../../../packages/channels/src/errors.js";
+import { IngressRoutingError } from "@oni/channels";
 import { recordingDelivery } from "./_recording-delivery";
 
 beforeEach(() => {

@@ -119,6 +119,8 @@ app-supplied. Empty instance-settings validation is app-owned rather than
 a provider contract seam. Routing, receipt, replay and product-policy tests
 move with their app implementation; the transport tests remain in channels.
 
+A Linear instance declared before #1795 with `ownerUserId` is refused at mount (fail-closed) and must be re-declared with `accountUserId`.
+
 ## #1794 one Message
 
 PR #1814 removes `OwnerPosture` and provider-side admission branches.
@@ -2801,7 +2803,7 @@ so there is no bot account; the bot arm refuses every declaration
 (`identity_unsupported`) and the platform is reached through its `owner`
 arm alone, mounted by its channel instance id under the identity axis
 (`packages/channels/src/provider/linear/{types,client,surface,provider}.ts`).
-The Owner arm's credential is `{ secret, token?, ownerUserId? }` — the
+The Owner arm's credential is `{ secret, token?, accountUserId? }` — the
 webhook's signing secret, the Owner's personal API key for commenting back
 as the Owner (absent leaves the instance ingress-only, loudly: a reply
 without a key is a Warn and `not_sent`), and the Owner's user id for when

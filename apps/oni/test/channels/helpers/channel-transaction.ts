@@ -1,5 +1,5 @@
 import { Effect, Result } from "effect";
-import { decodeChannelFailure, type ChannelError } from "../../../../../packages/channels/src/errors.js";
+import { decodeChannelFailure, type ChannelError } from "@oni/channels";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
 import { ledger } from "./ledger.js";
 

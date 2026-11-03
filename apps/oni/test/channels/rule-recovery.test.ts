@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
 import { Delivery, Ingress } from "@oni/protocol";
-import { ChannelsFailure } from "../../../../packages/channels/src/errors.js";
+import { ChannelsFailure } from "@oni/channels";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "../../../../packages/channels/test/helpers/effect.js";
 import { commits, makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState, routingDecisions } from "./router/_router-fixture.js";

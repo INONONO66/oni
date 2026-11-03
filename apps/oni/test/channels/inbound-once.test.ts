@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Channel } from "@oni/protocol";
-import { inboundOnce } from "../../../../packages/channels/src/support/inbound-once.js";
+import { inboundOnce } from "@oni/channels";
 import { bounded } from "../../../../packages/channels/test/helpers/bounded.js";
 
 function message(eventId: string, receivedBy: "bot" | "owner", channelId = "C1"): Channel.InboundMessage {

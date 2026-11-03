@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { requestFixture } from "../helpers/request-record.js";
-import { findRequestCandidates } from "../../../../../packages/channels/src/router/request/correlation.js";
+import { findRequestCandidates } from "@oni/channels";
 
 test("injected action-derived requests retain terminals instead of falling into surface routing", () => {
   const record = requestFixture({ state: "expired", outcome: "outcome_unknown" });

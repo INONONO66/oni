@@ -13,7 +13,7 @@ import { answer, originalAction, requestPort } from "../helpers/requests.js";
 import { createExistingAgentMessaging } from "../../../src/bundles/messaging/send.js";
 
 type OutboundMessage = Parameters<Parameters<typeof createExistingAgentMessaging>[0]["deliver"]>[0];
-import { findRequestCandidates } from "../../../../../packages/channels/src/router/request/correlation.js";
+import { findRequestCandidates } from "@oni/channels";
 
 const version = "existing-agent-message-driver-v2";
 const scenarios = ["restart-quorum", "duplicate-ambiguous"] as const;

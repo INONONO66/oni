@@ -1,12 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { Outbound } from "@oni/protocol";
-import { GitHubProvider } from "../../../../packages/channels/src/provider/github/provider.js";
-import { injectedOptions } from "../../../../packages/channels/test/helpers/injected.js";
+import { GitHubProvider } from "../src/provider/github/provider.js";
+import { injectedOptions } from "./helpers/injected.js";
 
 /**
- * #1600 lane R2: the inbound conversation is the issue (`owner/repo#N`),
+ * #1600 lane R2: the inbound conversation is the issue (`org/repo#N`),
  * the one address a comment can land on, so the reply door's answer is a
- * comment there; a cold send keeps the direct `owner/repo#N` address.
+ * comment there; a cold send keeps the direct `org/repo#N` address.
  */
 describe("GitHub reply door", () => {
   it("a conversation names the issue the comment lands on; a cold send keeps the direct address", async () => {
@@ -26,15 +26,15 @@ describe("GitHub reply door", () => {
     try {
       const route = GitHubProvider.create({ secret: "s", token: "t" }, {}, () => undefined, injectedOptions()).deliveryRoute;
       if (route === undefined) throw new Error("github delivers");
-      expect(await route("octocat", Outbound.payload("answer"), "key-1", { channelId: "owner/repo#7" })).toEqual({
+      expect(await route("octocat", Outbound.payload("answer"), "key-1", { channelId: "org/repo#7" })).toEqual({
         value: "accepted",
         externalMessageId: "1",
       });
-      expect(await route("owner/repo#9", Outbound.payload("cold"), "key-2")).toEqual({
+      expect(await route("org/repo#9", Outbound.payload("cold"), "key-2")).toEqual({
         value: "accepted",
         externalMessageId: "2",
       });
-      expect(posted).toEqual(["/repos/owner/repo/issues/7/comments", "/repos/owner/repo/issues/9/comments"]);
+      expect(posted).toEqual(["/repos/org/repo/issues/7/comments", "/repos/org/repo/issues/9/comments"]);
     } finally {
       globalThis.fetch = realFetch;
     }

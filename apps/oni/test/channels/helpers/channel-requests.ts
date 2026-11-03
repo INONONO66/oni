@@ -2,7 +2,7 @@ import type { Core } from "@oni/agent";
 import { Effect } from "effect";
 
 type SessionRequests = Effect.Success<ReturnType<typeof Core.createSessionRequests>>;
-import { decodeChannelFailure } from "../../../../../packages/channels/src/errors.js";
+import { decodeChannelFailure } from "@oni/channels";
 import type { GatewayRouterPorts } from "../../../src/composition/gateway-router.js";
 
 /** Keep real agent requests and translate only the channel boundary's error union. */

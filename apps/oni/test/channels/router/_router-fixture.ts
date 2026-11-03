@@ -11,7 +11,7 @@ import { Core } from "@oni/agent";
 import { z } from "zod";
 const KERNEL_POLICY_REGISTRY = Core.KERNEL_POLICY_REGISTRY;
 
-import { decodeChannelFailure } from "../../../../../packages/channels/src/errors.js";
+import { decodeChannelFailure } from "@oni/channels";
 import { Bus } from "../../../../../packages/channels/test/helpers/observation.js";
 import {
   createGatewayRouter,

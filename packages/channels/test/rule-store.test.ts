@@ -1,11 +1,11 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { Ingress } from "@oni/protocol";
-import { createRuleStore, RuleEnableRefused } from "../../../../packages/channels/src/store/rule/index.js";
-import { openChannelStore } from "../../../../packages/channels/src/store/sqlite/index.js";
-import { RuleConfigurationError } from "../../../../packages/channels/src/errors.js";
-import { effectFailure } from "../../../../packages/channels/test/helpers/effect-failure.js";
-import { StoredGroup } from "../../../../packages/channels/src/store/rule/group.js";
+import { createRuleStore, RuleEnableRefused } from "@oni/channels";
+import { openChannelStore } from "@oni/channels";
+import { RuleConfigurationError } from "@oni/channels";
+import { effectFailure } from "./helpers/effect-failure.js";
+import { StoredGroup } from "../src/store/rule/group.js";
 
 const record = Ingress.Rule.parse({
   id: "daily", position: 0, enabled: false, createdBy: "session:x",
@@ -58,14 +58,14 @@ test("unconfigured rule storage fails through the typed Effect channel", async (
   expect(() => store.list()).toThrow(RuleConfigurationError);
 });
 
-test("owner approval and enable disable remove operations retain their stored state", () => {
+test("authorization and enable disable remove operations retain their stored state", () => {
   const { db, store } = fixture();
   try {
     expect(() => store.add({ ...record, enabled: true })).toThrow(RuleEnableRefused);
     expect(store.list()).toEqual([]);
     for (const operate of [store.enable, store.disable, store.approve])
       expect(() => operate("missing")).toThrow(RuleEnableRefused);
-    store.add({ ...record, createdBy: "owner", enabled: true }, true);
+    store.add({ ...record, createdBy: "session:test", enabled: true }, true);
     expect(store.disable(record.id).record.enabled).toBe(false);
     expect(store.enable(record.id).record.enabled).toBe(true);
     expect(store.remove(record.id)).toBe(true);
@@ -81,14 +81,14 @@ test("group closure records member facts atomically and cannot close twice", () 
     reason: "grouped", factsUsed: ["grouping"], factsDigest: "digest",
   });
   const group = StoredGroup.parse({
-    id: "group", target: "session:x", sender: { kind: "external", surface: "telegram", externalId: "owner" },
+    id: "group", target: "session:x", sender: { kind: "external", surface: "telegram", externalId: "sender" },
     facts: { eventId: "member", surface: "telegram", channelId: "room", addressees: [],
       dm: false, payload: "hello", render: "hello" },
     pending: { ruleId: "daily", key: "room", openedAt: 0, windowSeconds: 10,
       when: { instance: "telegram" },
       inputs: [{ eventId: "member", instance: "telegram", surface: "telegram", event: "message", channelId: "room",
-        author: { externalId: "owner", isBot: false }, dm: false, addressed: false,
-        from: "owner", addressees: [], payload: {},
+        author: { externalId: "sender", isBot: false }, dm: false, addressed: false,
+        from: "sender", addressees: [], payload: {},
         render: "hello", receivedAt: 0 }] },
   });
   const closed = Ingress.Events.RoutingDecision.schema.parse({
@@ -112,7 +112,7 @@ test("group closure records member facts atomically and cannot close twice", () 
 test("move reorders atomically and seeded rows cannot be deleted or unprotected", () => {
   const { db, store } = fixture();
   try {
-    store.add({ ...record, id: "seed", position: 0, createdBy: "owner", seed: true }, true);
+    store.add({ ...record, id: "seed", position: 0, createdBy: "session:test", seed: true }, true);
     store.add({ ...record, id: "first", position: 1 });
     store.add({ ...record, id: "second", position: 2 });
     expect(store.move("second", 0).record.position).toBe(0);

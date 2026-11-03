@@ -6,7 +6,7 @@ import { expectNamedFailure } from "../../../../../../packages/channels/test/sto
 import { useSqliteChannelStore } from "../../../../../../packages/channels/test/store/helpers/sqlite.js";
 import { inspect } from "node:util";
 import { Provisioning } from "@oni/protocol";
-import { createChannelInstanceStore, createSecretStore, Vault, } from "../../../../../../packages/channels/src/index.js";
+import { createChannelInstanceStore, createSecretStore, Vault } from "@oni/channels";
 
 const NOW = 1_756_000_000_000;
 

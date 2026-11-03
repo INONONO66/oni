@@ -1,7 +1,7 @@
 import { ledger } from "../helpers/ledger.js";
 import { describe, expect, test } from "bun:test";
 import { resolveIngressActor } from "../../../src/bundles/messaging/actor-resolver.js";
-import { unconfiguredChannelStores } from "../../../../../packages/channels/src/router/stores.js";
+import { unconfiguredChannelStores } from "@oni/channels";
 import {
   makeEvent,
   registerOwnerEndpoint,
