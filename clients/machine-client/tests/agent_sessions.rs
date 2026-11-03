@@ -20,9 +20,10 @@ use oni_machine_client::agent::{
         Settings, PERMISSION_FILE, PERMISSION_MODULE,
     },
     manifest::{self, Dialect, DIALECTS},
-    omp, pi,
+    pi,
     registry::{Registry, RegistryError, Session},
 };
+use oni_machine_client::config::AGENT_READY_FILE_VARIABLE;
 use oni_machine_client::pty::ops::Pty;
 use oni_protocol::{AgentPermissionDecision, AgentPermissionRequest};
 use serde_json::{json, Value};
@@ -36,20 +37,22 @@ struct Fake {
     appear: Appear,
     live: Mutex<Vec<String>>,
     fail_changed: bool,
+    /// `launch` refuses with an I/O error before any process exists.
+    fail_launch: bool,
     /// After writing its transcripts, `changed` never resolves again.
     hang: AtomicBool,
     /// Signalled when a hanging `changed` starts waiting.
     waiting: Arc<tokio::sync::Notify>,
     launches: Mutex<Vec<LaunchCommand>>,
     log: Mutex<Vec<String>>,
-    prompt: bool,
+    /// Run the startup hook: create the ready file the launch env names.
+    ready: bool,
     on_send: Option<(PathBuf, String)>,
 }
 
 struct FakeHandle {
     terminal: String,
     pending: Vec<(PathBuf, String)>,
-    prompt: bool,
 }
 
 impl Fake {
@@ -58,11 +61,12 @@ impl Fake {
             appear,
             live: Mutex::new(Vec::new()),
             fail_changed: false,
+            fail_launch: false,
             hang: AtomicBool::new(false),
             waiting: Arc::new(tokio::sync::Notify::new()),
             launches: Mutex::new(Vec::new()),
             log: Mutex::new(Vec::new()),
-            prompt: false,
+            ready: false,
             on_send: None,
         }
     }
@@ -92,7 +96,13 @@ impl ProcessSpawner for Fake {
     type Handle = FakeHandle;
 
     async fn launch(&self, project: &Path, command: &LaunchCommand) -> io::Result<FakeHandle> {
-        let pending = (self.appear)(command, project);
+        if self.fail_launch {
+            return Err(io::Error::other("no tmux"));
+        }
+        let mut pending = (self.appear)(command, project);
+        if self.ready {
+            pending.push((ready_file(command), String::new()));
+        }
         let mut launches = self.launches.lock().expect("launch log");
         launches.push(command.clone());
         let terminal = format!("fake-{}", launches.len());
@@ -100,11 +110,7 @@ impl ProcessSpawner for Fake {
             .lock()
             .expect("live terminals")
             .push(terminal.clone());
-        Ok(FakeHandle {
-            terminal,
-            pending,
-            prompt: self.prompt,
-        })
+        Ok(FakeHandle { terminal, pending })
     }
 
     fn terminal(&self, handle: &FakeHandle) -> String {
@@ -124,12 +130,7 @@ impl ProcessSpawner for Fake {
             self.waiting.notify_one();
             return std::future::pending().await;
         }
-        if std::mem::take(&mut handle.prompt) {
-            // Styled like a real prompt line: the marker is split by escapes.
-            Ok(Change::Output(
-                "\x1b[2m?\x1b[0m\x1b[2m for shortcuts\x1b[0m\r\n".to_owned(),
-            ))
-        } else if pending.is_empty() {
+        if pending.is_empty() {
             Ok(Change::Timeout)
         } else {
             Ok(Change::Progress)
@@ -163,9 +164,18 @@ impl ProcessSpawner for Fake {
             .then(|| FakeHandle {
                 terminal: terminal.to_owned(),
                 pending: Vec::new(),
-                prompt: false,
             }))
     }
+}
+
+/// The ready file a launch names for its startup hook.
+fn ready_file(command: &LaunchCommand) -> PathBuf {
+    command
+        .env
+        .iter()
+        .find(|(name, _)| name == AGENT_READY_FILE_VARIABLE)
+        .map(|(_, value)| PathBuf::from(value))
+        .expect("launch env names the ready file")
 }
 
 #[tokio::test]
@@ -176,7 +186,7 @@ async fn assigned_id_opens_on_prompt_before_first_transcript_and_reclaims_after_
     let id = "assigned-before-send";
     let path = transcript(cli, &world.home, &project, id);
     let mut fake = Fake::silent();
-    fake.prompt = true;
+    fake.ready = true;
     fake.on_send = Some((
         path.clone(),
         format!(
@@ -196,6 +206,10 @@ async fn assigned_id_opens_on_prompt_before_first_transcript_and_reclaims_after_
     assert_eq!(opened.session.session_id, id);
     assert_eq!(opened.session.transcript, path);
     assert!(!path.exists());
+    // The ready file lived under the hook directory and is gone once read.
+    let ready = ready_file(&launcher.spawner().launches()[0]);
+    assert!(ready.starts_with(world.hooks.join("ready")));
+    assert!(!ready.exists());
     let mut restarted = Fake::silent();
     restarted.live = Mutex::new(vec!["fake-1".to_owned()]);
     let mut restarted = world.launcher(restarted);
@@ -433,6 +447,14 @@ async fn launch_argv_and_hooks_stay_in_dialect_data() {
             "timeout": 170,
         })
     );
+    assert_eq!(
+        settings["hooks"]["SessionStart"][0],
+        json!({"matcher": "startup", "hooks": [{
+            "type": "command",
+            "command": "/opt/it's/mclient",
+            "args": ["hook", "ready"],
+        }]})
+    );
     assert_eq!(claude.args[2..], ["--session-id", "chosen"]);
     assert_eq!(claude.requires, None);
     // Without an id the settings pair is the whole argv; `assigns_id` is what
@@ -448,31 +470,29 @@ async fn launch_argv_and_hooks_stay_in_dialect_data() {
     assert_eq!((codex.executable.as_str(), codex.args.len()), ("codex", 0));
     assert_eq!(dialect("codex").permission(), Permission::CliPrompt);
 
-    for (cli, flag) in [("pi", "--extension"), ("omp", "--hook")] {
-        let command = dialect(cli).command(&context);
-        let module = world.hooks.join(PERMISSION_FILE);
-        assert_eq!(command.executable, cli);
-        assert_eq!(
-            command.args,
-            [flag.to_owned(), module.display().to_string()]
-        );
-        assert_eq!(
-            command.requires.expect("hook module"),
-            HookModule {
-                path: module,
-                source: PERMISSION_MODULE,
-            }
-        );
-        assert_eq!(
-            command.env,
-            [
-                ("ONI_MCLIENT".to_owned(), "/opt/it's/mclient".to_owned()),
-                ("ONI_MCLIENT_CLI".to_owned(), cli.to_owned()),
-            ]
-        );
-        assert_eq!(dialect(cli).permission(), Permission::Hook);
-        assert!(!dialect(cli).assigns_id());
-    }
+    let command = dialect("pi").command(&context);
+    let module = world.hooks.join(PERMISSION_FILE);
+    assert_eq!(command.executable, "pi");
+    assert_eq!(
+        command.args,
+        ["--extension".to_owned(), module.display().to_string()]
+    );
+    assert_eq!(
+        command.requires.expect("hook module"),
+        HookModule {
+            path: module,
+            source: PERMISSION_MODULE,
+        }
+    );
+    assert_eq!(
+        command.env,
+        [
+            ("ONI_MCLIENT".to_owned(), "/opt/it's/mclient".to_owned()),
+            ("ONI_MCLIENT_CLI".to_owned(), "pi".to_owned()),
+        ]
+    );
+    assert_eq!(dialect("pi").permission(), Permission::Hook);
+    assert!(!dialect("pi").assigns_id());
     assert!(dialect("claude-code").assigns_id());
     assert_eq!(dialect("pi").name(), "pi");
 
@@ -487,12 +507,10 @@ async fn launch_argv_and_hooks_stay_in_dialect_data() {
         ["--resume", "chosen"]
     );
     assert_eq!(dialect("codex").command(&resume).args, ["resume", "chosen"]);
-    for cli in ["pi", "omp"] {
-        assert_eq!(
-            dialect(cli).command(&resume).args[2..],
-            ["--session".to_owned(), transcript.display().to_string()]
-        );
-    }
+    assert_eq!(
+        dialect("pi").command(&resume).args[2..],
+        ["--session".to_owned(), transcript.display().to_string()]
+    );
 }
 
 #[test]
@@ -511,17 +529,6 @@ fn transcript_layouts_follow_each_dialect() {
         pi::transcripts(home, Path::new("/srv/x:y/z")),
         Path::new("/home/user/.pi/agent/sessions/--srv-x-y-z--")
     );
-    for (project, encoded) in [
-        ("/home/user/src/app", "-src-app"),
-        ("/tmp/scratch/app", "-tmp-scratch-app"),
-        ("/srv/app", "--srv-app--"),
-    ] {
-        assert_eq!(
-            omp::transcripts(home, Path::new(project)),
-            home.join(".omp/agent/sessions").join(encoded),
-            "{project}"
-        );
-    }
     let codex_file = Path::new(&format!(
         "/s/rollout-2026-10-25T00-00-00-{DISCOVERED}.jsonl"
     ))
@@ -706,37 +713,41 @@ async fn launch_refusals_are_typed_and_never_leave_a_process() {
             .await,
         Err(LaunchError::SessionNotAvailable)
     ));
-    fs::remove_dir(&world.hooks).expect("unblock hooks");
+    // The launches above left their `ready/` directory behind the module.
+    fs::remove_dir_all(&world.hooks).expect("unblock hooks");
     fs::write(&world.hooks, "not a directory").expect("block hooks");
     assert!(matches!(
         silent.start(&dialect("pi"), &project, None).await,
         Err(LaunchError::HookUnavailable(module)) if module == world.hooks.join(PERMISSION_FILE)
     ));
+    // A dialect without a module still needs the directory for its ready file.
+    assert!(matches!(
+        silent.start(&dialect("claude-code"), &project, None).await,
+        Err(LaunchError::Io(_))
+    ));
     assert_eq!(silent.spawner().launches().len(), 1);
     fs::remove_file(&world.hooks).expect("unblock hooks");
     fs::create_dir(&world.hooks).expect("hooks directory");
     let installed = world.hooks.join(PERMISSION_FILE);
-    for cli in ["pi", "omp"] {
-        // A stale or foreign module at the path is replaced, never trusted.
-        fs::write(&installed, "export {}\n").expect("stale module");
-        assert!(matches!(
-            silent.start(&dialect(cli), &project, None).await,
-            Err(LaunchError::SessionNotAvailable)
-        ));
-        assert_eq!(
-            fs::read_to_string(&installed).expect("installed"),
-            PERMISSION_MODULE
-        );
-        assert_eq!(
-            fs::metadata(&installed)
-                .expect("installed")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
-    }
-    assert_eq!(silent.spawner().launches().len(), 3);
+    // A stale or foreign module at the path is replaced, never trusted.
+    fs::write(&installed, "export {}\n").expect("stale module");
+    assert!(matches!(
+        silent.start(&dialect("pi"), &project, None).await,
+        Err(LaunchError::SessionNotAvailable)
+    ));
+    assert_eq!(
+        fs::read_to_string(&installed).expect("installed"),
+        PERMISSION_MODULE
+    );
+    assert_eq!(
+        fs::metadata(&installed)
+            .expect("installed")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert_eq!(silent.spawner().launches().len(), 2);
     assert!(matches!(
         silent.start(&dialect("pi"), &project, None).await,
         Err(LaunchError::SessionNotAvailable)
@@ -745,11 +756,11 @@ async fn launch_refusals_are_typed_and_never_leave_a_process() {
     fs::write(&installed, "export {}\n").expect("stale module");
     fs::set_permissions(&world.hooks, fs::Permissions::from_mode(0o500)).expect("seal hooks");
     assert!(matches!(
-        silent.start(&dialect("omp"), &project, None).await,
+        silent.start(&dialect("pi"), &project, None).await,
         Err(LaunchError::HookUnavailable(module)) if module == installed
     ));
     fs::set_permissions(&world.hooks, fs::Permissions::from_mode(0o700)).expect("unseal hooks");
-    assert_eq!(silent.spawner().launches().len(), 4);
+    assert_eq!(silent.spawner().launches().len(), 3);
 
     let mut broken = Fake::silent();
     broken.fail_changed = true;
@@ -759,6 +770,25 @@ async fn launch_refusals_are_typed_and_never_leave_a_process() {
         Err(LaunchError::Io(_))
     ));
     assert_eq!(broken.spawner().log(), ["stop fake-1"]);
+
+    // A launch that never produced a process leaves no ready file and
+    // nothing to stop.
+    let mut unlaunched = Fake::silent();
+    unlaunched.fail_launch = true;
+    let mut unlaunched = world.launcher(unlaunched);
+    assert!(matches!(
+        unlaunched
+            .start(&dialect("claude-code"), &project, None)
+            .await,
+        Err(LaunchError::Io(_))
+    ));
+    assert!(unlaunched.spawner().log().is_empty());
+    assert_eq!(
+        fs::read_dir(world.hooks.join("ready"))
+            .expect("ready directory")
+            .count(),
+        0
+    );
 
     let claude = dialect("claude-code");
     let mut unsaved = world.launcher(Fake::new(writes(claude, &world.home, None)));
@@ -1151,10 +1181,6 @@ impl Cli for ScriptCli {
 
     fn assigns_id(&self) -> bool {
         true
-    }
-
-    fn ready(&self) -> Option<&'static str> {
-        None
     }
 
     fn command(&self, context: &LaunchContext<'_>) -> LaunchCommand {

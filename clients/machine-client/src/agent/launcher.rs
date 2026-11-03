@@ -140,10 +140,6 @@ pub trait Cli {
     fn name(&self) -> &'static str;
     fn permission(&self) -> Permission;
     fn assigns_id(&self) -> bool;
-    /// Text the CLI prints once it is at its prompt. A launch that assigned
-    /// the session id is ready when its terminal shows this, before the
-    /// transcript exists; `None` leaves readiness to the transcript.
-    fn ready(&self) -> Option<&'static str>;
     fn command(&self, context: &LaunchContext<'_>) -> LaunchCommand;
     fn transcripts(&self, home: &Path, project: &Path) -> PathBuf;
     fn session_id(&self, transcript: &Path) -> Option<String>;
@@ -297,13 +293,10 @@ fn discover(cli: &impl Cli, home: &Path, project: &Path) -> Vec<Found> {
     found
 }
 
-/// Bytes of stripped terminal output a launch keeps while waiting for its
-/// prompt: enough for the last screen, bounded however much the CLI prints.
-const TAIL: usize = 4096;
-
-/// Append `output` without its escape sequences, keeping the last `TAIL` bytes.
 /// The longest single `pty read` long-poll the wire admits (`waitMs`).
 const PTY_READ_WAIT_MAX: Duration = Duration::from_secs(30);
+/// How long a typed letter settles before the return that submits it.
+const SUBMIT_SETTLE: Duration = Duration::from_millis(300);
 
 /// A read that answered no output: when the capped long-poll returned before
 /// the deadline the pane is still being watched, otherwise it stayed quiet
@@ -314,49 +307,6 @@ fn quiet(waited: Duration, remaining: Duration) -> Change {
     } else {
         Change::Timeout
     }
-}
-
-fn keep_tail(tail: &mut String, output: &str) {
-    tail.push_str(&strip_ansi(output));
-    if tail.len() > TAIL {
-        let mut cut = tail.len() - TAIL;
-        while !tail.is_char_boundary(cut) {
-            cut += 1;
-        }
-        tail.drain(..cut);
-    }
-}
-
-/// Terminal output with its CSI, OSC and two-character escape sequences
-/// removed, so a prompt marker is contiguous whatever styling surrounds it.
-fn strip_ansi(output: &str) -> String {
-    enum State {
-        Text,
-        Escape,
-        Csi,
-        Osc,
-    }
-    let mut state = State::Text;
-    let mut text = String::with_capacity(output.len());
-    for c in output.chars() {
-        state = match (state, c) {
-            (State::Text, '\x1b') => State::Escape,
-            (State::Text, c) => {
-                text.push(c);
-                State::Text
-            }
-            (State::Escape, '[') => State::Csi,
-            (State::Escape, ']') => State::Osc,
-            // ESC plus one character: ESC 7, ESC =, ESC \ (string terminator).
-            (State::Escape, _) => State::Text,
-            (State::Csi, '\x40'..='\x7e') => State::Text,
-            (State::Csi, _) => State::Csi,
-            (State::Osc, '\x07') => State::Text,
-            (State::Osc, '\x1b') => State::Escape,
-            (State::Osc, _) => State::Osc,
-        };
-    }
-    text
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -610,6 +560,14 @@ impl<P: ProcessSpawner> Launcher<P> {
         })
     }
 
+    /// A fresh path, under the hook directory, for the launched CLI's startup
+    /// hook to create once the CLI is at its prompt (`mclient hook ready`).
+    fn ready_file(&self) -> io::Result<PathBuf> {
+        let directory = self.settings.hook.modules.join("ready");
+        fs::create_dir_all(&directory)?;
+        Ok(directory.join(mint()?))
+    }
+
     /// Point the command at this client's hook socket and install the module
     /// it requires.
     fn prepare(&self, command: &mut LaunchCommand) -> Result<(), LaunchError> {
@@ -655,44 +613,32 @@ impl<P: ProcessSpawner> Launcher<P> {
             resume: None,
         });
         self.prepare(&mut command)?;
+        let ready = self.ready_file()?;
+        command.env.push((
+            crate::config::AGENT_READY_FILE_VARIABLE.to_owned(),
+            ready.to_string_lossy().into_owned(),
+        ));
         let before: HashSet<PathBuf> = discover(cli, &self.settings.home, &project)
             .into_iter()
             .map(|found| found.path)
             .collect();
         let deadline = Instant::now() + self.settings.ready;
-        let handle = self.spawner.launch(&project, &command).await?;
+        let launched = self.spawner.launch(&project, &command).await;
+        let handle = match launched {
+            Ok(handle) => handle,
+            Err(error) => {
+                let _ = fs::remove_file(&ready);
+                return Err(error.into());
+            }
+        };
         self.launching.push(handle);
-        let mut tail = String::new();
-        let (id, transcript) = loop {
-            let appeared = discover(cli, &self.settings.home, &project)
-                .into_iter()
-                .filter(|found| {
-                    !before.contains(&found.path)
-                        && session_id.as_ref().is_none_or(|id| found.id == *id)
-                })
-                .max_by_key(|found| found.modified);
-            if let Some(found) = appeared {
-                break (found.id, found.path);
-            }
-            let handle = self.launching.last_mut().expect("pushed above");
-            match self.spawner.changed(handle, deadline).await {
-                Ok(Change::Output(output)) => {
-                    keep_tail(&mut tail, &output);
-                    let prompted = cli.ready().is_some_and(|marker| tail.contains(marker));
-                    // At its prompt the CLI has committed to the id it was
-                    // given; the transcript appears at that id's path with
-                    // the first turn, so nothing is written here.
-                    if let Some(id) = session_id.as_deref().filter(|_| prompted) {
-                        let layout = cli.transcripts(&self.settings.home, &project);
-                        break (id.to_owned(), layout.join(format!("{id}.jsonl")));
-                    }
-                }
-                Ok(Change::Progress) => {}
-                Ok(Change::Timeout) => {
-                    return self.abandon(LaunchError::SessionNotAvailable).await;
-                }
-                Err(error) => return self.abandon(error.into()).await,
-            }
+        let opened = self
+            .wait(cli, &project, session_id, &before, &ready, deadline)
+            .await;
+        let _ = fs::remove_file(&ready);
+        let (id, transcript) = match opened {
+            Ok(found) => found,
+            Err(error) => return self.abandon(error).await,
         };
         let handle = self.launching.last().expect("pushed above");
         let session = Session {
@@ -712,6 +658,44 @@ impl<P: ProcessSpawner> Launcher<P> {
             owned: true,
             launched: true,
         })
+    }
+
+    /// Wait for the launched process to be ready: its transcript appears
+    /// (a path not in `before`, at the requested id when one was given), or
+    /// its startup hook creates `ready` while it holds an assigned id.
+    async fn wait(
+        &mut self,
+        cli: &impl Cli,
+        project: &Path,
+        session_id: Option<String>,
+        before: &HashSet<PathBuf>,
+        ready: &Path,
+        deadline: Instant,
+    ) -> Result<(String, PathBuf), LaunchError> {
+        loop {
+            let appeared = discover(cli, &self.settings.home, project)
+                .into_iter()
+                .filter(|found| {
+                    !before.contains(&found.path)
+                        && session_id.as_ref().is_none_or(|id| found.id == *id)
+                })
+                .max_by_key(|found| found.modified);
+            if let Some(found) = appeared {
+                return Ok((found.id, found.path));
+            }
+            // At its prompt the CLI has committed to the id it was given; the
+            // transcript appears at that id's path with the first turn, so
+            // nothing is written here.
+            if let Some(id) = session_id.as_deref().filter(|_| ready.exists()) {
+                let layout = cli.transcripts(&self.settings.home, project);
+                return Ok((id.to_owned(), layout.join(format!("{id}.jsonl"))));
+            }
+            let handle = self.launching.last_mut().expect("pushed by launch");
+            match self.spawner.changed(handle, deadline).await? {
+                Change::Output(_) | Change::Progress => {}
+                Change::Timeout => return Err(LaunchError::SessionNotAvailable),
+            }
+        }
     }
 
     async fn abandon(&mut self, error: LaunchError) -> Result<Opened, LaunchError> {
@@ -877,8 +861,15 @@ impl ProcessSpawner for PtySpawner {
         Ok(quiet(wait, remaining))
     }
 
+    /// The text and the carriage return are two writes with a pause between
+    /// them: a CLI that reads a chunk holding both treats it as a paste and
+    /// keeps the return as an invisible character instead of submitting, and
+    /// a return inside its paste window is folded the same way (claude
+    /// 2.1.316, observed live).
     async fn send(&self, handle: &PtyHandle, text: &str) -> io::Result<()> {
-        self.write(&handle.name, &format!("{text}\r")).await
+        self.write(&handle.name, text).await?;
+        tokio::time::sleep(SUBMIT_SETTLE).await;
+        self.write(&handle.name, "\r").await
     }
 
     async fn stop(&self, handle: PtyHandle) -> io::Result<()> {
@@ -914,7 +905,7 @@ impl ProcessSpawner for PtySpawner {
 
 #[cfg(test)]
 mod tests {
-    use super::{keep_tail, quiet, strip_ansi, Change, PTY_READ_WAIT_MAX, TAIL};
+    use super::{quiet, Change, PTY_READ_WAIT_MAX};
     use std::time::Duration;
 
     #[test]
@@ -927,36 +918,5 @@ mod tests {
             quiet(Duration::ZERO, Duration::ZERO),
             Change::Timeout
         ));
-    }
-
-    #[test]
-    fn strip_ansi_removes_csi_osc_and_two_character_escapes() {
-        let styled = "\x1b[2m?\x1b[0m\x1b[38;5;245m for shortcuts\x1b[m";
-        assert_eq!(strip_ansi(styled), "? for shortcuts");
-        let titled = "\x1b]0;claude\x07ready\x1b]8;;https://x\x1b\\link";
-        assert_eq!(strip_ansi(titled), "readylink");
-        assert_eq!(strip_ansi("a\x1b7b\x1b=c\x1b[?25ld\r\n"), "abcd\r\n");
-        assert_eq!(strip_ansi("cut \x1b[3"), "cut ");
-        assert_eq!(strip_ansi("plain text"), "plain text");
-    }
-
-    #[test]
-    fn keep_tail_bounds_the_stripped_output_on_a_char_boundary() {
-        let mut tail = String::new();
-        keep_tail(&mut tail, "\x1b[1mfirst\x1b[0m ");
-        keep_tail(&mut tail, "second");
-        assert_eq!(tail, "first second");
-        let mut tail = String::new();
-        keep_tail(&mut tail, &"a".repeat(TAIL));
-        keep_tail(&mut tail, "b");
-        assert_eq!(tail.len(), TAIL);
-        assert!(tail.starts_with("aa") && tail.ends_with("ab"));
-        // Twelve bytes, the two-byte `é` last; 4095 more land the cut inside it.
-        let mut tail = String::new();
-        keep_tail(&mut tail, "xxxxxxxxxxé");
-        let prompts = "? for shortcuts".repeat(273);
-        keep_tail(&mut tail, &prompts);
-        assert_eq!(tail, prompts);
-        assert_eq!(tail.len(), TAIL - 1);
     }
 }

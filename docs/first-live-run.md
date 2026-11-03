@@ -7,6 +7,74 @@ what it records becomes the first live evidence. Shipped state is in
 `docs/implementation-status.md`; the contracts are in
 `docs/conversation-and-message-io.md` and `docs/provisioning-and-providers.md`.
 
+## Isolated CLI child acceptance
+
+Build the client before boot or app tests:
+`cargo build --release --manifest-path clients/Cargo.toml`. Use a temporary
+`HOME`, a private `TMUX_TMPDIR`, a scratch project export, and explicit catalog,
+sessions, generation-file and socket paths. `ONI_HOME` alone does not redirect
+these paths; `loadConfig(home, env)` takes its home argument explicitly.
+Do not restart an installed machine service for this check.
+
+Declare each contact on the authenticated gateway socket:
+
+```json
+{"type":"channel_add","requestId":"declare-claude","id":"channel:cli:claude","provider":"cli","identity":"bot","settings":{"dialect":"claude-code","machine":"self","cwd":"/absolute/scratch/project"}}
+```
+
+The provision tool uses the same declaration under
+`{"operation":{"op":"channel_add","args":{...}}}` and asks for Owner consent.
+`oni channel add` does not accept `cli`; use the socket or provision surface.
+Ask the Resident to call `send_message` with
+`to: {kind: "contact", id: "cli:claude"}` and a one-file task.
+
+For each dialect retain the returned `agent.session.open` id, `child_fact`
+counts by phase, the `agent_permission` action and
+`agent_permission.decided` fact, and the `cli_turn` pointer reply. Answer a
+permission through `provision`'s `permission_allow` operation and its Owner
+approval request, never by writing a decision row directly. Codex currently
+uses its own terminal approval prompt, not this hook (#1811).
+
+The 2026-11-02 MacBook run (#1778) reached real CLI processes but did not
+complete a CLI child turn: Claude waited for its first prompt while `open`
+waited for a transcript (#1807); Codex required login (#1809); the installed
+`pi` executable used a different transcript root (#1810). Each refusal and
+its missing rows are recorded on #1778. `omp` was absent and its dialect
+was removed rather than treated as verified.
+
+The 2026-11-03 run on the same Mac completed the claude-code cycle without
+hands: `open` is answered by the SessionStart `mclient hook ready` file,
+the letter submits on its own, the child's `Write` reaches the lead as the
+`agent_permission` action, and the child's terminal turn returns the
+`cli_turn` pointer. The permission itself expired: the lead's turn is parked
+inside `send_message` for the whole child turn, so nothing can call
+`permission_allow` before the 100 s deadline (#1828); expect
+`refused (timeout)` and no written file until that lands.
+
+## Session-owned capture receipt
+
+For `machine("self").screen()`, enroll `screen.read`; `computer.use` alone
+does not grant this legacy method. From a native child (`runner: "native"`),
+run one `eval` cell:
+
+```python
+shot = machine("self").screen()
+print({key: value for key, value in shot.items() if key != "png"})
+print("PNG_BYTES", len(shot.get("png", b"")))
+```
+
+Read the `codemode.screen` result in that session's SQLite `action` table.
+Its envelope names a digest; the image lives in `tool_outputs.bytes` under
+`output_id = "sha256:" + digest` in the same session file. Retain the JSON
+row's byte length and the blob length, not the screenshot in the issue.
+Observe mclient stderr and heartbeat metrics for at least 15 seconds after
+capture. The self client uses the same 512 MiB budget as the joined client.
+
+The #1776 G002 C002 receipt on 2026-11-02 captured 3024 by 1964 pixels:
+2065011 PNG bytes, a 444-byte effect JSON and a 751-byte serialized row.
+The client remained alive beyond 15 seconds without a memory-budget exit.
+Accessibility was unavailable; Screen Recording was granted.
+
 ## Screen stream stage-metrics probe
 
 With the daemon running on the same host as the CLI and an attached machine

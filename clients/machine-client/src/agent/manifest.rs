@@ -11,7 +11,6 @@ pub enum Format {
     ClaudeJsonl,
     CodexRolloutJsonl,
     PiJsonlV3,
-    OmpJsonlV3,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -21,21 +20,16 @@ pub struct Dialect {
     pub permission_hook: &'static str,
     pub permission: Permission,
     pub assigns_id: bool,
-    /// Text the CLI prints once it is at its prompt; a launch is ready when
-    /// the terminal shows it, before any transcript exists. `None` for a CLI
-    /// whose readiness is only its transcript appearing.
-    pub ready: Option<&'static str>,
     pub format: Format,
 }
 
-pub const DIALECTS: [Dialect; 4] = [
+pub const DIALECTS: [Dialect; 3] = [
     Dialect {
         cli: "claude-code",
         discovery: "~/.claude/projects/<encoded-project>/<session-id>.jsonl",
         permission_hook: "PreToolUse",
         permission: Permission::Hook,
         assigns_id: true,
-        ready: Some("? for shortcuts"),
         format: Format::ClaudeJsonl,
     },
     Dialect {
@@ -44,7 +38,6 @@ pub const DIALECTS: [Dialect; 4] = [
         permission_hook: "approval_request",
         permission: Permission::CliPrompt,
         assigns_id: false,
-        ready: None,
         format: Format::CodexRolloutJsonl,
     },
     Dialect {
@@ -53,17 +46,7 @@ pub const DIALECTS: [Dialect; 4] = [
         permission_hook: "tool_call",
         permission: Permission::Hook,
         assigns_id: false,
-        ready: None,
         format: Format::PiJsonlV3,
-    },
-    Dialect {
-        cli: "omp",
-        discovery: "~/.omp/agent/sessions/<encoded-canonical-cwd>/<timestamp>_<session-id>.jsonl",
-        permission_hook: "tool_call",
-        permission: Permission::Hook,
-        assigns_id: false,
-        ready: None,
-        format: Format::OmpJsonlV3,
     },
 ];
 
@@ -77,7 +60,7 @@ impl Dialect {
     pub fn hook_request(&self, input: &Value) -> Option<AgentPermissionRequest> {
         match self.format {
             Format::ClaudeJsonl => super::claude::hook_request(input),
-            Format::PiJsonlV3 | Format::OmpJsonlV3 => super::pi::hook_request(input),
+            Format::PiJsonlV3 => super::pi::hook_request(input),
             Format::CodexRolloutJsonl => None,
         }
     }
@@ -106,7 +89,6 @@ impl Format {
                 Self::ClaudeJsonl => super::claude::parse_value,
                 Self::CodexRolloutJsonl => super::codex::parse_value,
                 Self::PiJsonlV3 => super::pi::parse_value,
-                Self::OmpJsonlV3 => super::omp::parse_value,
             },
         )
     }
@@ -125,16 +107,11 @@ impl Cli for Dialect {
         self.assigns_id
     }
 
-    fn ready(&self) -> Option<&'static str> {
-        self.ready
-    }
-
     fn command(&self, context: &LaunchContext<'_>) -> LaunchCommand {
         match self.format {
             Format::ClaudeJsonl => super::claude::command(context, self.permission_hook),
             Format::CodexRolloutJsonl => super::codex::command(context),
             Format::PiJsonlV3 => super::pi::command(context),
-            Format::OmpJsonlV3 => super::omp::command(context),
         }
     }
 
@@ -143,7 +120,6 @@ impl Cli for Dialect {
             Format::ClaudeJsonl => super::claude::transcripts(home, project),
             Format::CodexRolloutJsonl => super::codex::transcripts(home),
             Format::PiJsonlV3 => super::pi::transcripts(home, project),
-            Format::OmpJsonlV3 => super::omp::transcripts(home, project),
         }
     }
 
@@ -151,7 +127,7 @@ impl Cli for Dialect {
         match self.format {
             Format::ClaudeJsonl => super::claude::session_id(transcript),
             Format::CodexRolloutJsonl => super::codex::session_id(transcript),
-            Format::PiJsonlV3 | Format::OmpJsonlV3 => super::pi::session_id(transcript),
+            Format::PiJsonlV3 => super::pi::session_id(transcript),
         }
     }
 

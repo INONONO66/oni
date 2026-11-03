@@ -5,7 +5,6 @@ pub mod codex;
 pub mod hook;
 pub mod launcher;
 pub mod manifest;
-pub mod omp;
 pub mod pi;
 pub mod registry;
 pub mod tail;

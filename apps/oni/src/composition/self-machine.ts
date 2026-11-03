@@ -109,7 +109,8 @@ export function attachSelfMachine(
       try: () => writeMclientSettings(path, {
         machineId: plane.self.id, name: "self", host: "localhost",
         unix: options.socketPath, exports: plane.self.exports, tags: [],
-        memoryBudgetMb: 96,
+        // Matches clients/machine-client/src/config.rs; the self client also captures displays.
+        memoryBudgetMb: 512,
       }),
       catch: (cause) => selfAttachFailure(`self settings failed: ${String(cause)}`),
     });

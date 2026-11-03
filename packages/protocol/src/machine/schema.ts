@@ -1192,7 +1192,7 @@ const AgentProject = z.string().min(1).max(4096)
   .regex(new RegExp(agentProjectPattern), {
     message: "project must be an absolute path without NUL or .. segments",
   });
-const AgentCli = z.enum(["claude-code", "codex", "pi", "omp"]);
+const AgentCli = z.enum(["claude-code", "codex", "pi"]);
 const AgentText = z.string().max(AGENT_SESSION_MAX_TEXT);
 const AgentRequestId = z.string().min(1).max(256);
 

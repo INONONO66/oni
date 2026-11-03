@@ -1,7 +1,9 @@
-//! The local permission channel. A CLI's permission hook runs
+//! The local hook channel. A CLI's permission hook runs
 //! `mclient hook permission --cli <name>`, which asks the running client over
 //! a private unix socket; the client answers with the attached host's
 //! verdict. Every failure on either side ends in a block, never a grant.
+//! A CLI's startup hook runs `mclient hook ready`, which creates the file
+//! the launching client named so it stops waiting for the prompt.
 
 use std::{
     fs,
@@ -211,9 +213,21 @@ async fn exchange(
     Ok(decode(answers.next().await?.ok_or(AskError::Closed)?)?)
 }
 
-/// The whole hook: read the CLI's input, ask, and map the verdict into the
-/// CLI's own answer. An unknown CLI, or input without a permission request,
-/// is a block.
+/// The startup hook: create the file at `path`, the one the launching
+/// client put in [`crate::config::AGENT_READY_FILE_VARIABLE`]. The CLI's
+/// input is drained unread; nothing in it is needed.
+pub fn ready(path: Option<PathBuf>, input: impl io::Read) -> io::Result<()> {
+    let Some(path) = path else {
+        let missing = format!("{} is not set", crate::config::AGENT_READY_FILE_VARIABLE);
+        return Err(io::Error::new(io::ErrorKind::NotFound, missing));
+    };
+    io::copy(&mut input.take(MAX_INPUT_BYTES), &mut io::sink())?;
+    fs::File::create(path).map(drop)
+}
+
+/// The whole permission hook: read the CLI's input, ask, and map the verdict
+/// into the CLI's own answer. An unknown CLI, or input without a permission
+/// request, is a block.
 pub async fn run(cli: &str, input: impl io::Read, socket: &Path, deadline: Duration) -> Outcome {
     let Some(dialect) = manifest::select(cli) else {
         return Outcome::block(format!("oni: no permission hook for {cli}"));

@@ -751,8 +751,8 @@ async fn owned_sessions_send_stop_and_relay_permission_to_the_host() {
         |id: &str| fixture.call("agent.session.send", json!({"sessionId": id, "text": "hi"}));
     assert_eq!(send(SESSION).await, json!({"status": "ok"}));
     // The wire caps the text at 4096 characters, the terminal at 16384 bytes
-    // per write: four-byte characters pass the first and hit the second, and
-    // the send reports the terminal's refusal.
+    // per write: the widest letter is exactly the terminal's cap, and the
+    // return that submits it is a write of its own, so it lands.
     let wide = "\u{1F600}".repeat(4096);
     assert_eq!(
         fixture
@@ -761,7 +761,7 @@ async fn owned_sessions_send_stop_and_relay_permission_to_the_host() {
                 json!({"sessionId": SESSION, "text": wide}),
             )
             .await,
-        refusal("session_not_available")
+        json!({"status": "ok"})
     );
     // `found` was adopted, not launched: the send first resumes it in a
     // fresh terminal, which the list state shows. No CLI binary exists on

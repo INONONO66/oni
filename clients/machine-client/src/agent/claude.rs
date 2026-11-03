@@ -13,14 +13,24 @@ const HOOK_TIMEOUT_SECS: u64 = hook::ASK_DEADLINE.as_secs() + 20;
 
 pub fn command(context: &LaunchContext<'_>, hook: &str) -> LaunchCommand {
     // Exec form with `onFailure: block`: a hook that cannot start, crashes,
-    // times out or prints invalid output blocks the tool call.
-    let settings = json!({"hooks": {hook: [{"matcher": "*", "hooks": [{
-        "type": "command",
-        "command": context.hook.program,
-        "args": ["hook", "permission", "--cli", "claude-code"],
-        "onFailure": "block",
-        "timeout": HOOK_TIMEOUT_SECS,
-    }]}]}});
+    // times out or prints invalid output blocks the tool call. The startup
+    // hook reports the prompt: Claude Code runs it once a fresh session is
+    // open (a resumed one is owned without waiting), so the prompt's hint
+    // text is never read.
+    let settings = json!({"hooks": {
+        hook: [{"matcher": "*", "hooks": [{
+            "type": "command",
+            "command": context.hook.program,
+            "args": ["hook", "permission", "--cli", "claude-code"],
+            "onFailure": "block",
+            "timeout": HOOK_TIMEOUT_SECS,
+        }]}],
+        "SessionStart": [{"matcher": "startup", "hooks": [{
+            "type": "command",
+            "command": context.hook.program,
+            "args": ["hook", "ready"],
+        }]}],
+    }});
     let mut args = vec!["--settings".to_owned(), settings.to_string()];
     if let Some(id) = context.session_id {
         let flag = if context.resume.is_some() {
@@ -90,6 +100,11 @@ pub(crate) fn parse_value(value: &Value) -> Vec<AgentTranscriptRecord> {
             | "system"
             | "file-history-snapshot"
             | "progress"
+            | "last-prompt"
+            | "permission-mode"
+            | "mode"
+            | "atis-latch"
+            | "cost-state"
     ) {
         return Vec::new();
     }

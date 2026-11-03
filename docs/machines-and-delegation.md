@@ -852,9 +852,9 @@ four P3 capabilities, so a real join can negotiate it; the attach offer
 drops it when tmux or an export is missing.
 
 **Sessions and layouts.** A session is one CLI process on the machine whose
-transcript the client can find on disk. The client supports exactly four
+transcript the client can find on disk. The client advertises three
 dialects, selected by data in `agent/manifest.rs`, never by code outside
-`clients/machine-client/src/agent/`: `claude-code`, `codex`, `pi` and `omp`.
+`clients/machine-client/src/agent/`: `claude-code`, `codex` and `pi`.
 Each dialect is a transcript layout (where the `.jsonl` lives, how the
 project path is encoded in it, whether the id is assigned by the client or
 discovered from the file name), a launch command and a permission mode.
@@ -867,10 +867,13 @@ adopts an existing transcript by id, or launches; `attach` never launches;
 registry at `~/.oni/machine-client/agent-sessions.json` is a reclaim hint
 that binds one session id to one project and CLI; liveness is always
 observed, never assumed, including for a session the client already owns,
-and a launch cancelled before its session registers leaves no process. *Shipped* for all four layouts
-against retained fixtures; the `omp` fixture is pinned to the published
-format rather than copied from a live transcript, and `pi`/`omp` ids are
-discovered rather than assigned.
+and a launch cancelled before its session registers leaves no process.
+Retained fixtures cover the parsers, but the first live run (#1778) exposed
+the first-prompt readiness gap (#1807), Codex authentication (#1809), and
+the installed Pi executable's different transcript root (#1810). Pi ids
+are discovered rather than assigned. The `omp` dialect was removed: no
+executable or home existed to validate its documentation-derived layout, so
+its launch entry, parser, fixtures and `AgentCli` wire value are gone.
 
 **The cursor.** `tail` is a bounded page (32 records or 256 KiB) ending in a
 server-minted cursor `{sessionId, generation, byteOffset, recordHash}`,
@@ -895,20 +898,23 @@ reconnect and damage cases as test receipts.
 dialect in hook mode asks the running client over a private local socket
 (`hook.sock` in the client's config directory, 0600, named to every
 launched CLI in `ONI_MCLIENT_HOOK_SOCKET`) through `mclient hook permission
---cli <name>`; the client relays `agent.session.permission` to the host,
+--cli <name>`; the same hook surface carries readiness: a dialect's startup
+hook runs `mclient hook ready`, which creates the file the launch named in
+`ONI_MCLIENT_READY_FILE`. The client relays `agent.session.permission` to the host,
 which answers through the application's injected decision port (the
-captured `tool.pre` gate; the app does not bind it yet, #1665, so the host
-denies). Every non-answer is a deny: no socket, no
+captured `tool.pre` gate). The app binds this port to the owning session's
+`agent_permission` action and `agent_permission.decided` fact (#1665).
+Every non-answer is a deny: no socket, no
 attached connection, a disconnect while pending, a malformed or mismatched
 answer, a port failure, and the deadline (30 s at the host by default, 150 s
 at the hook socket, 190 s in the shared module) all block the tool call, and a late answer finds no waiter.
-`codex` is served without a hook (its own terminal prompt stands) and that
-is the documented support limit, not an interception. *Shipped*: the host
+`codex` is served without a hook (its own terminal prompt stands); #1811
+tracks the missing host-gate bridge. *Shipped*: the host
 port with deny-on-timeout and deny-on-disconnect, the client relay and the
-fail-closed hook with exit 2 on every non-allow path; `pi` and `omp` share
-one hook module, reinstalled whenever the file differs from the shipped
-bytes and exercised in conformance, but not yet inside a live `pi` or `omp`
-process.
+fail-closed hook with exit 2 on every non-allow path; `pi` loads a hook
+module reinstalled whenever the file differs from the shipped bytes and
+exercised in conformance. A successful live CLI permission round trip
+remains unverified.
 
 **Sync checkpoints and the VFS.** Transcript and project bytes leave the
 machine as content-addressed bundles and per-project checkpoints owned by

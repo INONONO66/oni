@@ -15,7 +15,7 @@ fn kinds(records: &[oni_machine_client::agent::ParsedRecord]) -> Vec<&'static st
 
 #[test]
 fn parses_representative_records_for_every_dialect() {
-    let cases: [(&[u8], Format); 4] = [
+    let cases: [(&[u8], Format); 3] = [
         (
             include_bytes!("fixtures/agent/claude/session.jsonl"),
             Format::ClaudeJsonl,
@@ -27,10 +27,6 @@ fn parses_representative_records_for_every_dialect() {
         (
             include_bytes!("fixtures/agent/pi/session.jsonl"),
             Format::PiJsonlV3,
-        ),
-        (
-            include_bytes!("fixtures/agent/omp/session.jsonl"),
-            Format::OmpJsonlV3,
         ),
     ];
     for (bytes, format) in cases {
@@ -94,7 +90,6 @@ fn reports_corrupt_encoding_shape_unsupported_and_truncated_tail() {
         Format::ClaudeJsonl,
         Format::CodexRolloutJsonl,
         Format::PiJsonlV3,
-        Format::OmpJsonlV3,
     ] {
         let records = format.parse(bytes);
         assert_eq!(
@@ -119,7 +114,7 @@ fn reports_corrupt_encoding_shape_unsupported_and_truncated_tail() {
 
 #[test]
 fn manifest_selects_distinct_supported_formats() {
-    assert_eq!(manifest::DIALECTS.len(), 4);
+    assert_eq!(manifest::DIALECTS.len(), 3);
     assert!(manifest::DIALECTS
         .windows(2)
         .all(|pair| pair[0].format != pair[1].format));
@@ -135,7 +130,6 @@ fn manifest_selects_distinct_supported_formats() {
                 include_bytes!("fixtures/agent/codex/session.jsonl")
             }
             manifest::Format::PiJsonlV3 => include_bytes!("fixtures/agent/pi/session.jsonl"),
-            manifest::Format::OmpJsonlV3 => include_bytes!("fixtures/agent/omp/session.jsonl"),
         };
         assert_eq!(
             kinds(&dialect.format.parse(bytes)),
@@ -155,29 +149,11 @@ fn preserves_multiple_records_from_one_physical_line() {
 }
 
 #[test]
-fn omp_title_slot_retains_absolute_byte_offsets() {
-    let title = format!(
-        "{:<255}\n",
-        r#"{"type":"title","v":1,"title":"Example","pad":""}"#
-    );
-    let message = b"{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"hello\"}}\n";
-    let bytes = [title.as_bytes(), message].concat();
-    assert_eq!(title.len(), 256);
-    let records = Format::OmpJsonlV3.parse(&bytes);
-    assert_eq!(kinds(&records), ["turn"]);
-    assert_eq!(
-        (records[0].start, records[0].end),
-        (256, bytes.len() as u64)
-    );
-}
-
-#[test]
 fn malformed_vendor_fields_are_corrupt_not_dropped() {
-    let cases: [(&[u8], Format); 4] = [
+    let cases: [(&[u8], Format); 3] = [
         (b"{\"type\":\"assistant\",\"message\":{\"role\":\"other\",\"content\":\"x\"}}\n", Format::ClaudeJsonl),
         (b"{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"other\",\"content\":[]}}\n", Format::CodexRolloutJsonl),
         (b"{\"type\":\"message\",\"message\":{\"role\":\"toolResult\",\"content\":[]}}\n", Format::PiJsonlV3),
-        (b"{\"type\":\"message\",\"message\":{\"role\":\"toolResult\",\"content\":[]}}\n", Format::OmpJsonlV3),
     ];
     for (bytes, format) in cases {
         assert_eq!(kinds(&format.parse(bytes)), ["corrupt"]);
@@ -233,17 +209,6 @@ fn rejects_nontext_result_parts_and_invalid_wire_identifiers() {
     assert_eq!(
         serde_json::to_value(&records[0].record).expect("generated wire record")["failed"],
         true
-    );
-}
-
-#[test]
-fn omp_rejects_unknown_entries_but_skips_known_metadata() {
-    let bytes = b"{\"type\":\"title\"}\n{\"type\":\"mode_change\"}\n{\"type\":\"unknown\"}\n";
-    let records = Format::OmpJsonlV3.parse(bytes);
-    assert_eq!(kinds(&records), ["corrupt"]);
-    assert_eq!(
-        records[0].start,
-        b"{\"type\":\"title\"}\n{\"type\":\"mode_change\"}\n".len() as u64
     );
 }
 

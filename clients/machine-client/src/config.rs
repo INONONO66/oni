@@ -115,6 +115,11 @@ pub const AGENT_HOOK_SOCKET: &str = "hook.sock";
 /// launched it, so its hooks reach that client whatever config it runs.
 pub const AGENT_HOOK_SOCKET_VARIABLE: &str = "ONI_MCLIENT_HOOK_SOCKET";
 
+/// Set in every launched CLI session to the file its startup hook creates
+/// (`mclient hook ready`) once the CLI is at its prompt; the launching
+/// client waits for it before the first transcript exists.
+pub const AGENT_READY_FILE_VARIABLE: &str = "ONI_MCLIENT_READY_FILE";
+
 /// The launching client's socket when a CLI session names one, else the
 /// default client's.
 pub fn agent_hook_socket() -> PathBuf {

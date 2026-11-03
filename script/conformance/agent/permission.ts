@@ -75,7 +75,7 @@ export async function permissionModule(probe: Probe, scratch: string): Promise<v
     withEnv(
       {
         ONI_MCLIENT: program,
-        ONI_MCLIENT_CLI: "omp",
+        ONI_MCLIENT_CLI: "pi",
         ONI_FIXTURE_MODE: mode,
         ONI_FIXTURE_ARGS: args,
         ONI_FIXTURE_STDIN: stdin,
@@ -86,7 +86,7 @@ export async function permissionModule(probe: Probe, scratch: string): Promise<v
 
   const allowed = await ask("allow");
   probe.check(allowed === undefined, `explicit allow answered ${JSON.stringify(allowed)}`);
-  probe.check(readFileSync(args, "utf8") === "hook permission --cli omp\n", `the module invoked ${readFileSync(args, "utf8")}`);
+  probe.check(readFileSync(args, "utf8") === "hook permission --cli pi\n", `the module invoked ${readFileSync(args, "utf8")}`);
   probe.check(
     JSON.stringify(JSON.parse(readFileSync(stdin, "utf8"))) ===
       JSON.stringify({ sessionId: "session-1", toolCallId: "call-1", toolName: "bash", input: { command: "true" } }),

@@ -8,7 +8,7 @@ use std::{
 
 use oni_machine_client::{
     agent::hook::{self, Decide, Outcome},
-    config::ClientConfig,
+    config::{ClientConfig, AGENT_READY_FILE_VARIABLE},
     handlers::Service,
     pty::ops::Pty,
 };
@@ -131,23 +131,21 @@ async fn claude_hook_round_trip_carries_the_host_verdict() {
 }
 
 #[tokio::test]
-async fn pi_and_omp_hooks_allow_on_exit_zero_and_block_on_refusal() {
+async fn pi_hook_allows_on_exit_zero_and_blocks_on_refusal() {
     let socket = socket();
     let server = serve(&socket.path, Host::Allow);
-    for cli in ["pi", "omp"] {
-        let allowed = hook_run(cli, &pi_input(), &socket.path).await;
-        assert_eq!(
-            allowed,
-            Outcome {
-                code: 0,
-                stdout: String::new(),
-                stderr: String::new()
-            }
-        );
-    }
+    let allowed = hook_run("pi", &pi_input(), &socket.path).await;
+    assert_eq!(
+        allowed,
+        Outcome {
+            code: 0,
+            stdout: String::new(),
+            stderr: String::new()
+        }
+    );
     server.abort();
     let server = serve(&socket.path, Host::Elsewhere);
-    let mismatched = hook_run("omp", &pi_input(), &socket.path).await;
+    let mismatched = hook_run("pi", &pi_input(), &socket.path).await;
     blocked(&mismatched, "oni: permission answer names another request");
     server.abort();
 }
@@ -278,4 +276,51 @@ async fn a_service_without_agent_sessions_refuses_every_request() {
         "{outcome:?}"
     );
     server.abort();
+}
+
+/// The installed `mclient hook ready` with the CLI's startup event on stdin
+/// and, when given, the ready file the launch environment names.
+async fn ready_hook(file: Option<&Path>) -> std::process::Output {
+    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"));
+    command
+        .args(["hook", "ready"])
+        .env_remove(AGENT_READY_FILE_VARIABLE)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    if let Some(file) = file {
+        command.env(AGENT_READY_FILE_VARIABLE, file);
+    }
+    let mut child = command.spawn().expect("ready hook process");
+    let mut input = child.stdin.take().expect("piped input");
+    input
+        .write_all(br#"{"session_id":"s","hook_event_name":"SessionStart","source":"startup"}"#)
+        .await
+        .expect("hook input");
+    drop(input);
+    child.wait_with_output().await.expect("ready hook output")
+}
+
+#[tokio::test]
+async fn the_ready_hook_creates_the_named_file_and_fails_without_one() {
+    let root = tempdir().expect("ready root");
+    let file = root.path().join("ready").join("launch-1");
+    std::fs::create_dir_all(root.path().join("ready")).expect("ready directory");
+    let output = ready_hook(Some(&file)).await;
+    assert!(output.status.success(), "{output:?}");
+    assert!(file.exists() && output.stdout.is_empty() && output.stderr.is_empty());
+
+    let output = ready_hook(None).await;
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "oni: ready hook: ONI_MCLIENT_READY_FILE is not set\n"
+    );
+
+    let output = ready_hook(Some(&root.path().join("missing").join("launch-2"))).await;
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).starts_with("oni: ready hook: "),
+        "{output:?}"
+    );
 }

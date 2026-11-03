@@ -286,6 +286,32 @@ refusal of transcript bytes) and `apps/oni/test/gateway-child-state.test.ts`
 callbacks, the exact frame, the refusals). Not claimed: a console rendering
 of the frame (#1513) and a `screen` source, which no reconciler path emits.
 
+||||||| parent of a3fbdb442 (wip(1778): record live refusals and successful capture evidence)
+
+## #1778 MacBook live CLI and capture receipts
+
+An isolated local kernel and its release-built self mclient reached the real
+Claude Code, Codex and Pi executables on 2026-11-02. No CLI turn completed:
+Claude's first prompt is blocked by transcript-before-open readiness
+(#1807), Codex needs Owner login (#1809), and the installed Pi executable
+uses a different transcript root (#1810). Codex also has no host permission
+hook (#1811). The #1778 issue records the exact refusals; each CLI produced
+zero child facts, permission action/decision rows and pointer replies.
+These are live failure receipts, not successful CLI acceptance.
+
+The absent `omp` executable and home directory could not validate its
+documentation-derived layout. Its dialect is removed: the launch entry, the
+parser and its fixtures, and the `omp` member of the `AgentCli` wire value.
+
+The same kernel's native child captured a real 3024 by 1964 display through
+one code-mode cell (#1776 G002 C002): the session journal's effect JSON was
+444 bytes (751 bytes for the serialized row), pointing to a 2065011-byte PNG
+in that session's `tool_outputs` table. Screen Recording was granted;
+Accessibility was unavailable. Heartbeats continued beyond 15 seconds with
+no memory-budget exit. The self-client settings now use 512 MiB instead of
+overriding the Rust default with 96 MiB. Procedure: `docs/first-live-run.md`;
+exact session, action, digest and memory receipts: issues #1778 and #1776.
+
 ## #1775 memory budget default and breach reporting
 
 `mclient`'s default `memoryBudgetMb` is 512 (was 96, below one Retina
@@ -1201,7 +1227,7 @@ no `WellKnownCapability` member yet; the spelling is the string `agent.session`.
 
 **Client: dialects and launchers.** `clients/machine-client/src/agent/`
 holds the only files that name a CLI: `claude.rs`, `codex.rs`, `pi.rs`,
-`omp.rs`, the data table `manifest.rs` and the `pub mod` lines of `mod.rs`.
+the data table `manifest.rs` and the `pub mod` lines of `mod.rs`.
 Each parser is pure over `&[u8]` and yields generated `AgentTranscriptRecord`
 variants with source byte ranges; a complete malformed line is `corrupt`, an
 incomplete final line is `truncated` with its byte count, and known
@@ -1211,29 +1237,31 @@ retained fixtures: `claude-code` under
 `codex` under `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl`, owned only
 when line 1 is `session_meta` with `payload.cwd` equal to the project; `pi`
 under `~/.pi/agent/sessions/--<encoded cwd>--/<timestamp>_<id>.jsonl` (v3
-header, nested tool calls, tool-result messages); `omp` under
-`~/.omp/agent/sessions/<encoded cwd>/<timestamp>_<id>.jsonl` with a 256-byte
-title slot before the v3 header (its parser is pinned to the published
-format, since no local `omp` transcript existed to copy). `launcher.rs` is
+header, nested tool calls, tool-result messages). `launcher.rs` is
 vendor-free: `start` reclaims a registry terminal that is observed live,
 adopts the transcript of a requested id, or launches one named tmux terminal
 per session (`agent-<hex nanos>-<n>`, cwd = project, shell-quoted `exec env
-K=V cli args`) and then waits for either readiness (#1807): the layout
-directory, scanned up to four levels deep, shows a new, unowned `.jsonl`,
-or, for a dialect that assigned the id, the ANSI-stripped rolling tail of
-the terminal (last 4 KiB) shows the manifest's `ready` marker (`claude-code`:
-`? for shortcuts`), in which case the session's transcript is the known
-`<layout>/<id>.jsonl` path and nothing is written to it. `changed` answers
+K=V cli args`) and then waits for either readiness (#1807, #1778): the
+layout directory, scanned up to four levels deep, shows a new, unowned
+`.jsonl`, or, for a dialect that assigned the id, the CLI's startup hook
+(`claude-code`: a `SessionStart` hook on `startup` in the same
+`--settings`, running `mclient hook ready`) creates the file the launch
+named in `ONI_MCLIENT_READY_FILE` (a fresh path under `<hooks>/ready/`,
+removed once the launch settles), in which case the session's transcript is
+the known `<layout>/<id>.jsonl` path and nothing is written to it. The
+prompt's hint text is never read: Claude Code 2.1 shows `? for shortcuts`
+only as one rotating footer hint, absent in auto mode. `changed` answers
 `Change::{Output, Progress, Timeout}`; the deadline is
 `Machine.AGENT_SESSION_OPEN_TIMEOUT_MS` (20 s; the host's `open` call waits
 one second longer), and a missed deadline stops the process and answers
-`session_not_available`. `attach` never launches; `send` (text plus `\r`)
-and `stop` (SIGTERM, SIGKILL after the 5 s grace, then close) refuse
+`session_not_available`. `attach` never launches; `send` (the text, a
+300 ms settle, then `\r` as its own write — one chunk holding both is read
+as a paste and never submits, #1778) and `stop` (SIGTERM, SIGKILL after the 5 s grace, then close) refuse
 `NotOwned` unless the session is owned. `registry.rs` persists
 `~/.oni/machine-client/agent-sessions.json` under a lock file with temp-file
 rename; the saved terminal is a reclaim hint, never proof of life; projects
 are canonicalized and confined to the exports. `claude-code` gets an assigned
-UUID; `codex`, `pi` and `omp` ids are discovered from the transcript name.
+UUID; `codex` and `pi` ids are discovered from the transcript name.
 
 **Client: routes and the cursor.** `handlers.rs` gains
 `Service::open_with_agents`, which offers `agent.session` only when tmux
@@ -1267,7 +1295,7 @@ decision; a call timeout is `timeout`, and no caller, a disconnect, a remote
 error or an undecodable answer is `denied`. `Launcher::permission` relays
 only for an owned session whose dialect is in hook mode, correlates the
 session and request ids, and applies the outer deadline. The binary's one
-new surface is `mclient hook permission --cli <claude-code|pi|omp>`: it reads
+new surface is `mclient hook permission --cli <claude-code|pi>`: it reads
 hook stdin (16 MiB cap), makes one round trip over the private socket
 `~/.oni/machine-client/hook.sock` (mode 0600, one request per connection,
 64 KiB request cap, 150 s deadline, served by `run_default` for the life of
@@ -1279,8 +1307,8 @@ empty or partial answer, an allow naming another request id, an unknown
 CLI, `codex` (no hook; its native terminal prompt is the support limit),
 unparseable hook input, or a host refusal. The `claude-code` launch passes a
 settings file whose pre-tool hook runs the absolute `mclient` path in exec
-form with `onFailure: "block"` and a 170 s hook timeout; `pi` and `omp` load
-one shared embedded module (`agent/permission.ts`, written by private temp
+form with `onFailure: "block"` and a 170 s hook timeout; `pi` loads one
+embedded module (`agent/permission.ts`, written by private temp
 file plus atomic rename, 0600, and replaced whenever the file on disk differs
 from the shipped bytes; a differing file that cannot be replaced refuses the
 launch with `LaunchError::HookUnavailable`) with `ONI_MCLIENT` and
@@ -1332,12 +1360,11 @@ without them `available()` drops it from the offer.
 **Not yet.** The client's terminals still share the user's default tmux
 server (follow-up: the client should own its socket). Transcript discovery
 re-scans on terminal output or at the ready deadline, so a dialect without a
-`ready` marker (`codex`, `pi`, `omp`) that stays silent until its first
-prompt takes up to 20 s to discover; `claude-code` opens at its prompt
-(#1807). An existing hook module file is accepted by path without comparing
-its bytes to the embedded copy. The `pi` and `omp` hook modules are
-installed and probed but not yet exercised inside a live `pi` or `omp`
-process (no `omp` install exists on the verifying machine), and `codex` is
+startup hook (`codex`, `pi`) that stays silent until its first prompt takes
+up to 20 s to discover; `claude-code` opens at its prompt (#1807, #1778).
+An existing hook module file is accepted by path without comparing
+its bytes to the embedded copy. The `pi` hook module is installed and
+probed but not yet exercised inside a live `pi` process, and `codex` is
 served without a permission hook. `MemoryBundleStore.publish` hashes each
 file twice.
 
