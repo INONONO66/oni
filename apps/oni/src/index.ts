@@ -15,6 +15,7 @@ import { ownerAnswerAuthentication } from "./composition/answer-authentication";
 import { webhookContacts } from "./composition/webhook-contacts";
 import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
+import { agentWire } from "./composition/agent-wire";
 import { createAutomationDelivery } from "./composition/automation-delivery";
 import { createDrainGate, createWorkTracker, drainAdmission, hostControlRoutes } from "./composition/drain";
 import { ONI_VERSION } from "./version";
@@ -1480,15 +1481,20 @@ export async function startOni(options: StartOptions = {}) {
       },
     );
 
+    const storeEdits = {
+      transaction: plane.transaction, record: plane.stores.recordStoreEdit,
+      now: services.now, id: services.entropy.id,
+    };
     const wsCallbacks = webSocketCallbacks(runtime, wsHandler, services.observations, (id) =>
       plane.read.index(id) === undefined ? undefined : plane.read.session(id),
       createSessionForkExecutor(plane, {
         now: services.now,
         id: services.entropy.id,
-      }), { respond: ruleWire(provisioningPort.rules), stores: channelStores }, host,
+      }), { respond: ruleWire(provisioningPort.rules, storeEdits), stores: channelStores }, host,
       { respond: channelWire(provisioningPort, services.now) }, wsMedia,
       channelHistoryLookup(historyRoutes, supervisor), services.now,
-      (id) => plane.read.index(id) === undefined ? undefined : childRows(id));
+      (id) => plane.read.index(id) === undefined ? undefined : childRows(id),
+      agentWire(plane.stores.agents, storeEdits));
     const server = Bun.serve({
       hostname: config.host,
       port: config.wsPort,

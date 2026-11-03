@@ -5,6 +5,7 @@ import { automationFixture, automationRecord, automationRequest } from "./helper
 import { closeSocket, nextFrame } from "./helpers/ws";
 import { ruleWire } from "../src/composition/rule-wire";
 import { runEffect } from "./helpers/effect";
+import { storeEditFixture } from "./helpers/store-edits";
 
 const suite = residentSuite();
 
@@ -25,21 +26,25 @@ test("the Owner socket manages ordered rules before chat and after reconnect", a
   }
 });
 
-test("a registered peer can propose but cannot enable or overwrite approved rules", async () => {
+test("a registered peer cannot read or change rules", async () => {
   const f = await automationFixture(suite);
   f.stores.actors.registerIdentity({ id: "peer", kind: "human", trustTier: "collaborator" });
   f.stores.actors.registerEndpoint({ id: "ws:peer", actorId: "peer", channel: "ws", externalId: "peer" });
   const socket = await suite.openSocket(`ws://127.0.0.1:${f.app.port}/ws?actor=peer`, ["auth", "owner-token"]);
-  // The proposal is stored disabled and answered as added, so the peer can name it; only the Owner enables it.
   expect(await automationRequest(socket, { type: "rule_add", requestId: "add", record: automationRecord() }))
-    .toMatchObject({ type: "rule_added", requestId: "add", record: { id: "build", enabled: false, createdBy: "session:ws:peer" } });
-  expect(f.stores.rules.get("build")).toMatchObject({ approved: false, record: { enabled: false, createdBy: "session:ws:peer" } });
+    .toMatchObject({ type: "rule_add_refused", requestId: "add", reason: "require_approval" });
+  expect(f.stores.rules.get("build")).toBeUndefined();
   for (const type of ["rule_enable", "rule_disable", "rule_remove"] as const) {
     expect(await automationRequest(socket, { type, requestId: type, id: "seed:alarm" }))
       .toMatchObject({ type: `${type}_refused`, reason: "require_approval" });
   }
   expect(await automationRequest(socket, { type: "rule_add", requestId: "replace", record: automationRecord({ id: "seed:alarm" }) }))
     .toMatchObject({ type: "rule_add_refused", reason: "require_approval" });
+  expect(await automationRequest(socket, { type: "rule_list", requestId: "list" }))
+    .toMatchObject({ type: "rule_list_refused", reason: "require_approval" });
+  expect(await automationRequest(socket, { type: "rule_ledger", requestId: "ledger", limit: 1 }))
+    .toMatchObject({ type: "rule_ledger_refused", reason: "require_approval" });
+  expect(storeEditFixture(f.plane).rows()).toEqual([]);
 });
 
 test("seed removal is refused while disable and move remain durable", async () => {
@@ -100,7 +105,62 @@ test("a wire record cannot declare itself a seed", async () => {
 test("unconfigured and failing stores answer with correlated refusal frames", async () => {
   const f = await automationFixture(suite);
   const request: Ingress.RuleRequest = { type: "rule_list", requestId: "list" };
-  expect(await runEffect(ruleWire(undefined)(request, "owner"))).toMatchObject({ type: "rule_list_refused", requestId: "list", reason: "store_unconfigured" });
-  const wire = ruleWire({ id: () => "new", store: { ...f.stores.rules, list: () => { throw new Error("unavailable"); } } });
+  const edits = storeEditFixture(f.plane);
+  expect(await runEffect(ruleWire(undefined, edits.port)(request, "owner"))).toMatchObject({ type: "rule_list_refused", requestId: "list", reason: "store_unconfigured" });
+  const wire = ruleWire({ id: () => "new", store: { ...f.stores.rules, list: () => { throw new Error("unavailable"); } } }, edits.port);
   expect(await runEffect(wire(request, "owner"))).toMatchObject({ type: "rule_list_refused", requestId: "list", reason: "store_failed", detail: "unavailable" });
+});
+
+test.each([
+  ["rule_add", "rule_added"], ["rule_move", "rule_moved"], ["rule_enable", "rule_enabled"],
+  ["rule_disable", "rule_disabled"], ["rule_remove", "rule_removed"],
+] as const)("%s commits exactly one settings receipt", async (type, responseType) => {
+  const f = await automationFixture(suite);
+  const record = automationRecord({ enabled: false });
+  if (type !== "rule_add") f.stores.rules.add(record, false);
+  const socket = await f.socket();
+  const request: Ingress.RuleRequest = type === "rule_add"
+    ? { type, requestId: type, record }
+    : type === "rule_move" ? { type, requestId: type, id: record.id, position: 1 }
+    : { type, requestId: type, id: record.id };
+  const reply = await automationRequest(socket, request);
+  expect(reply.type).toBe(responseType);
+  expect(storeEditFixture(f.plane).rows()).toEqual([expect.objectContaining({
+    requestId: type, time: 1000, caller: "owner", change: type === "rule_remove"
+      ? { type: responseType, id: record.id }
+      : { type: responseType, record: expect.objectContaining({
+        id: record.id, enabled: type === "rule_enable", position: type === "rule_move" ? 1 : 0,
+      }) },
+  })]);
+  expect(f.stores.rules.ledger({ limit: 100 })).toEqual([]);
+});
+
+test.each(["rule_list", "rule_ledger"] as const)("%s reads without writing settings receipts", async (type) => {
+  const f = await automationFixture(suite);
+  const socket = await f.socket();
+  const reply = await automationRequest(socket, type === "rule_list"
+    ? { type, requestId: type } : { type, requestId: type, limit: 10 });
+  expect(reply).toEqual(type === "rule_list"
+    ? { type: "rule_listed", requestId: type, records: f.stores.rules.list().map(({ record }) => record) }
+    : { type: "rule_ledger_read", requestId: type, rows: [] });
+  expect(storeEditFixture(f.plane).rows()).toEqual([]);
+});
+
+test("a failed rule receipt rolls back the mutation", async () => {
+  const f = await automationFixture(suite);
+  const edits = storeEditFixture(f.plane);
+  f.plane.catalogDatabase.run("CREATE TRIGGER reject_edit BEFORE INSERT ON store_edit BEGIN SELECT RAISE(ABORT, 'receipt failed'); END");
+  const response = await automationRequest(await f.socket(), {
+    type: "rule_add", requestId: "rollback", record: automationRecord(),
+  });
+  expect(response).toMatchObject({ type: "rule_add_refused", reason: "store_failed", detail: "receipt failed" });
+  expect(f.stores.rules.get("build")).toBeUndefined();
+  expect(edits.rows()).toEqual([]);
+});
+
+test("tokenless loopback cannot read or write rules", async () => {
+  const app = await suite.boot({ config: suite.config("rule-tokenless-", { compactionSummarizer: false }) });
+  const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, []);
+  expect(await automationRequest(socket, { type: "rule_list", requestId: "no-token" }))
+    .toMatchObject({ type: "rule_list_refused", reason: "require_approval" });
 });

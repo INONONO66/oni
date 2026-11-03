@@ -1,5 +1,28 @@
 # Implementation Status
 
+## #1797 rule and agent store API on the ws door
+
+PR #1827 retains the existing `rule_add`, `rule_remove`, `rule_enable`,
+`rule_disable`, `rule_list`, `rule_move` and `rule_ledger` frames. Every
+rule method now requires a token-authenticated Owner socket, including
+reads; a registered peer cannot propose or edit rows through this door.
+The new `agent_list`, `agent_add` and `agent_disable` frames use the same
+underscore convention. They address stored profiles, not the machine
+protocol's dotted `agent.session.*` live-session methods.
+
+`apps/oni/src/store-edits.ts` owns the catalog's `store_edit` table. Each
+successful write appends one row containing `id`, `requestId`, `time`,
+`caller: owner` and `change` (the typed result and resulting record, or
+the removed rule id). Mutation and receipt commit in the same catalog
+transaction; a failed receipt rolls back the mutation. Reads and refusals
+append nothing. Rule edits do not enter the routing-decision ledger.
+
+Seed rules still refuse removal and can be disabled or moved. The
+`resident` and `child` profile seeds retain #1796's typed disable refusal.
+No provision tool or desktop wiring is added. Real WebSocket tests cover
+each method, peer/tokenless refusal, seed protection and failed-receipt
+rollback. Gate receipts are recorded on PR #1827.
+
 ## #1781 speech/image explicit model selection
 
 On `feat/1781-model-ref-selection` (PR #1824). `makeTts` and `makeImage` (`packages/ai/src/tts.ts`, `image.ts`) take `model?: Model.Ref` at construction, mirroring `makeStt`: explicit selects that provider's row with that id and refuses `ModelResolutionError` `provider_not_found` when no row carries the provider (the speech/image SDK surface gate still applies); absent keeps the first row naming the modality. A per-call `model` id stays on the selected row. An explicit row without `speech` defaults takes the SDK voice default and `mp3`. `apps/oni` composition still passes rows only (no config field yet), as for transcription.
@@ -93,6 +116,7 @@ the existing sink, and `apps/oni/src/config.ts` exposes `speechRows` and
 `imageRows` beside `transcriptionRows`. No speech or image tool ships here
 (#1785, #1786). Receipts: the PR Verification section.
 
+||||||| parent of e622c9996 (feat(gateway): audit Owner-only rule and agent store frames (#1797))
 ## #1795 match() returns a value
 
 PR #1816 makes `channels.match(message, rules, judge?)` return

@@ -4,6 +4,7 @@ import { seedChannelRules } from "./bundles/provision/channels";
 import { type ChildStateRows, childStateWire } from "./composition/child-state-wire";
 import { createStreamProbe } from "./composition/stream-probe";
 import { channelHistoryWire, type ChannelHistoryLookup } from "./composition/channel-history";
+import type { agentWire } from "./composition/agent-wire";
 import type { WsParts } from "./composition/ws-parts";
 import type { ComposedCodemode } from "./composition/codemode";
 import type { ToolPorts } from "./composition/catalog";
@@ -406,6 +407,7 @@ export function webSocketCallbacks(
   now?: () => number,
   /** #1604: the admitted child rows `childActivity.state` folds, read for the `child_state` frame. */
   children?: ChildStateRows,
+  agents?: ReturnType<typeof agentWire>,
 ) {
   const inflight = new Set<Promise<void>>();
   const readers = new Map<WsConnection, Map<string, () => void>>();
@@ -506,6 +508,15 @@ export function webSocketCallbacks(
         handler.ws.close(ws);
       },
       async message(ws: WsConnection, data: string | Buffer): Promise<void> {
+        const agent = agents?.(data, {
+          authenticated: ws.data.authenticated === true,
+          caller: wsCaller(ws.data.externalId),
+        });
+        if (agent !== undefined) {
+          ws.data.frameSeen = true;
+          ws.send(JSON.stringify(agent));
+          return;
+        }
         if (probe !== undefined && await probe.handle(ws, data, ws.data.authenticated)) return;
         const historyRead = channelHistoryWire(data, {
           authenticated: ws.data.authenticated === true,
@@ -549,7 +560,7 @@ export function webSocketCallbacks(
                      outcome.type === "rule_enable" || outcome.type === "rule_disable" ||
                      outcome.type === "rule_list" || outcome.type === "rule_ledger" || outcome.type === "rule_move")) {
                   return Effect.map(
-                    automation?.respond(outcome, wsCaller(ws.data.externalId)) ??
+                    automation?.respond(outcome, ws.data.authenticated ? wsCaller(ws.data.externalId) : `session:ws:${ws.data.externalId}`) ??
                       Effect.succeed<Ingress.RuleResponse>({
                         type: `${outcome.type}_refused`, requestId: outcome.requestId,
                         reason: "store_unconfigured", detail: "Automation store is not configured",

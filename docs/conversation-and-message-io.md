@@ -38,6 +38,37 @@ Conversation keys are `<instance>:channel:<channelId>:thread:<root>` for channel
 
 A matching rule can admit an unknown sender without creating or promoting a contact. Canonical actor identity remains a separate registry fact. Durable Person declarations and credentials are owned by [Provisioning and Providers](provisioning-and-providers.md).
 
+### Settings WebSocket methods
+
+These frames require both the configured WebSocket token and Owner-tier
+identity. Each carries `type` and a nonempty `requestId`; replies echo
+`requestId`. They do not create a model turn.
+
+| Request type | Additional fields | Success type |
+| --- | --- | --- |
+| `rule_list` | none | `rule_listed` with `records` |
+| `rule_add` | `record` (`Ingress.Rule`, no `seed`; id optional) | `rule_added` with `record` |
+| `rule_move` | `id`, nonnegative `position` | `rule_moved` with `record` |
+| `rule_enable` | `id` | `rule_enabled` with `record` |
+| `rule_disable` | `id` | `rule_disabled` with `record` |
+| `rule_remove` | `id` | `rule_removed` with `id` |
+| `rule_ledger` | optional `surface`, `decision`, `recordId`, `since`, `until`, `limit` | `rule_ledger_read` with routing `rows` |
+| `agent_list` | none | `agent_listed` with `records` |
+| `agent_add` | `record` (`Provisioning.Agent`) | `agent_added` with `record` |
+| `agent_disable` | `id` | `agent_disabled` with retained `record` |
+
+Refusals use `<request_type>_refused` with typed `reason` and `detail`.
+Rule creation stamps `createdBy: owner`; clients cannot create seeds.
+Seed rules refuse removal, while built-in `resident` and `child` agent
+profiles also refuse disabling. The underscore `agent_*` frames address
+profile rows; dotted `agent.session.*` methods address live machine sessions.
+
+Each successful settings write commits one app-owned `store_edit` receipt
+in the same catalog transaction as the mutation. Reads and refusals do not
+write receipts. This audit table is separate from the routing ledger read
+by `rule_ledger`. No provision tools expose these methods; desktop wiring
+is separate work.
+
 ## Two doors out
 
 A turn answers its originating conversation through the reply door, without a model tool call. The admitted rule freezes `reply: auto | draft | none` and optional `as` on the delivery origin: `auto` selects the receiving or named instance, `draft` keeps the answer for the Owner, and `none` provides no reply route. Later rule edits do not widen an existing delivery. A DM is answered in its chat without a thread; channel replies use the root thread and the original message reference. A button tap answers the message the button was on.
