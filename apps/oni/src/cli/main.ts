@@ -1,5 +1,5 @@
 import { CliError } from "./errors";
-import { Clock, Effect, Fiber, Layer, ManagedRuntime, Scope } from "effect";
+import { Clock, Effect, Fiber } from "effect";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -13,7 +13,6 @@ import { Channel, listenForAbort, parseJson, PlainValueSchema, Provisioning } fr
 import { loadConfig } from "../config";
 import { installShutdownHandlers, startOni } from "..";
 import { type CliDeps, runCli } from "./commands";
-import { attachConfiguredMachine } from "./machine";
 import { connectProbe, streamProbeDeps } from "./stream-probe";
 import { deployClient, supervise } from "./supervise";
 import { platformEntropy } from "../composition/platform";
@@ -345,23 +344,6 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     io,
     envPath,
     startApp,
-    async attachMachine(configPath) {
-      const runtime = ManagedRuntime.make(Layer.effect(Scope.Scope, Effect.scope));
-      try {
-        const child = await runtime.runPromise(attachConfiguredMachine(configPath));
-        const stop = () => { void runtime.dispose(); };
-        process.once("SIGTERM", stop);
-        process.once("SIGINT", stop);
-        try {
-          return await child.exited;
-        } finally {
-          process.removeListener("SIGTERM", stop);
-          process.removeListener("SIGINT", stop);
-        }
-      } finally {
-        await runtime.dispose();
-      }
-    },
     ask,
     writeEnv: (entries) => writeEnvFile(envPath, entries),
     doctorPorts,

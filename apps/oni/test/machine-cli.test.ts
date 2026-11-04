@@ -5,7 +5,7 @@ import type { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createMachineHost, createMemoryGenerationStore } from "@oni/machines";
-import { pinnedTcpHostOptions, qaOffer, spawnAttachCli, tlsFixturesDir } from "./helpers/machine-cli";
+import { pinnedTcpHostOptions, spawnClient, writeClientDirectory } from "./helpers/machine-cli";
 import { composeCodemode, type ComposedCodemode } from "../src/composition/codemode";
 import { modelToolOutput } from "./helpers/tool-dispatch";
 import { socketPath } from "./helpers/socket-path";
@@ -15,7 +15,7 @@ import { mclientBinary } from "./helpers/mclient";
 
 beforeAll(mclientBinary, 180_000);
 
-test("machine attach CLI composes real runners; eval pipelines two machine handles", async () => {
+test("two real clients compose real runners; eval pipelines two machine handles", async () => {
   const base = mkdtempSync("/tmp/om-cli-machine-");
   const events = testBus();
   const rootA = join(base, "a");
@@ -51,9 +51,8 @@ test("machine attach CLI composes real runners; eval pipelines two machine handl
   const children: ReturnType<typeof spawn>[] = [];
   const exits: Promise<number>[] = [];
   async function attach(id: string, root: string) {
-    const configPath = join(base, `${id}.json`);
-    writeFileSync(configPath, JSON.stringify({ socketPath: path, offer: qaOffer(id, root, capabilities) }));
-    const cli = spawnAttachCli(configPath, { host, events, machineId: id });
+    const configPath = writeClientDirectory(join(base, id), { machineId: id, root, endpoint: { unix: path } });
+    const cli = await spawnClient(configPath, { host, events, machineId: id });
     children.push(cli.child);
     exits.push(cli.exited);
     expect(await cli.attachment()).toMatchObject({
@@ -132,25 +131,17 @@ test("machine attach CLI composes real runners; eval pipelines two machine handl
   }
 }, 30_000);
 
-test("machine attach CLI reaches a network host over pinned TLS", async () => {
+test("a real client reaches a network host over pinned TLS", async () => {
   const base = mkdtempSync("/tmp/om-cli-tcp-");
   const events = testBus();
   const root = join(base, "data");
   mkdirSync(root);
   writeFileSync(join(root, "note"), "over-the-wire");
   const host = await acquireEffect(createMachineHost(pinnedTcpHostOptions(testIds("cli-tcp-host"), ["fs.read"], events)));
-  const configPath = join(base, "machine.json");
-  writeFileSync(
-    configPath,
-    JSON.stringify({
-      tcp: { host: "127.0.0.1", port: host.endpoints.tcp?.port },
-      hostCertificate: join(tlsFixturesDir, "host-cert.pem"),
-      tlsCertificate: join(tlsFixturesDir, "daemon-cert.pem"),
-      tlsPrivateKey: join(tlsFixturesDir, "daemon-key.pem"),
-      offer: qaOffer("net-1", root, ["fs.read"]),
-    }),
-  );
-  const cli = spawnAttachCli(configPath, { host, events, machineId: "net-1" });
+  const configPath = writeClientDirectory(join(base, "client"), {
+    machineId: "net-1", root, endpoint: { tcp: { host: "127.0.0.1", port: host.endpoints.tcp?.port ?? 0 } },
+  });
+  const cli = await spawnClient(configPath, { host, events, machineId: "net-1" });
   try {
     expect(await cli.attachment()).toMatchObject({
       status: "attached",
