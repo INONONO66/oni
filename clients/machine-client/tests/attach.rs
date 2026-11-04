@@ -6,7 +6,7 @@ mod support;
 use std::{
     num::NonZeroU64,
     os::unix::fs::PermissionsExt,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc,
@@ -409,6 +409,41 @@ fn host_addresses_split_ports_and_resolve_directly() {
 }
 
 #[test]
+fn host_address_schemes_select_the_carrier() {
+    use oni_machine_client::transport::ws::WsEndpoint;
+    let tcp = |address: &str, server_name: &str| config::Carrier::Tcp {
+        address: address.to_owned(),
+        server_name: server_name.to_owned(),
+    };
+    assert_eq!(
+        config::carrier("host.example"),
+        tcp("host.example:7643", "host.example")
+    );
+    assert_eq!(config::carrier("tcp://[::1]:9"), tcp("[::1]:9", "::1"));
+    assert_eq!(
+        config::carrier("wss://host.example"),
+        config::Carrier::Wss(WsEndpoint {
+            address: "host.example:443".into(),
+            server_name: "host.example".into(),
+            path: "/machine".into(),
+        })
+    );
+    assert_eq!(
+        config::carrier("wss://[::1]:8443/edge/machine"),
+        config::Carrier::Wss(WsEndpoint {
+            address: "[::1]:8443".into(),
+            server_name: "::1".into(),
+            path: "/edge/machine".into(),
+        })
+    );
+    assert_eq!(
+        config::unix_path("unix:/run/oni/host.sock"),
+        Some(PathBuf::from("/run/oni/host.sock"))
+    );
+    assert_eq!(config::unix_path("host.example"), None);
+}
+
+#[test]
 fn tailnet_names_resolve_through_status_json() {
     let status = br#"{"Peer":{"id":{"HostName":"laptop","DNSName":"desk.tailnet.example.","TailscaleIPs":["100.1.2.3"]}}}"#;
     assert_eq!(
@@ -579,6 +614,49 @@ async fn pinned_join_records_the_verified_host_pin() {
         std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
         expected
     );
+}
+
+#[tokio::test]
+async fn wss_join_records_the_pin_over_the_websocket_carrier() {
+    let host = FakeHost::ws().await;
+    let home = tempfile::tempdir().expect("home");
+    let options = JoinOptions {
+        host_cert: Some(home.path().join("host-cert.pem")),
+        ..join_options(&host.ws_endpoint().url())
+    };
+    std::fs::write(home.path().join("host-cert.pem"), &host.certificate).expect("host cert");
+    // The upgrade reads the host's answer, so the fixture's client verifier must
+    // trust the presented identity: seed the one it issued, as tls_client does.
+    let directory = home.path().join("machine-client");
+    std::fs::create_dir_all(&directory).expect("client directory");
+    std::fs::write(directory.join("client-cert.pem"), &host.certificate).expect("cert");
+    std::fs::write(directory.join("client-key.pem"), &host.private_key).expect("key");
+    attach::join(&options, home.path(), &[])
+        .await
+        .expect("join over wss");
+    let saved =
+        config::load(&home.path().join("machine-client/client.json")).expect("saved config");
+    assert_eq!(saved.host, format!("wss://{}/machine", host.endpoint));
+    assert_eq!(saved.host, host.ws_endpoint().url());
+    assert_eq!(saved.unix, None);
+    assert_eq!(
+        std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
+        hex::encode(host_pin(&host.certificate))
+    );
+}
+
+#[tokio::test]
+async fn unix_scheme_join_selects_the_unix_carrier_without_a_pin() {
+    let host = FakeHost::unix().await;
+    let home = tempfile::tempdir().expect("home");
+    let options = join_options(&format!("unix:{}", host.endpoint));
+    attach::join(&options, home.path(), &[])
+        .await
+        .expect("join over unix:");
+    let saved =
+        config::load(&home.path().join("machine-client/client.json")).expect("saved config");
+    assert_eq!(saved.unix, Some(PathBuf::from(&host.endpoint)));
+    assert!(!home.path().join("machine-client/host-pin").exists());
 }
 
 #[tokio::test]

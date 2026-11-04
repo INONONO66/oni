@@ -60,6 +60,8 @@ pub enum TransportError {
     Closed,
     #[error("IPC inbound request queue is full")]
     QueueFull,
+    #[error("IPC WebSocket upgrade failed: {0}")]
+    Upgrade(tokio_tungstenite::tungstenite::Error),
 }
 
 /// A clonable handle that issues calls over a live connection; once the

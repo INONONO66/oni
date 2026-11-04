@@ -1,6 +1,9 @@
 use std::{io::Cursor, path::PathBuf, sync::Arc, time::Duration};
 
-use oni_machine_client::transport::framing::{write_frame, Framed};
+use oni_machine_client::transport::{
+    framing::{write_frame, Framed},
+    ws::{self, WsEndpoint},
+};
 use rustls::{server::WebPkiClientVerifier, RootCertStore, ServerConfig};
 use serde_json::Value;
 use tokio::{
@@ -10,6 +13,13 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_rustls::TlsAcceptor;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Listener {
+    Tls13,
+    Tls12,
+    WebSocket,
+}
 
 pub struct FakeHost {
     pub endpoint: String,
@@ -54,14 +64,26 @@ impl FakeHost {
     }
 
     pub async fn tls() -> Self {
-        Self::tls_with_version(false).await
+        Self::listen(Listener::Tls13).await
     }
 
     pub async fn tls12() -> Self {
-        Self::tls_with_version(true).await
+        Self::listen(Listener::Tls12).await
     }
 
-    async fn tls_with_version(only_tls12: bool) -> Self {
+    pub async fn ws() -> Self {
+        Self::listen(Listener::WebSocket).await
+    }
+
+    pub fn ws_endpoint(&self) -> WsEndpoint {
+        WsEndpoint {
+            address: self.endpoint.clone(),
+            server_name: "localhost".to_owned(),
+            path: ws::PATH.to_owned(),
+        }
+    }
+
+    async fn listen(listener_kind: Listener) -> Self {
         let identity = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
             .expect("generate test identity");
         let certificate = identity.cert.pem();
@@ -81,10 +103,9 @@ impl FakeHost {
         let key = rustls_pemfile::private_key(&mut Cursor::new(private_key.as_bytes()))
             .expect("parse test key")
             .expect("test key present");
-        let versions = if only_tls12 {
-            &[&rustls::version::TLS12][..]
-        } else {
-            &[&rustls::version::TLS13][..]
+        let versions = match listener_kind {
+            Listener::Tls12 => &[&rustls::version::TLS12][..],
+            Listener::Tls13 | Listener::WebSocket => &[&rustls::version::TLS13][..],
         };
         let config =
             ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
@@ -105,7 +126,14 @@ impl FakeHost {
             let Ok(stream) = acceptor.accept(tcp).await else {
                 return;
             };
-            serve(stream, events, frames).await;
+            if listener_kind == Listener::WebSocket {
+                let Ok(socket) = ws::accept(stream).await else {
+                    return;
+                };
+                serve(ws::Frames::new(socket), events, frames).await;
+            } else {
+                serve(stream, events, frames).await;
+            }
         });
         Self {
             endpoint,

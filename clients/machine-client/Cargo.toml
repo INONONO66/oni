@@ -36,10 +36,14 @@ str0m = { version = "=0.24.1", default-features = false, features = ["rust-crypt
 openh264 = { version = "=0.9.9", default-features = false, features = ["source"] }
 # WebSocket upgrade accept key of the CDP tunnel (#1662).
 sha1 = "0.10"
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
+futures-core = { version = "0.3", default-features = false }
+futures-sink = { version = "0.3", default-features = false }
 
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
 tempfile = "3"
 

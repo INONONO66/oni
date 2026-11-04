@@ -1,3 +1,5 @@
+#[path = "support/proxy.rs"]
+mod proxy;
 #[path = "support/mod.rs"]
 mod support;
 

@@ -77,7 +77,8 @@ pub fn classify(error: &AttachError) -> FailureClass {
         AttachError::Transport(
             TransportError::HostKeyMismatch
             | TransportError::HostCertificate
-            | TransportError::Tls(_),
+            | TransportError::Tls(_)
+            | TransportError::Upgrade(_),
         ) => FailureClass::Configuration,
         AttachError::Transport(TransportError::ConnectTimeout)
         | AttachError::Call(CallError::Timeout(_)) => FailureClass::Timeout,
@@ -128,6 +129,12 @@ mod tests {
         );
         assert_eq!(
             classify(&AttachError::Transport(TransportError::HostKeyMismatch)),
+            FailureClass::Configuration
+        );
+        assert_eq!(
+            classify(&AttachError::Transport(TransportError::Upgrade(
+                tokio_tungstenite::tungstenite::Error::AttackAttempt
+            ))),
             FailureClass::Configuration
         );
         assert_eq!(
