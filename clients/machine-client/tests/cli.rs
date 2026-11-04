@@ -752,7 +752,7 @@ fn help_lists_user_commands_and_hides_agent_hook_plumbing() {
     let help = String::from_utf8(output.stdout).expect("utf-8 help");
     let listed = |name: &str| {
         help.lines()
-            .any(|line| line.trim_start().split_whitespace().next() == Some(name))
+            .any(|line| line.split_whitespace().next() == Some(name))
     };
     for command in ["join", "status", "run", "update", "reconnect"] {
         assert!(listed(command), "{help}");
