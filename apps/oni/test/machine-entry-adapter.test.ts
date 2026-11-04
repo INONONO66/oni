@@ -79,12 +79,12 @@ test.each([false, true])("machine entry adapter handles enrollment %s", async (e
     if (!enrolled) {
       expect(enrollmentChecks).toBe(1);
       const clientConfig = join(home, `.mclient-entry-machine`, "client.json");
-      const retry = Bun.spawn([binary, "retry", "--config", clientConfig], {
+      const reconnect = Bun.spawn([binary, "reconnect", "--config", clientConfig], {
         env: { ...process.env, HOME: home },
         stdin: "ignore", stdout: "pipe", stderr: "pipe",
       });
-      expect(await bounded(retry.exited)).toBe(0);
-      await bounded(retried.promise, "explicit client retry");
+      expect(await bounded(reconnect.exited)).toBe(0);
+      await bounded(retried.promise, "explicit client reconnect");
       expect(enrollmentChecks).toBe(2);
     }
     expect(attachmentCount).toBe(enrolled ? 1 : 0);

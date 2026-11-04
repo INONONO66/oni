@@ -342,7 +342,7 @@ fn probe_staged(binary: &Path, release: &ReleaseDoc, host: Option<u64>) -> Resul
         .to_string_lossy()
         .into_owned();
     let host = host.map(|host| host.to_string());
-    let mut args = vec!["probe", "--release", &document];
+    let mut args = vec!["update", "--check", "--file", &document];
     if let Some(host) = &host {
         args.extend(["--host-contract", host]);
     }
@@ -864,7 +864,7 @@ mod tests {
         assert_eq!(
             fs::read_to_string(layout.stage("2.0.0").join("probe.args")).expect("probe args"),
             format!(
-                "probe --release {} --host-contract 2 ",
+                "update --check --file {} --host-contract 2 ",
                 release_path.display()
             )
         );
@@ -1043,7 +1043,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("directory");
         let body = staged("2.0.0", 0).replace(
             "exit 0\n",
-            "if [ \"$1\" = probe ]; then client=\"$(dirname \"$(dirname \"$(dirname \"$0\")\")\")\"; mv \"$client\" \"$client.moved\"; printf blocked > \"$client\"; fi\nexit 0\n",
+            "if [ \"$2\" = --check ]; then client=\"$(dirname \"$(dirname \"$(dirname \"$0\")\")\")\"; mv \"$client\" \"$client.moved\"; printf blocked > \"$client\"; fi\nexit 0\n",
         );
         let archive = fixture(directory.path(), &body, "true");
         let layout = layout(directory.path());
@@ -1065,7 +1065,7 @@ mod tests {
                     .join("versions/2.0.0/probe.args")
             )
             .expect("successful probe"),
-            "probe --release ".to_owned()
+            "update --check --file ".to_owned()
                 + &layout
                     .stage("2.0.0")
                     .join("release.json")

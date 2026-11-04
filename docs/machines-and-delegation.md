@@ -707,9 +707,11 @@ the hostname). `allowedCapabilities` always lists all four supported
 capabilities so a later attach can offer whatever is available then.
 `mclient run [--config path]` keeps the service available through attach
 failures; `--once` makes one attempt and exits nonzero on refusal. A
-memory-budget exit remains code 4. `mclient retry` signals the service PID
-from `state.json` with SIGUSR1, or answers `service_unavailable` when absent
-or dead; it never starts another service.
+memory-budget exit remains code 4. `mclient reconnect` signals the service
+PID from `state.json` with SIGUSR1 so it reconnects now instead of after its
+backoff, or answers `service_unavailable` when absent or dead; it never
+starts another service. `mclient hook ...` is plumbing for launched CLI
+agents and is hidden from `--help`.
 
 **Release pin and update.** The host serves `GET /machine-client/release`
 from its bundled `dist/clients/release.json` and answers `machine.release`
@@ -726,11 +728,15 @@ adopts the running binary with `pinned: false`. The service executes the
 `mclient update` reads the saved host connection; `--from URL` or
 `--file PATH` selects an explicit release document. It verifies the archive
 length and SHA-256, extracts the staged binary, checks `--version --json`,
-and runs `probe --release` against the release and, when obtained from the
-host, its contract version. Probe does not attach or touch enrollment and
-generation. A refusal (`release_unavailable`, `checksum_mismatch`, or
-`probe_failed`) writes an `update_failed` receipt to `metrics.jsonl` without
-changing the running service or `current`. Once verified, update retains
+and runs the staged binary's `update --check --file` against the release
+and, when obtained from the host, its contract version (`--host-contract`).
+`update --check` verifies a release's contract against the running binary
+without staging or switching: with `--from`/`--file` it never connects and
+takes the host's contract only from `--host-contract`; without a document it
+asks the host for its release the way `update` does. A refusal
+(`release_unavailable`, `checksum_mismatch`, or `probe_failed`) writes an
+`update_failed` receipt to `metrics.jsonl` without changing the running
+service or `current`. Once verified, update retains
 `bin/previous`, atomically renames the new `bin/current` link, updates the
 pin, and restarts the service. An active or
 rollback version directory cannot be overwritten during staging. If the
