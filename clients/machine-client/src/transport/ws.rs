@@ -58,9 +58,13 @@ pub fn proxy_address(value: Option<&str>) -> Result<Option<String>, ProxyFailure
     Ok((!host.is_empty()).then(|| config::with_port(host, port.unwrap_or("80"))))
 }
 
-pub fn proxy_from_env() -> Result<Option<String>, ProxyFailure> {
+/// Names the proxy from the first of `HTTPS_PROXY` and `https_proxy` that
+/// `get` resolves to a value; the caller passes the process environment.
+pub fn proxy_from_env(
+    get: impl Fn(&str) -> Option<String>,
+) -> Result<Option<String>, ProxyFailure> {
     for name in ["HTTPS_PROXY", "https_proxy"] {
-        if let Some(address) = proxy_address(std::env::var(name).ok().as_deref())? {
+        if let Some(address) = proxy_address(get(name).as_deref())? {
             return Ok(Some(address));
         }
     }
