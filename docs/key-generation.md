@@ -28,8 +28,9 @@ Pass that fingerprint to `mclient join --host-pin`. The client's enrollment
 
 ## Host exposure
 
-Set the full tuple or none of it — a partial tuple refuses boot
-(`invalid_machines_tcp`) rather than binding unencrypted:
+Set the full tuple or none of it — a partial listener tuple refuses boot
+(`invalid_machines_tcp`, `invalid_machines_ws`) and a half TLS pair or a
+missing PEM refuses it as `invalid_machines_tls`, never binding unencrypted:
 
 ```sh
 ONI_MACHINES_TCP_HOST=0.0.0.0     # or a tailnet/LAN interface address

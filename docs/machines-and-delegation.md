@@ -588,9 +588,10 @@ The host owns a listener SET feeding one attachment registry: the unix socket
 (mode 0600) is always bound; a TCP listener appears only when the Owner
 configures `ONI_MACHINES_TCP_HOST`/`PORT`, a WebSocket listener (#1830) only
 when the Owner configures `ONI_MACHINES_WS_HOST`/`PORT`, and either requires
-the host TLS identity (`ONI_MACHINES_TLS_CERT`/`KEY` — a half tuple, a
-listener without the pair or the pair without a listener refuses boot typed
-`invalid_machines_tcp` / `invalid_machines_ws`). The config shape is
+the host TLS identity (`ONI_MACHINES_TLS_CERT`/`KEY` — a half listener tuple
+refuses boot typed `invalid_machines_tcp` / `invalid_machines_ws`; a half
+TLS pair, the pair without any listener, a listener without the pair or an
+unreadable PEM refuses it typed `invalid_machines_tls`). The config shape is
 `machines.listen.{unix, tcp?, ws?}` plus `machines.tls?`, passed to the host
 as is. Handles, events and codemode are transport-blind: a machine is the
 same machine on any door, and if one bind fails startup fails with the

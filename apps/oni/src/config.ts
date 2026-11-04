@@ -25,6 +25,7 @@ export const ConfigurationError = NamedError.create(
       "invalid_machines_inbox",
       "invalid_machines_self",
       "invalid_machines_tcp",
+      "invalid_machines_tls",
       "invalid_machines_ws",
       "invalid_model_fallbacks",
       "invalid_providers_file",
@@ -794,7 +795,7 @@ function machinesNetworkFromEnv(env: Record<string, string | undefined>) {
   }
   if ((tcp === undefined && ws === undefined) || certPath === undefined || keyPath === undefined) {
     throw new ConfigurationError({
-      code: "invalid_machines_tcp",
+      code: "invalid_machines_tls",
       message:
         "ONI_MACHINES_TLS_CERT and ONI_MACHINES_TLS_KEY must be set together with ONI_MACHINES_TCP_* or ONI_MACHINES_WS_*",
     });
@@ -804,7 +805,7 @@ function machinesNetworkFromEnv(env: Record<string, string | undefined>) {
       return readFileSync(path, "utf8");
     } catch (error) {
       throw new ConfigurationError({
-        code: "invalid_machines_tcp",
+        code: "invalid_machines_tls",
         message: `${name} is unreadable: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
