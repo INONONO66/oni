@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { ChannelProviders, Vault, createChannelStores } from "@oni/channels";
+import { ChannelProviders, Vault } from "@oni/channels";
+import { createGatewayStores } from "../src/bundles/message-ports.js";
 import { Channel, Gateway, L0Observation, Operational } from "@oni/protocol";
 import { createTelegramProvider } from "../../../packages/channels/src/provider/telegram/provider";
 import { telegramAccountLogin } from "../../../packages/channels/src/provider/telegram/account-sdk.js";
@@ -137,7 +138,7 @@ test("local Owner login, mounted ingress stream and two CLI history pages share 
   expect(plane.stores.secrets.get(instance.credentialRef)).toBeDefined();
   expect(fake.calls.filter((call) => call === "start")).toHaveLength(2);
   expect(fake.calls.filter((call) => call === "close")).toHaveLength(1);
-  const actors = createChannelStores(channelStoreSource(plane, () => Date.now())).actors;
+  const actors = createGatewayStores(channelStoreSource(plane, () => Date.now())).actors;
   actors.registerIdentity({ id: "person:sender", kind: "human", trustTier: "manager" });
   actors.registerEndpoint({ id: "telegram:sender-1", actorId: "person:sender",
     channel: "telegram", externalId: "sender-1" });

@@ -2,7 +2,8 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChannelStores, Vault } from "@oni/channels";
+import { Vault } from "@oni/channels";
+import { createGatewayStores } from "../src/bundles/message-ports.js";
 import { Provisioning } from "@oni/protocol";
 import { createCliDeps } from "../src/cli/main";
 import { channelStoreSource } from "../src/gateway";
@@ -38,7 +39,7 @@ async function booted() {
     llm: { resolveModel: fakeProviderModel },
   });
   const plane = await planeOf(app.runtime);
-  const stores = createChannelStores(channelStoreSource(plane, now));
+  const stores = createGatewayStores(channelStoreSource(plane, now));
   return { app, plane, stores };
 }
 

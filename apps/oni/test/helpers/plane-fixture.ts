@@ -1,5 +1,5 @@
 import { afterEach, beforeEach } from "bun:test";
-import { createChannelStores } from "@oni/channels";
+import { createGatewayStores } from "../../src/bundles/message-ports.js";
 import type { TestLedgerPlane as AppLedgerPlane } from "./ledger";
 import { channelStoreSource } from "../../src/gateway";
 import { testPlane } from "./ledger";
@@ -13,7 +13,7 @@ export function planeFixture() {
     if (planeRef.current === undefined) throw new Error("test plane not open");
     return planeRef.current;
   }
-  const channelStores = () => createChannelStores(channelStoreSource(plane(), testClock()));
+  const channelStores = () => createGatewayStores(channelStoreSource(plane(), testClock()));
   beforeEach(() => {
     planeRef.current = testPlane();
   });

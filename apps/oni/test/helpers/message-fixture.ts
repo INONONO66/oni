@@ -13,7 +13,8 @@ import { Bus } from "./bus";
 import { createAppLedger } from "./ledger";
 import { type Delivery, Gateway, type LedgerSession, Outbound, type Tool } from "@oni/protocol";
 import { channelRequests, channelStoreSource, createResidentGateway, type OutboundMessaging } from "../../src/gateway";
-import { createChannelStores, decodeChannelFailure } from "@oni/channels";
+import { decodeChannelFailure } from "@oni/channels";
+import { createGatewayStores } from "../../src/bundles/message-ports.js";
 import {
   messageMaterialization,
   prepareMessage,
@@ -60,7 +61,7 @@ export function messageFixture(
     now: () => 100,
     id: testIds("message-fixture"),
     requests: channelRequests(requests),
-    stores: createChannelStores(channelStoreSource(plane, () => 100)),
+    stores: createGatewayStores(channelStoreSource(plane, () => 100)),
     deliver: (input) => localDelivery(plane, "message-fixture", () => 100)(input).pipe(Effect.mapError(decodeChannelFailure("delivery.commit"))),
     prepare: prepareMessage(plane, (id, parentId, childRole, runner) =>
       messageMaterialization(() => plane.openKernel(id).currentPolicyGeneration(), testIds("materialize"))({

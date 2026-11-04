@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { createChannelStores } from "@oni/channels";
+import { createGatewayStores } from "../../src/bundles/message-ports.js";
 import { Core } from "@oni/agent";
 import { configureAuthority } from "../../src/composition/generation-layers";
 import { channelRequests, channelStoreSource } from "../../src/gateway";
@@ -20,6 +20,6 @@ export function residentGatewayPorts(plane: AppLedgerPlane, now: () => number) {
         authorizeConfigure: configureAuthority(yield* Core.GenerationLayers, plane.read.session),
       }).requests("adopt"),
     );
-    return { requests, stores: createChannelStores(channelStoreSource(plane, now)) };
+    return { requests, stores: createGatewayStores(channelStoreSource(plane, now)) };
   });
 }

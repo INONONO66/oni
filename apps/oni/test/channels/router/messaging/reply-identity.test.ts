@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Outbound } from "@oni/protocol";
 import { createReplyMessaging } from "../../../../src/bundles/messaging/reply.js";
 import type { ConversationBinding } from "../../../../src/bundles/message-ports.js";
-import { unconfiguredChannelStores } from "@oni/channels";
+import { createGatewayStores } from "../../../../src/bundles/message-ports.js";
 import { effectFailure } from "../../../../../../packages/channels/test/helpers/effect-failure.js";
 
 const binding: ConversationBinding = {
@@ -23,7 +23,7 @@ describe("the reply door's instance", () => {
   test("a surface whose only route left between preflight and send is an admission conflict", async () => {
     let routes = new Map([["channel:instagram:main", { platform: "instagram", identity: "owner" as const }]]);
     const door = createReplyMessaging({
-      stores: unconfiguredChannelStores(() => 1),
+      stores: createGatewayStores({ now: () => 1, transaction: (operation) => operation() }),
       transaction: (effect) => effect,
       routes: () => routes,
 

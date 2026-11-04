@@ -1,7 +1,6 @@
 import { routeRule, type MatchDecision } from "../bundles/messaging/rule-outcome.js";
 import { recordIngressRoute } from "./ingress-route.js";
 import { Effect } from "effect";
-import type { ChannelStores } from "@oni/channels";
 import type { PolicyEvaluationInput } from "@oni/agent";
 import { type Gateway, Ingress } from "@oni/protocol";
 import type { PendingGroup } from "@oni/channels";
@@ -12,10 +11,10 @@ import { newTraceId } from "@oni/channels";
 import { resolveIngressActor } from "../bundles/messaging/actor-resolver.js";
 import { resolveKernelRoute } from "../bundles/messaging/routing-resolution.js";
 import { recordAutomationDuplicate } from "./ingress-ledger.js";
-import type { GatewayRouterPorts } from "../bundles/message-ports.js";
+import type { GatewayRouterPorts, GatewayStores } from "../bundles/message-ports.js";
 import { evaluateSocialBudget } from "../bundles/messaging/social-budget.js";
 
-function resolveIngress(stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
+function resolveIngress(stores: GatewayStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
   facts: Ingress.Message, ports: GatewayRouterPorts, at: number) {
   const surfaceKey = ingressSurfaceKey(facts, sender.externalId);
   const existing = stores.surfaceKeys.lookup(surfaceKey);
@@ -34,7 +33,7 @@ function resolveIngress(stores: ChannelStores, sender: Extract<Gateway.IngestSen
 
 /** The first rule alone controls delivery; no match records the inbound without preparing a session. */
 export function externalMessage(
-  stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
+  stores: GatewayStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
   facts: Ingress.Message, ports: GatewayRouterPorts, at: number,
   budgets: readonly Gateway.SocialBudget[], pending: readonly PendingGroup[],
   ingress: ReturnType<typeof ingressInput>, closingRoute?: NonNullable<MatchDecision["route"]>,
@@ -70,7 +69,7 @@ function selectedAutomation(selected: MatchDecision["route"], existing: string |
 }
 
 /** A closing route is frozen; a request answer matches no rule; otherwise the first admitted rule decides. */
-function selectRule(stores: ChannelStores, ports: GatewayRouterPorts, ingress: ReturnType<typeof ingressInput>,
+function selectRule(stores: GatewayStores, ports: GatewayRouterPorts, ingress: ReturnType<typeof ingressInput>,
   at: number, pending: readonly PendingGroup[], request: boolean, closingRoute: MatchDecision["route"],
 ): Effect.Effect<MatchDecision, import("@oni/channels").ChannelError> {
   return Effect.gen(function* () {
@@ -88,7 +87,7 @@ function destination(selected: MatchDecision["route"], existing: string | undefi
   return fresh();
 }
 
-function budgetAllows(stores: ChannelStores, budgets: readonly Gateway.SocialBudget[],
+function budgetAllows(stores: GatewayStores, budgets: readonly Gateway.SocialBudget[],
   event: Gateway.DeliveredEvent, target: string, at: number) {
   const budget = budgets.find((candidate) => candidate.targetActorId === event.meta?.actor?.actorId);
   return budget === undefined || evaluateSocialBudget(budget,
@@ -149,7 +148,7 @@ function promptContent(facts: Ingress.Message, freshSession: boolean, from: stri
 }
 
 /** Replays use the frozen route, never current rule order or a new judge answer. */
-export function replayExternal(stores: ChannelStores,
+export function replayExternal(stores: GatewayStores,
   sender: Extract<Gateway.IngestSender, { kind: "external" }>, facts: Ingress.Message,
   ports: GatewayRouterPorts, at: number, budgets: readonly Gateway.SocialBudget[],
   input: ReturnType<typeof ingressInput>) {

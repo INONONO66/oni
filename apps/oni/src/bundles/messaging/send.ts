@@ -10,7 +10,7 @@ import {
   type Outbound,
   type SessionTransition,
 } from "@oni/protocol";
-import type { GatewayRouterPorts } from "../message-ports.js";
+import type { GatewayRouterPorts, GatewayStores } from "../message-ports.js";
 import type { KernelDeliveryReceipt } from "@oni/channels";
 import { authorizeSend } from "./authorize.js";
 import { activeBudgetFor, admitSend, ownerTarget } from "./admission.js";
@@ -36,7 +36,7 @@ type OutboundMessage = Readonly<{
 }>;
 
 type MessagingPorts = Readonly<{
-  stores: import("@oni/channels").ChannelStores;
+  stores: GatewayStores;
   requests: GatewayRouterPorts["requests"];
   transaction: GatewayRouterPorts["transaction"];
   /** Delivery owners reconcile retries using the stable idempotency key. */

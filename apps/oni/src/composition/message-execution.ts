@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { ChannelsFailure, SendAdmissionConflict } from "@oni/channels";
 import type { ChannelError } from "@oni/channels";
-import type { ChannelStores } from "@oni/channels";
 import {
   Delivery,
   Outbound,
@@ -14,12 +13,12 @@ import {
 import type { createExistingAgentMessaging } from "../bundles/messaging/send.js";
 import type { ReplyMessaging } from "../bundles/messaging/reply.js";
 import type { externalMessage } from "./external-message.js";
-import type { GatewayRouterPorts } from "../bundles/message-ports.js";
+import type { GatewayRouterPorts, GatewayStores } from "../bundles/message-ports.js";
 import { answerNativeRequest, openNativeRequest } from "../bundles/messaging/request/native.js";
 import { executeRequestRoute, requireRoutedDecision } from "./ingress-execution.js";
 
 interface MessageContext {
-  stores: ChannelStores;
+  stores: GatewayStores;
   sender: Gateway.IngestSender;
   send: Gateway.SendMessage;
   prepared: Effect.Success<ReturnType<GatewayRouterPorts["prepare"]>>;

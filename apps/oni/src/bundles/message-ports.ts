@@ -1,10 +1,21 @@
 import type { Effect } from "effect";
-import type { ChannelError } from "@oni/channels";
-import type { PolicyEvaluationInput } from "@oni/agent";
+import { type ChannelError, type ChannelStoreSource, createChannelStores } from "@oni/channels";
+import { Core, type PolicyEvaluationInput } from "@oni/agent";
 import type {
-  BusEvent, Channel, Gateway, Ingress, Delivery, LedgerAction, Outbound, PlainValue, SessionTransition,
+  BusEvent, Channel, Gateway, Ingress, Delivery, LedgerAction, Outbound, PlainValue, SessionTransition, Storage,
 } from "@oni/protocol";
 import type { KernelDeliveryReceipt } from "@oni/channels";
+
+/** The channels store source plus the ingress session's decision facts, which only the app reads (#1847). */
+export interface GatewayStoreSource extends ChannelStoreSource {
+  readonly decisionFacts?: Storage.DecisionFactSubAdapter;
+}
+
+export function createGatewayStores(source: GatewayStoreSource) {
+  return { ...createChannelStores(source), decisionFacts: Core.createDecisionFactPort(source) };
+}
+
+export type GatewayStores = ReturnType<typeof createGatewayStores>;
 
 export interface ChannelDeliveryRoute extends Channel.Instance {
   readonly deliver: (
@@ -67,7 +78,7 @@ interface MessagingGrantSources {
 
 export interface GatewayRouterPorts {
   /** Every gateway reads records through the same required perimeter store. */
-  readonly stores: import("@oni/channels").ChannelStores;
+  readonly stores: GatewayStores;
   readonly transaction: <A>(operation: Effect.Effect<A, ChannelError>) => Effect.Effect<A, ChannelError>;
   readonly judge?: (question: string, event: Ingress.Message) => Effect.Effect<"yes" | "no" | "unknown", ChannelError>;
   readonly authenticateAnswer?: (

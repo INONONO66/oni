@@ -3,7 +3,7 @@ import { runEffect } from "./helpers/effect";
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { Bus } from "./helpers/bus";
-import { createChannelStores } from "@oni/channels";
+import { createGatewayStores } from "../src/bundles/message-ports.js";
 import { Delivery, Gateway, L0Observation } from "@oni/protocol";
 import { z } from "zod";
 import { join } from "node:path";
@@ -231,7 +231,7 @@ for (const restriction of ["dnc", "zero", "spent", "allowed"] as const) {
       let receipt = initial;
       if (restriction === "spent") {
         if (initial.status !== "executed") throw new Error("initial admission refused");
-        createChannelStores(channelStoreSource(fixture.plane, testClock())).egressBudgets.claim(
+        createGatewayStores(channelStoreSource(fixture.plane, testClock())).egressBudgets.claim(
           {
             id: "spent",
             senderId: initial.handle.target,
