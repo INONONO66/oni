@@ -418,6 +418,19 @@ export const AttachResult = z.discriminatedUnion("status", [
       effectiveExports: z.array(ExportName).superRefine(uniqueExports),
       /** The generation this attachment holds; present it on reconnect. */
       generation: AttachGeneration,
+      /**
+       * What the enrollment allows beyond this offer. The host never grants
+       * past what the machine offered; these open only once the machine's
+       * operator consents and the peer offers them. Sent to contract 5 peers
+       * and only when non-empty.
+       */
+      consentRequired: z
+        .object({
+          capabilities: z.array(CapabilityId).superRefine(uniqueCapabilities),
+          exports: z.array(ExportName).superRefine(uniqueExports),
+        })
+        .strict()
+        .optional(),
     })
     .strict(),
   z

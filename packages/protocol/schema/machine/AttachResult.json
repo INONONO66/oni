@@ -4,6 +4,32 @@
     {
       "additionalProperties": false,
       "properties": {
+        "consentRequired": {
+          "additionalProperties": false,
+          "properties": {
+            "capabilities": {
+              "items": {
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "exports": {
+              "items": {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9_-]*$",
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "capabilities",
+            "exports"
+          ],
+          "type": "object"
+        },
         "effectiveCapabilities": {
           "items": {
             "maxLength": 128,

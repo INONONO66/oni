@@ -1,5 +1,5 @@
 {
-  "contractVersion": 4,
+  "contractVersion": 5,
   "schemas": [
     {
       "file": "AbsolutePath.json",
