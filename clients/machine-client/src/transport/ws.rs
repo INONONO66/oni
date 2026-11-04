@@ -263,6 +263,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_frame_refused_after_buffering_fails_the_write() {
+        let (mut frames, mut server) = pair().await;
+        frames.write_all(b"{\"a\":1}\n").await.expect("first frame");
+        assert_eq!(
+            server.next().await.expect("first").expect("frame"),
+            Message::Binary(Bytes::from_static(b"{\"a\":1}\n"))
+        );
+        drop(server);
+        let error = frames.write_all(b"{\"b\":2}\n").await.expect_err("refused");
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(error.to_string(), "IO error: broken pipe");
+    }
+
+    #[tokio::test]
     async fn binary_messages_read_as_their_bytes_across_small_buffers() {
         let (mut frames, mut server) = pair().await;
         server
@@ -311,6 +325,25 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "WebSocket protocol error: Encountered invalid opcode: 11"
+        );
+    }
+
+    #[test]
+    fn the_first_proxy_variable_with_a_value_names_the_proxy() {
+        let both = |name: &str| Some(format!("http://{name}.example:3128"));
+        assert_eq!(
+            proxy_from_env(both),
+            Ok(Some("HTTPS_PROXY.example:3128".to_owned()))
+        );
+        let lower_only = |name: &str| (name == "https_proxy").then(|| "lower.example".to_owned());
+        assert_eq!(
+            proxy_from_env(lower_only),
+            Ok(Some("lower.example:80".to_owned()))
+        );
+        assert_eq!(proxy_from_env(|_| None), Ok(None));
+        assert_eq!(
+            proxy_from_env(|_| Some("https://proxy.example:3128".to_owned())),
+            Err(ProxyFailure::Unsupported)
         );
     }
 }
