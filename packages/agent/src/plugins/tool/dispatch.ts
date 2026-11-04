@@ -404,7 +404,7 @@ function recoverableWaves(actions: readonly LedgerAction.Node[], turnId: string 
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
       throw new AgentInvariantViolation(`invalid durable invocation: ${action.id}`);
     const group = groups.get(intent.waveId) ?? [];
-    // #1841: the recorded origin re-enters the recovered request so its pre hash still matches.
+    // The recorded origin re-enters the recovered request so its pre hash still matches.
     group.push({ action, call: { id: intent.callId, tool: intent.op, input: parsed }, ...(intent.origin === undefined ? {} : { origin: intent.origin }) });
     groups.set(intent.waveId, group);
   }
