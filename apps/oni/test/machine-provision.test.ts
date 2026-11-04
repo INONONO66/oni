@@ -301,6 +301,17 @@ test("cleared capability requests refuse both grant and deny without changing en
   } finally { plane.close(); }
 });
 
+test("a host failure that is not a refusal propagates out of machine_peer_lease unchanged (#1841)", () => {
+  const plane = testPlane();
+  plane.stores.machineEnrollments.put(enrollment);
+  const failure = new Error("peer table unavailable");
+  const machines: MachinePort = {
+    enrollments: plane.stores.machineEnrollments, selfId: "self", delegationLive: () => true, events: { publish: () => undefined }, now: () => 5,
+    host: { list: () => [], unenroll: () => undefined, peers: { ...noPeers, issue: () => { throw failure; } } },
+  };
+  expect(() => executeMachine(machines, peerLease, "owner")).toThrow(failure);
+});
+
 test("machine_peer_lease requires consent bound to both enrollments, issues through the host and refuses unenrolled or self targets (#1841)", async () => {
   const directory = mkdtempSync(join(tmpdir(), "machine-peer-lease-"));
   const plane = testPlane();
