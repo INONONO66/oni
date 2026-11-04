@@ -1,6 +1,6 @@
 import { X509Certificate } from "node:crypto";
 import fs from "node:fs";
-import { certificateKeyFingerprint } from "../../../src";
+import { certificateKeyFingerprint, hostPinOf } from "../../../src";
 import type { Machine } from "@oni/protocol";
 
 function fixture(name: string): string {
@@ -9,14 +9,23 @@ function fixture(name: string): string {
 function fingerprintOfPem(certPem: string): Machine.KeyFingerprint {
   return certificateKeyFingerprint(new X509Certificate(certPem).raw);
 }
+function hostPinOfPem(certPem: string): string {
+  return hostPinOf(new X509Certificate(certPem).raw);
+}
 
 /** The committed TLS pin fixtures (#1270): host/daemon/wrong identities and their pins. */
 export const hostIdentity = { certificate: fixture("host-cert.pem"), privateKey: fixture("host-key.pem") };
+/** host-key.pem reissued self-signed: the certificate changed, the key and so the pin did not. */
+export const hostRenewedIdentity = { certificate: fixture("host-renewed-cert.pem"), privateKey: hostIdentity.privateKey };
+/** An ACME-style chain for host-key.pem: a leaf signed by a test issuer, the issuer appended. */
+export const hostChainIdentity = { certificate: fixture("host-chain.pem"), privateKey: hostIdentity.privateKey };
 export const daemonIdentity = { certificate: fixture("daemon-cert.pem"), privateKey: fixture("daemon-key.pem") };
 export const wrongIdentity = { certificate: fixture("wrong-cert.pem"), privateKey: fixture("wrong-key.pem") };
-/** A leaf with its OWN key but SIGNED by host-key.pem: the chain validates against host-cert.pem, so only the pin can refuse it. */
+/** A leaf with its OWN key but SIGNED by host-key.pem: a familiar issuer, a different key, so only the pin refuses it. */
 export const hostIssuedIdentity = { certificate: fixture("host-issued-cert.pem"), privateKey: fixture("host-issued-key.pem") };
-export const hostFingerprint = fingerprintOfPem(hostIdentity.certificate);
+/** The pin every client holds for the host: base64 SPKI sha256 of host-key.pem's public key. */
+export const hostPin = hostPinOfPem(hostIdentity.certificate);
+export const wrongPin = hostPinOfPem(wrongIdentity.certificate);
+export const hostIssuedPin = hostPinOfPem(hostIssuedIdentity.certificate);
 export const daemonFingerprint = fingerprintOfPem(daemonIdentity.certificate);
 export const wrongFingerprint = fingerprintOfPem(wrongIdentity.certificate);
-export const hostIssuedFingerprint = fingerprintOfPem(hostIssuedIdentity.certificate);

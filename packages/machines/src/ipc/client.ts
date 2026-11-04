@@ -1,4 +1,3 @@
-import { X509Certificate } from "node:crypto";
 import net from "node:net";
 import type { Duplex } from "node:stream";
 import tls from "node:tls";
@@ -9,7 +8,7 @@ import { decodeIpcFailure } from "../failure";
 import { makeDispatcher, type Dispatch } from "./callbacks";
 import { LineDecoder, encode } from "./framing";
 import { classifyIpcMessage, PeerRequestTable } from "./peer-request-table";
-import { certificateKeyFingerprint, type IpcTlsIdentity } from "./tls";
+import { hostPinOf, type IpcTlsIdentity } from "./tls";
 
 export interface IpcClient {
   call(method: string, params?: Ipc.Request["params"], timeoutMs?: number): Effect.Effect<Ipc.Response["result"], IpcError>;
@@ -34,20 +33,27 @@ type StartedSocket = {
   readonly socket: Duplex;
   /**
    * Maps a socket error to a typed failure that overrides the generic
-   * `IpcConnectionError` — the TLS transport routes host-identity failures
-   * (handshake chain or pin, both strictly before `readyEvent` and therefore
-   * before any frame can be written) to `IpcPeerKeyMismatchError` here. An
-   * undefined result keeps the default connection-failure classification.
+   * `IpcConnectionError` — the TLS transport routes a host pin mismatch
+   * (judged strictly before `readyEvent` and therefore before any frame can
+   * be written) to `IpcPeerKeyMismatchError` here. An undefined result keeps
+   * the default connection-failure classification.
    */
   readonly classifyError?: (error: Error) => IpcError | undefined;
 };
+
+/**
+ * The event a pinned dial emits once the host's presented key matched the
+ * pin: the ready signal of both TLS carriers. The socket's own
+ * `secureConnect` fires before the key is judged and is never the signal.
+ */
+export const HOST_PINNED = "hostPinned";
 
 /** One connected-byte-stream contract; the Unix, TLS-over-TCP and WebSocket carriers differ only here. */
 export type ClientTransport = {
   /** Names the target in connect-timeout errors. */
   readonly endpoint: string;
-  /** The event that marks the stream ready for frames (TLS: after handshake; WebSocket: after the upgrade). */
-  readonly readyEvent: "connect" | "secureConnect" | "open";
+  /** The event that marks the stream ready for frames (TLS: after the pin matched; WebSocket: after the upgrade). */
+  readonly readyEvent: "connect" | typeof HOST_PINNED | "open";
   /** Creates the socket and initiates the connection. */
   readonly start: () => StartedSocket;
 };
@@ -64,43 +70,26 @@ export function connectIpcClient(socketPath: string, opts: ConnectIpcClientOptio
   }, opts);
 }
 
-/** TLS-over-TCP connection spec (#1270): chain-verified host, pinned key. */
+/** TLS-over-TCP connection spec (#1270): mutual TLS, the host judged by its key pin alone. */
 export type IpcTcpConnectSpec = {
   readonly tcp: { readonly host: string; readonly port: number };
   /** The client identity presented to the server's mutual-TLS requirement. */
   readonly tls: IpcTlsIdentity;
   /**
-   * PEM of the HOST's certificate: the sole trust anchor the presented chain
-   * must validate against (`ca` + `rejectUnauthorized: true`), and the key
-   * whose fingerprint the presented certificate must carry. Either failure
-   * surfaces as one typed `IpcPeerKeyMismatchError` before any frame is sent.
+   * The host key's pin (`hostPinOf`): the only trust the dial holds. No
+   * chain is verified, so a certificate reissued for the pinned key is
+   * accepted and any other key is one typed `IpcPeerKeyMismatchError`
+   * before any frame is sent.
    */
-  readonly hostCertificate: string;
+  readonly hostPin: string;
 };
-
-/**
- * The OpenSSL X509 verify codes a failed chain validation of the host
- * certificate surfaces with: ONE host-identity failure class together with
- * the pin mismatch, so callers (daemon reconnect: terminal; CLI: typed
- * refusal) never see chain and pin failures diverge.
- */
-const X509_VERIFY_CODES: ReadonlySet<string> = new Set([
-  "DEPTH_ZERO_SELF_SIGNED_CERT",
-  "SELF_SIGNED_CERT_IN_CHAIN",
-  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
-  "CERT_SIGNATURE_FAILURE",
-  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
-  "CERT_UNTRUSTED",
-  "CERT_HAS_EXPIRED",
-  "CERT_NOT_YET_VALID",
-]);
 
 /** The pinned mutual-TLS target shared by the TCP and WebSocket carriers. */
 export type PinnedTlsTarget = {
   readonly host: string;
   readonly port: number;
   readonly tls: IpcTlsIdentity;
-  readonly hostCertificate: string;
+  readonly hostPin: string;
 };
 
 /** A pinned TLS session: the socket plus the host-identity failure classifier. */
@@ -110,62 +99,42 @@ export type PinnedTlsSocket = {
 };
 
 /**
- * The dial behind both TLS carriers. The expected pin is derived eagerly so a
- * malformed host certificate fails at the call site, before any connection.
+ * The dial behind both TLS carriers. The handshake verifies no chain and no
+ * hostname: the presented leaf's key is judged against the pin the moment
+ * the handshake completes, before anything is written. A match emits
+ * `HOST_PINNED`; a mismatch destroys the socket with the typed refusal, which
+ * `classifyError` then surfaces verbatim.
  */
 export function pinnedTlsDial(target: PinnedTlsTarget): () => PinnedTlsSocket {
-  const expected = certificateKeyFingerprint(new X509Certificate(target.hostCertificate).raw);
   return () => {
     const socket = tls.connect({
       host: target.host,
       port: target.port,
       cert: target.tls.certificate,
       key: target.tls.privateKey,
-      // The configured host certificate IS the trust store: the presented
-      // chain must validate against it, then checkServerIdentity pins the
-      // key. CN-only self-signed host certs keep working — the identity
-      // check is the SPKI fingerprint, never hostname semantics.
-      ca: [target.hostCertificate],
-      rejectUnauthorized: true,
-      checkServerIdentity: (_host: string, peer: tls.PeerCertificate) => hostPinMismatch(peer.raw, expected),
+      rejectUnauthorized: false,
     });
-    return { socket, classifyError: (error) => hostVerificationFailure(error, expected) };
+    socket.once("secureConnect", () => {
+      const refusal = hostPinMismatch(socket.getPeerCertificate(true).raw, target.hostPin);
+      if (refusal === undefined) socket.emit(HOST_PINNED);
+      else socket.destroy(refusal);
+    });
+    return { socket, classifyError: (error) => (error instanceof IpcPeerKeyMismatchError ? error : undefined) };
   };
 }
 
 export function connectIpcTcpClient(spec: IpcTcpConnectSpec, opts: ConnectIpcClientOptions): Effect.Effect<IpcClient, IpcError, Scope.Scope> {
-  const dial = pinnedTlsDial({ ...spec.tcp, tls: spec.tls, hostCertificate: spec.hostCertificate });
-  return connectOverTransport({ endpoint: `${spec.tcp.host}:${spec.tcp.port}`, readyEvent: "secureConnect", start: dial }, opts);
+  const dial = pinnedTlsDial({ ...spec.tcp, tls: spec.tls, hostPin: spec.hostPin });
+  return connectOverTransport({ endpoint: `${spec.tcp.host}:${spec.tcp.port}`, readyEvent: HOST_PINNED, start: dial }, opts);
 }
 
-/** The in-handshake pin check: undefined admits, the typed error aborts. */
 function hostPinMismatch(presentedDer: Uint8Array, expected: string): IpcPeerKeyMismatchError | undefined {
-  const presented = certificateKeyFingerprint(presentedDer);
+  const presented = hostPinOf(presentedDer);
   if (presented === expected) return undefined;
   return new IpcPeerKeyMismatchError({
     message: `host key mismatch: expected ${expected}, presented ${presented}`,
     expected,
     presented,
-  });
-}
-
-/**
- * One host-identity failure class: the pin error object that
- * checkServerIdentity returned surfaces verbatim on the socket, and an
- * OpenSSL chain-verification failure (which fires BEFORE checkServerIdentity
- * ever runs, with no peer certificate readable — probed on Bun 1.4.1/1.4.2)
- * becomes the same typed error with `presented: "unverified"` and the
- * verification `code`.
- */
-function hostVerificationFailure(error: Error, expected: string): IpcError | undefined {
-  if (error instanceof IpcPeerKeyMismatchError) return error;
-  const code = (error as Error & { readonly code?: string }).code;
-  if (code === undefined || !X509_VERIFY_CODES.has(code)) return undefined;
-  return new IpcPeerKeyMismatchError({
-    message: `host certificate verification failed (${code}): ${error.message}`,
-    expected,
-    presented: "unverified",
-    code,
   });
 }
 
@@ -268,9 +237,9 @@ export function connectOverTransport(transport: ClientTransport, opts: ConnectIp
         stream.destroy();
       });
       stream.on("error", (error) => {
-        // A host-identity failure (chain or pin) kills the handshake BEFORE
-        // `readyEvent` and therefore before `connected` ever turns true, so
-        // no frame was or can be sent. No fallback transport exists.
+        // A host pin mismatch destroys the socket BEFORE `readyEvent` and
+        // therefore before `connected` ever turns true, so no frame was or
+        // can be sent. No fallback transport exists.
         const failure = started.classifyError?.(error) ?? new IpcConnectionError({ message: `socket error: ${error.message}`, cause: String(error) });
         connected = false;
         peer.disconnectAll(failure);

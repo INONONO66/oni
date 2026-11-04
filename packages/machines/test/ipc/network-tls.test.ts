@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { X509Certificate } from "node:crypto";
 import net from "node:net";
 import tls from "node:tls";
 import {
@@ -9,11 +10,11 @@ import {
   createIpcServer,
   createIpcTcpServer,
 } from "./helpers/native";
-import { certificateKeyFingerprint } from "../../src";
+import { hostPinOf } from "../../src";
 import { captureError, deferred, within } from "./helpers/signal";
 import { expectOversizeFailFast } from "./helpers/oversize";
 import { socketPath } from "./helpers/socket-path";
-import { daemonIdentity, daemonFingerprint, hostIdentity, hostFingerprint, hostIssuedFingerprint, hostIssuedIdentity, wrongIdentity, wrongFingerprint } from "./helpers/tls-fixtures";
+import { daemonIdentity, daemonFingerprint, hostChainIdentity, hostIdentity, hostIssuedIdentity, hostIssuedPin, hostPin, hostRenewedIdentity, wrongIdentity, wrongFingerprint, wrongPin } from "./helpers/tls-fixtures";
 
 describe("TLS-over-TCP IPC transport", () => {
   const cleanups: (() => Promise<void> | void)[] = [];
@@ -24,11 +25,11 @@ describe("TLS-over-TCP IPC transport", () => {
   type TcpServer = Awaited<ReturnType<typeof createIpcTcpServer>>;
 
   /** A pin-judging server: grants only the enrolled daemon fingerprint. */
-  async function pinnedServer() {
+  async function pinnedServer(identity = hostIdentity) {
     const fingerprintsSeen: (string | undefined)[] = [];
     let server!: TcpServer;
     server = await createIpcTcpServer(
-      { host: "127.0.0.1", port: 0, tls: hostIdentity },
+      { host: "127.0.0.1", port: 0, tls: identity },
       (_method, _params, respond, _notify, connectionId) => {
         // The transport only extracts the fingerprint — the handler judges it,
         // exactly as the host will against the offered machineId's enrollment.
@@ -46,17 +47,13 @@ describe("TLS-over-TCP IPC transport", () => {
   }
 
   test("mutual TLS succeeds when both pins match, and port 0 reports the bound port", async () => {
-    // The production client dials with `rejectUnauthorized: true` and the host
-    // certificate as its only trust anchor: reaching secureConnect (and thus a
-    // served call) IS the authorized handshake — the raw-probe variant below
-    // ("a client that presents no certificate…") asserts `authorized` directly.
     const { server, fingerprintsSeen } = await pinnedServer();
     expect(server.port).toBeGreaterThan(0);
 
     const client = await connectIpcTcpClient({
       tcp: { host: "127.0.0.1", port: server.port },
       tls: daemonIdentity,
-      hostCertificate: hostIdentity.certificate,
+      hostPin,
     });
     cleanups.push(client.close);
 
@@ -69,7 +66,7 @@ describe("TLS-over-TCP IPC transport", () => {
     const impostor = await connectIpcTcpClient({
       tcp: { host: "127.0.0.1", port: server.port },
       tls: wrongIdentity,
-      hostCertificate: hostIdentity.certificate,
+      hostPin,
     });
     cleanups.push(impostor.close);
 
@@ -85,43 +82,72 @@ describe("TLS-over-TCP IPC transport", () => {
     return captureError(connectIpcTcpClient({
       tcp: { host: "127.0.0.1", port: address.port },
       tls: daemonIdentity,
-      hostCertificate: hostIdentity.certificate,
+      hostPin,
     }));
   }
 
-  test("a certificate outside the host chain fails the client typed before the handshake ever completes", async () => {
+  test("same-key pass: a certificate reissued for the pinned key is accepted by the unchanged pin", async () => {
+    const { server, fingerprintsSeen } = await pinnedServer(hostRenewedIdentity);
+    expect(hostPinOf(new X509Certificate(hostRenewedIdentity.certificate).raw)).toBe(hostPin);
+    expect(hostRenewedIdentity.certificate).not.toBe(hostIdentity.certificate);
+
+    const client = await connectIpcTcpClient({
+      tcp: { host: "127.0.0.1", port: server.port },
+      tls: daemonIdentity,
+      hostPin,
+    });
+    cleanups.push(client.close);
+
+    expect(await client.call("machine.attach")).toEqual({ status: "attached" });
+    expect(fingerprintsSeen).toEqual([daemonFingerprint]);
+  });
+
+  test("same-key pass: an ACME-style chain for the pinned key is served whole and accepted by the unchanged pin", async () => {
+    const { server } = await pinnedServer(hostChainIdentity);
+    const client = await connectIpcTcpClient({
+      tcp: { host: "127.0.0.1", port: server.port },
+      tls: daemonIdentity,
+      hostPin,
+    });
+    cleanups.push(client.close);
+    expect(await client.call("machine.attach")).toEqual({ status: "attached" });
+
+    // The pin judges the leaf; the issuer behind it reaches the peer too.
+    const probe = tls.connect({ host: "127.0.0.1", port: server.port, cert: daemonIdentity.certificate, key: daemonIdentity.privateKey, rejectUnauthorized: false });
+    cleanups.push(() => probe.destroy());
+    const chain = await within(new Promise<tls.DetailedPeerCertificate>((resolve) => probe.once("secureConnect", () => resolve(probe.getPeerCertificate(true)))), "chain probe");
+    expect(hostPinOf(chain.raw)).toBe(hostPin);
+    expect(chain.issuerCertificate.subject.CN).toBe("oni-test-issuer");
+  });
+
+  test("pin mismatch: a host presenting a different key is refused typed once the handshake completes and before any byte is sent", async () => {
     const framesReceived: Buffer[] = [];
     let tcpConnections = 0;
-    let secureConnections = 0;
+    const secured = deferred<void>();
     const impostorHost = tls.createServer(
-      { cert: wrongIdentity.certificate, key: wrongIdentity.privateKey, requestCert: true, rejectUnauthorized: true, ca: [daemonIdentity.certificate] },
+      { cert: wrongIdentity.certificate, key: wrongIdentity.privateKey, requestCert: true, rejectUnauthorized: false },
       (socket) => {
-        secureConnections += 1;
         socket.on("data", (chunk) => framesReceived.push(chunk));
         socket.on("error", () => undefined);
+        socket.on("close", () => secured.resolve());
       },
     );
     impostorHost.on("connection", () => { tcpConnections += 1; });
     const failure = await dialRogue(impostorHost);
     expect(failure).toBeInstanceOf(IpcPeerKeyMismatchError);
     const mismatch = failure as InstanceType<typeof IpcPeerKeyMismatchError>;
-    expect(mismatch.expected).toBe(hostFingerprint);
-    // Chain validation aborts the handshake BEFORE a peer certificate is
-    // readable and before checkServerIdentity runs — the typed failure still
-    // carries the OpenSSL verify code.
-    expect(mismatch.presented).toBe("unverified");
-    expect(mismatch.code).toBe("DEPTH_ZERO_SELF_SIGNED_CERT");
+    expect(mismatch.expected).toBe(hostPin);
+    expect(mismatch.presented).toBe(wrongPin);
 
-    // The impostor saw the TCP dial but never a completed TLS connection —
-    // and therefore not one application byte, so not one frame.
+    // No chain is verified, so the handshake itself completes; the client
+    // then hangs up on the key without writing one application byte.
+    await within(secured.promise, "impostor saw the hang-up");
     expect(tcpConnections).toBe(1);
-    expect(secureConnections).toBe(0);
     expect(framesReceived).toEqual([]);
   });
 
-  test("a chain-valid certificate carrying a different key is refused by the pin, with zero frames served", async () => {
-    // host-issued-cert.pem IS signed by host-key.pem: the chain validates and
-    // only the checkServerIdentity fingerprint compare can refuse it.
+  test("pin mismatch: a key behind a familiar issuer is refused by the pin, with zero requests served", async () => {
+    // host-issued-cert.pem IS signed by host-key.pem; only the key is judged.
     const requestsSeen: string[] = [];
     const server = await createIpcTcpServer(
       { host: "127.0.0.1", port: 0, tls: hostIssuedIdentity },
@@ -131,13 +157,12 @@ describe("TLS-over-TCP IPC transport", () => {
     const failure = await captureError(connectIpcTcpClient({
       tcp: { host: "127.0.0.1", port: server.port },
       tls: daemonIdentity,
-      hostCertificate: hostIdentity.certificate,
+      hostPin,
     }));
     expect(failure).toBeInstanceOf(IpcPeerKeyMismatchError);
     const mismatch = failure as InstanceType<typeof IpcPeerKeyMismatchError>;
-    expect(mismatch.expected).toBe(hostFingerprint);
-    expect(mismatch.presented).toBe(hostIssuedFingerprint);
-    expect(mismatch.code).toBeUndefined();
+    expect(mismatch.expected).toBe(hostPin);
+    expect(mismatch.presented).toBe(hostIssuedPin);
     expect(requestsSeen).toEqual([]);
   });
 
@@ -164,20 +189,9 @@ describe("TLS-over-TCP IPC transport", () => {
   test("a client that presents no certificate never becomes a connection", async () => {
     const { server, fingerprintsSeen } = await pinnedServer();
     const closed = deferred<void>();
-    // assumed: the committed fixtures carry no SAN (CN=oni-test-host
-    // only), so Node hostname matching cannot apply; the probe verifies the
-    // chain against the committed host cert and checks identity by the SAME
-    // SPKI pin production uses.
-    const certless = tls.connect({
-      host: "127.0.0.1",
-      port: server.port,
-      rejectUnauthorized: true,
-      ca: [hostIdentity.certificate],
-      checkServerIdentity: (_host: string, peer: tls.PeerCertificate) =>
-        certificateKeyFingerprint(peer.raw) === hostFingerprint ? undefined : new Error("unexpected host certificate"),
-    }, () => {
-      // The probe's own handshake chain-validated the host certificate.
-      expect(certless.authorized).toBe(true);
+    const certless = tls.connect({ host: "127.0.0.1", port: server.port, rejectUnauthorized: false }, () => {
+      // The probe judges the host exactly as production does: by the key pin.
+      expect(hostPinOf(certless.getPeerCertificate(true).raw)).toBe(hostPin);
       // Mutual TLS was not satisfied; this frame must fall on the floor.
       certless.write('{"id":"r-1","method":"machine.attach"}\n');
     });
@@ -204,7 +218,7 @@ describe("TLS-over-TCP IPC transport", () => {
     const client = await connectIpcTcpClient({
       tcp: { host: "127.0.0.1", port: server.port },
       tls: daemonIdentity,
-      hostCertificate: hostIdentity.certificate,
+      hostPin,
     });
     cleanups.push(client.close);
 
@@ -233,7 +247,7 @@ describe("TLS-over-TCP IPC transport", () => {
     const client = await connectIpcTcpClient({
       tcp: { host: "127.0.0.1", port: server.port },
       tls: daemonIdentity,
-      hostCertificate: hostIdentity.certificate,
+      hostPin,
     });
     cleanups.push(client.close);
 
