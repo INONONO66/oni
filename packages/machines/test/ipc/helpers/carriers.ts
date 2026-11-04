@@ -1,6 +1,6 @@
 import { connectIpcClient, connectIpcTcpClient, connectIpcWsClient, createIpcServer, createIpcTcpServer, createIpcWsServer, type IpcClient, type IpcServer } from "./native";
 import { socketPath } from "./socket-path";
-import { daemonIdentity, hostIdentity } from "./tls-fixtures";
+import { daemonIdentity, hostIdentity, hostPin } from "./tls-fixtures";
 
 type Handler = Parameters<typeof createIpcServer>[1];
 type ServerOptions = Parameters<typeof createIpcServer>[2];
@@ -54,7 +54,7 @@ export const carriers: Carrier[] = [
       const server = await createIpcTcpServer({ host: LOOPBACK, port: 0, tls: hostIdentity }, answeringReady(handler), options);
       return { ...server, endpoint: `${server.host}:${server.port}` };
     },
-    connect: (endpoint, options) => connectIpcTcpClient({ tcp: { host: LOOPBACK, port: loopbackPort(endpoint) }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate }, options).then(ready),
+    connect: (endpoint, options) => connectIpcTcpClient({ tcp: { host: LOOPBACK, port: loopbackPort(endpoint) }, tls: daemonIdentity, hostPin }, options).then(ready),
   },
   {
     name: "ws",
@@ -62,6 +62,6 @@ export const carriers: Carrier[] = [
       const server = await createIpcWsServer({ host: LOOPBACK, port: 0, tls: hostIdentity }, answeringReady(handler), options);
       return { ...server, endpoint: `${server.host}:${server.port}` };
     },
-    connect: (endpoint, options) => connectIpcWsClient({ ws: { host: LOOPBACK, port: loopbackPort(endpoint) }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate }, options).then(ready),
+    connect: (endpoint, options) => connectIpcWsClient({ ws: { host: LOOPBACK, port: loopbackPort(endpoint) }, tls: daemonIdentity, hostPin }, options).then(ready),
   },
 ];

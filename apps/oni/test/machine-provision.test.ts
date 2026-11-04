@@ -15,7 +15,7 @@ import { attachMclient, mclientBinary } from "../../../packages/machines/test/he
 import { connectIpcTcpClient } from "../../../packages/machines/test/ipc/helpers/native";
 import { eventCollector } from "../../../packages/machines/test/helpers/events";
 import { captureError } from "../../../packages/machines/test/ipc/helpers/signal";
-import { daemonIdentity, daemonFingerprint, hostIdentity, wrongIdentity, wrongFingerprint } from "../../../packages/machines/test/ipc/helpers/tls-fixtures";
+import { daemonIdentity, daemonFingerprint, hostIdentity, hostPin, wrongIdentity, wrongFingerprint } from "../../../packages/machines/test/ipc/helpers/tls-fixtures";
 
 const enrollment: Machine.Enrollment = {
   machineId: "worker-1", name: "Worker", tags: ["pool"],
@@ -146,7 +146,7 @@ test("replacing an active TLS enrollment revokes its old peer and admits only th
   const attach = async (machineId: string, identity: typeof daemonIdentity, hold = false) => {
     const peer = await connectIpcTcpClient({
       tcp: { host: "127.0.0.1", port: host.endpoints.tcp?.port ?? 0 },
-      hostCertificate: hostIdentity.certificate, tls: identity,
+      hostPin, tls: identity,
     }, { onRequest: async (method, params, respond) => {
       if (method !== Machine.WireMethod.RunCode || !hold) throw new Error(`unexpected peer request: ${method}`);
       const request = Machine.CellRequest.parse(params);

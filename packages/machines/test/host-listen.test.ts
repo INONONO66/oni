@@ -12,7 +12,7 @@ import { type AttachedMclient, attachMclient, mclientBinary, mclientEnrollment }
 import { eventCollector } from "./helpers/events";
 import { exit as runExit } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
-import { daemonIdentity, daemonFingerprint, hostFingerprint, hostIdentity, wrongIdentity } from "./ipc/helpers/tls-fixtures";
+import { daemonIdentity, daemonFingerprint, hostIdentity, hostPin, wrongIdentity } from "./ipc/helpers/tls-fixtures";
 
 const silent = { publish: () => undefined };
 function sequentialIds(prefix: string): () => string {
@@ -70,7 +70,7 @@ describe("host listener set (#1270)", () => {
       expect(statSync(unix).mode & 0o777).toBe(0o600);
       const overUnix = await attachMclient({ host, events, machineId: "via-unix", root, exports: [{ name: "docs", path: root }] });
       const overTcp = await connectIpcTcpClient({
-        tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate,
+        tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostPin,
       }, { onRequest: (method, params, respond) => {
         if (method !== Machine.WireMethod.FsOp) throw new Error(`unexpected peer request: ${method}`);
         const request = Machine.FsRequest.parse(params);
@@ -115,7 +115,7 @@ describe("host listener set (#1270)", () => {
       const port = host.endpoints.ws?.port ?? 0;
       expect(port).toBeGreaterThan(0);
       const intruder = await connectIpcWsClient({
-        ws: { host: "127.0.0.1", port }, tls: wrongIdentity, hostCertificate: hostIdentity.certificate,
+        ws: { host: "127.0.0.1", port }, tls: wrongIdentity, hostPin,
       });
       try {
         expect(await intruder.call(Machine.WireMethod.Attach, {
@@ -126,7 +126,7 @@ describe("host listener set (#1270)", () => {
         await intruder.close();
       }
       const overWs = await connectIpcWsClient({
-        ws: { host: "127.0.0.1", port }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate,
+        ws: { host: "127.0.0.1", port }, tls: daemonIdentity, hostPin,
       }, { onRequest: (method, params, respond) => {
         if (method !== Machine.WireMethod.FsOp) throw new Error(`unexpected peer request: ${method}`);
         expect(Machine.FsRequest.parse(params).op).toBe("read");
@@ -163,7 +163,7 @@ describe("host listener set (#1270)", () => {
     try {
       client = await attachMclient({
         host, events, machineId: "desk-wss", root,
-        wss: { port: host.endpoints.ws?.port ?? 0, hostPin: hostFingerprint, identity: daemonIdentity },
+        wss: { port: host.endpoints.ws?.port ?? 0, hostPin, identity: daemonIdentity },
       });
       expect(host.list().map((machine) => machine.machineId)).toEqual(["desk-wss"]);
       const read = await host.get("desk-wss").fs.read(join(root, "note"));
@@ -268,7 +268,7 @@ describe("host listener set (#1270)", () => {
     try {
       const port = host.endpoints.tcp?.port ?? 0;
       const intruder = await connectIpcTcpClient({
-        tcp: { host: "127.0.0.1", port }, tls: wrongIdentity, hostCertificate: hostIdentity.certificate,
+        tcp: { host: "127.0.0.1", port }, tls: wrongIdentity, hostPin,
       });
       try {
         expect(await intruder.call(Machine.WireMethod.Attach, {
@@ -280,7 +280,7 @@ describe("host listener set (#1270)", () => {
         await intruder.close();
       }
       const rejoined = await connectIpcTcpClient({
-        tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate,
+        tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostPin,
       });
       try {
         expect(await rejoined.call(Machine.WireMethod.Attach, {
@@ -309,7 +309,7 @@ describe("host listener set (#1270)", () => {
     try {
       const port = host.endpoints.tcp?.port ?? 0;
       const legitimate = await connectIpcTcpClient({
-        tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate,
+        tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostPin,
       }, { onRequest: (method, params, respond) => {
         if (method !== Machine.WireMethod.FsOp) throw new Error(`unexpected peer request: ${method}`);
         expect(Machine.FsRequest.parse(params).op).toBe("read");
@@ -318,7 +318,7 @@ describe("host listener set (#1270)", () => {
       const intruder = await connectIpcTcpClient({
         tcp: { host: "127.0.0.1", port },
         tls: wrongIdentity,
-        hostCertificate: hostIdentity.certificate,
+        hostPin,
       });
       try {
         expect(await legitimate.call(Machine.WireMethod.Attach, {
