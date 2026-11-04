@@ -79,6 +79,10 @@ pub enum ConfigError {
     PlaintextWs,
     #[error("pin_required")]
     PinRequired,
+    /// No operator approved the host's key: `join` was declined (or ran
+    /// without `--yes` and an answer), or `run` found no recorded pin.
+    #[error("host_untrusted")]
+    HostUntrusted,
     #[error("invalid host pin")]
     InvalidPin,
     #[error("invalid export")]
@@ -139,6 +143,9 @@ pub struct JoinOptions {
     pub host_cert: Option<PathBuf>,
     #[arg(long)]
     pub host_pin: Option<String>,
+    /// Trust the verified host pin without the operator prompt (scripts).
+    #[arg(long)]
+    pub yes: bool,
     #[arg(long)]
     pub unix: Option<PathBuf>,
     #[arg(long, default_value_t = DEFAULT_MEMORY_BUDGET_MB)]

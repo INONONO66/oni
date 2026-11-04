@@ -64,6 +64,9 @@ pub fn classify(error: &AttachError) -> FailureClass {
         {
             FailureClass::Authentication
         }
+        AttachError::Config(crate::config::ConfigError::HostUntrusted) => {
+            FailureClass::Authentication
+        }
         AttachError::Terminal(reason) if reason == "stale_generation" => FailureClass::Superseded,
         AttachError::Terminal(_)
         | AttachError::Config(_)

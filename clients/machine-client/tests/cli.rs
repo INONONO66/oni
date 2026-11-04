@@ -1,8 +1,13 @@
+#[allow(dead_code)]
+mod support;
+
 use std::{
     io::Write,
     os::unix::fs::PermissionsExt,
     process::{Command, Output, Stdio},
 };
+
+use support::fake_host::FakeHost;
 
 fn mclient(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mclient"))
@@ -640,6 +645,96 @@ fn run_admits_a_saved_offline_pin_before_loading_config() {
         .as_str()
         .expect("reason")
         .contains("configuration I/O"));
+}
+
+/// A network host is shown to the operator with its verified pin and the
+/// answer comes from stdin: a closed stdin records nothing and refuses typed,
+/// `y` records exactly the pin that was shown, and `--yes` never prompts.
+#[tokio::test]
+async fn join_prompts_for_the_host_pin_unless_yes() {
+    /// Joins `host` over `--host-cert` with stdin closed, or answering `answer`.
+    async fn join(
+        home: &std::path::Path,
+        cert: &str,
+        host: &FakeHost,
+        yes: bool,
+        answer: Option<&[u8]>,
+    ) -> Output {
+        std::fs::write(cert, &host.certificate).expect("certificate");
+        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"));
+        command
+            .env("HOME", home)
+            .args([
+                "join",
+                &host.endpoint,
+                "--host-cert",
+                cert,
+                "--no-service",
+                "--no-open",
+            ])
+            .args(if yes { &["--yes"][..] } else { &[] })
+            .stdin(if answer.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().expect("mclient spawns");
+        if let Some(answer) = answer {
+            let mut stdin = child.stdin.take().expect("stdin");
+            tokio::io::AsyncWriteExt::write_all(&mut stdin, answer)
+                .await
+                .expect("answer");
+        }
+        child.wait_with_output().await.expect("mclient runs")
+    }
+    let home = tempfile::tempdir().expect("home");
+    let certificate = home.path().join("host-cert.pem");
+    let cert = certificate.to_str().expect("certificate path");
+    let client = home.path().join(".oni/machine-client");
+    let host = FakeHost::tls().await;
+    let declined = join(home.path(), cert, &host, false, None).await;
+    assert_eq!(declined.status.code(), Some(3));
+    assert!(declined.stdout.is_empty());
+    let stderr = String::from_utf8(declined.stderr).expect("stderr");
+    let mut lines = stderr.lines();
+    assert_eq!(
+        lines.next(),
+        Some(format!("host: {}", host.endpoint).as_str())
+    );
+    let shown = lines
+        .next()
+        .and_then(|line| line.strip_prefix("host pin: "))
+        .expect("pin line");
+    assert_eq!(shown.len(), 64);
+    assert_eq!(lines.next(), Some("trust this host? [y/N] "));
+    let refusal: serde_json::Value =
+        serde_json::from_str(lines.next().expect("refusal")).expect("JSON refusal");
+    assert_eq!(refusal["reason"], "host_untrusted");
+    assert!(!client.join("host-pin").exists());
+    assert!(!client.join("client.json").exists());
+
+    let host = FakeHost::tls().await;
+    let approved = join(home.path(), cert, &host, false, Some(b"y\n")).await;
+    let stderr = String::from_utf8(approved.stderr).expect("stderr");
+    assert_eq!(approved.status.code(), Some(0), "{stderr}");
+    let shown = stderr
+        .lines()
+        .nth(1)
+        .and_then(|line| line.strip_prefix("host pin: "))
+        .expect("pin line");
+    assert_eq!(
+        std::fs::read_to_string(client.join("host-pin")).expect("recorded pin"),
+        shown
+    );
+    assert!(client.join("client.json").exists());
+
+    let host = FakeHost::tls().await;
+    let scripted = join(home.path(), cert, &host, true, None).await;
+    let stderr = String::from_utf8(scripted.stderr).expect("stderr");
+    assert_eq!(scripted.status.code(), Some(0), "{stderr}");
+    assert!(!stderr.contains("trust this host?"));
 }
 
 #[test]

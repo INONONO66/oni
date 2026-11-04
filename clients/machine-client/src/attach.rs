@@ -85,6 +85,7 @@ impl AttachError {
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::Terminal(_)
+            | Self::Config(config::ConfigError::HostUntrusted)
             | Self::Transport(TransportError::HostKeyMismatch)
             | Self::Once(
                 FailureClass::Authentication
@@ -293,13 +294,29 @@ async fn connect_tls(
     })
 }
 
-/// Connects once with the configured trust and persists the verified host
-/// key as `host-pin`, the only trust `run` consults afterwards.
-async fn record_pin(host: &str, directory: &Path, trust: HostTrust) -> Result<(), AttachError> {
+/// Connects once with the configured trust and returns the host key it
+/// verified; nothing is recorded until the operator approves that key.
+async fn verify_host(
+    host: &str,
+    directory: &Path,
+    trust: HostTrust,
+) -> Result<[u8; 32], AttachError> {
     let (connection, pin) = connect_tls(host, directory, trust, refuse_inbound()).await??;
     drop(connection);
-    config::write_private(&directory.join("host-pin"), hex::encode(pin).as_bytes())?;
-    Ok(())
+    Ok(pin)
+}
+
+/// The host pin `join` recorded once the operator approved it: the only
+/// trust a network host gets afterwards, so a missing pin is a typed refusal.
+fn pinned_trust(directory: &Path) -> Result<HostTrust, AttachError> {
+    let pin = match fs::read_to_string(directory.join("host-pin")) {
+        Ok(pin) => pin,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(config::ConfigError::HostUntrusted.into());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    Ok(HostTrust::Pin(config::parse_pin(&pin)?))
 }
 
 /// Asks the host for the client release it pins; `machine.release` is answered
@@ -311,11 +328,14 @@ pub async fn release(
     let client = match &config.unix {
         Some(path) => Client::connect_unix(path, refuse_inbound()).await?,
         None => {
-            let pin = fs::read_to_string(directory.join("host-pin"))?;
-            let trust = HostTrust::Pin(config::parse_pin(&pin)?);
-            connect_tls(&config.host, directory, trust, refuse_inbound())
-                .await??
-                .0
+            connect_tls(
+                &config.host,
+                directory,
+                pinned_trust(directory)?,
+                refuse_inbound(),
+            )
+            .await??
+            .0
         }
     };
     let response = client.call("machine.release", None).await?;
@@ -324,10 +344,15 @@ pub async fn release(
     Ok((document["status"] == "available").then(|| document["release"].clone()))
 }
 
+/// Enrolls this machine with a host. A network host is shown to the operator
+/// as `(host, pin)` through `approve` once its key is verified against the
+/// configured trust; a declined or unanswered prompt leaves it untrusted and
+/// records nothing. `--yes` skips the prompt for scripts.
 pub async fn join(
     options: &JoinOptions,
     home: &Path,
     capabilities: &[&str],
+    approve: impl FnOnce(&str, &str) -> bool,
 ) -> Result<Enrollment, AttachError> {
     let directory = home.join("machine-client");
     let unix = options
@@ -355,10 +380,14 @@ pub async fn join(
     };
     let token = config::join_token(options, &|name| std::env::var(name).ok());
     let public_key = config::identity(&directory, &config.machine_id)?;
-    config::save(&config, &directory)?;
     if let Some(trust) = trust {
-        record_pin(&config.host, &directory, trust).await?;
+        let pin = hex::encode(verify_host(&config.host, &directory, trust).await?);
+        if !options.yes && !approve(&config.host, &pin) {
+            return Err(config::ConfigError::HostUntrusted.into());
+        }
+        config::write_private(&directory.join("host-pin"), pin.as_bytes())?;
     }
+    config::save(&config, &directory)?;
     clear_generation(&directory)?;
     let allowed_exports = config.exports.iter().map(|entry| &entry.name);
     Ok(Enrollment {
@@ -540,13 +569,14 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         );
         let connected = match &self.config.unix {
             Some(path) => Client::connect_unix(path, service).await,
-            None => {
-                let pin = fs::read_to_string(self.directory.join("host-pin"))?;
-                let trust = HostTrust::Pin(config::parse_pin(&pin)?);
-                connect_tls(&self.config.host, self.directory, trust, service)
-                    .await?
-                    .map(|(client, _)| client)
-            }
+            None => connect_tls(
+                &self.config.host,
+                self.directory,
+                pinned_trust(self.directory)?,
+                service,
+            )
+            .await?
+            .map(|(client, _)| client),
         };
         match connected {
             Ok(client) => Ok(Some(client)),

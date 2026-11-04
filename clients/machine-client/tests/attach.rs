@@ -73,6 +73,7 @@ fn join_options(host: &str) -> JoinOptions {
         exports: vec![],
         host_cert: None,
         host_pin: None,
+        yes: true,
         unix: None,
         memory_budget_mb: 96,
         no_service: true,
@@ -80,6 +81,12 @@ fn join_options(host: &str) -> JoinOptions {
         no_open: true,
         token: None,
     }
+}
+
+/// The operator answer every scripted join uses; `join_options` also sets
+/// `yes`, so it is consulted only by the tests that clear that flag.
+fn trusted(_: &str, _: &str) -> bool {
+    true
 }
 
 struct Unobserved;
@@ -581,7 +588,7 @@ async fn join_unix_records_no_pin_and_clears_saved_generation() {
         exports: vec!["notes=/tmp".into()],
         ..join_options("localhost")
     };
-    let enrollment = attach::join(&options, home.path(), &["fs.read"])
+    let enrollment = attach::join(&options, home.path(), &["fs.read"], trusted)
         .await
         .expect("join");
     assert_eq!(enrollment.receipt["machineId"], "work-mac");
@@ -594,11 +601,11 @@ async fn join_unix_records_no_pin_and_clears_saved_generation() {
     assert!(!directory.join("host-pin").exists());
     std::fs::create_dir(directory.join("state.json")).expect("blocking directory");
     assert!(matches!(
-        attach::join(&options, home.path(), &[]).await,
+        attach::join(&options, home.path(), &[], trusted).await,
         Err(AttachError::Io(_))
     ));
     assert!(matches!(
-        attach::join(&join_options("127.0.0.1"), home.path(), &[]).await,
+        attach::join(&join_options("127.0.0.1"), home.path(), &[], trusted).await,
         Err(AttachError::Config(config::ConfigError::PinRequired))
     ));
 }
@@ -612,7 +619,7 @@ async fn pinned_join_records_the_verified_host_pin() {
         host_pin: Some(expected.clone()),
         ..join_options(&host.endpoint)
     };
-    let enrollment = attach::join(&options, home.path(), &[])
+    let enrollment = attach::join(&options, home.path(), &[], trusted)
         .await
         .expect("join");
     assert_eq!(enrollment.receipt["machineId"], "work-mac");
@@ -637,7 +644,7 @@ async fn wss_join_records_the_pin_over_the_websocket_carrier() {
     std::fs::create_dir_all(&directory).expect("client directory");
     std::fs::write(directory.join("client-cert.pem"), &host.certificate).expect("cert");
     std::fs::write(directory.join("client-key.pem"), &host.private_key).expect("key");
-    attach::join(&options, home.path(), &[])
+    attach::join(&options, home.path(), &[], trusted)
         .await
         .expect("join over wss");
     let saved =
@@ -656,7 +663,7 @@ async fn unix_scheme_join_selects_the_unix_carrier_without_a_pin() {
     let host = FakeHost::unix().await;
     let home = tempfile::tempdir().expect("home");
     let options = join_options(&format!("unix:{}", host.endpoint));
-    attach::join(&options, home.path(), &[])
+    attach::join(&options, home.path(), &[], trusted)
         .await
         .expect("join over unix:");
     let saved =
@@ -673,7 +680,7 @@ async fn plaintext_ws_join_is_refused_before_any_dial() {
         host_pin: Some(hex::encode(host_pin(&host.certificate))),
         ..join_options(&format!("ws://{}/machine", host.endpoint))
     };
-    let error = attach::join(&options, home.path(), &[])
+    let error = attach::join(&options, home.path(), &[], trusted)
         .await
         .expect_err("plaintext ws refused");
     assert!(matches!(
@@ -684,6 +691,58 @@ async fn plaintext_ws_join_is_refused_before_any_dial() {
 }
 
 #[tokio::test]
+async fn join_without_operator_approval_is_refused_host_untrusted() {
+    // Each fake host serves one connection, so every attempt gets its own.
+    let prompted = |host: &FakeHost| JoinOptions {
+        host_pin: Some(hex::encode(host_pin(&host.certificate))),
+        yes: false,
+        ..join_options(&host.endpoint)
+    };
+    let host = FakeHost::tls().await;
+    let home = tempfile::tempdir().expect("home");
+    let expected = hex::encode(host_pin(&host.certificate));
+    let options = prompted(&host);
+    let shown = std::sync::Mutex::new(None);
+    let decline = |host: &str, pin: &str| {
+        *shown.lock().expect("prompt") = Some((host.to_owned(), pin.to_owned()));
+        false
+    };
+    let error = attach::join(&options, home.path(), &[], decline)
+        .await
+        .expect_err("declined host");
+    assert!(matches!(
+        error,
+        AttachError::Config(config::ConfigError::HostUntrusted)
+    ));
+    assert_eq!(
+        (error.exit_code(), error.reason().as_str()),
+        (3, "host_untrusted")
+    );
+    assert_eq!(
+        oni_machine_client::transport::classes::classify(&error),
+        oni_machine_client::transport::classes::FailureClass::Authentication
+    );
+    assert_eq!(
+        shown.lock().expect("prompt").clone(),
+        Some((host.endpoint.clone(), expected.clone()))
+    );
+    let client = home.path().join("machine-client");
+    assert!(!client.join("host-pin").exists());
+    assert!(!client.join("client.json").exists());
+    let host = FakeHost::tls().await;
+    let expected = hex::encode(host_pin(&host.certificate));
+    let approved = attach::join(&prompted(&host), home.path(), &[], |_, pin| pin == expected)
+        .await
+        .expect("operator approved the shown pin");
+    assert_eq!(approved.receipt["machineId"], "work-mac");
+    assert_eq!(
+        std::fs::read_to_string(client.join("host-pin")).expect("pin"),
+        expected
+    );
+    assert!(client.join("client.json").exists());
+}
+
+#[tokio::test]
 async fn pin_mismatch_join_is_refused_as_terminal() {
     let host = FakeHost::tls().await;
     let home = tempfile::tempdir().expect("home");
@@ -691,7 +750,7 @@ async fn pin_mismatch_join_is_refused_as_terminal() {
         host_pin: Some("00".repeat(32)),
         ..join_options(&host.endpoint)
     };
-    let error = attach::join(&options, home.path(), &[])
+    let error = attach::join(&options, home.path(), &[], trusted)
         .await
         .expect_err("join failure");
     assert_eq!(
@@ -771,7 +830,7 @@ async fn release_query_refusals_do_not_save_a_generation() {
     std::fs::remove_file(directory.path().join("host-pin")).expect("remove pin");
     assert!(matches!(
         attach::release(&settings, directory.path()).await,
-        Err(AttachError::Io(_))
+        Err(AttachError::Config(config::ConfigError::HostUntrusted))
     ));
 }
 
@@ -814,7 +873,15 @@ async fn tls_attach_uses_recorded_pin_and_refuses_mismatch() {
         Err(AttachError::Transport(TransportError::HostKeyMismatch))
     ));
     std::fs::remove_file(directory.path().join("host-pin")).expect("remove pin");
-    assert!(matches!(attachment.once().await, Err(AttachError::Io(_))));
+    let untrusted = attachment.once().await.expect_err("no pinned host");
+    assert!(matches!(
+        untrusted,
+        AttachError::Config(config::ConfigError::HostUntrusted)
+    ));
+    assert_eq!(
+        (untrusted.exit_code(), untrusted.reason().as_str()),
+        (3, "host_untrusted")
+    );
 }
 
 #[tokio::test]
@@ -1508,7 +1575,7 @@ async fn join_refuses_an_unwritable_host_pin() {
         ..join_options(&host.endpoint)
     };
     assert!(matches!(
-        attach::join(&options, home.path(), &[]).await,
+        attach::join(&options, home.path(), &[], trusted).await,
         Err(AttachError::Io(_))
     ));
 }
@@ -1532,7 +1599,7 @@ async fn join_reports_permission_denied_when_host_pin_directory_is_read_only() {
 
     let outcome = tokio::time::timeout(
         Duration::from_secs(5),
-        attach::join(&options, home.path(), &[]),
+        attach::join(&options, home.path(), &[], trusted),
     )
     .await;
     std::fs::set_permissions(&pins, std::fs::Permissions::from_mode(0o700))

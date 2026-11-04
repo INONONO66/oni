@@ -1,5 +1,6 @@
 use std::{
     env::consts::{ARCH, OS},
+    io::{BufRead, Write},
     path::{Path, PathBuf},
     process::ExitCode,
     time::{SystemTime, UNIX_EPOCH},
@@ -328,8 +329,26 @@ fn reconnect(config_path: Option<&Path>) -> Result<(), AttachError> {
     kill(Pid::from_raw(pid), Signal::SIGUSR1).map_err(|_| AttachError::ServiceUnavailable)
 }
 
+/// Shows the operator the host they are about to trust and reads one line
+/// from stdin; only `y`/`yes` approves, a closed stdin leaves it untrusted.
+/// The prompt goes to stderr so stdout stays the receipt; the refusal that
+/// follows an unanswered prompt starts on its own line.
+fn confirm_host(host: &str, pin: &str) -> bool {
+    eprintln!("host: {host}");
+    eprintln!("host pin: {pin}");
+    eprint!("trust this host? [y/N] ");
+    let _ = std::io::stderr().flush();
+    let mut answer = String::new();
+    let _ = std::io::stdin().lock().read_line(&mut answer);
+    if !answer.ends_with('\n') {
+        eprintln!();
+    }
+    matches!(answer.trim(), "y" | "Y" | "yes")
+}
+
 async fn join(options: &JoinOptions) -> Result<(), AttachError> {
-    let enrollment = attach::join(options, &config::root(), &handlers::SUPPORTED).await?;
+    let enrollment =
+        attach::join(options, &config::root(), &handlers::SUPPORTED, confirm_host).await?;
     let layout = Layout::new(config::root());
     let path = layout.client().join("client.json");
     if !options.json {
