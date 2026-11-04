@@ -24,7 +24,7 @@ use crate::grant_restart::{Decision as GrantDecision, GrantRestart};
 use crate::{
     agent::{hook, launcher::HookTarget},
     budget::{self, Budget, BudgetAction, Metrics, Pressure},
-    config::{self, ClientConfig, JoinOptions},
+    config::{self, Carrier, ClientConfig, JoinOptions},
     handlers::{AgentOptions, Service},
     input::watch::{InputProducer, InputWatch, Source},
     pty::ops::Pty,
@@ -36,6 +36,7 @@ use crate::{
         events,
         request_table::CallError,
         retry::{Event, Next, Random, Retry},
+        ws,
     },
 };
 
@@ -275,11 +276,21 @@ async fn connect_tls(
     directory: &Path,
     trust: HostTrust,
     service: Handler,
-) -> Result<Result<(Client, [u8; 32]), TransportError>, io::Error> {
+) -> Result<Result<(Client, [u8; 32]), TransportError>, AttachError> {
     let cert = fs::read(directory.join("client-cert.pem"))?;
     let key = fs::read(directory.join("client-key.pem"))?;
-    let (address, name) = config::endpoint(host);
-    Ok(Client::connect_tls(&address, &name, trust, &cert, &key, service).await)
+    Ok(match config::carrier(host)? {
+        Carrier::Tcp {
+            address,
+            server_name,
+        } => Client::connect_tls(&address, &server_name, trust, &cert, &key, service).await,
+        Carrier::Wss(endpoint) => match ws::proxy_from_env(|name| std::env::var(name).ok()) {
+            Ok(proxy) => {
+                Client::connect_wss(&endpoint, proxy.as_deref(), trust, &cert, &key, service).await
+            }
+            Err(failure) => Err(TransportError::Proxy(failure)),
+        },
+    })
 }
 
 /// Connects once with the configured trust and persists the verified host
@@ -319,13 +330,17 @@ pub async fn join(
     capabilities: &[&str],
 ) -> Result<Enrollment, AttachError> {
     let directory = home.join("machine-client");
-    let trust = match options.unix {
+    let unix = options
+        .unix
+        .clone()
+        .or_else(|| config::unix_path(&options.host));
+    let trust = match unix {
         Some(_) => None,
         None => Some(config::trust(options, home)?),
     };
-    let host = match options.unix {
-        Some(_) => options.host.clone(),
-        None => config::resolve_address(&options.host)?,
+    let host = match (&unix, config::carrier(&options.host)?) {
+        (None, Carrier::Tcp { .. }) => config::resolve_address(&options.host)?,
+        (Some(_), _) | (None, Carrier::Wss(_)) => options.host.clone(),
     };
     let name = options.name.clone().unwrap_or_else(config::hostname);
     let config = ClientConfig {
@@ -335,7 +350,7 @@ pub async fn join(
         tags: options.tags.clone(),
         exports: config::parse_exports(&options.exports)?,
         memory_budget_mb: options.memory_budget_mb,
-        unix: options.unix.clone(),
+        unix,
         tmux_socket: None,
     };
     let public_key = config::identity(&directory, &config.machine_id)?;

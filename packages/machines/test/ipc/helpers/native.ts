@@ -1,7 +1,8 @@
 import { Effect } from "effect";
 import type { IdSource, Ipc } from "@oni/protocol";
-import { connectIpcClient as connect, connectIpcTcpClient as connectTcp, createIpcServer as listen, createIpcTcpServer as listenTcp, typedCall as nativeCall } from "../../../src";
-import type { IpcTcpConnectSpec, IpcTcpListenSpec } from "../../../src";
+import { connectIpcClient as connect, connectIpcTcpClient as connectTcp, createIpcServer as listen, createIpcTcpServer as listenTcp, createIpcWsServer as listenWs, typedCall as nativeCall } from "../../../src";
+import type { IpcTcpConnectSpec, IpcTcpListenSpec, IpcWsListenSpec } from "../../../src";
+import { connectIpcWsClient as connectWs, type IpcWsConnectSpec } from "./ws-client";
 import { PeerRequestTable as NativeTable } from "../../../src/ipc/peer-request-table";
 import { decodeIpcFailure } from "../../../src/failure";
 import { acquire, run, sync } from "./effects";
@@ -46,6 +47,10 @@ export async function connectIpcTcpClient(spec: IpcTcpConnectSpec, options: Clie
   const { value: native, close } = await acquire(connectTcp(spec, nativeClientOptions(options)));
   return wrapClient(native, close);
 }
+export async function connectIpcWsClient(spec: IpcWsConnectSpec, options: ClientTestOptions = {}) {
+  const { value: native, close } = await acquire(connectWs(spec, nativeClientOptions(options)));
+  return wrapClient(native, close);
+}
 export type IpcClient = Awaited<ReturnType<typeof connectIpcClient>>;
 type ServerTestOptions = { idSource?: IdSource; dispatcherBound?: number; onDisconnect?: (id: string) => void };
 function nativeServerOptions(options: ServerTestOptions) {
@@ -55,12 +60,13 @@ function nativeServerOptions(options: ServerTestOptions) {
     onDisconnect: options.onDisconnect ? (id: string) => handlerEffect(() => options.onDisconnect?.(id)) : undefined,
   };
 }
-type ServerNative = Pick<import("../../../src").IpcServer, "call" | "notify" | "useConnection" | "peerFingerprintOf" | "close">;
+type ServerNative = Pick<import("../../../src").IpcServer, "call" | "notify" | "useConnection" | "isConnected" | "peerFingerprintOf" | "close">;
 function wrapServer<N extends ServerNative>(native: N, close: () => Promise<void>) {
   return { native,
     call: (...args: Parameters<ServerNative["call"]>) => run(native.call(...args)),
     notify: (...args: Parameters<ServerNative["notify"]>) => sync(native.notify(...args)),
     useConnection: native.useConnection,
+    isConnected: native.isConnected,
     peerFingerprintOf: (connectionId: string) => native.peerFingerprintOf(connectionId),
     close: async () => { await run(native.close()); await close(); },
   };
@@ -71,6 +77,10 @@ export async function createIpcServer(path: string, handler: Handler, options: S
 }
 export async function createIpcTcpServer(spec: IpcTcpListenSpec, handler: Handler, options: ServerTestOptions = {}) {
   const { value: native, close } = await acquire(listenTcp(spec, (...args) => handlerEffect(() => handler(...args)), nativeServerOptions(options)));
+  return { ...wrapServer(native, close), host: native.host, port: native.port };
+}
+export async function createIpcWsServer(spec: IpcWsListenSpec, handler: Handler, options: ServerTestOptions = {}) {
+  const { value: native, close } = await acquire(listenWs(spec, (...args) => handlerEffect(() => handler(...args)), nativeServerOptions(options)));
   return { ...wrapServer(native, close), host: native.host, port: native.port };
 }
 export type IpcServer = Awaited<ReturnType<typeof createIpcServer>>;

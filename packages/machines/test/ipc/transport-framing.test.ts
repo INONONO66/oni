@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import net from "node:net";
 import { Ipc } from "@oni/protocol";
 import { IpcConnectionError } from "../../src/ipc/errors";
+import { carriers } from "./helpers/carriers";
 import { connectIpcClient, createIpcServer } from "./helpers/native";
 import { captureError, deferred, within } from "./helpers/signal";
 import { socketPath } from "./helpers/socket-path";
@@ -10,11 +11,11 @@ import { connectRaw, transportFixture } from "./helpers/transport";
 describe("transport framing lifecycle", () => {
   const { servers, clients, rawSockets } = transportFixture();
 
-  test("closing a client rejects its pending and subsequent calls", async () => {
+  test.each(carriers)("closing a client rejects its pending and subsequent calls over $name", async (carrier) => {
     const requested = deferred();
-    const server = await createIpcServer(socketPath("closed-call"), () => requested.resolve());
+    const server = await carrier.listen("closed-call", () => requested.resolve());
     servers.push(server);
-    const client = await connectIpcClient(server.socketPath);
+    const client = await carrier.connect(server.endpoint);
     clients.push(client);
     const pending = client.call("unanswered");
     const rejected = captureError(pending);

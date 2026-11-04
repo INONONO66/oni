@@ -2,7 +2,7 @@ import { chmodSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import { isContained, normalizeExportRoot } from "./contained";
-import { createIpcServer, createIpcTcpServer, type IpcServer, type IpcTlsIdentity } from "./ipc";
+import { createIpcServer, createIpcTcpServer, createIpcWsServer, type IpcServer, type IpcTcpListenSpec, type IpcTlsIdentity, type IpcWsListenSpec } from "./ipc";
 import { typedCall } from "./typed-call";
 import { type BusEvent, type Ipc, Machine } from "@oni/protocol";
 import { Deferred, Effect, Exit, Fiber, FiberSet, Semaphore, type Scope } from "effect";
@@ -25,14 +25,16 @@ import type { StreamingMachineHandle, StreamWriteOptions, StreamWriteReceipt } f
 import type { z } from "zod";
 interface MachineHostOptions {
   /**
-   * The additive listener set (#1270): at least one of `unix` or `tcp`. Both
-   * listeners serve the SAME attachment registry and request dispatcher.
+   * The additive listener set (#1270, #1830): at least one of `unix`, `tcp`
+   * or `ws`. Every listener serves the SAME attachment registry and request
+   * dispatcher; `ws` upgrades `/machine` over the host TLS identity.
    */
   readonly listen: {
     readonly unix?: string;
     readonly tcp?: { readonly host: string; readonly port: number };
+    readonly ws?: { readonly host: string; readonly port: number };
   };
-  /** Host TLS identity presented on the TCP listener; required when tcp is set. */
+  /** Host TLS identity presented on the TCP and WS listeners; required when either is set. */
   readonly tls?: IpcTlsIdentity;
   /** Injected request-id entropy (#1245): required, no ambient crypto fallback. */
   readonly id: () => string;
@@ -259,10 +261,11 @@ export interface MachineHost {
   exports(id: Machine.MachineId): readonly { readonly name: Machine.ExportName; readonly path: string }[];
   /** Enrollment persistence belongs to the caller; this revokes its live attachment. */
   unenroll(id: Machine.MachineId, reason?: "enrollment_removed" | "enrollment_replaced"): void;
-  /** The bound endpoints — tcp carries the REAL port when the spec asked for 0. */
+  /** The bound endpoints — tcp and ws carry the REAL port when the spec asked for 0. */
   readonly endpoints: {
     readonly unix?: string;
     readonly tcp?: { readonly host: string; readonly port: number };
+    readonly ws?: { readonly host: string; readonly port: number };
   };
   /** Host-issued, time-bounded machine-to-machine reach (#1841); a machine holds none until one is issued. */
   readonly peers: PeerLeaseStore;
@@ -335,6 +338,25 @@ function mintGeneration(store: AttachGenerationStore, issued: Set<string>, offer
       if (!active()) return undefined;
     }
     return undefined;
+  });
+}
+
+/** The network listener specs: tcp and ws each need the host TLS identity, and an empty set is refused (#1270, #1830). */
+function networkListenerSpecs(
+  options: MachineHostOptions,
+): Effect.Effect<{ readonly tcp?: IpcTcpListenSpec; readonly ws?: IpcWsListenSpec }, MachinesFailure> {
+  const { listen, tls } = options;
+  const refuse = (cause: string) => Effect.fail(new MachinesFailure({ operation: "host.listen", cause }));
+  if (listen.unix === undefined && listen.tcp === undefined && listen.ws === undefined)
+    return refuse("machines.listen requires at least one of unix, tcp or ws");
+  if (tls === undefined) {
+    if (listen.tcp !== undefined) return refuse("a tcp listener requires the host tls identity (certificate and privateKey)");
+    if (listen.ws !== undefined) return refuse("a ws listener requires the host tls identity (certificate and privateKey)");
+    return Effect.succeed({});
+  }
+  return Effect.succeed({
+    ...(listen.tcp === undefined ? {} : { tcp: { ...listen.tcp, tls } }),
+    ...(listen.ws === undefined ? {} : { ws: { ...listen.ws, tls } }),
   });
 }
 
@@ -599,11 +621,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       };
     }
     const bindFailure = (error: import("./ipc").IpcError) => new TransportFailure({ operation: "host.listen", message: error.message, cause: String(error) });
-    const tcpSpec = options.listen.tcp === undefined || options.tls === undefined ? undefined : { ...options.listen.tcp, tls: options.tls };
-    if (options.listen.unix === undefined && options.listen.tcp === undefined)
-      return yield* new MachinesFailure({ operation: "host.listen", cause: "machines.listen requires at least one of unix or tcp" });
-    if (options.listen.tcp !== undefined && tcpSpec === undefined)
-      return yield* new MachinesFailure({ operation: "host.listen", cause: "a tcp listener requires the host tls identity (certificate and privateKey)" });
+    const specs = yield* networkListenerSpecs(options);
     const servers: Array<Pick<IpcServer, "close">> = [];
     const unixPath = options.listen.unix;
     if (unixPath !== undefined) {
@@ -612,11 +630,18 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       yield* Effect.try({ try: () => chmodSync(unixPath, 0o600), catch: decodeMachineFailure("host.chmod") });
     }
     let tcpBound: { readonly host: string; readonly port: number } | undefined;
-    if (tcpSpec !== undefined) {
+    if (specs.tcp !== undefined) {
       const listener = makeListener("tcp");
-      const server = listener.bind(yield* createIpcTcpServer(tcpSpec, listener.handler, { idSource: options.id, dispatcherBound: options.dispatcherBound, onDisconnect: listener.onDisconnect }).pipe(Effect.mapError(bindFailure)));
+      const server = listener.bind(yield* createIpcTcpServer(specs.tcp, listener.handler, { idSource: options.id, dispatcherBound: options.dispatcherBound, onDisconnect: listener.onDisconnect }).pipe(Effect.mapError(bindFailure)));
       servers.push(server);
       tcpBound = { host: server.host, port: server.port };
+    }
+    let wsBound: { readonly host: string; readonly port: number } | undefined;
+    if (specs.ws !== undefined) {
+      const listener = makeListener("ws");
+      const server = listener.bind(yield* createIpcWsServer(specs.ws, listener.handler, { idSource: options.id, dispatcherBound: options.dispatcherBound, onDisconnect: listener.onDisconnect }).pipe(Effect.mapError(bindFailure)));
+      servers.push(server);
+      wsBound = { host: server.host, port: server.port };
     }
     yield* Effect.forkScoped(
       Effect.gen(function* () {
@@ -1475,7 +1500,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         detach(attachment.key, reason);
         attachment.server.disconnect(attachment.rawId);
       },
-      endpoints: { ...(unixPath === undefined ? {} : { unix: unixPath }), ...(tcpBound === undefined ? {} : { tcp: tcpBound }) },
+      endpoints: { ...(unixPath === undefined ? {} : { unix: unixPath }), ...(tcpBound === undefined ? {} : { tcp: tcpBound }), ...(wsBound === undefined ? {} : { ws: wsBound }) },
       peers,
       close: () => close,
     };

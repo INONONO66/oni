@@ -1,4 +1,4 @@
-use std::{io::Cursor, path::Path, sync::Arc, time::Duration};
+use std::{future::Future, io::Cursor, path::Path, sync::Arc, time::Duration};
 
 use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -11,9 +11,12 @@ use tokio::{
     net::{TcpStream, UnixStream},
     time::timeout,
 };
-use tokio_rustls::TlsConnector;
+use tokio_rustls::{client::TlsStream, TlsConnector};
 
-use super::client::{Client, Handler, TransportError};
+use super::{
+    client::{Client, Handler, TransportError},
+    ws::{self, WsEndpoint},
+};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(5_000);
 
@@ -98,6 +101,61 @@ fn classify_handshake_error(error: std::io::Error) -> TransportError {
     }
 }
 
+fn tls_connector(
+    trust: HostTrust,
+    client_cert_pem: &[u8],
+    client_key_pem: &[u8],
+) -> Result<TlsConnector, TransportError> {
+    let expected = match trust {
+        HostTrust::Pin(pin) => pin,
+        HostTrust::CertPem(pem) => {
+            let cert = rustls_pemfile::certs(&mut Cursor::new(pem))
+                .next()
+                .transpose()?
+                .ok_or(TransportError::HostCertificate)?;
+            public_key_pin(cert.as_ref())?
+        }
+    };
+    let certs =
+        rustls_pemfile::certs(&mut Cursor::new(client_cert_pem)).collect::<Result<Vec<_>, _>>()?;
+    let key = rustls_pemfile::private_key(&mut Cursor::new(client_key_pem))?
+        .ok_or(TransportError::Closed)?;
+    let algorithms = rustls::crypto::ring::default_provider().signature_verification_algorithms;
+    let config = ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(HostKeyVerifier {
+            expected,
+            algorithms,
+        }))
+        .with_client_auth_cert(certs, key)?;
+    Ok(TlsConnector::from(Arc::new(config)))
+}
+
+async fn secure<E: Into<TransportError>>(
+    connector: &TlsConnector,
+    server_name: &str,
+    tcp: impl Future<Output = Result<TcpStream, E>>,
+) -> Result<(TlsStream<TcpStream>, [u8; 32]), TransportError> {
+    let name = ServerName::try_from(server_name.to_owned()).map_err(|_| TransportError::Closed)?;
+    let stream = timeout(CONNECT_TIMEOUT, async {
+        let tcp = tcp.await.map_err(Into::into)?;
+        connector
+            .connect(name, tcp)
+            .await
+            .map_err(classify_handshake_error)
+    })
+    .await
+    .map_err(|_| TransportError::ConnectTimeout)??;
+    let pin = stream
+        .get_ref()
+        .1
+        .peer_certificates()
+        .and_then(|certs| certs.first())
+        .ok_or(TransportError::HostCertificate)
+        .and_then(|cert| public_key_pin(cert.as_ref()).map_err(TransportError::Tls))?;
+    Ok((stream, pin))
+}
+
 impl Client {
     pub async fn connect_unix(path: &Path, handler: Handler) -> Result<Self, TransportError> {
         let stream = timeout(CONNECT_TIMEOUT, UnixStream::connect(path))
@@ -114,46 +172,32 @@ impl Client {
         client_key_pem: &[u8],
         handler: Handler,
     ) -> Result<(Self, [u8; 32]), TransportError> {
-        let expected = match trust {
-            HostTrust::Pin(pin) => pin,
-            HostTrust::CertPem(pem) => {
-                let cert = rustls_pemfile::certs(&mut Cursor::new(pem))
-                    .next()
-                    .transpose()?
-                    .ok_or(TransportError::HostCertificate)?;
-                public_key_pin(cert.as_ref())?
+        let connector = tls_connector(trust, client_cert_pem, client_key_pem)?;
+        let (stream, pin) = secure(&connector, server_name, TcpStream::connect(address)).await?;
+        Ok((Self::from_stream(stream, handler), pin))
+    }
+
+    pub async fn connect_wss(
+        endpoint: &WsEndpoint,
+        proxy: Option<&str>,
+        trust: HostTrust,
+        client_cert_pem: &[u8],
+        client_key_pem: &[u8],
+        handler: Handler,
+    ) -> Result<(Self, [u8; 32]), TransportError> {
+        let connector = tls_connector(trust, client_cert_pem, client_key_pem)?;
+        let tcp = async move {
+            match proxy {
+                Some(proxy) => ws::connect_through_proxy(proxy, &endpoint.address).await,
+                None => Ok(TcpStream::connect(&endpoint.address).await?),
             }
         };
-        let certs = rustls_pemfile::certs(&mut Cursor::new(client_cert_pem))
-            .collect::<Result<Vec<_>, _>>()?;
-        let key = rustls_pemfile::private_key(&mut Cursor::new(client_key_pem))?
-            .ok_or(TransportError::Closed)?;
-        let algorithms = rustls::crypto::ring::default_provider().signature_verification_algorithms;
-        let config = ClientConfig::builder()
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(HostKeyVerifier {
-                expected,
-                algorithms,
-            }))
-            .with_client_auth_cert(certs, key)?;
-        let connector = TlsConnector::from(Arc::new(config));
-        let name =
-            ServerName::try_from(server_name.to_owned()).map_err(|_| TransportError::Closed)?;
-        let stream = timeout(CONNECT_TIMEOUT, async {
-            let tcp = TcpStream::connect(address).await?;
-            connector.connect(name, tcp).await
-        })
-        .await
-        .map_err(|_| TransportError::ConnectTimeout)?
-        .map_err(classify_handshake_error)?;
-        let pin = stream
-            .get_ref()
-            .1
-            .peer_certificates()
-            .and_then(|certs| certs.first())
-            .ok_or(TransportError::HostCertificate)
-            .and_then(|cert| public_key_pin(cert.as_ref()).map_err(TransportError::Tls))?;
-        Ok((Self::from_stream(stream, handler), pin))
+        let (stream, pin) = secure(&connector, &endpoint.server_name, tcp).await?;
+        let socket = timeout(CONNECT_TIMEOUT, ws::upgrade(stream, endpoint))
+            .await
+            .map_err(|_| TransportError::ConnectTimeout)?
+            .map_err(TransportError::Upgrade)?;
+        Ok((Self::from_stream(ws::Frames::new(socket), handler), pin))
     }
 }
 

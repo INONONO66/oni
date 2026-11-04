@@ -8,3 +8,4 @@ pub mod request_table;
 pub mod retry;
 #[cfg(target_os = "macos")]
 pub mod wake;
+pub mod ws;

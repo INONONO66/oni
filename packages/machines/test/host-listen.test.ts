@@ -7,12 +7,12 @@ import { Machine } from "@oni/protocol";
 import { createMachineHost as nativeHost } from "../src/host";
 import { createMemoryGenerationStore } from "../src/generation-store";
 import { createMachineHost, refusingToolPort } from "./helpers/native";
-import { connectIpcTcpClient } from "./ipc/helpers/native";
-import { attachMclient, mclientBinary } from "./helpers/mclient";
+import { connectIpcTcpClient, connectIpcWsClient } from "./ipc/helpers/native";
+import { type AttachedMclient, attachMclient, mclientBinary, mclientEnrollment } from "./helpers/mclient";
 import { eventCollector } from "./helpers/events";
 import { exit as runExit } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
-import { daemonIdentity, daemonFingerprint, hostIdentity, wrongIdentity } from "./ipc/helpers/tls-fixtures";
+import { daemonIdentity, daemonFingerprint, hostFingerprint, hostIdentity, wrongIdentity } from "./ipc/helpers/tls-fixtures";
 
 const silent = { publish: () => undefined };
 function sequentialIds(prefix: string): () => string {
@@ -93,6 +93,86 @@ describe("host listener set (#1270)", () => {
         await overTcp.close();
       }
     } finally {
+      await host.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a ws listener attaches a peer into the same registry and routes its handle operations (#1830)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "om-listen-ws-"));
+    writeFileSync(join(root, "note"), "over-ws");
+    const events = eventCollector();
+    const host = await createMachineHost({
+      listen: { ws: { host: "127.0.0.1", port: 0 } },
+      tls: hostIdentity,
+      enrollment: (id) => (id === "via-ws" ? enrollment("via-ws", daemonFingerprint) : undefined),
+      events: events.sink,
+      now: () => 3,
+    });
+    try {
+      expect(host.endpoints.unix).toBeUndefined();
+      expect(host.endpoints.tcp).toBeUndefined();
+      const port = host.endpoints.ws?.port ?? 0;
+      expect(port).toBeGreaterThan(0);
+      const intruder = await connectIpcWsClient({
+        ws: { host: "127.0.0.1", port }, tls: wrongIdentity, hostCertificate: hostIdentity.certificate,
+      });
+      try {
+        expect(await intruder.call(Machine.WireMethod.Attach, {
+          ...offer("via-ws", root), peer: { kind: "client", contractVersion: Machine.contractVersion },
+        })).toEqual({ status: "refused", reason: "peer_key_mismatch" });
+        expect(host.list()).toEqual([]);
+      } finally {
+        await intruder.close();
+      }
+      const overWs = await connectIpcWsClient({
+        ws: { host: "127.0.0.1", port }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate,
+      }, { onRequest: (method, params, respond) => {
+        if (method !== Machine.WireMethod.FsOp) throw new Error(`unexpected peer request: ${method}`);
+        expect(Machine.FsRequest.parse(params).op).toBe("read");
+        respond({ status: "completed", value: { op: "read", data: Buffer.from("over-ws").toString("base64"), bytesRead: 7, size: 7, truncated: false } });
+      } });
+      try {
+        expect(await overWs.call(Machine.WireMethod.Attach, {
+          ...offer("via-ws", root), peer: { kind: "client", contractVersion: Machine.contractVersion },
+        })).toMatchObject({ status: "attached" });
+        expect(host.list().map((machine) => machine.machineId)).toEqual(["via-ws"]);
+        const viaWs = await host.get("via-ws").fs.read(join(root, "note"));
+        expect(Buffer.from(viaWs.data).toString()).toBe("over-ws");
+      } finally {
+        await overWs.close();
+      }
+    } finally {
+      await host.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the real mclient attaches over wss, presents its client certificate and serves fs and exec (#1830)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "om-listen-mclient-wss-"));
+    writeFileSync(join(root, "note"), "wss-mclient");
+    const events = eventCollector();
+    const host = await createMachineHost({
+      listen: { ws: { host: "127.0.0.1", port: 0 } },
+      tls: hostIdentity,
+      enrollment: (id) => (id === "desk-wss" ? mclientEnrollment("desk-wss", { publicKey: daemonFingerprint }) : undefined),
+      events: events.sink,
+      now: () => 4,
+    });
+    let client: AttachedMclient | undefined;
+    try {
+      client = await attachMclient({
+        host, events, machineId: "desk-wss", root,
+        wss: { port: host.endpoints.ws?.port ?? 0, hostPin: hostFingerprint, identity: daemonIdentity },
+      });
+      expect(host.list().map((machine) => machine.machineId)).toEqual(["desk-wss"]);
+      const read = await host.get("desk-wss").fs.read(join(root, "note"));
+      expect(Buffer.from(read.data).toString()).toBe("wss-mclient");
+      expect(await host.get("desk-wss").exec("cat note; exit 3", root)).toEqual({
+        status: "completed", stdout: Buffer.from("wss-mclient"), stderr: Buffer.from(""), exitCode: 3, signal: null, truncated: false,
+      });
+    } finally {
+      await client?.stop();
       await host.close();
       rmSync(root, { recursive: true, force: true });
     }
@@ -301,7 +381,7 @@ describe("host listener set (#1270)", () => {
     }
   });
 
-  test("an empty listener set and tcp without a TLS identity are typed startup failures", async () => {
+  test("an empty listener set and tcp or ws without a TLS identity are typed startup failures", async () => {
     const common = {
       id: sequentialIds("invalid"),
       dispatcherBound: 8,
@@ -313,11 +393,16 @@ describe("host listener set (#1270)", () => {
     };
     const empty = await runExit(Effect.scoped(nativeHost({ listen: {}, ...common })));
     expect(empty._tag).toBe("Failure");
-    expect(String(empty)).toContain("at least one of unix or tcp");
+    expect(String(empty)).toContain("at least one of unix, tcp or ws");
     const bare = await runExit(
       Effect.scoped(nativeHost({ listen: { tcp: { host: "127.0.0.1", port: 0 } }, ...common })),
     );
     expect(bare._tag).toBe("Failure");
-    expect(String(bare)).toContain("requires the host tls identity");
+    expect(String(bare)).toContain("a tcp listener requires the host tls identity");
+    const bareWs = await runExit(
+      Effect.scoped(nativeHost({ listen: { ws: { host: "127.0.0.1", port: 0 } }, ...common })),
+    );
+    expect(bareWs._tag).toBe("Failure");
+    expect(String(bareWs)).toContain("a ws listener requires the host tls identity");
   });
 });

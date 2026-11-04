@@ -25,6 +25,8 @@ export const ConfigurationError = NamedError.create(
       "invalid_machines_inbox",
       "invalid_machines_self",
       "invalid_machines_tcp",
+      "invalid_machines_tls",
+      "invalid_machines_ws",
       "invalid_model_fallbacks",
       "invalid_providers_file",
       "invalid_tool_output_budget_bytes",
@@ -134,14 +136,16 @@ export interface OniConfig {
     readonly inbox?: string;
     /**
      * Where the host accepts daemons. Unix is always bound (same-box daemons
-     * stay zero-config); tcp appears only when the Owner configured the full
-     * network tuple, because a network listener without TLS is a non-option.
+     * stay zero-config); tcp and ws appear only when the Owner configured the
+     * listener tuple AND the TLS pair, because a network listener without TLS
+     * is a non-option. ws upgrades `/machine` for `wss://` dials (#1830).
      */
     readonly listen: {
       readonly unix: string;
       readonly tcp?: { readonly host: string; readonly port: number };
+      readonly ws?: { readonly host: string; readonly port: number };
     };
-    /** Host TLS identity (PEM contents, read at boot) — present iff tcp is. */
+    /** Host TLS identity (PEM contents, read at boot) — present iff tcp or ws is. */
     readonly tls?: { readonly certificate: string; readonly privateKey: string };
     readonly enrolled: readonly Machine.Enrollment[];
     readonly capacity?: readonly Machine.CapacityRow[];
@@ -755,27 +759,45 @@ function modelFromEnv(env: Record<string, string | undefined>): OniConfig["model
  * rather than inferred from whoever connects. Ledger-backed enrollment is a
  * later slice; the shape the host consumes is already the protocol's.
  */
-function machinesTcpFromEnv(env: Record<string, string | undefined>) {
-  const host = env.ONI_MACHINES_TCP_HOST?.trim() || undefined;
-  const port = env.ONI_MACHINES_TCP_PORT?.trim() || undefined;
-  const certPath = env.ONI_MACHINES_TLS_CERT?.trim() || undefined;
-  const keyPath = env.ONI_MACHINES_TLS_KEY?.trim() || undefined;
-  if (host === undefined && port === undefined && certPath === undefined && keyPath === undefined) {
-    return undefined;
-  }
-  // A partial tuple is a misconfiguration, never a silently-unencrypted bind.
-  if (host === undefined || port === undefined || certPath === undefined || keyPath === undefined) {
+function machinesListenerFromEnv(
+  carrier: "TCP" | "WS",
+  env: Record<string, string | undefined>,
+): { readonly host: string; readonly port: number } | undefined {
+  const code = carrier === "TCP" ? "invalid_machines_tcp" : "invalid_machines_ws";
+  const host = env[`ONI_MACHINES_${carrier}_HOST`]?.trim() || undefined;
+  const port = env[`ONI_MACHINES_${carrier}_PORT`]?.trim() || undefined;
+  if (host === undefined && port === undefined) return undefined;
+  if (host === undefined || port === undefined) {
     throw new ConfigurationError({
-      code: "invalid_machines_tcp",
-      message:
-        "ONI_MACHINES_TCP_HOST, ONI_MACHINES_TCP_PORT, ONI_MACHINES_TLS_CERT and ONI_MACHINES_TLS_KEY must be set together",
+      code,
+      message: `ONI_MACHINES_${carrier}_HOST and ONI_MACHINES_${carrier}_PORT must be set together`,
     });
   }
   const parsedPort = z.coerce.number().int().min(1).max(65535).safeParse(port);
   if (!parsedPort.success) {
+    throw new ConfigurationError({ code, message: `ONI_MACHINES_${carrier}_PORT is invalid: ${port}` });
+  }
+  return { host, port: parsedPort.data };
+}
+
+/**
+ * The network listener set: tcp and ws tuples stand alone, the TLS pair is
+ * shared and present exactly when at least one of them is — a partial tuple
+ * is a misconfiguration, never a silently-unencrypted bind (#1270, #1830).
+ */
+function machinesNetworkFromEnv(env: Record<string, string | undefined>) {
+  const tcp = machinesListenerFromEnv("TCP", env);
+  const ws = machinesListenerFromEnv("WS", env);
+  const certPath = env.ONI_MACHINES_TLS_CERT?.trim() || undefined;
+  const keyPath = env.ONI_MACHINES_TLS_KEY?.trim() || undefined;
+  if (tcp === undefined && ws === undefined && certPath === undefined && keyPath === undefined) {
+    return undefined;
+  }
+  if ((tcp === undefined && ws === undefined) || certPath === undefined || keyPath === undefined) {
     throw new ConfigurationError({
-      code: "invalid_machines_tcp",
-      message: `ONI_MACHINES_TCP_PORT is invalid: ${port}`,
+      code: "invalid_machines_tls",
+      message:
+        "ONI_MACHINES_TLS_CERT and ONI_MACHINES_TLS_KEY must be set together with ONI_MACHINES_TCP_* or ONI_MACHINES_WS_*",
     });
   }
   const pem = (name: string, path: string): string => {
@@ -783,13 +805,13 @@ function machinesTcpFromEnv(env: Record<string, string | undefined>) {
       return readFileSync(path, "utf8");
     } catch (error) {
       throw new ConfigurationError({
-        code: "invalid_machines_tcp",
+        code: "invalid_machines_tls",
         message: `${name} is unreadable: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
   };
   return {
-    tcp: { host, port: parsedPort.data },
+    listen: { ...(tcp === undefined ? {} : { tcp }), ...(ws === undefined ? {} : { ws }) },
     tls: {
       certificate: pem("ONI_MACHINES_TLS_CERT", certPath),
       privateKey: pem("ONI_MACHINES_TLS_KEY", keyPath),
@@ -823,13 +845,13 @@ function machinesFromEnv(
       message: "ONI_MACHINES_SELF is required when the machine plane is configured",
     });
   }
-  const network = machinesTcpFromEnv(env);
+  const network = machinesNetworkFromEnv(env);
   const unix = env.ONI_MACHINES_SOCKET?.trim() || join(home, ".oni", "machines.sock");
   const machines: NonNullable<OniConfig["machines"]> = {
     self,
     ...(defaultMachine === undefined ? {} : { default: defaultMachine }),
     ...(inbox === undefined ? {} : { inbox }),
-    listen: { unix, ...(network === undefined ? {} : { tcp: network.tcp }) },
+    listen: { unix, ...network?.listen },
     ...(network === undefined ? {} : { tls: network.tls }),
     enrolled: enrolled ?? [],
     ...(capacity === undefined ? {} : { capacity }),

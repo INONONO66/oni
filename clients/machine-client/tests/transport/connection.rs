@@ -1,5 +1,9 @@
 use super::*;
-use oni_machine_client::transport::connection::HostTrust;
+use oni_machine_client::transport::{
+    connection::{public_key_pin, HostTrust},
+    ws,
+};
+use tokio_tungstenite::tungstenite::{Bytes, Message};
 
 #[tokio::test]
 async fn request_timeout_releases_pending_entry() {
@@ -326,4 +330,170 @@ async fn reopened_unix_host_accepts_a_new_client_at_the_same_endpoint() {
     };
     let (call, ()) = tokio::join!(client.call("ping", None), exchange);
     assert_eq!(call.expect("result"), Some(json!(1)));
+}
+
+fn service() -> oni_machine_client::transport::client::Handler {
+    handler(|_, _| async { Ok(json!(null)) })
+}
+
+async fn exchange_over(client: &Client, host: &mut FakeHost, result: serde_json::Value) {
+    let exchange = async {
+        let request = host.incoming.recv().await.expect("wss request");
+        host.send(json!({"v":2,"type":"response","id":request["id"],"result":result}))
+            .await;
+    };
+    let (call, ()) = tokio::join!(client.call("ping", None), exchange);
+    assert_eq!(call.expect("result"), Some(json!(result)));
+}
+
+#[tokio::test]
+async fn wss_fake_host_authenticates_and_pins_the_same_host_key() {
+    let mut host = FakeHost::ws().await;
+    let (client, pin) = Client::connect_wss(
+        &host.ws_endpoint(),
+        None,
+        HostTrust::CertPem(host.certificate.as_bytes().to_vec()),
+        host.certificate.as_bytes(),
+        host.private_key.as_bytes(),
+        service(),
+    )
+    .await
+    .expect("mutual TLS over the WebSocket carrier");
+    let certificate = rustls_pemfile::certs(&mut io::Cursor::new(host.certificate.as_bytes()))
+        .next()
+        .expect("host certificate")
+        .expect("valid PEM");
+    assert_eq!(
+        pin,
+        public_key_pin(certificate.as_ref()).expect("host public key pin")
+    );
+    exchange_over(&client, &mut host, json!({"carrier":"wss"})).await;
+}
+
+#[tokio::test]
+async fn wss_dial_tunnels_through_the_connect_proxy() {
+    let mut host = FakeHost::ws().await;
+    let mut proxy = proxy::FakeProxy::start(proxy::ProxyAnswer::Tunnel).await;
+    let (client, _) = Client::connect_wss(
+        &host.ws_endpoint(),
+        Some(&proxy.address),
+        HostTrust::CertPem(host.certificate.as_bytes().to_vec()),
+        host.certificate.as_bytes(),
+        host.private_key.as_bytes(),
+        service(),
+    )
+    .await
+    .expect("wss through CONNECT");
+    assert_eq!(proxy.connects.recv().await, Some(host.endpoint.clone()));
+    exchange_over(&client, &mut host, json!(7)).await;
+}
+
+async fn proxy_failure(answer: proxy::ProxyAnswer) -> (String, TransportError) {
+    let host = FakeHost::ws().await;
+    let mut proxy = proxy::FakeProxy::start(answer).await;
+    let error = Client::connect_wss(
+        &host.ws_endpoint(),
+        Some(&proxy.address),
+        HostTrust::CertPem(host.certificate.as_bytes().to_vec()),
+        host.certificate.as_bytes(),
+        host.private_key.as_bytes(),
+        service(),
+    )
+    .await
+    .err()
+    .expect("failed tunnel");
+    assert_eq!(proxy.connects.recv().await, Some(host.endpoint.clone()));
+    (host.endpoint.clone(), error)
+}
+
+#[tokio::test]
+async fn wss_dial_reports_a_proxy_refusal() {
+    let (_, error) = proxy_failure(proxy::ProxyAnswer::Refuse).await;
+    assert!(matches!(
+        error,
+        TransportError::Proxy(ws::ProxyFailure::Refused { status: 403 })
+    ));
+}
+
+#[tokio::test]
+async fn wss_dial_refuses_a_proxy_that_hangs_up_before_answering() {
+    let (_, error) = proxy_failure(proxy::ProxyAnswer::HangUp).await;
+    assert!(matches!(
+        error,
+        TransportError::Proxy(ws::ProxyFailure::ClosedEarly)
+    ));
+}
+
+#[tokio::test]
+async fn wss_dial_refuses_an_oversized_proxy_answer() {
+    let (_, error) = proxy_failure(proxy::ProxyAnswer::Flood).await;
+    assert!(matches!(
+        error,
+        TransportError::Proxy(ws::ProxyFailure::HeadTooLarge)
+    ));
+}
+
+#[tokio::test]
+async fn wss_dial_refuses_a_proxy_answer_without_a_status_line() {
+    let (_, error) = proxy_failure(proxy::ProxyAnswer::Garbage).await;
+    assert!(matches!(
+        error,
+        TransportError::Proxy(ws::ProxyFailure::Malformed)
+    ));
+}
+
+#[tokio::test]
+async fn wss_text_message_is_refused_as_invalid_data() {
+    let host = proxy::TextHost::start(vec![
+        Message::Ping(Bytes::new()),
+        Message::Text("{}".into()),
+    ])
+    .await;
+    let (mut client, _) = Client::connect_wss(
+        &host.endpoint(),
+        None,
+        HostTrust::CertPem(host.certificate.clone().into_bytes()),
+        host.certificate.as_bytes(),
+        host.private_key.as_bytes(),
+        service(),
+    )
+    .await
+    .expect("upgrade");
+    host.delivered.await.expect("messages sent");
+    assert!(matches!(
+        client.closed().await,
+        Err(TransportError::Frame(FrameError::Io(error)))
+            if error.kind() == io::ErrorKind::InvalidData
+                && error.to_string() == "the machine wire carries binary frames only"
+    ));
+}
+
+#[test]
+fn proxy_address_normalizes_the_environment_value() {
+    let address = |value: Option<&str>| ws::proxy_address(value).expect("proxy address");
+    assert_eq!(address(None), None);
+    assert_eq!(address(Some("  ")), None);
+    assert_eq!(address(Some("http://")), None);
+    assert_eq!(
+        address(Some("http://proxy.example:3128/")),
+        Some("proxy.example:3128".to_owned())
+    );
+    assert_eq!(
+        address(Some("10.0.0.1:8080")),
+        Some("10.0.0.1:8080".to_owned())
+    );
+    assert_eq!(
+        address(Some("http://proxy.example")),
+        Some("proxy.example:80".to_owned())
+    );
+    assert_eq!(address(Some("[::1]:3128")), Some("[::1]:3128".to_owned()));
+    for unsupported in [
+        "https://proxy.example:3128",
+        "http://user:pass@proxy.example:3128",
+    ] {
+        assert!(matches!(
+            ws::proxy_address(Some(unsupported)),
+            Err(ws::ProxyFailure::Unsupported)
+        ));
+    }
 }

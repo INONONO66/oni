@@ -8,7 +8,7 @@ use std::{
 
 use serde_json::Value;
 use tokio::{
-    io::{split, AsyncRead, AsyncWrite},
+    io::{split, AsyncRead, AsyncWrite, AsyncWriteExt},
     sync::{mpsc, watch},
     task::{JoinHandle, JoinSet},
     time::timeout,
@@ -18,6 +18,7 @@ use super::{
     envelope::{self, Message},
     framing::{self, Framed},
     request_table::{CallError, Pending, RequestTable, CALL_TIMEOUT},
+    ws,
 };
 
 const EXECUTING: usize = 16;
@@ -60,6 +61,10 @@ pub enum TransportError {
     Closed,
     #[error("IPC inbound request queue is full")]
     QueueFull,
+    #[error("IPC WebSocket upgrade failed: {0}")]
+    Upgrade(tokio_tungstenite::tungstenite::Error),
+    #[error("IPC proxy tunnel failed: {0}")]
+    Proxy(#[from] ws::ProxyFailure),
 }
 
 /// A clonable handle that issues calls over a live connection; once the
@@ -132,7 +137,10 @@ impl Client {
         let writer = tokio::spawn(async move {
             while let Some(frame) = frames.recv().await {
                 match frame {
-                    Outbound::Frame(value) => framing::write_frame(&mut writer, &value).await?,
+                    Outbound::Frame(value) => {
+                        framing::write_frame(&mut writer, &value).await?;
+                        writer.flush().await?;
+                    }
                     Outbound::Close => break,
                 }
             }

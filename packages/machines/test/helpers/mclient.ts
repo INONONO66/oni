@@ -84,6 +84,25 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
+function unixCarrier(options: {
+  readonly host: { readonly endpoints: { readonly unix?: string } };
+  readonly unix?: string;
+}): Pick<MclientSettings, "host" | "unix"> {
+  const unix = options.host.endpoints.unix;
+  if (unix === undefined) throw new Error("attachMclient needs a unix-listening host");
+  return { host: "localhost", unix: options.unix ?? unix };
+}
+
+function wssCarrier(
+  directory: string,
+  wss: { readonly port: number; readonly hostPin: string; readonly identity: { readonly certificate: string; readonly privateKey: string } },
+): Pick<MclientSettings, "host" | "unix"> {
+  writeFileSync(join(directory, "host-pin"), wss.hostPin, { mode: 0o600 });
+  writeFileSync(join(directory, "client-cert.pem"), wss.identity.certificate, { mode: 0o600 });
+  writeFileSync(join(directory, "client-key.pem"), wss.identity.privateKey, { mode: 0o600 });
+  return { host: `wss://127.0.0.1:${wss.port}/machine`, unix: null };
+}
+
 function admission(options: {
   readonly list: () => readonly MachineInfo[];
   readonly events: Reports;
@@ -126,14 +145,19 @@ export async function attachMclient(options: {
   readonly computer?: MclientSettings["computer"];
   /** Optional forwarding endpoint; admission still comes from the real host. */
   readonly unix?: string;
+  /** Dial the host's ws listener instead of its unix socket, presenting `identity` and pinning `hostPin`. */
+  readonly wss?: {
+    readonly port: number;
+    readonly hostPin: string;
+    readonly identity: { readonly certificate: string; readonly privateKey: string };
+  };
 }): Promise<AttachedMclient> {
   const binary = await mclientBinary();
-  const unix = options.host.endpoints.unix;
-  if (unix === undefined) throw new Error("attachMclient needs a unix-listening host");
   const configRoot = mkdtempSync(join(tmpdir(), "oni-mclient-test-"));
   const configPath = join(configRoot, "client.json");
+  const carrier = options.wss === undefined ? unixCarrier(options) : wssCarrier(configRoot, options.wss);
   writeMclientSettings(configPath, {
-    machineId: options.machineId, name: options.machineId, host: "localhost", unix: options.unix ?? unix,
+    machineId: options.machineId, name: options.machineId, ...carrier,
     exports: options.exports ?? [{ name: "workspace", path: options.root }],
     tags: options.tags ?? [], memoryBudgetMb: 96,
     ...(options.tmuxSocket === undefined ? {} : { tmuxSocket: options.tmuxSocket }),

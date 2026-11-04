@@ -5,7 +5,7 @@ import { within } from "./signal";
 
 /** Call inside the owning describe so cleanup follows that suite's lifecycle. */
 export function transportFixture() {
-  const servers: IpcServer[] = [];
+  const servers: Pick<IpcServer, "close">[] = [];
   const clients: IpcClient[] = [];
   const rawSockets: net.Socket[] = [];
   afterEach(() => {

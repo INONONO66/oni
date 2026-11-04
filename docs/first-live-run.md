@@ -136,6 +136,20 @@ record in #1702.
   ad-hoc signing and grants may need to be renewed after each update.
   The host-self supervisor deployment and update recipe is tracked in #1699;
   live MacBook grant retention and PVE bootstrap are tracked in #1702.
+- `mclient join <host>` selects the carrier by the address scheme:
+  `unix:<path>` dials the host's unix listener; `tcp://host[:port]` or a
+  bare `host[:port]` dials the raw TLS-TCP listener (port 7643 by default,
+  a bare name without a dot resolved through Tailscale);
+  `wss://host[:port][/machine]` dials the host's WebSocket listener
+  (`machines.listen.ws`, port 443 and path `/machine` by default) over the
+  same client identity and host pin as TLS-TCP. With `HTTPS_PROXY` or
+  `https_proxy` set (`http://proxy:3128`, `proxy:3128` or `proxy` for port
+  80), the `wss://` dial opens an HTTP CONNECT tunnel through that proxy
+  first; TLS and the host pin are verified end to end inside the tunnel.
+  Only a plain `http://` proxy without credentials is supported (`https://`
+  or `user:pass@` is refused typed before any dial) and `NO_PROXY` is not
+  read. A plaintext `ws://` address is refused as `plaintext_ws_refused`
+  before any dial.
 - On macOS, `mclient join <host>` installs the LaunchAgent and opens Screen
   Recording settings. Grant the installed client binary access; the running
   service checks the grant every five seconds and restarts itself once it

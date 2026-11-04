@@ -56,6 +56,8 @@ const ENV_KEYS = [
   "ONI_MCLIENT_BIN",
   "ONI_MACHINES_TCP_HOST",
   "ONI_MACHINES_TCP_PORT",
+  "ONI_MACHINES_WS_HOST",
+  "ONI_MACHINES_WS_PORT",
   "ONI_MACHINES_TLS_CERT",
   "ONI_MACHINES_TLS_KEY",
   "ONI_ACK_REACTION",
@@ -179,17 +181,67 @@ describe("machines network listener config", () => {
     }
   });
 
+  it("a ws tuple beside the tcp one shares the TLS pair; ws alone is enough for the pair (#1830)", () => {
+    const { dir, cert, key } = tlsFiles();
+    try {
+      setTcpTuple(cert, key);
+      process.env.ONI_MACHINES_WS_HOST = "::";
+      process.env.ONI_MACHINES_WS_PORT = "443";
+      const both = loadConfig().machines;
+      expect(both?.listen.tcp).toEqual({ host: "0.0.0.0", port: 7643 });
+      expect(both?.listen.ws).toEqual({ host: "::", port: 443 });
+      delete process.env.ONI_MACHINES_TCP_HOST;
+      delete process.env.ONI_MACHINES_TCP_PORT;
+      const wsOnly = loadConfig("/tmp/oni-config-home").machines;
+      expect(wsOnly?.listen).toEqual({ unix: "/tmp/oni-config-home/.oni/machines.sock", ws: { host: "::", port: 443 } });
+      expect(wsOnly?.tls).toEqual({ certificate: "CERT-PEM", privateKey: "KEY-PEM" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it.each([
-    "ONI_MACHINES_TCP_HOST",
-    "ONI_MACHINES_TCP_PORT",
-    "ONI_MACHINES_TLS_CERT",
-    "ONI_MACHINES_TLS_KEY",
-  ])("a tuple missing %s fails closed rather than binding unencrypted", (missing) => {
+    ["ONI_MACHINES_TCP_HOST", "invalid_machines_tcp", "ONI_MACHINES_TCP_HOST and ONI_MACHINES_TCP_PORT must be set together"],
+    ["ONI_MACHINES_TCP_PORT", "invalid_machines_tcp", "ONI_MACHINES_TCP_HOST and ONI_MACHINES_TCP_PORT must be set together"],
+    ["ONI_MACHINES_TLS_CERT", "invalid_machines_tls", "ONI_MACHINES_TLS_CERT and ONI_MACHINES_TLS_KEY must be set together with ONI_MACHINES_TCP_* or ONI_MACHINES_WS_*"],
+    ["ONI_MACHINES_TLS_KEY", "invalid_machines_tls", "ONI_MACHINES_TLS_CERT and ONI_MACHINES_TLS_KEY must be set together with ONI_MACHINES_TCP_* or ONI_MACHINES_WS_*"],
+  ])("a tuple missing %s fails closed as %s rather than binding unencrypted", (missing, code, message) => {
     const { dir, cert, key } = tlsFiles();
     try {
       setTcpTuple(cert, key);
       delete process.env[missing];
-      expect(() => loadConfig()).toThrow("must be set together");
+      expect(() => loadConfig()).toThrow(
+        expect.objectContaining({ name: "OniConfigurationError", message, data: containing({ code }) }),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a half ws tuple, a bad ws port and a TLS pair without any listener are refused (#1830)", () => {
+    const { dir, cert, key } = tlsFiles();
+    try {
+      setTcpTuple(cert, key);
+      process.env.ONI_MACHINES_WS_PORT = "443";
+      expect(() => loadConfig()).toThrow(
+        expect.objectContaining({
+          message: "ONI_MACHINES_WS_HOST and ONI_MACHINES_WS_PORT must be set together",
+          data: containing({ code: "invalid_machines_ws" }),
+        }),
+      );
+      process.env.ONI_MACHINES_WS_HOST = "::";
+      process.env.ONI_MACHINES_WS_PORT = "0";
+      expect(() => loadConfig()).toThrow("ONI_MACHINES_WS_PORT is invalid: 0");
+      delete process.env.ONI_MACHINES_WS_HOST;
+      delete process.env.ONI_MACHINES_WS_PORT;
+      delete process.env.ONI_MACHINES_TCP_HOST;
+      delete process.env.ONI_MACHINES_TCP_PORT;
+      expect(() => loadConfig()).toThrow(
+        expect.objectContaining({
+          message: "ONI_MACHINES_TLS_CERT and ONI_MACHINES_TLS_KEY must be set together with ONI_MACHINES_TCP_* or ONI_MACHINES_WS_*",
+          data: containing({ code: "invalid_machines_tls" }),
+        }),
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -202,7 +254,12 @@ describe("machines network listener config", () => {
       expect(() => loadConfig()).toThrow("ONI_MACHINES_TCP_PORT is invalid");
       process.env.ONI_MACHINES_TCP_PORT = "7643";
       process.env.ONI_MACHINES_TLS_CERT = join(dir, "missing.pem");
-      expect(() => loadConfig()).toThrow("ONI_MACHINES_TLS_CERT is unreadable");
+      expect(() => loadConfig()).toThrow(
+        expect.objectContaining({
+          message: expect.stringContaining("ONI_MACHINES_TLS_CERT is unreadable"),
+          data: containing({ code: "invalid_machines_tls" }),
+        }),
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

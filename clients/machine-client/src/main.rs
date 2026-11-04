@@ -697,6 +697,34 @@ mod tests {
         assert!(!layout.current().exists());
     }
 
+    #[tokio::test]
+    async fn join_refuses_an_unsupported_proxy_before_dialing() {
+        use oni_machine_client::transport::{client::TransportError, ws::ProxyFailure};
+        let _environment = ENVIRONMENT.lock().await;
+        let home = tempfile::tempdir().expect("isolated home");
+        let _home = RestoreEnv::set("HOME", home.path().as_os_str());
+        let _proxy = RestoreEnv::set("HTTPS_PROXY", "https://proxy.example:3128".as_ref());
+        let options = JoinOptions {
+            host: "wss://127.0.0.1:1/machine".into(),
+            json: false,
+            name: None,
+            tags: vec![],
+            exports: vec![],
+            host_cert: None,
+            host_pin: Some("00".repeat(32)),
+            unix: None,
+            memory_budget_mb: 96,
+            no_service: true,
+            service_dir: None,
+            no_open: true,
+        };
+        let error = join(&options).await.expect_err("proxy refused");
+        assert!(matches!(
+            error,
+            AttachError::Transport(TransportError::Proxy(ProxyFailure::Unsupported))
+        ));
+    }
+
     #[test]
     fn pin_line_identifies_host_release_or_offline_binary() {
         assert_eq!(

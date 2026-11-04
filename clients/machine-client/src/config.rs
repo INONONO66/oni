@@ -13,9 +13,59 @@ use rcgen::PublicKeyData;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::transport::connection::{public_key_pin, HostTrust};
+use crate::transport::{
+    connection::{public_key_pin, HostTrust},
+    ws::{self, WsEndpoint},
+};
 
 pub const DEFAULT_PORT: &str = "7643";
+const DEFAULT_WSS_PORT: &str = "443";
+
+/// The carrier a configured host address selects, by its scheme:
+/// `unix:<path>` dials the host's unix listener (see [`unix_path`]);
+/// `wss://host[:port][/path]` dials the WebSocket listener over TLS (port
+/// 443 and path `/machine` by default; `HTTPS_PROXY`/`https_proxy` tunnels
+/// it through HTTP CONNECT); `tcp://host[:port]` or a bare `host[:port]`
+/// dials the raw TLS-TCP listener (port 7643 by default). Both TLS carriers
+/// present the same client identity and verify the same host pin. A plaintext
+/// `ws://` address is refused ([`ConfigError::PlaintextWs`]): the wire never
+/// leaves the host unencrypted and the address is never read as a TCP host.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Carrier {
+    Tcp {
+        address: String,
+        server_name: String,
+    },
+    Wss(WsEndpoint),
+}
+
+pub fn unix_path(host: &str) -> Option<PathBuf> {
+    host.strip_prefix("unix:").map(PathBuf::from)
+}
+
+pub fn carrier(host: &str) -> Result<Carrier, ConfigError> {
+    if host.starts_with("ws://") {
+        return Err(ConfigError::PlaintextWs);
+    }
+    if let Some(rest) = host.strip_prefix("wss://") {
+        let (authority, path) = rest
+            .split_once('/')
+            .map_or((rest, ws::PATH.to_owned()), |(authority, path)| {
+                (authority, format!("/{path}"))
+            });
+        let (name, port) = split_port(authority);
+        return Ok(Carrier::Wss(WsEndpoint {
+            address: with_port(name, port.unwrap_or(DEFAULT_WSS_PORT)),
+            server_name: name.to_owned(),
+            path,
+        }));
+    }
+    let (address, server_name) = endpoint(host.strip_prefix("tcp://").unwrap_or(host));
+    Ok(Carrier::Tcp {
+        address,
+        server_name,
+    })
+}
 
 /// One Retina `screen()` capture retains ~103 MB RSS that the allocator does
 /// not return (#1775); 512 covers that plus encode-buffer headroom.
@@ -25,6 +75,8 @@ pub const DEFAULT_MEMORY_BUDGET_MB: u64 = 512;
 pub enum ConfigError {
     #[error("host_unresolved")]
     HostUnresolved,
+    #[error("plaintext_ws_refused")]
+    PlaintextWs,
     #[error("pin_required")]
     PinRequired,
     #[error("invalid host pin")]
@@ -160,7 +212,7 @@ pub fn split_port(value: &str) -> (&str, Option<&str>) {
         .map_or((value, None), |(host, port)| (host, Some(port)))
 }
 
-fn with_port(host: &str, port: &str) -> String {
+pub(crate) fn with_port(host: &str, port: &str) -> String {
     if host.contains(':') {
         format!("[{host}]:{port}")
     } else {
@@ -177,7 +229,7 @@ pub fn endpoint(value: &str) -> (String, String) {
 }
 
 pub fn resolve_address(value: &str) -> Result<String, ConfigError> {
-    let (host, port) = split_port(value);
+    let (host, port) = split_port(value.strip_prefix("tcp://").unwrap_or(value));
     let address = resolve_host(host)?;
     Ok(port.map_or_else(|| address.clone(), |port| with_port(&address, port)))
 }
