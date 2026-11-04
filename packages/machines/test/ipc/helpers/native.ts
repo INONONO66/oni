@@ -1,7 +1,8 @@
 import { Effect } from "effect";
 import type { IdSource, Ipc } from "@oni/protocol";
-import { connectIpcClient as connect, connectIpcTcpClient as connectTcp, connectIpcWsClient as connectWs, createIpcServer as listen, createIpcTcpServer as listenTcp, createIpcWsServer as listenWs, typedCall as nativeCall } from "../../../src";
-import type { IpcTcpConnectSpec, IpcTcpListenSpec, IpcWsConnectSpec, IpcWsListenSpec } from "../../../src";
+import { connectIpcClient as connect, connectIpcTcpClient as connectTcp, createIpcServer as listen, createIpcTcpServer as listenTcp, createIpcWsServer as listenWs, typedCall as nativeCall } from "../../../src";
+import type { IpcTcpConnectSpec, IpcTcpListenSpec, IpcWsListenSpec } from "../../../src";
+import { connectIpcWsClient as connectWs, type IpcWsConnectSpec } from "./ws-client";
 import { PeerRequestTable as NativeTable } from "../../../src/ipc/peer-request-table";
 import { decodeIpcFailure } from "../../../src/failure";
 import { acquire, run, sync } from "./effects";

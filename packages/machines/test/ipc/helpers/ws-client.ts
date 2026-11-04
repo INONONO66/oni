@@ -2,10 +2,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { Duplex } from "node:stream";
 import type tls from "node:tls";
 import type { Effect, Scope } from "effect";
-import { connectOverTransport, pinnedTlsDial, type ConnectIpcClientOptions, type IpcClient } from "./client";
-import { IpcConnectionError, IpcProtocolError, type IpcError } from "./errors";
-import type { IpcTlsIdentity } from "./tls";
-import { IPC_WS_PATH } from "./ws-server";
+import { connectOverTransport, pinnedTlsDial, type ConnectIpcClientOptions, type IpcClient } from "../../../src/ipc/client";
+import { IpcConnectionError, IpcProtocolError, type IpcError } from "../../../src/ipc/errors";
+import type { IpcTlsIdentity } from "../../../src/ipc/tls";
+import { IPC_WS_PATH } from "../../../src/ipc/ws-server";
 
 /** WebSocket-over-TLS connection spec (#1830): the TCP trust model over an upgraded `/machine`. */
 export type IpcWsConnectSpec = {
