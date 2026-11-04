@@ -8,6 +8,7 @@ function resilienceIds(prefix: string): () => string {
   let n = 0;
   return () => { n += 1; return `${prefix}-${n}`; };
 }
+import { carriers } from "./helpers/carriers";
 import { acquire } from "./helpers/effects";
 import { connectIpcClient } from "./helpers/native";
 import { IpcConnectionError, IpcRemoteError } from "../../src/ipc/errors";
@@ -27,12 +28,11 @@ function collectingLogger(marker: string, resolve: (logLevel: string) => void) {
 describe("IPC transport resilience (#QB1)", () => {
   const { servers, clients } = transportFixture();
 
-  test("throwing onRequest handler → typed error frame, not a process crash", async () => {
-    const socketPath = socketPathForTest("throw");
-    const srv = await createIpcServer(socketPath, () => undefined);
+  test.each(carriers)("throwing onRequest handler → typed error frame, not a process crash over $name", async (carrier) => {
+    const srv = await carrier.listen("throw", () => undefined);
     servers.push(srv);
 
-    const client = await connectIpcClient(socketPath, {
+    const client = await carrier.connect(srv.endpoint, {
       onRequest(method, _params, respond) {
         if (method === "boom") throw new TypeError("handler blew up");
         respond({ ok: method });
@@ -46,12 +46,11 @@ describe("IPC transport resilience (#QB1)", () => {
     expect(await srv.call("ok")).toEqual({ ok: "ok" });
   });
 
-  test("removing the active connection lets the next connection bind", async () => {
-    const socketPath = socketPathForTest("active");
+  test.each(carriers)("removing the active connection lets the next connection bind over $name", async (carrier) => {
     const disconnected = deferred<string>();
     const connectionIds = new Map<string, string>();
-    const srv = await createIpcServer(
-      socketPath,
+    const srv = await carrier.listen(
+      "active",
       (method, params, respond, _notify, connectionId) => {
         if (method === "register") connectionIds.set(String(params?.name), connectionId);
         respond({ ok: true });
@@ -60,17 +59,17 @@ describe("IPC transport resilience (#QB1)", () => {
     );
     servers.push(srv);
 
-    const c1 = await connectIpcClient(socketPath, {
+    const c1 = await carrier.connect(srv.endpoint, {
       onRequest: (_m, _p, respond) => respond({ from: "c1" }),
     });
     clients.push(c1);
     await c1.call("register", { name: "c1" });
     const c1ConnectionId = connectionIds.get("c1");
     if (!c1ConnectionId) throw new Error("c1 connection id was not captured");
-    expect(srv.native.isConnected(c1ConnectionId)).toBe(true);
+    expect(srv.isConnected(c1ConnectionId)).toBe(true);
     srv.useConnection(c1ConnectionId);
 
-    const c2 = await connectIpcClient(socketPath, {
+    const c2 = await carrier.connect(srv.endpoint, {
       onRequest: (_m, _p, respond) => respond({ from: "c2" }),
     });
     clients.push(c2);
@@ -82,20 +81,19 @@ describe("IPC transport resilience (#QB1)", () => {
     // Drop the active connection.
     c1.close();
     expect(await within(disconnected.promise, "active connection removal")).toBe(c1ConnectionId);
-    expect(srv.native.isConnected(c1ConnectionId)).toBe(false);
+    expect(srv.isConnected(c1ConnectionId)).toBe(false);
 
     // Clearing the active id lets the surviving connection bind.
     expect(await srv.call("ping")).toEqual({ from: "c2" });
   });
 
-  test("ASYNC-rejecting server handler → typed error frame, not a burned timeout", async () => {
-    const socketPath = socketPathForTest("async-throw-server");
-    const srv = await createIpcServer(socketPath, async (method, _params, respond) => {
+  test.each(carriers)("ASYNC-rejecting server handler → typed error frame, not a burned timeout over $name", async (carrier) => {
+    const srv = await carrier.listen("async-throw-server", async (method, _params, respond) => {
       if (method === "boom") throw new TypeError("async handler blew up");
       respond({ ok: method });
     });
     servers.push(srv);
-    const client = await connectIpcClient(socketPath);
+    const client = await carrier.connect(srv.endpoint);
     clients.push(client);
 
     const error = await captureError(client.call("boom", {}, 2_000));
@@ -106,11 +104,10 @@ describe("IPC transport resilience (#QB1)", () => {
     expect(await client.call("ok", {}, 2_000)).toEqual({ ok: "ok" });
   });
 
-  test("ASYNC-rejecting client onRequest → typed error frame, not a burned timeout", async () => {
-    const socketPath = socketPathForTest("async-throw-client");
-    const srv = await createIpcServer(socketPath, () => undefined);
+  test.each(carriers)("ASYNC-rejecting client onRequest → typed error frame, not a burned timeout over $name", async (carrier) => {
+    const srv = await carrier.listen("async-throw-client", () => undefined);
     servers.push(srv);
-    const client = await connectIpcClient(socketPath, {
+    const client = await carrier.connect(srv.endpoint, {
       onRequest: async (method, _params, respond) => {
         if (method === "boom") throw new TypeError("async client handler blew up");
         respond({ ok: method });
@@ -200,16 +197,15 @@ describe("IPC transport resilience (#QB1)", () => {
     expect(await client.call("ping", {}, 2_000)).toEqual({ ok: true });
   });
 
-  test("notify() reports a drop (false) vs a delivery (true)", async () => {
-    const socketPath = socketPathForTest("notify-signal");
-    const srv = await createIpcServer(socketPath, () => undefined);
+  test.each(carriers)("notify() reports a drop (false) vs a delivery (true) over $name", async (carrier) => {
+    const srv = await carrier.listen("notify-signal", () => undefined);
     servers.push(srv);
 
     // No connection: the notification is dropped and the caller can tell.
     expect(srv.notify("event.fired", {})).toBe(false);
 
     const delivered = deferred();
-    const client = await connectIpcClient(socketPath, {
+    const client = await carrier.connect(srv.endpoint, {
       onNotification: (method) => {
         if (method === "event.fired") delivered.resolve();
       },

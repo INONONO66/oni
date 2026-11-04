@@ -1,21 +1,18 @@
 import { describe, test, expect } from "bun:test";
 import { z } from "zod";
-import { connectIpcClient } from "./helpers/native";
-import { createIpcServer } from "./helpers/native";
+import { carriers } from "./helpers/carriers";
 import { deferred, within } from "./helpers/signal";
-import { socketPath as socketPathForTest } from "./helpers/socket-path";
 import { transportFixture } from "./helpers/transport";
 
-describe("IPC bidirectional", () => {
+describe.each(carriers)("IPC bidirectional over $name", (carrier) => {
   const { servers, clients } = transportFixture();
 
   test("client receives incoming Request → onRequest fires → response sent back", async () => {
-    const socketPath = socketPathForTest("req");
-    const srv = await createIpcServer(socketPath, () => undefined);
+    const srv = await carrier.listen("req", () => undefined);
     servers.push(srv);
 
     const received = { method: "", params: { msg: "" } };
-    const client = await connectIpcClient(socketPath, {
+    const client = await carrier.connect(srv.endpoint, {
       onRequest(method, params, respond) {
         received.method = method;
         received.params = z.object({ msg: z.string() }).parse(params);
@@ -32,15 +29,14 @@ describe("IPC bidirectional", () => {
   });
 
   test("client receives Notification → onNotification fires", async () => {
-    const socketPath = socketPathForTest("notif");
-    const srv = await createIpcServer(socketPath, () => undefined);
+    const srv = await carrier.listen("notif", () => undefined);
     servers.push(srv);
 
     let notifMethod = "";
     let notifParams: { key: string } | undefined;
 
     const notifReceived = deferred();
-    const client = await connectIpcClient(socketPath, {
+    const client = await carrier.connect(srv.endpoint, {
       onNotification(method, params) {
         notifMethod = method;
         notifParams = z.object({ key: z.string() }).parse(params);
@@ -60,13 +56,12 @@ describe("IPC bidirectional", () => {
     // A throw here would surface as an uncaughtException in the process
     // hosting the client (e.g. a parent process supervising its children).
     // The contract mirrors the server: log, keep the connection draining.
-    const socketPath = socketPathForTest("notifThrow");
-    const srv = await createIpcServer(socketPath, () => undefined);
+    const srv = await carrier.listen("notifThrow", () => undefined);
     servers.push(srv);
 
     const seen: string[] = [];
     const drained = deferred();
-    const client = await connectIpcClient(socketPath, {
+    const client = await carrier.connect(srv.endpoint, {
       onNotification(method) {
         seen.push(method);
         if (method === "boom.sync") throw new Error("sync handler failure");
@@ -87,11 +82,10 @@ describe("IPC bidirectional", () => {
   });
 
   test("server.call() → client receives → responds → server gets result", async () => {
-    const socketPath = socketPathForTest("srvCall");
-    const srv = await createIpcServer(socketPath, () => undefined);
+    const srv = await carrier.listen("srvCall", () => undefined);
     servers.push(srv);
 
-    const client = await connectIpcClient(socketPath, {
+    const client = await carrier.connect(srv.endpoint, {
       onRequest(_method, params, respond) {
         respond({ doubled: z.object({ n: z.number() }).parse(params).n * 2 });
       },
@@ -103,13 +97,12 @@ describe("IPC bidirectional", () => {
   });
 
   test("existing client.call() flow unchanged", async () => {
-    const socketPath = socketPathForTest("clientCall");
-    const srv = await createIpcServer(socketPath, (method, params, respond) => {
+    const srv = await carrier.listen("clientCall", (method, params, respond) => {
       if (method === "echo") respond({ got: params?.v });
     });
     servers.push(srv);
 
-    const client = await connectIpcClient(socketPath);
+    const client = await carrier.connect(srv.endpoint);
     clients.push(client);
 
     const result = await client.call("echo", { v: "unchanged" });

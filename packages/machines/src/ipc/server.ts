@@ -15,7 +15,7 @@ function unlinkIfExists(socketPath: string): void {
   fs.rmSync(socketPath, { force: true });
 }
 
-interface IpcServerOptions {
+export interface IpcServerOptions {
   /** Injected request-id entropy (#1245): required, no ambient crypto fallback. */
   readonly idSource: IdSource;
   /** Callback dispatcher bound (#1312): required, the composition chooses it. */
@@ -27,7 +27,7 @@ interface IpcServerOptions {
   readonly onDisconnect?: (connectionId: string) => Effect.Effect<void, IpcError>;
 }
 
-type RequestHandler = (
+export type RequestHandler = (
   method: string,
   params: Ipc.Request["params"],
   respond: (result: Ipc.Response["result"]) => void,
@@ -35,8 +35,8 @@ type RequestHandler = (
   connectionId: string,
 ) => Effect.Effect<void, IpcError>;
 
-/** Transport-independent request/notification surface shared by both listeners. */
-interface IpcServerApi {
+/** Transport-independent request/notification surface shared by the three listeners. */
+export interface IpcServerApi {
   call(
     method: string,
     params?: Ipc.Request["params"],
@@ -100,11 +100,15 @@ function probeSocketLive(socketPath: string): Effect.Effect<boolean> {
   }).pipe(Effect.timeoutOption(SOCKET_PROBE_TIMEOUT_MS), Effect.map((value) => value._tag === "None" || value.value));
 }
 
-interface SocketData {
+export interface SocketData {
   id: string;
 }
 
-interface BunSocket {
+/**
+ * What the shared core needs from a connected peer: Bun's socket for the
+ * Unix and TLS listeners, one WebSocket connection for the `ws` listener.
+ */
+export interface BunSocket {
   data: SocketData | undefined;
   write(data: Buffer | Uint8Array | string): number;
   end(): void;
@@ -139,9 +143,10 @@ type ConnectionState = {
  * limits, backpressure and the connection registry over any connected byte
  * stream Bun hands us. `open` is the stream-ready entry point — the Unix
  * listener calls it on socket open, the TLS listener only after the handshake
- * produced a client certificate fingerprint.
+ * produced a client certificate fingerprint, the WebSocket listener on
+ * `open` of an upgraded connection.
  */
-interface ServerCore {
+export interface ServerCore {
   open(socket: BunSocket, peerFingerprint?: string): void;
   readonly handlers: {
     data(socket: BunSocket, raw: Buffer): void;
@@ -152,7 +157,7 @@ interface ServerCore {
   readonly api: Omit<IpcServerApi, "close">;
 }
 
-function makeServerCore(handler: RequestHandler, options: IpcServerOptions, dispatch: Dispatch): ServerCore {
+export function makeServerCore(handler: RequestHandler, options: IpcServerOptions, dispatch: Dispatch): ServerCore {
   function connectionIdOf(socket: BunSocket): string | undefined {
     return socket.data?.id;
   }
@@ -362,7 +367,7 @@ function makeServerCore(handler: RequestHandler, options: IpcServerOptions, disp
   };
 }
 
-/** Idempotent server shutdown shared by both listeners. */
+/** Idempotent server shutdown shared by every listener. */
 function makeServerClose(core: ServerCore, stop: () => void): Effect.Effect<void, IpcError> {
   let closed = false;
   return Effect.try({ try: () => {
@@ -373,8 +378,8 @@ function makeServerClose(core: ServerCore, stop: () => void): Effect.Effect<void
   }, catch: decodeIpcFailure("server.close") });
 }
 
-/** One Bun.listen door over the shared core: typed listen failure plus scoped idempotent close. */
-function bindDoor<T>(
+/** One listening door over the shared core: typed listen failure plus scoped idempotent close. */
+export function bindDoor<T>(
   core: ServerCore,
   listen: () => T,
   stop: (server: T) => void,

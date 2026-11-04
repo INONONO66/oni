@@ -1,17 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { connectIpcClient, createIpcServer } from "./helpers/native";
+import { type Carrier, carriers } from "./helpers/carriers";
 import { deferred, within } from "./helpers/signal";
-import { socketPath } from "./helpers/socket-path";
 import { connectRaw, transportFixture } from "./helpers/transport";
 
 describe("disconnect observers", () => {
   const { servers, clients, rawSockets } = transportFixture();
 
-  async function observedServer() {
+  async function observedServer(carrier: Carrier) {
     const disconnects: string[] = [];
     let next = deferred<string>();
-    const server = await createIpcServer(
-      socketPath("disconnect"),
+    const server = await carrier.listen(
+      "disconnect",
       (_method, _params, respond) => respond({ ok: true }),
       { onDisconnect: (id) => { disconnects.push(id); next.resolve(id); } },
     );
@@ -27,10 +26,10 @@ describe("disconnect observers", () => {
     };
   }
 
-  test("onDisconnect fires once for each gracefully closed connection", async () => {
-    const observed = await observedServer();
-    const first = await connectIpcClient(observed.server.socketPath);
-    const second = await connectIpcClient(observed.server.socketPath);
+  test.each(carriers)("onDisconnect fires once for each gracefully closed connection over $name", async (carrier) => {
+    const observed = await observedServer(carrier);
+    const first = await carrier.connect(observed.server.endpoint);
+    const second = await carrier.connect(observed.server.endpoint);
     clients.push(first, second);
     await first.call("ping");
     await second.call("ping");
@@ -43,8 +42,9 @@ describe("disconnect observers", () => {
   });
 
   test("onDisconnect fires once on abrupt socket destruction", async () => {
-    const observed = await observedServer();
-    const raw = await connectRaw(observed.server.socketPath);
+    const unix = carriers[0] as Carrier;
+    const observed = await observedServer(unix);
+    const raw = await connectRaw(observed.server.endpoint);
     rawSockets.push(raw);
     const id = await observed.disconnect(() => raw.destroy());
     expect(observed.disconnects).toEqual([id]);

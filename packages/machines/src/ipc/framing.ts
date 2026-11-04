@@ -5,7 +5,8 @@ import { IpcProtocolError } from "./errors";
 const encoder = new TextEncoder();
 
 // 16 MiB — reject any single frame that exceeds this before unbounded growth
-const MAX_FRAME_BYTES = 16 * 1024 * 1024;
+/** The decoder's per-frame cap; the WebSocket listener's message cap derives from it. */
+export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 // Cap each reported malformed line so error reporting stays bounded.
 const MALFORMED_REPORT_CHARS = 64;

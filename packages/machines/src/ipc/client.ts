@@ -1,5 +1,6 @@
 import { X509Certificate } from "node:crypto";
 import net from "node:net";
+import type { Duplex } from "node:stream";
 import tls from "node:tls";
 import { Ipc, type IdSource, type PlainValue } from "@oni/protocol";
 import { Effect, type Scope } from "effect";
@@ -29,7 +30,8 @@ export type ConnectIpcClientOptions = {
 
 /** A started connection attempt: the socket plus its error classification. */
 type StartedSocket = {
-  readonly socket: net.Socket;
+  /** A node socket for Unix and TLS-TCP; the frame stream over an upgraded WebSocket. */
+  readonly socket: Duplex;
   /**
    * Maps a socket error to a typed failure that overrides the generic
    * `IpcConnectionError` — the TLS transport routes host-identity failures
@@ -40,12 +42,12 @@ type StartedSocket = {
   readonly classifyError?: (error: Error) => IpcError | undefined;
 };
 
-/** One connected-byte-stream contract; Unix and TLS-over-TCP differ only here. */
-type ClientTransport = {
+/** One connected-byte-stream contract; the Unix, TLS-over-TCP and WebSocket carriers differ only here. */
+export type ClientTransport = {
   /** Names the target in connect-timeout errors. */
   readonly endpoint: string;
-  /** The event that marks the stream ready for frames (TLS: after handshake). */
-  readonly readyEvent: "connect" | "secureConnect";
+  /** The event that marks the stream ready for frames (TLS: after handshake; WebSocket: after the upgrade). */
+  readonly readyEvent: "connect" | "secureConnect" | "open";
   /** Creates the socket and initiates the connection. */
   readonly start: () => StartedSocket;
 };
@@ -93,28 +95,47 @@ const X509_VERIFY_CODES: ReadonlySet<string> = new Set([
   "CERT_NOT_YET_VALID",
 ]);
 
+/** The pinned mutual-TLS target shared by the TCP and WebSocket carriers. */
+export type PinnedTlsTarget = {
+  readonly host: string;
+  readonly port: number;
+  readonly tls: IpcTlsIdentity;
+  readonly hostCertificate: string;
+};
+
+/** A pinned TLS session: the socket plus the host-identity failure classifier. */
+export type PinnedTlsSocket = {
+  readonly socket: tls.TLSSocket;
+  readonly classifyError: (error: Error) => IpcError | undefined;
+};
+
+/**
+ * The dial behind both TLS carriers. The expected pin is derived eagerly so a
+ * malformed host certificate fails at the call site, before any connection.
+ */
+export function pinnedTlsDial(target: PinnedTlsTarget): () => PinnedTlsSocket {
+  const expected = certificateKeyFingerprint(new X509Certificate(target.hostCertificate).raw);
+  return () => {
+    const socket = tls.connect({
+      host: target.host,
+      port: target.port,
+      cert: target.tls.certificate,
+      key: target.tls.privateKey,
+      // The configured host certificate IS the trust store: the presented
+      // chain must validate against it, then checkServerIdentity pins the
+      // key. CN-only self-signed host certs keep working — the identity
+      // check is the SPKI fingerprint, never hostname semantics.
+      ca: [target.hostCertificate],
+      rejectUnauthorized: true,
+      checkServerIdentity: (_host: string, peer: tls.PeerCertificate) => hostPinMismatch(peer.raw, expected),
+    });
+    return { socket, classifyError: (error) => hostVerificationFailure(error, expected) };
+  };
+}
+
 export function connectIpcTcpClient(spec: IpcTcpConnectSpec, opts: ConnectIpcClientOptions): Effect.Effect<IpcClient, IpcError, Scope.Scope> {
-  const expected = certificateKeyFingerprint(new X509Certificate(spec.hostCertificate).raw);
-  return connectOverTransport({
-    endpoint: `${spec.tcp.host}:${spec.tcp.port}`,
-    readyEvent: "secureConnect",
-    start: () => {
-      const socket = tls.connect({
-        host: spec.tcp.host,
-        port: spec.tcp.port,
-        cert: spec.tls.certificate,
-        key: spec.tls.privateKey,
-        // The configured host certificate IS the trust store: the presented
-        // chain must validate against it, then checkServerIdentity pins the
-        // key. CN-only self-signed host certs keep working — the identity
-        // check is the SPKI fingerprint, never hostname semantics.
-        ca: [spec.hostCertificate],
-        rejectUnauthorized: true,
-        checkServerIdentity: (_host: string, peer: tls.PeerCertificate) => hostPinMismatch(peer.raw, expected),
-      });
-      return { socket, classifyError: (error) => hostVerificationFailure(error, expected) };
-    },
-  }, opts);
+  const dial = pinnedTlsDial({ ...spec.tcp, tls: spec.tls, hostCertificate: spec.hostCertificate });
+  return connectOverTransport({ endpoint: `${spec.tcp.host}:${spec.tcp.port}`, readyEvent: "secureConnect", start: dial }, opts);
 }
 
 /** The in-handshake pin check: undefined admits, the typed error aborts. */
@@ -180,11 +201,11 @@ function makeClientDataHandler(sink: ClientFrameSink): (chunk: Buffer) => void {
   };
 }
 
-function connectOverTransport(transport: ClientTransport, opts: ConnectIpcClientOptions): Effect.Effect<IpcClient, IpcError, Scope.Scope> {
+export function connectOverTransport(transport: ClientTransport, opts: ConnectIpcClientOptions): Effect.Effect<IpcClient, IpcError, Scope.Scope> {
   return Effect.gen(function* () {
     const dispatch = yield* makeDispatcher({ bound: opts.dispatcherBound });
     const decoder = new LineDecoder();
-    let socket: net.Socket | undefined;
+    let socket: Duplex | undefined;
     let connected = false;
     let closed = false;
     const peer = new PeerRequestTable({
