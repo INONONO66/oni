@@ -1,5 +1,36 @@
 # Implementation Status
 
+## #1845 machine-layer slop removal
+
+PR #1853 on `refactor/1845-machine-slop` (epic #1829 Phase 1). Five of the
+issue's six candidates are deleted with their call sites; item 2 (the legacy
+`screen.read` / `input.write` pair beside the `computer` handle) is split into
+#1854 and ordered after #1841.
+
+- Trust: the mclient `--trust-on-first-use` join flag and
+  `HostTrust::TrustOnFirstUse` are gone. The TLS verifier always holds an
+  expected host key; `join` persists only a key it verified against
+  `--host-pin`, `--host-cert` or `~/.oni/tls/host-cert.pem`, and a host with
+  none of those is refused `pin_required`. The one-time `{"hostPin"}` stderr
+  notice went with it.
+- CLI: `probe --release` is `update --check [--file <release>]
+  [--host-contract <n>]` (with no file it fetches the host's release); `retry`
+  is `reconnect`; `hook` is hidden from `--help`. A hidden `probe --release`
+  alias answers exactly like `update --check` so a client staging this binary
+  from an earlier release still verifies it (`release/verify.rs` calls
+  `update --check --file` on the staged binary;
+  `update_check_verifies_release_contract_without_connecting_or_switching`
+  covers both spellings).
+- TypeScript attach verb: `apps/oni/src/cli/machine.ts` and the
+  `oni machine attach` dispatch are deleted; `oni machine` knows only `probe`.
+  The enrollment test is ported to `test/mclient-enrollment.test.ts` over the
+  real client, and `test/machine-cli.test.ts` keeps the pinned-TLS reconnect
+  proof (`a real client redials a pinned TLS host after a transport drop`:
+  a severed proxy, the next report at a higher generation, a read after it).
+- `release.rs` is `release/{fetch,verify,switch}.rs`; `screen/observe` tests
+  share pixel fixtures through `editor`, `fixture`, `observed` and `frame`
+  helpers (74 tests, 281 assertions, bodies unchanged).
+
 ## #1797 rule and agent store API on the ws door
 
 PR #1827 retains the existing `rule_add`, `rule_remove`, `rule_enable`,
@@ -658,7 +689,7 @@ releases.
 
 The client classifies attach failures and uses an upper-half jittered
 2–300 s exponential retry schedule. Authentication and configuration
-park with a 5 min re-probe; a wake, network change or `mclient retry`
+park with a 5 min re-probe; a wake, network change or `mclient reconnect`
 interrupts the delay. An offered `ping` opts a peer into host-side 5 s
 probes and 15 s detach; peers without it retain report-cadence liveness.
 The client reconnects after 15 s without a host frame. `Report.transport`
@@ -1427,7 +1458,7 @@ pinning with handshake signature checks (`connection.rs`). `config.rs` owns
 `join` parsing: host resolution (IP or dotted name as given; a bare name
 through the tailnet status peer list, else `host_unresolved`; port default
 7643), trust precedence `--host-pin` > `--host-cert` >
-`~/.oni/tls/host-cert.pem` > `--trust-on-first-use` > `pin_required`,
+`~/.oni/tls/host-cert.pem` > `pin_required`,
 export validation, the 0700 directory and 0600 files, and the ten-year
 self-signed EC P-256 client identity. `attach.rs` owns the loop: the Offer
 with `peer.kind = "client"` (the `generation` key omitted on a first
@@ -4366,7 +4397,7 @@ The comment gate has one enforcement layer, its existing exact per-file pins.
 - Cadence: `apps/oni/src/composition/watch-plane.ts` arms one `watch`-purpose cadence chain per native path source on the app alarm plane (one-second cadence as the issue specifies), re-armed from its own fired row while the path watch is live and superseded with `at: null` on close; restoring a source arms once and never restarts an existing handle; arm refusals surface the entity's typed reason. Empty ticks return the no-drain `exhausted` outcome so the session can passivate; they still write two durable rows per watch per second, which is the Owner decision in #1477.
 - Lifecycle: `composition/watch-sources.ts` reports typed retire failures through `options.failure`; `closeAll()` awaits pending installs and in-flight retirements with `allSettled`, and installs after shutdown started refuse with `WatchRefused({ reason: "shutdown" })`. `index.ts` runs `watchSources.closeAll()` while the Effect runtime is live so retirement can complete.
 - Capacity: a path watch holds two armed rows (three with a timeout) under the 64 armed-row cap — `2P + 3T + other ≤ 64`; an install past the cap is a typed `alarm_budget` refusal with complete cleanup.
-- Clock: the CLI reconnect and termination delays (`cli/machine.ts`, `cli/main.ts`) run on the Effect clock; CLI readiness is signalled over the child's stdout pipe. `setInterval|setTimeout` under `apps/oni/src` is zero.
+- Clock: the CLI reconnect and termination delays (`cli/main.ts`; the former `cli/machine.ts` attach verb left with #1845) run on the Effect clock; CLI readiness is signalled over the child's stdout pipe. `setInterval|setTimeout` under `apps/oni/src` is zero.
 - Review r1: High 2 (close/closeAll rejections; missing real-wiring TestClock test → `test/app-watch-cadence.test.ts` proves one armed cadence row per live path watch, a dropped create recovered by the fired cadence, zero rows after cancel), Medium 5 (per-tick drain, capacity, install after shutdown, `fs.watch` readiness, docs) all fixed; Lows recorded on the PR.
 - Verification (bun 1.4.1 pinned, behind the host gate lock): focused files after the r1 fix watch-sources 23 / app-watch-cadence 1 / cli-entry 28 pass; oniApp lane and patch coverage rerun after the rebase onto `11061c992` (recorded on the PR); check-types, lint, lint:tools, check-deps, check-effect-boundaries, check-dead-exports, check-journal-writers exit 0; PR CI green.
 - Quiet ticks (#1477): an empty cadence tick returns `{outcome: "quiet", at}`; the core moves the same armed occurrence forward in `armed_alarms` and re-sends it keyed `occurrenceId@tick` with no `fired` or re-arm row, so a path watch costs the journal nothing while nothing happens (was 2 rows/watch/second). A real fire or retire settles the chain as before. Receipt: `test/app-watch-cadence.test.ts`.

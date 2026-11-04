@@ -270,24 +270,12 @@ async fn empty_host_certificate_is_refused_before_connecting() {
 }
 
 #[tokio::test]
-async fn trust_on_first_use_returns_observed_pin_for_subsequent_connections() {
-    let host = FakeHost::tls().await;
-    let (_, pin) = Client::connect_tls(
-        &host.endpoint,
-        "localhost",
-        HostTrust::TrustOnFirstUse,
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
-        handler(|_, _| async { Ok(json!(null)) }),
-    )
-    .await
-    .expect("first connection");
-    drop(host);
+async fn explicit_pin_refuses_a_different_host_key() {
     let host = FakeHost::tls().await;
     let result = Client::connect_tls(
         &host.endpoint,
         "localhost",
-        HostTrust::Pin(pin),
+        HostTrust::Pin([0; 32]),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         handler(|_, _| async { Ok(json!(null)) }),

@@ -49,18 +49,29 @@ enum Command {
         from: Option<String>,
         #[arg(long)]
         file: Option<PathBuf>,
+        /// Verify the release's contract against this binary without switching.
+        #[arg(long)]
+        check: bool,
+        /// The host's contract version when it is already known; only with --check.
+        #[arg(long, requires = "check")]
+        host_contract: Option<u64>,
     },
+    /// `update --check --file <release>` under the name clients published before
+    /// it call while they verify this binary as their staged release.
+    #[command(hide = true)]
     Probe {
         #[arg(long)]
         release: PathBuf,
         #[arg(long)]
         host_contract: Option<u64>,
     },
-    Retry {
+    /// Ask the running service to reconnect now instead of after its backoff.
+    Reconnect {
         #[arg(long)]
         config: Option<PathBuf>,
     },
-    #[command(subcommand)]
+    /// Plumbing for launched CLI agents; not a user entry point.
+    #[command(subcommand, hide = true)]
     Hook(Hook),
 }
 
@@ -91,12 +102,18 @@ async fn main() -> ExitCode {
             allow_unpinned,
             once,
         }) => run(config, allow_unpinned, once).await,
-        Some(Command::Update { from, file }) => update(from, file).await,
+        Some(Command::Update {
+            from,
+            file,
+            check: true,
+            host_contract,
+        }) => check(from, file, host_contract).await,
+        Some(Command::Update { from, file, .. }) => update(from, file).await,
         Some(Command::Probe {
             release,
             host_contract,
-        }) => probe(&release, host_contract),
-        Some(Command::Retry { config }) => retry(config.as_deref()),
+        }) => check(None, Some(release), host_contract).await,
+        Some(Command::Reconnect { config }) => reconnect(config.as_deref()),
         Some(Command::Hook(Hook::Permission { cli })) => {
             let socket = config::agent_hook_socket();
             let outcome =
@@ -116,7 +133,7 @@ async fn main() -> ExitCode {
             };
         }
         None => {
-            eprintln!("usage: mclient --version | join <host> | status | run | update | probe");
+            eprintln!("usage: mclient --version | join <host> | status | run | update | reconnect");
             return ExitCode::from(2);
         }
     };
@@ -171,8 +188,25 @@ async fn run(path: Option<PathBuf>, allow_unpinned: bool, once: bool) -> Result<
     }
 }
 
-fn probe(path: &Path, host: Option<u64>) -> Result<(), AttachError> {
-    let release = release::parse_release(release::document(&path.to_string_lossy())?)?;
+/// `update --check`: the release an update would select, verified against
+/// this binary's contract and the host's, without staging or switching.
+/// An explicit `--from`/`--file` document is checked without connecting, so
+/// the host's contract then comes only from `--host-contract`; the staged
+/// binary is checked this way before every switch.
+async fn check(
+    from: Option<String>,
+    file: Option<PathBuf>,
+    host: Option<u64>,
+) -> Result<(), AttachError> {
+    let location = from.or_else(|| file.map(|path| path.to_string_lossy().into_owned()));
+    let (document, host) = match location {
+        Some(location) => (release::document(&location)?, host),
+        None => {
+            let (document, _, hosted) = source(&Layout::new(config::root()), None, None).await?;
+            (document, host.or(hosted))
+        }
+    };
+    let release = release::parse_release(document)?;
     release::compatible(
         u64::from(oni_protocol::CONTRACT_VERSION),
         release.contract_version,
@@ -275,7 +309,7 @@ async fn update(from: Option<String>, file: Option<PathBuf>) -> Result<(), Attac
     Ok(())
 }
 
-fn retry(config_path: Option<&Path>) -> Result<(), AttachError> {
+fn reconnect(config_path: Option<&Path>) -> Result<(), AttachError> {
     use nix::{
         sys::signal::{kill, Signal},
         unistd::Pid,
@@ -293,7 +327,6 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
     let layout = Layout::new(config::root());
     let path = layout.client().join("client.json");
     if !options.json {
-        eprint!("{}", enrollment.notice());
         println!("{}", enrollment.receipt);
         println!("config: {}", path.display());
     }

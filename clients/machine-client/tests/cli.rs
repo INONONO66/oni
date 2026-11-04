@@ -408,18 +408,137 @@ async fn failed_join_service_install_restores_previous_host_pin_and_client() {
 }
 
 #[test]
-fn probe_checks_release_contract_without_connecting() {
+fn update_check_verifies_release_contract_without_connecting_or_switching() {
     let home = tempfile::tempdir().expect("home");
     let release = release_fixture(home.path());
     let path = release.to_str().expect("release path");
-    let accepted = mclient(&["probe", "--release", path, "--host-contract", "4"]);
+    let check = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(["update", "--check", "--file", path])
+            .args(args)
+            .output()
+            .expect("update --check")
+    };
+    let accepted = check(&["--host-contract", "4"]);
     assert_eq!(accepted.status.code(), Some(0));
-    let response: serde_json::Value = serde_json::from_slice(&accepted.stdout).expect("probe");
+    let response: serde_json::Value = serde_json::from_slice(&accepted.stdout).expect("check");
     assert_eq!(response["status"], "compatible");
-    let refused = mclient(&["probe", "--release", path, "--host-contract", "2"]);
+    assert_eq!(response["version"], env!("CARGO_PKG_VERSION"));
+    let refused = check(&["--host-contract", "2"]);
     assert_eq!(refused.status.code(), Some(2));
     let error: serde_json::Value = serde_json::from_slice(&refused.stderr).expect("refusal");
     assert_eq!(error["class"], "probe_failed");
+    assert!(!home.path().join(".oni/bin/current").exists());
+    assert!(!home
+        .path()
+        .join(".oni/machine-client/metrics.jsonl")
+        .exists());
+    let orphan = mclient(&["update", "--host-contract", "4"]);
+    assert_eq!(orphan.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&orphan.stderr).contains("--check"));
+    // A client staging this binary from a release before `update --check` still
+    // calls `probe --release`; the hidden alias answers exactly like the check.
+    let legacy = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["probe", "--release", path, "--host-contract", "4"])
+        .output()
+        .expect("probe --release");
+    assert_eq!(legacy.status.code(), Some(0));
+    assert_eq!(legacy.stdout, accepted.stdout);
+}
+
+#[tokio::test]
+async fn update_check_without_a_document_asks_the_host_for_its_release() {
+    let home = tempfile::tempdir().expect("home");
+    let release = release_fixture(home.path());
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&release).expect("release")).expect("document");
+    // A hosted document carries absolute artifact URLs; the fixture's is relative.
+    let platform =
+        oni_machine_client::release::platform(std::env::consts::OS, std::env::consts::ARCH)
+            .expect("supported build platform");
+    document["artifacts"][platform]["url"] = serde_json::json!(format!(
+        "file://{}",
+        home.path().join("archive.tgz").display()
+    ));
+    let socket = home.path().join("host.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).expect("release host");
+    let joined = mclient_at(
+        home.path(),
+        &[
+            "join",
+            "localhost",
+            "--unix",
+            socket.to_str().expect("socket"),
+            "--no-service",
+            "--no-open",
+        ],
+    );
+    let listener = &listener;
+    let serve = |response: serde_json::Value| async move {
+        use oni_machine_client::transport::framing::{write_frame, Framed};
+        use tokio::io::AsyncWriteExt;
+        let (stream, _) = listener.accept().await.expect("release connection");
+        let (reader, mut writer) = tokio::io::split(stream);
+        let request = Framed::new(reader)
+            .next()
+            .await
+            .expect("release frame")
+            .expect("release request");
+        assert_eq!(request["method"], "machine.release");
+        write_frame(
+            &mut writer,
+            &serde_json::json!({
+                "v": 2, "type": "response", "id": request["id"], "result": response
+            }),
+        )
+        .await
+        .expect("release reply");
+        writer.flush().await.expect("flush response");
+    };
+    let (joined, ()) = tokio::join!(
+        joined,
+        serve(serde_json::json!({"status": "refused", "reason": "release_unavailable"}))
+    );
+    assert_eq!(
+        joined.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&joined.stderr)
+    );
+    let current = home.path().join(".oni/bin/current");
+    let adopted = std::fs::read_link(&current).expect("join adopted the running binary");
+    let metrics = home.path().join(".oni/machine-client/metrics.jsonl");
+    let receipts = std::fs::read_to_string(&metrics).ok();
+    let check = mclient_at(home.path(), &["update", "--check"]);
+    let (checked, ()) = tokio::join!(
+        check,
+        serve(serde_json::json!({"status": "available", "release": document}))
+    );
+    assert_eq!(
+        checked.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&checked.stdout).expect("check");
+    assert_eq!(response["status"], "compatible");
+    assert_eq!(std::fs::read_link(&current).expect("current"), adopted);
+    assert_eq!(std::fs::read_to_string(&metrics).ok(), receipts);
+}
+
+/// Runs the binary with `HOME` isolated, off the test thread so a fake host
+/// on the same runtime can answer it.
+fn mclient_at(
+    home: &std::path::Path,
+    args: &[&str],
+) -> impl std::future::Future<Output = Output> + use<> {
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home)
+        .args(args)
+        .output();
+    async move { output.await.expect("mclient runs") }
 }
 
 #[test]
@@ -524,7 +643,7 @@ fn run_admits_a_saved_offline_pin_before_loading_config() {
 }
 
 #[test]
-fn join_requires_explicit_pin_or_tofu_for_network_host() {
+fn join_requires_an_explicit_pin_or_certificate_for_a_network_host() {
     let directory = tempfile::tempdir().expect("isolated home");
     let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
         .env("HOME", directory.path())
@@ -558,7 +677,7 @@ fn run_reports_missing_config() {
 }
 
 #[test]
-fn retry_refuses_missing_or_dead_service_without_spawning() {
+fn reconnect_refuses_missing_or_dead_service_without_spawning() {
     let home = tempfile::tempdir().expect("isolated home");
     let directory = home.path().join(".oni/machine-client");
     std::fs::create_dir_all(&directory).expect("state directory");
@@ -568,9 +687,9 @@ fn retry_refuses_missing_or_dead_service_without_spawning() {
         }
         let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
             .env("HOME", home.path())
-            .arg("retry")
+            .arg("reconnect")
             .output()
-            .expect("mclient retry");
+            .expect("mclient reconnect");
         assert_eq!(output.status.code(), Some(2));
         let error: serde_json::Value =
             serde_json::from_slice(&output.stderr).expect("typed refusal");
@@ -580,7 +699,7 @@ fn retry_refuses_missing_or_dead_service_without_spawning() {
 }
 
 #[tokio::test]
-async fn retry_signals_the_running_service_for_an_immediate_reprobe() {
+async fn reconnect_signals_the_running_service_for_an_immediate_reprobe() {
     use tokio::io::AsyncBufReadExt;
     let home = tempfile::tempdir().expect("isolated home");
     let mut service = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
@@ -598,13 +717,13 @@ async fn retry_signals_the_running_service_for_an_immediate_reprobe() {
         .expect("line");
     let fact: serde_json::Value = serde_json::from_str(&first).expect("class fact");
     assert_eq!(fact["class"], "configuration");
-    let retry = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+    let reconnect = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
         .env("HOME", home.path())
-        .arg("retry")
+        .arg("reconnect")
         .output()
         .await
-        .expect("retry command");
-    assert_eq!(retry.status.code(), Some(0));
+        .expect("reconnect command");
+    assert_eq!(reconnect.status.code(), Some(0));
     let second = tokio::time::timeout(std::time::Duration::from_secs(5), lines.next_line())
         .await
         .expect("immediate retry")
@@ -621,9 +740,32 @@ fn no_arguments_reports_usage_and_exits_two() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("utf-8 stderr"),
-        "usage: mclient --version | join <host> | status | run | update | probe\n"
+        "usage: mclient --version | join <host> | status | run | update | reconnect\n"
     );
     assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn help_lists_user_commands_and_hides_agent_hook_plumbing() {
+    let output = mclient(&["--help"]);
+    assert_eq!(output.status.code(), Some(0));
+    let help = String::from_utf8(output.stdout).expect("utf-8 help");
+    let listed = |name: &str| {
+        help.lines()
+            .any(|line| line.split_whitespace().next() == Some(name))
+    };
+    for command in ["join", "status", "run", "update", "reconnect"] {
+        assert!(listed(command), "{help}");
+    }
+    for hidden in ["hook", "probe", "retry"] {
+        assert!(!listed(hidden), "{help}");
+    }
+    let update = mclient(&["update", "--help"]);
+    let help = String::from_utf8(update.stdout).expect("utf-8 help");
+    assert!(
+        help.contains("--check") && help.contains("--host-contract"),
+        "{help}"
+    );
 }
 
 #[test]

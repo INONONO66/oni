@@ -35,7 +35,6 @@ export interface CliDeps {
   readonly io: DaemonIo;
   readonly envPath: string;
   readonly startApp: () => Promise<void>;
-  readonly attachMachine: (configPath: string) => Promise<number>;
   readonly streamProbe: StreamProbeDeps;
   readonly ask: Ask;
   readonly writeEnv: (entries: readonly EnvEntry[]) => void;
@@ -61,7 +60,7 @@ Usage:
   oni --version             print the version
   oni onboard               interactive setup → ~/.oni/env
   oni daemon <verb>         install | uninstall | status | start | stop | restart
-  oni machine <verb>        attach <config.json> | probe <machine-id> <display-id> [--reconnect-after-ms <ms>]
+  oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]  watch one attached display
   oni doctor                read-only diagnostics
   oni logs                  follow the daemon logs
   oni login <platform>      sign the Owner's own account in and declare it (slack | discord | instagram | kakaotalk | telegram)
@@ -98,11 +97,8 @@ export async function runCli(args: readonly string[], deps: CliDeps): Promise<nu
       return daemon(args[1], deps);
     case "machine":
       if (args[1] === "probe") return await streamProbeCommand(args.slice(2), deps.streamProbe, deps);
-      if (args[1] !== "attach" || args[2] === undefined || args.length !== 3) {
-        deps.stderr("usage: oni machine attach <config.json> | oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]");
-        return 1;
-      }
-      return deps.attachMachine(args[2]);
+      deps.stderr("usage: oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]");
+      return 1;
     case "doctor":
       return await doctor(deps);
     case "logs":

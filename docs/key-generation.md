@@ -75,9 +75,8 @@ generates its own identity and records the host's key in one run:
 2. Host trust is chosen in this precedence, first match wins:
    `--host-pin <64 hex>` (the host key's SPKI SHA-256; a malformed value is
    `invalid host pin`), then `--host-cert <pem>`, then
-   `~/.oni/tls/host-cert.pem` if present, then `--trust-on-first-use`.
-   None of them is `pin_required`: the client never connects unpinned by
-   default.
+   `~/.oni/tls/host-cert.pem` if present. None of them is `pin_required`:
+   the client never connects unpinned, and no flag turns that off.
 3. `~/.oni/machine-client/` is created 0700 and `client.json` written 0600
    (`machineId`, `name`, `host`, `exports`, `tags`, `memoryBudgetMb`,
    `unix`). `machineId` is the slug of `--name` (default: the hostname).
@@ -91,10 +90,8 @@ generates its own identity and records the host's key in one run:
    handshake signature as well as the key. The host's SPKI SHA-256 is then
    persisted as `host-pin` (0600) and that file is the only trust `run`
    consults afterwards. A certificate given by `--host-cert` or the shared
-   PEM must carry the key that is presented; `--trust-on-first-use` records
-   whatever key answered and prints it once as `{"hostPin": "<hex>"}` on
-   stderr so the Owner can compare it out of band. A host that later
-   presents a different key is refused `peer_key_mismatch` (exit 3); nothing
+   PEM must carry the key that is presented. A host that later presents a
+   different key is refused `peer_key_mismatch` (exit 3); nothing
    downgrades.
 6. Any saved attach generation (`state.json`) is cleared, and the enrollment
    receipt is printed on stdout as one JSON object:

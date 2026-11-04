@@ -84,8 +84,6 @@ pub struct JoinOptions {
     #[arg(long)]
     pub host_pin: Option<String>,
     #[arg(long)]
-    pub trust_on_first_use: bool,
-    #[arg(long)]
     pub unix: Option<PathBuf>,
     #[arg(long, default_value_t = DEFAULT_MEMORY_BUDGET_MB)]
     pub memory_budget_mb: u64,
@@ -143,9 +141,6 @@ pub fn trust(options: &JoinOptions, home: &Path) -> Result<HostTrust, ConfigErro
     }
     if let Ok(pem) = fs::read(home.join("tls/host-cert.pem")) {
         return Ok(HostTrust::CertPem(pem));
-    }
-    if options.trust_on_first_use {
-        return Ok(HostTrust::TrustOnFirstUse);
     }
     Err(ConfigError::PinRequired)
 }

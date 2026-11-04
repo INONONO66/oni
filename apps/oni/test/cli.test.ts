@@ -753,7 +753,6 @@ describe("cli dispatch", () => {
         io,
         envPath: "/Users/owner/.oni/env",
         startApp: () => Promise.resolve(),
-        attachMachine: async () => 0,
         streamProbe: {
           id: () => "request-1",
           connect: () => Promise.reject(new Error("no probe socket in this test")),
@@ -803,19 +802,12 @@ describe("cli dispatch", () => {
     };
   }
 
-  test("machine attach validates arity and forwards the config without starting the Resident", async () => {
-    const seen: string[] = [];
-    const { deps: cli } = deps({
-      attachMachine: async (path) => {
-        seen.push(path);
-        return 7;
-      },
-    });
+  test("machine knows only probe; the client itself joins a host", async () => {
+    const { deps: cli, err } = deps();
     expect(await runCli(["machine"], cli)).toBe(1);
-    expect(await runCli(["machine", "attach"], cli)).toBe(1);
-    expect(await runCli(["machine", "attach", "config.json", "extra"], cli)).toBe(1);
-    expect(await runCli(["machine", "attach", "config.json"], cli)).toBe(7);
-    expect(seen).toEqual(["config.json"]);
+    expect(await runCli(["machine", "attach", "config.json"], cli)).toBe(1);
+    const usage = "usage: oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]";
+    expect(err).toEqual([usage, usage]);
   });
 
   test("machine probe dispatch reports invalid options without opening a socket", async () => {
