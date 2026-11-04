@@ -105,7 +105,6 @@
       "name": "@oni/channels",
       "version": "0.0.1",
       "dependencies": {
-        "@oni/agent": "workspace:*",
         "@oni/protocol": "workspace:*",
         "agent-messenger": "github:INONONO66/agent-messenger#304e8e1abbf0b36d0bcbe15ca2ab32307cad1dc1",
         "effect": "4.0.0-rc.118",
