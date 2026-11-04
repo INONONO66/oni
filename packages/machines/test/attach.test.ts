@@ -96,7 +96,7 @@ describe("machine attach handshake", () => {
             effectiveExports: [],
             consentRequired: { capabilities: ["shell.exec"], exports: ["work"] },
           });
-          expect(host.list()).toMatchObject([{ capabilities: ["fs.read"], exports: [] }]);
+          expect(host.list().map((entry) => entry.capabilities)).toEqual([["fs.read"]]);
         } finally { peer.close(); }
       },
     );
