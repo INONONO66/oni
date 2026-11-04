@@ -50,7 +50,7 @@ export interface WorkspaceTopology {
  * was removed in #1780: it had zero consumers outside this inventory and one
  * conformance script. The import direction (right imports left) is:
  * protocol <- agent, ai, machines, channels, apps/oni, apps/desktop;
- * agent <- channels, apps/oni; ai <- apps/oni;
+ * agent <- apps/oni; ai <- apps/oni;
  * machines <- codemode, apps/oni; codemode <- apps/oni;
  * channels <- apps/oni; ui <- apps/desktop.
  */
@@ -123,9 +123,7 @@ export const TOPOLOGY = [
     displayName: "channels",
     dir: "packages/channels",
     packageName: "@oni/channels",
-    // Agent carries the policy gate and persistence seams absorbed in #1246;
-    // the channels judgment and store bands consume them through the barrel.
-    allowedDeps: ["@oni/protocol", "@oni/agent"],
+    allowedDeps: ["@oni/protocol"],
     testLane: true,
     coverageLane: true,
     knipWorkspace: true,

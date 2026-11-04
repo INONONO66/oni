@@ -21,12 +21,6 @@ test("the shipped tree passes every guard rule in-process", async () => {
 
 test.each([
   [
-    "packages/channels/src/authn/decision.ts",
-    "export const decide = () => true;",
-    "missing-canonical-policy-evaluator",
-    1,
-  ],
-  [
     "packages/channels/src/telegram/normalizer.ts",
     "\nevaluateTriggers(event);",
     "inline-channel-trigger-evaluation",
@@ -73,7 +67,6 @@ test.each([
   ["apps/oni/src/other.test.ts", 'const reasonCodes = ["stalled"];'],
   ["packages/agent/src/core/ports/reason-codes.ts", 'const reasonCodes = ["stalled"];'],
   ["packages/channels/src/telegram/other.ts", "evaluateTriggers(event);"],
-  ["packages/channels/src/authn/decision.ts", "evaluatePermission(actor);"],
 ])("permits the explicitly scoped guard exception in %s", (path, source) => {
   expect(validateGuardSource(path, source)).toEqual([]);
 });
@@ -94,17 +87,17 @@ test("guard lint reports planted source violations in-process", async () => {
   const root = mkdtempSync(join(tmpdir(), "guard-lint-"));
   for (const file of [
     "packages/agent/src/core/gate/bind.ts",
-    "packages/channels/src/authn/decision.ts",
+    "packages/channels/src/authn/other.ts",
   ]) {
     const target = join(root, file);
     mkdirSync(join(target, ".."), { recursive: true });
-    writeFileSync(target, file.endsWith("/decision.ts") ? "export const decide = true;" : "");
+    writeFileSync(target, file.endsWith("/other.ts") ? "allowlist.includes(actor);" : "");
   }
   try {
     await expectExitViolation(
       root,
       main,
-      "VIOLATION: packages/channels/src/authn/decision.ts:1 [missing-canonical-policy-evaluator]",
+      "VIOLATION: packages/channels/src/authn/other.ts:1 [ad-hoc-list-membership]",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
