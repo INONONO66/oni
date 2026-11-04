@@ -733,10 +733,14 @@ backoff, or answers `service_unavailable` when absent or dead; it never
 starts another service. `mclient hook ...` is plumbing for launched CLI
 agents and is hidden from `--help`.
 
-**Release pin and update.** The host serves `GET /machine-client/release`
+**Release pin and update.** The host serves `GET /machine/release`
 from its bundled `dist/clients/release.json` and answers `machine.release`
-before attachment. The release names its version, machine contract version,
-and per-platform archive name, byte count, SHA-256 and URL. Join stages and
+before attachment. The release names its version, the git tag it was
+published under (`Machine.releaseTagPrefix` + version, `mclient-v<version>`,
+#1838), machine contract version, and per-platform archive name, byte count,
+SHA-256 and URL. The SHA-256 of every archive is embedded in that record at
+build time, so a machine verifies against the host's answer, never against
+the download site. Join stages and
 probes the host's binary before installing the service, and records the
 host version in `machine-client/pin.json`; if the release is unavailable it
 adopts the running binary with `pinned: false`. The service executes the
@@ -745,8 +749,9 @@ adopts the running binary with `pinned: false`. The service executes the
 `unpinned_binary` without a matching saved pin unless
 `--allow-unpinned` is set.
 
-`mclient update` reads the saved host connection; `--from URL` or
-`--file PATH` selects an explicit release document. It verifies the archive
+`mclient update` (alias `mclient upgrade`, the name the install script and
+`oni machine bootstrap` print, #1838) reads the saved host connection;
+`--from URL` or `--file PATH` selects an explicit release document. It verifies the archive
 length and SHA-256, extracts the staged binary, checks `--version --json`,
 and runs the staged binary's `update --check --file` against the release
 and, when obtained from the host, its contract version (`--host-contract`).
@@ -761,7 +766,11 @@ service or `current`. Once verified, update retains
 pin, and restarts the service. An active or
 rollback version directory cannot be overwritten during staging. If the
 service manager refuses the restart, the previous link and pin are restored
-and the attempt is recorded as a refusal.
+and the attempt is recorded as a refusal. When an attached peer's contract
+version is older than the host's, the host marks that machine's report
+`upgradeRequired: true` (visible in `machine.list` as `live.upgradeRequired`);
+the mark is host-owned — a peer's own claim is dropped at the report
+boundary — and clears once a re-attach presents the current contract.
 
 **Generation and reconnect.** The accepted `AttachResult.attached.generation`
 is saved to `state.json` and presented on every later offer; a first offer

@@ -25,6 +25,12 @@ export type ReleasePlatform = (typeof releasePlatforms)[number];
 export const Release = z
   .object({
     version: z.string().min(1),
+    /**
+     * The git tag the release was published under (#1838): the host derives
+     * it as `releaseTagPrefix` + `version` when it serves the record; a
+     * locally packaged record carries none.
+     */
+    tag: z.string().min(1).optional(),
     contractVersion: z.number().int().min(1),
     artifacts: z
       .object({

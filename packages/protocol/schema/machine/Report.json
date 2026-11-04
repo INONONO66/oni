@@ -357,6 +357,10 @@
         "attempts"
       ],
       "type": "object"
+    },
+    "upgradeRequired": {
+      "const": true,
+      "type": "boolean"
     }
   },
   "required": [

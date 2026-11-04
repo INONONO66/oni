@@ -342,7 +342,7 @@ function createHttpRoutes(
 ) {
   const publicGet = new Map<string, () => Response>([
     ["/health", () => Response.json({ ok: true })],
-    ["/machine-client/release", () => {
+    ["/machine/release", () => {
       const current = release();
       return Response.json(current ?? { reason: "release_unavailable" }, current === undefined ? { status: 404 } : undefined);
     }],

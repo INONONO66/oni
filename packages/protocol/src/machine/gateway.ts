@@ -23,6 +23,7 @@ export const Info = Enrollment.extend({
     stale: z.boolean(),
     windows: z.record(z.string(), ComputerWindow).optional(),
     memoryBudget: MemoryBudget.optional(),
+    upgradeRequired: z.literal(true).optional(),
   }).strict().optional(),
 });
 export type Info = z.infer<typeof Info>;

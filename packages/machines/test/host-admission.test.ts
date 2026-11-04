@@ -55,6 +55,22 @@ test("v3 daemon and client fresh offers mint successive generations for one mach
   } finally { await f.close(); }
 });
 
+test("the host marks an older peer's report upgrade_required and never takes the mark from a current peer", async () => {
+  const f = await fixture();
+  const report = { machineId: "worker", reportedAt: 1, load: { loadAvg1: 0, memoryAvailableBytes: 1, inFlight: 0 } };
+  try {
+    const older = await f.connect();
+    expect(await older.call(Machine.WireMethod.Attach, offer)).toEqual(attached(1));
+    expect(await older.call(Machine.WireMethod.Report, report)).toEqual({ status: "accepted" });
+    expect(f.host.list()[0]?.live).toEqual({ reportedAt: 1, load: report.load, stale: false, upgradeRequired: true });
+    const current = await f.connect();
+    const peer: Machine.Offer["peer"] = { kind: "client", contractVersion: Machine.contractVersion };
+    expect(await current.call(Machine.WireMethod.Attach, { ...offer, peer })).toEqual(attached(2));
+    expect(await current.call(Machine.WireMethod.Report, { ...report, upgradeRequired: true })).toEqual({ status: "accepted" });
+    expect(f.host.list()[0]?.live).toEqual({ reportedAt: 1, load: report.load, stale: false });
+  } finally { await f.close(); }
+});
+
 test("a current reconnect supersedes a live protected attachment without minting", async () => {
   const f = await fixture({ neverSupersede: ["worker"] });
   try {

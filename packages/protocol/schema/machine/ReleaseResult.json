@@ -105,6 +105,10 @@
               "minimum": 1,
               "type": "integer"
             },
+            "tag": {
+              "minLength": 1,
+              "type": "string"
+            },
             "version": {
               "minLength": 1,
               "type": "string"

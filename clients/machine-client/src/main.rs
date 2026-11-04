@@ -44,6 +44,10 @@ enum Command {
         #[arg(long)]
         once: bool,
     },
+    /// Fetch the host's release, verify its sha256, switch the current
+    /// binary and restart the service; `upgrade` is the same verb under the
+    /// name the install script and `oni machine bootstrap` print.
+    #[command(alias = "upgrade")]
     Update {
         #[arg(long, conflicts_with = "file")]
         from: Option<String>,
@@ -133,7 +137,9 @@ async fn main() -> ExitCode {
             };
         }
         None => {
-            eprintln!("usage: mclient --version | join <host> | status | run | update | reconnect");
+            eprintln!(
+                "usage: mclient --version | join <host> | status | run | update|upgrade | reconnect"
+            );
             return ExitCode::from(2);
         }
     };
@@ -723,6 +729,33 @@ mod tests {
             error,
             AttachError::Transport(TransportError::Proxy(ProxyFailure::Unsupported))
         ));
+    }
+
+    #[test]
+    fn upgrade_is_the_update_verb_on_the_same_verified_path() {
+        let cli = Cli::try_parse_from(["mclient", "upgrade"]).expect("upgrade parses");
+        assert!(matches!(
+            cli.command,
+            Some(Command::Update {
+                from: None,
+                file: None,
+                check: false,
+                host_contract: None
+            })
+        ));
+        let cli = Cli::try_parse_from([
+            "mclient",
+            "upgrade",
+            "--from",
+            "https://host/machine/release",
+        ])
+        .expect("upgrade --from parses");
+        assert!(matches!(
+            cli.command,
+            Some(Command::Update { from: Some(ref location), check: false, .. })
+                if location == "https://host/machine/release"
+        ));
+        assert!(Cli::try_parse_from(["mclient", "upgrade", "--host-contract", "4"]).is_err());
     }
 
     #[test]
