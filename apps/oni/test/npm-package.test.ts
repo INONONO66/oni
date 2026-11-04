@@ -93,6 +93,8 @@ describe("health endpoint", () => {
     const served = await fetch(url);
     expect(served.status).toBe(200);
     expect(await served.json()).toEqual({ ...release, tag: "mclient-v0.1.0" });
+    writeFileSync(releasePath, JSON.stringify({ ...release, tag: "mclient-v9.9.9" }));
+    expect(await (await fetch(url)).json()).toEqual({ ...release, tag: "mclient-v0.1.0" });
   });
 });
 

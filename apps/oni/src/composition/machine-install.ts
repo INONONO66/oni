@@ -14,25 +14,15 @@ export function releasePlatform(os: string, arch: string): Machine.ReleasePlatfo
   return undefined;
 }
 
-/** The host's address as the install surfaces take it: the HTTP origin `GET /machine/release` is served from. */
-export const HOST_ORIGIN = /^https?:\/\/[^/\s]+$/;
+/** The host's address as the install surfaces take it: the HTTP origin `GET /machine/release` is served from, one trailing slash allowed. */
+export const HOST_ORIGIN = /^https?:\/\/[^/\s]+\/?$/;
 
-/**
- * The name `mclient join` attaches to: the origin's host without its HTTP
- * port, so the client reaches the machine plane on its own default port.
- */
+/** The name `mclient join` attaches to: the origin's hostname (IPv6 keeps its brackets), the machine plane on its own default port. */
 export function joinHost(origin: string): string {
-  return origin.replace(/^https?:\/\//, "").replace(/:\d+$/, "");
+  return new URL(origin).hostname;
 }
 
-/**
- * The POSIX sh install script the host serves at `GET /machine/install`
- * (#1838), the shell twin of `oni machine bootstrap`: it verifies the
- * archive against the host's `/machine/release` answer, stages the binary
- * and runs `mclient join` from the stage, so join's own update path is the
- * only writer of `~/.oni/bin/mclient`. A tampered archive exits 1 with
- * `checksum_mismatch: <url>` before anything is written.
- */
+/** Shell twin of `oni machine bootstrap`, served at `GET /machine/install`: trusts only the host's `/machine/release` digest, exits 1 on `checksum_mismatch: <url>` before writing anything, and leaves `~/.oni/bin/mclient` to join. */
 export const MACHINE_INSTALL_SCRIPT = `#!/bin/sh
 # oni machine install: served by the host at GET /machine/install.
 #   curl -fsSL http://<host>:<port>/machine/install | sh -s -- http://<host>:<port> [--token <join token>] [--force]
@@ -83,7 +73,10 @@ case "$HOST" in
 esac
 HOST="\${HOST%/}"
 JOIN_HOST="\${HOST#*://}"
-JOIN_HOST="\${JOIN_HOST%:*}"
+case "$JOIN_HOST" in
+  \\[*) JOIN_HOST="\${JOIN_HOST%%]*}]" ;;
+  *) JOIN_HOST="\${JOIN_HOST%:*}" ;;
+esac
 
 case "$(uname -s)" in
   Darwin) PLATFORM=darwin-universal ;;
@@ -103,7 +96,7 @@ case "$(uname -s)" in
     ;;
 esac
 
-RELEASE=$(curl -fsSL "$HOST/machine/release") || {
+RELEASE=$(curl -fsSL --connect-timeout 15 --max-time 60 "$HOST/machine/release") || {
   echo "release unavailable at $HOST/machine/release" >&2
   exit 1
 }
@@ -134,7 +127,7 @@ fi
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
-curl -fsSL -o "$WORK/archive.tar.gz" "$URL" || {
+curl -fsSL --connect-timeout 15 -o "$WORK/archive.tar.gz" "$URL" || {
   echo "download failed: $URL" >&2
   exit 1
 }

@@ -30,8 +30,12 @@ export interface BootstrapDeps {
   readonly os: string;
   readonly arch: string;
   readonly io: DaemonIo;
-  readonly fetch: (url: string) => Promise<Response>;
+  readonly fetch: (url: string, init: { readonly signal: AbortSignal }) => Promise<Response>;
 }
+
+/** A stalled host must not hang the CLI: the manifest answers in seconds, the archive is tens of megabytes. */
+const RELEASE_TIMEOUT_MS = 60_000;
+const ARCHIVE_TIMEOUT_MS = 600_000;
 
 /** The client reads the join token from this variable; it never rides argv or `client.json`. */
 export const JOIN_TOKEN_VARIABLE = "ONI_MCLIENT_JOIN_TOKEN";
@@ -65,12 +69,12 @@ export function parseBootstrapArgs(args: readonly string[]): BootstrapOptions {
       throw new CliError(BOOTSTRAP_USAGE);
     }
   }
-  return { host, ...(token === undefined ? {} : { token }), ...(force ? { force } : {}) };
+  return { host: host.replace(/\/$/, ""), ...(token === undefined ? {} : { token }), ...(force ? { force } : {}) };
 }
 
 async function hostedRelease(host: string, deps: BootstrapDeps): Promise<{ readonly release: Machine.Release; readonly url: string }> {
   const url = `${host}/machine/release`;
-  const response = await deps.fetch(url);
+  const response = await deps.fetch(url, { signal: AbortSignal.timeout(RELEASE_TIMEOUT_MS) });
   if (!response.ok) throw new BootstrapRefusal("release_unavailable", `${url} answered ${response.status}`);
   const parsed = Machine.Release.safeParse(await response.json());
   if (!parsed.success) throw new BootstrapRefusal("release_unavailable", `${url} is not a release record`);
@@ -97,7 +101,7 @@ function olderVersion(candidate: string, installed: string): boolean {
 }
 
 async function verifiedArchive(url: string, artifact: Machine.ReleaseArtifact, deps: BootstrapDeps): Promise<Uint8Array> {
-  const response = await deps.fetch(url);
+  const response = await deps.fetch(url, { signal: AbortSignal.timeout(ARCHIVE_TIMEOUT_MS) });
   if (!response.ok) throw new BootstrapRefusal("download_failed", `${url} answered ${response.status}`);
   const bytes = new Uint8Array(await response.arrayBuffer());
   const sha256 = createHash("sha256").update(bytes).digest("hex");

@@ -303,7 +303,8 @@ export function readClientRelease(path: string): Machine.Release | undefined {
     for (const artifact of Object.values(parsed.data.artifacts)) {
       if (artifact !== undefined && !/^(https?:\/\/|file:\/\/)/.test(artifact.url)) return undefined;
     }
-    return { ...parsed.data, tag: `${Machine.releaseTagPrefix}${parsed.data.version}` };
+    const { tag: _local, ...record } = parsed.data;
+    return { ...record, tag: `${Machine.releaseTagPrefix}${parsed.data.version}` };
   } catch (error) {
     if (error instanceof SyntaxError || (error instanceof Error && "code" in error)) return undefined;
     throw error;

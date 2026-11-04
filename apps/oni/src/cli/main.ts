@@ -369,7 +369,7 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
       if (token === undefined || token.length === 0) throw new CliError("stream probe requires ONI_WS_TOKEN");
       return connectProbe(`ws://${host}:${env.get("ONI_WS_PORT") ?? "3000"}/ws`, token);
     }),
-    bootstrap: { home, os: process.platform, arch: process.arch, io, fetch: (url) => fetch(url) },
+    bootstrap: { home, os: process.platform, arch: process.arch, io, fetch: (url, init) => fetch(url, init) },
     messagingFacts,
     supervise: () => {
       applyEnvFile(envPath);

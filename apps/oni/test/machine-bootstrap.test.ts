@@ -82,7 +82,7 @@ function packArchive(directory: string, script = FAKE_MCLIENT): Uint8Array<Array
  * platform shares the same bytes) and `/mclient.tar.gz` serves them; a
  * `tamper` server advertises the right URL under a wrong digest.
  */
-function fakeHost(archive: Uint8Array<ArrayBuffer>, options: { readonly tamper?: boolean; readonly release?: boolean } = {}): { readonly origin: string; readonly downloads: () => number } {
+function fakeHost(archive: Uint8Array<ArrayBuffer>, options: { readonly tamper?: boolean; readonly release?: boolean; readonly hostname?: string } = {}): { readonly origin: string; readonly downloads: () => number } {
   let downloads = 0;
   const digest = createHash("sha256").update(archive).digest("hex");
   const sha256 = options.tamper === true ? digest.replace(/^./, digest.startsWith("0") ? "1" : "0") : digest;
@@ -97,8 +97,9 @@ function fakeHost(archive: Uint8Array<ArrayBuffer>, options: { readonly tamper?:
       "linux-arm64": artifact("mclient-linux-arm64.tar.gz"),
     },
   };
+  const hostname = options.hostname ?? "127.0.0.1";
   const server = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname,
     port: 0,
     fetch(request) {
       const pathname = new URL(request.url).pathname;
@@ -113,7 +114,7 @@ function fakeHost(archive: Uint8Array<ArrayBuffer>, options: { readonly tamper?:
     },
   });
   servers.push(server);
-  return { origin: `http://127.0.0.1:${server.port}`, downloads: () => downloads };
+  return { origin: `http://${hostname.includes(":") ? `[${hostname}]` : hostname}:${server.port}`, downloads: () => downloads };
 }
 
 function realIo(): DaemonIo {
@@ -131,7 +132,16 @@ function realIo(): DaemonIo {
 }
 
 function bootstrapDeps(home: string, platform: { readonly os: string; readonly arch: string } = { os: "linux", arch: "x64" }) {
-  return { home, os: platform.os, arch: platform.arch, io: realIo(), fetch: (url: string) => fetch(url) };
+  return {
+    home,
+    os: platform.os,
+    arch: platform.arch,
+    io: realIo(),
+    fetch: (url: string, init: { readonly signal: AbortSignal }) => {
+      expect(init.signal.aborted).toBe(false);
+      return fetch(url, init);
+    },
+  };
 }
 
 async function installScript(home: string, args: readonly string[]): Promise<{ readonly code: number; readonly stdout: string; readonly stderr: string }> {
@@ -162,7 +172,9 @@ describe("release platform and host forms", () => {
     expect(HOST_ORIGIN.test("http://oni-host:3000/machine")).toBe(false);
     expect(joinHost("http://oni-host:3000")).toBe("oni-host");
     expect(joinHost("https://oni.example.com")).toBe("oni.example.com");
+    expect(joinHost("http://[::1]:3000")).toBe("[::1]");
     expect(parseBootstrapArgs(["http://oni-host:3000"])).toEqual({ host: "http://oni-host:3000" });
+    expect(parseBootstrapArgs(["http://oni-host:3000/"])).toEqual({ host: "http://oni-host:3000" });
     expect(parseBootstrapArgs(["http://oni-host:3000", "--token", "jt"])).toEqual({ host: "http://oni-host:3000", token: "jt" });
     expect(parseBootstrapArgs(["http://oni-host:3000", "--force"])).toEqual({ host: "http://oni-host:3000", force: true });
     expect(parseBootstrapArgs(["http://oni-host:3000", "--force", "--token", "jt"])).toEqual({ host: "http://oni-host:3000", token: "jt", force: true });
@@ -332,6 +344,15 @@ describe("GET /machine/install", () => {
     expect((await installScript(plainHome, [origin])).code).toBe(0);
     expect(joinArgv(plainHome)).toBe("join\n127.0.0.1\n");
     expect(joinToken(plainHome)).toBe("");
+    const slashHome = tempDir("oni-install-home-");
+    expect((await installScript(slashHome, [`${origin}/`])).code).toBe(0);
+    expect(joinArgv(slashHome)).toBe("join\n127.0.0.1\n");
+    const six = fakeHost(packArchive(tempDir("oni-install-archive-")), { hostname: "::1" });
+    const sixHome = tempDir("oni-install-home-");
+    expect((await installScript(sixHome, [six.origin])).code).toBe(0);
+    expect(joinArgv(sixHome)).toBe("join\n[::1]\n");
+    const sixCli = tempDir("oni-install-home-");
+    expect((await runBootstrap({ host: six.origin }, bootstrapDeps(sixCli))).joinArgv.slice(1)).toEqual(["join", "[::1]"]);
   });
 
   test("the script keeps a joined machine's pinned binary, refuses a downgrade unless --force, and cleans its stage after a failed join", async () => {
