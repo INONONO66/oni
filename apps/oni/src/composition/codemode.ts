@@ -7,10 +7,15 @@ const AgentFailure = Core.AgentFailure;
 type InvocationFrame = Core.InvocationFrame;
 import { Effect, Exit, type Scope } from "effect";
 import type { MachineHost } from "@oni/machines";
-import { Machine, toolResultText } from "@oni/protocol";
+import { Machine, type PlainValue, toolResultText } from "@oni/protocol";
 
 /** Bind product dispatch; interpreter state and cell provenance live in codemode. */
 export type ComposedCodemode = Effect.Success<ReturnType<typeof createCodemode>>;
+
+/** #1841: the origin codemode attributed rides in the guard intent, so tool.pre rows and handlers see it. */
+function guardIntent(call: Machine.ToolCall): PlainValue {
+  return call.source === undefined ? call.arguments : { ...call.arguments, source: call.source };
+}
 
 function bindings(frame: InvocationFrame, id: () => string): NonNullable<RunOptions["bindings"]> {
   return {
@@ -22,7 +27,7 @@ function bindings(frame: InvocationFrame, id: () => string): NonNullable<RunOpti
           {
             kind: "tool",
             op: call.name,
-            intent: call.arguments,
+            intent: guardIntent(call),
             effect: {
               category:
                 call.name === "codemode.read" ||
@@ -95,6 +100,14 @@ export function sessionOutputsSource(
   };
 }
 
+/**
+ * #1841: the catalog tools a machine-originated cell may call upward. Model
+ * calls only: file, bash and eval execute on the session's default machine,
+ * monitor and cron wake the session, send_message and provision spend its
+ * authority, so none of them is reachable from another machine.
+ */
+export const MACHINE_ORIGIN_TOOLS: ReadonlyArray<string> = ["speech", "image"];
+
 export function composeCodemode(
   machines: MachineHost,
   sources: {
@@ -112,6 +125,8 @@ export function composeCodemode(
       id: sources.id,
       machines,
       self: sources.selfMachineId ?? "self",
+      peers: machines.peers,
+      machineTools: MACHINE_ORIGIN_TOOLS,
       ...(outputs === undefined
         ? {}
         : { toolOutput: (tenant: string, outputId: string) => Effect.sync(() => outputs(tenant, outputId)) }),

@@ -83,6 +83,7 @@ test("the shipped JSON contains the reviewed app-owned policy row and point inve
     ["provision-machine-add-consent", "tool.pre"],
     ["provision-machine-deny-consent", "tool.pre"],
     ["provision-machine-grant-consent", "tool.pre"],
+    ["provision-machine-peer-lease-consent", "tool.pre"],
   ];
   expect([...SHIPPED_OWNER_POLICY.rowSet].sort((left, right) => left.id.localeCompare(right.id))).toEqual(
     expected.map(([id, point]) => ({ id, point })),

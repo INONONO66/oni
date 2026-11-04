@@ -670,6 +670,19 @@
       }
     },
     {
+      "id": "provision-machine-peer-lease-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": {
+        "op": "provision",
+        "operation": "machine_peer_lease"
+      },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.machine_peer_lease requires Owner consent"
+      }
+    },
+    {
       "id": "provision-computer-request-consent",
       "point": "tool.pre",
       "order": 1000,

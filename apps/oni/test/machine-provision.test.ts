@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Machine, type ToolExecutionContext } from "@oni/protocol";
 import { createProvisionTool } from "../src/bundles/provision/provision";
 import type { MachineOperation } from "../src/bundles/provision/machine-schema";
-import { executeMachine, machineDomainRevisions, type MachinePort } from "../src/bundles/provision/machines";
+import { consentedMachineRevisions, executeMachine, machineDomainRevisions, type MachinePort } from "../src/bundles/provision/machines";
 import { machineWire } from "../src/composition/machine-wire";
 import { provisionPort } from "./helpers/provision-port";
 import { testPlane } from "./helpers/ledger";
@@ -23,6 +23,26 @@ const enrollment: Machine.Enrollment = {
 };
 const { enrolledAt: _enrolledAt, ...args } = enrollment;
 const add = { op: "machine_add", args } as const;
+const peerLease: Extract<MachineOperation, { op: "machine_peer_lease" }> = {
+  op: "machine_peer_lease",
+  args: {
+    from: args.machineId,
+    to: "self",
+    ops: ["exec"],
+    ttlMs: 1_000,
+    delegationId: "delegation-1",
+  },
+};
+/** A host port with no live peer reach: `issue` never runs on these paths. */
+const noPeers: MachinePort["host"]["peers"] = {
+  issue: () => {
+    throw new Error("not under test");
+  },
+  revoke: () => undefined,
+  peerLease: () => undefined,
+  peerTargets: () => [],
+  list: () => [],
+};
 const context: ToolExecutionContext = {
   sessionId: "resident", turnId: "turn", callId: "call", signal: new AbortController().signal,
 };
@@ -177,7 +197,7 @@ test("durable unenrollment publishes its fact even when live disconnection throw
   const failure = new Error("disconnect failed");
   const machines: MachinePort = {
     enrollments, selfId: "self", events: events.sink, now: () => 5,
-    host: { list: () => [], unenroll: () => { throw failure; } },
+    host: { list: () => [], unenroll: () => { throw failure; }, peers: noPeers },
   };
   enrollments.put(enrollment);
   const unenrolled = events.next("machine.unenrolled");
@@ -194,7 +214,7 @@ test("durable unenrollment publishes its fact even when live disconnection throw
 test.each(["approve", "refuse", "changed"] as const)("machine key consent is bound to the current revision: %s", async (decision) => {
   const plane = testPlane();
   const enrollments = plane.stores.machineEnrollments;
-  const machines: MachinePort = { enrollments, host: { list: () => [], unenroll: () => undefined }, selfId: "self", events: { publish: () => undefined }, now: () => 5 };
+  const machines: MachinePort = { enrollments, host: { list: () => [], unenroll: () => undefined, peers: noPeers }, selfId: "self", events: { publish: () => undefined }, now: () => 5 };
   const tool = createProvisionTool({ ...provisionPort(plane), machines }, () => 5);
   const dispatch = protectedDispatch(tool, { operation: add }, undefined, { plane });
   try {
@@ -213,7 +233,7 @@ test.each(["approve", "refuse", "changed"] as const)("machine key consent is bou
 test("direct session calls never grant a key and stale consent cannot overwrite authority", async () => {
   const plane = testPlane();
   const enrollments = plane.stores.machineEnrollments;
-  const machines: MachinePort = { enrollments, host: { list: () => [], unenroll: () => undefined }, selfId: "self", events: { publish: () => undefined }, now: () => 5 };
+  const machines: MachinePort = { enrollments, host: { list: () => [], unenroll: () => undefined, peers: noPeers }, selfId: "self", events: { publish: () => undefined }, now: () => 5 };
   const tool = createProvisionTool({ ...provisionPort(plane), machines }, () => 5);
   try {
     expect(await tool.execute({ operation: add }, context)).toEqual({ op: "machine_add", result: { type: "require_approval", id: args.machineId } });
@@ -233,7 +253,7 @@ test.each(["machine_grant", "machine_deny"] as const)(
     const plane = testPlane();
     const enrollments = plane.stores.machineEnrollments;
     const machines: MachinePort = {
-      enrollments, host: { list: () => [], unenroll: () => undefined },
+      enrollments, host: { list: () => [], unenroll: () => undefined, peers: noPeers },
       selfId: "self", events: { publish: () => undefined }, now: () => 5,
     };
     enrollments.put(enrollment);
@@ -261,7 +281,7 @@ test("cleared capability requests refuse both grant and deny without changing en
   const plane = testPlane();
   const enrollments = plane.stores.machineEnrollments;
   const machines: MachinePort = {
-    enrollments, host: { list: () => [], unenroll: () => undefined },
+    enrollments, host: { list: () => [], unenroll: () => undefined, peers: noPeers },
     selfId: "self", events: { publish: () => undefined }, now: () => 5,
   };
   try {
@@ -276,6 +296,39 @@ test("cleared capability requests refuse both grant and deny without changing en
     }, "owner")).toThrow(expect.objectContaining({ name: "ToolRefused", message: expect.stringContaining("not found") }));
     expect(enrollments.get(args.machineId)).toMatchObject({ revision: 0, enrollment: { allowedCapabilities: ["kernel.py"] } });
   } finally { plane.close(); }
+});
+
+test("machine_peer_lease requires consent bound to both enrollments, issues through the host and refuses unenrolled or self targets (#1841)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "machine-peer-lease-"));
+  const plane = testPlane();
+  const events = eventCollector();
+  const enrollments = plane.stores.machineEnrollments;
+  const host = await createMachineHost({ listen: { unix: join(directory, "host.sock") }, enrollment: () => undefined, events: events.sink, now: () => 5 });
+  const machines: MachinePort = { enrollments, host: host.native, selfId: "self", events: events.sink, now: () => 5 };
+  const tool = createProvisionTool({ ...provisionPort(plane), machines }, () => 5);
+  try {
+    enrollments.put(enrollment);
+    expect(await tool.execute({ operation: peerLease }, context)).toEqual({ op: "machine_peer_lease", result: { type: "require_approval", id: args.machineId } });
+    expect(consentedMachineRevisions(enrollments, peerLease)).toEqual({ "machine:worker-1": 0, "machine:self": -1 });
+    expect(consentedMachineRevisions(enrollments, add)).toEqual({ "machine:worker-1": 0 });
+    const dispatch = protectedDispatch(tool, { operation: peerLease }, undefined, { plane });
+    try {
+      await bounded(dispatch.opened);
+      const issued = events.next("machine.peer_lease_issued");
+      expect((await dispatch.answer()).structuredContent).toMatchObject({ op: "machine_peer_lease", result: { lease: { ...peerLease.args, expiresAt: 1_005 } } });
+      expect((await bounded(issued)).payload).toMatchObject({ machineId: args.machineId, lease: { to: "self", ops: ["exec"] } });
+      expect(host.native.peers.peerTargets(args.machineId)).toEqual(["self"]);
+    } finally { await dispatch.close(); }
+    expect(() => executeMachine(machines, { ...peerLease, args: { ...peerLease.args, to: "ghost" } }, "owner"))
+      .toThrow(expect.objectContaining({ name: "ToolRefused", message: expect.stringContaining("machine is not enrolled: ghost") }));
+    expect(() => executeMachine(machines, { ...peerLease, args: { ...peerLease.args, to: args.machineId } }, "owner"))
+      .toThrow(expect.objectContaining({ name: "ToolRefused", message: expect.stringContaining("peer_lease_invalid") }));
+    expect(host.native.peers.list()).toHaveLength(1);
+  } finally {
+    await host.close();
+    plane.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("machine enrollment and channel declarations have independent identities", async () => {

@@ -4,7 +4,7 @@ import type { PlainValue, SessionTransition } from "@oni/protocol";
 import { ContactOperation, contactDomainRevisions } from "../bundles/provision/contact-mutations";
 import { secretRotateDomainRevisions } from "../bundles/provision/channels";
 import { MachineOperation } from "../bundles/provision/machine-schema";
-import { machineDomainRevisions, type MachinePort } from "../bundles/provision/machines";
+import { consentedMachineRevisions, type MachinePort } from "../bundles/provision/machines";
 import { ComputerOperation } from "../bundles/provision/computer-schema";
 import { computerDomainRevisions } from "../bundles/provision/computer";
 import type { ComputerPort } from "../bundles/seams";
@@ -72,8 +72,8 @@ export function createRequestDomainRevisions(deps: RequestDomainDeps) {
     const input = request.parsedInput;
     if (input !== null && typeof input === "object" && !Array.isArray(input)) {
       const machine = MachineOperation.safeParse(input.operation);
-      if (machine.success && (machine.data.op === "machine_add" || machine.data.op === "machine_grant" || machine.data.op === "machine_deny"))
-        return machineDomainRevisions(deps.machineEnrollments, machine.data.args.machineId);
+      if (machine.success && (machine.data.op === "machine_add" || machine.data.op === "machine_grant" || machine.data.op === "machine_deny" || machine.data.op === "machine_peer_lease"))
+        return consentedMachineRevisions(deps.machineEnrollments, machine.data);
       const revisions = operationDomainRevisions(deps, input.operation, request.sessionId);
       if (revisions !== undefined) return revisions;
       // #1569 lane 8: a send_message consent is bound to the Person the letter goes to.
