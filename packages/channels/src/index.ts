@@ -30,7 +30,6 @@ export { createA2AProvider, type A2ACardFacts, type PeerResolver } from "./provi
 
 export {
   createChannelStores,
-  unconfiguredChannelStores,
   type ChannelStoreSource,
   type ChannelStores,
 } from "./router/stores.js";

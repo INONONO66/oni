@@ -637,67 +637,8 @@ const CHANNELS_JUDGMENT_PREFIXES = [
   CHANNELS_ROUTER_PREFIX,
   "packages/channels/src/authn/",
 ] as const;
-const CHANNELS_STORE_PREFIX = "packages/channels/src/store/";
-const CHANNELS_BANDED_DEP = "@oni/agent";
-
-/**
- * The agent-gate surfaces the channels judgment band may name from
- * @oni/agent (#1246 — the former policy engine and the scoped
- * ledger ports live in the agent package now): permission evaluation plus the
- * handle-scoped decision-fact perimeter port (#1317 moved the surface-key
- * store into channels).
- * Brain surfaces (session stores, catalog, model plane, …) are NOT reachable
- * from the router — the gateway selects sessions but never reads or writes
- * session content (S1), and domain isolation inside the one DB is by store
- * surface (S2).
- */
-const CHANNELS_JUDGMENT_AGENT_SURFACES = new Set([
-  // packages/channels/src/authn/decision.ts
-  "evaluatePermission",
-  "decisionFromEvaluation",
-  // packages/channels/src/router/{external-message,message-ports}.ts
-  "PolicyEvaluationInput",
-  // packages/channels/src/router/stores.ts
-  "createDecisionFactPort",
-]);
-
-/**
- * The persistence seams the channels store band (`src/store/`, the perimeter
- * stores absorbed from the old ledger in #1246) may name from
- * @oni/agent: the sub-adapter guard and the timestamp wrapper (#1317
- * moved the stored-identity schemas and the surface-key store into channels).
- * Never a session, catalog, gate, or model surface.
- */
-const CHANNELS_STORE_AGENT_SURFACES = new Set([
-  "requireSubAdapter",
-  "withStoreTimestamps",
-]);
-
 function isChannelsJudgmentPath(filePath: string): boolean {
   return CHANNELS_JUDGMENT_PREFIXES.some((prefix) => filePath.startsWith(prefix));
-}
-
-function channelsAgentBand(filePath: string): ReadonlySet<string> | undefined {
-  if (isChannelsJudgmentPath(filePath)) return CHANNELS_JUDGMENT_AGENT_SURFACES;
-  if (filePath.startsWith(CHANNELS_STORE_PREFIX)) return CHANNELS_STORE_AGENT_SURFACES;
-  return undefined;
-}
-
-/**
- * S8 intra-package banding for the channels gateway (docs/gateway-design.md
- * §7 S8; five-package shape, #1246). The package-level whitelist admits
- * @oni/agent, but only the perimeter JUDGMENT band — `src/router/`
- * (routing, physical correlation, send kernel) and `src/authn/` (channel
- * authn) — and the STORE band (`src/store/`, the perimeter stores) may use
- * it. The driver sub-band (discord/, github/, telegram/, support/,
- * websocket.ts, channel-authn.ts) stays on the dumb-driver contract
- * {protocol}: adding a platform = one driver file + one server registration
- * line, zero security review of the router.
- */
-function isChannelsBandingViolation(filePath: string, dep: string): boolean {
-  if (!filePath.startsWith(CHANNELS_SRC_PREFIX)) return false;
-  if (dep !== CHANNELS_BANDED_DEP) return false;
-  return channelsAgentBand(filePath) === undefined;
 }
 
 /**
@@ -727,85 +668,13 @@ function isChannelsDriverRouterEdge(filePath: string, importPath: string): boole
   return segments.join("/").startsWith(CHANNELS_ROUTER_PREFIX);
 }
 
-/**
- * S8 channels↔agent surface pin (#707 shape, #1246 vocabulary): a banded
- * channels file importing @oni/agent may name ONLY its band's perimeter
- * surfaces, through static named `import`/`export … from` clauses. Everything
- * else is refused outright — namespace/default imports, `export *`
- * re-exports, dynamic `import(...)`, and `require(...)` would all reach (or
- * launder to relative importers) every brain surface the named scan pins out.
- * The named clause is the ONLY road.
- */
-function channelsAgentSurfaceViolations(filePath: string, source: string): string[] {
-  const band = channelsAgentBand(filePath);
-  if (band === undefined) return [];
-  const violations: string[] = [];
-  const namedPattern =
-    /(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["']@oni\/agent["']/g;
-  const broadPattern =
-    /import\s+(?:type\s+)?(?:\*\s+as\s+\w+|\w+)\s*(?:,\s*\{[^}]*\})?\s*from\s*["']@oni\/agent["']/g;
-  const exportStarPattern = /export\s*\*\s*(?:as\s+\w+\s*)?from\s*["']@oni\/agent["']/g;
-  const dynamicPattern =
-    /(?:import\s*\(\s*|require\s*\(\s*)["'`]@oni\/agent(?:\/[^"'`]*)?["'`]/g;
-  for (const match of source.matchAll(namedPattern)) {
-    const names = (match[1] ?? "")
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0)
-      .map(
-        (entry) =>
-          entry
-            .replace(/^type\s+/, "")
-            .split(/\s+as\s+/)[0]
-            ?.trim() ?? "",
-      );
-    for (const name of names) {
-      if (name.length > 0 && !band.has(name)) {
-        const line = lineNumberForOffset(source, match.index);
-        violations.push(
-          `VIOLATION: ${filePath}:${line} names agent surface ${name} — S8: this channels band may name only its perimeter surfaces (${[...band].join(", ")}), never brain surfaces`,
-        );
-      }
-    }
-  }
-  for (const match of source.matchAll(broadPattern)) {
-    const line = lineNumberForOffset(source, match.index);
-    violations.push(
-      `VIOLATION: ${filePath}:${line} uses a namespace/default import of @oni/agent — S8: the channels perimeter must name the agent surfaces explicitly`,
-    );
-  }
-  for (const match of source.matchAll(exportStarPattern)) {
-    const line = lineNumberForOffset(source, match.index);
-    violations.push(
-      `VIOLATION: ${filePath}:${line} re-exports @oni/agent wholesale — S8: a channels barrel may not launder brain surfaces to relative importers`,
-    );
-  }
-  for (const match of source.matchAll(dynamicPattern)) {
-    const line = lineNumberForOffset(source, match.index);
-    violations.push(
-      `VIOLATION: ${filePath}:${line} loads @oni/agent dynamically — S8: the static named-import pin is the only road to the agent from the channels perimeter`,
-    );
-  }
-  return violations;
-}
-
 async function validateChannelsIntraPackageBanding(): Promise<string[]> {
   const violations: string[] = [];
-  const importPattern = oniBarrelImportPattern();
   const relativeImportPattern = /(?:from\s+|import\s+|import\s*\(\s*)["'](\.{1,2}\/[^"']*)["']/g;
 
   for await (const { filePath, source } of scanRepositorySources(
     `${CHANNELS_SRC_PREFIX}**/*.{ts,tsx}`,
   )) {
-    for (const match of source.matchAll(importPattern)) {
-      const dep = match[1];
-      if (dep && isChannelsBandingViolation(filePath, dep)) {
-        const line = lineNumberForOffset(source, match.index);
-        violations.push(
-          `VIOLATION: ${filePath}:${line} imports ${dep} — S8 banding: only the channels judgment band (src/router/, src/authn/) and store band (src/store/) may import @oni/agent; drivers stay on {protocol}`,
-        );
-      }
-    }
     for (const match of source.matchAll(relativeImportPattern)) {
       const importPath = match[1];
       if (importPath && isChannelsDriverRouterEdge(filePath, importPath)) {
@@ -815,7 +684,6 @@ async function validateChannelsIntraPackageBanding(): Promise<string[]> {
         );
       }
     }
-    violations.push(...channelsAgentSurfaceViolations(filePath, source));
   }
 
   return violations;
@@ -1510,10 +1378,10 @@ export async function validateAppsSessionWrites(
 
 /**
  * #1247 S8 perimeter pin: `packages/agent/src/index.ts` exports exactly
- * the four namespaces (#1352 retired `Model`) plus at most these six named exports consumed by
- * `packages/channels` (legal channels -> agent band edges). Shrink-only:
- * removals are fine, any new name or any other export form fails. No epic
- * child owns retiring the named list; retirement is a separate decision.
+ * the four namespaces (#1352 retired `Model`) plus at most this one named
+ * export consumed by `apps/oni` (#1847 cut the channels -> agent edge).
+ * Shrink-only: removals are fine, any new name or any other export form
+ * fails. Retiring the named list is a separate decision.
  */
 const AGENT_INDEX_NAMESPACES: ReadonlySet<string> = new Set([
   "Core",
@@ -1522,14 +1390,7 @@ const AGENT_INDEX_NAMESPACES: ReadonlySet<string> = new Set([
   "Testing",
 ]);
 
-const AGENT_INDEX_PINNED_NAMED_EXPORTS: ReadonlySet<string> = new Set([
-  "decisionFromEvaluation",
-  "evaluatePermission",
-  "PolicyEvaluationInput",
-  "requireSubAdapter",
-  "withStoreTimestamps",
-  "createDecisionFactPort",
-]);
+const AGENT_INDEX_PINNED_NAMED_EXPORTS: ReadonlySet<string> = new Set(["PolicyEvaluationInput"]);
 
 const AGENT_INDEX_PATH = "packages/agent/src/index.ts";
 
@@ -1834,39 +1695,6 @@ function selfTest(): number {
     ],
     ["external packages are never layered", isAllowedSourceDep(twoTier, "zod")],
     [
-      "S8: a channels driver may not import the agent",
-      isChannelsBandingViolation(
-        "packages/channels/src/provider/discord/surface.ts",
-        "@oni/agent",
-      ),
-    ],
-    [
-      "S8: channels authn (perimeter judgment) may import the agent gate",
-      !isChannelsBandingViolation("packages/channels/src/authn/decision.ts", "@oni/agent"),
-    ],
-    [
-      "S8: drivers keep the whitelisted contract deps",
-      !isChannelsBandingViolation(
-        "packages/channels/src/provider/discord/surface.ts",
-        "@oni/protocol",
-      ),
-    ],
-    [
-      "S8: the banding rule scopes to the channels package only",
-      !isChannelsBandingViolation("apps/oni/src/gateway.ts", "@oni/agent"),
-    ],
-    [
-      "S8: the gateway router may import the agent",
-      !isChannelsBandingViolation(
-        "packages/channels/src/router/routing-resolution.ts",
-        "@oni/agent",
-      ),
-    ],
-    [
-      "S8: the channel store band may import the agent persistence seams",
-      !isChannelsBandingViolation("packages/channels/src/store/actor/index.ts", "@oni/agent"),
-    ],
-    [
       "S8: a driver may not relative-import into src/router/",
       isChannelsDriverRouterEdge(
         "packages/channels/src/provider/discord/surface.ts",
@@ -1894,111 +1722,6 @@ function selfTest(): number {
     [
       "S8: drivers may still import the authn judgment entry",
       !isChannelsDriverRouterEdge("packages/channels/src/channel-authn.ts", "./authn/github.js"),
-    ],
-    [
-      "S8: the router may name the permission evaluator",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/authority.ts",
-        'import { evaluatePermission } from "@oni/agent";',
-      ).length === 0,
-    ],
-    [
-      "S8: the router may name the scoped decision-fact port (#930)",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/stores.ts",
-        'import { createDecisionFactPort } from "@oni/agent";',
-      ).length === 0,
-    ],
-    [
-      "S8: the router may not name a brain agent surface",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/routing-resolution.ts",
-        'import { openSessionStore, PolicyEvaluationInput } from "@oni/agent";',
-      ).length === 1,
-    ],
-    [
-      "S8: the store band may name the persistence seams",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/store/actor/index.ts",
-        'import { requireSubAdapter, withStoreTimestamps } from "@oni/agent";',
-      ).length === 0,
-    ],
-    [
-      "S8: the store band may not name the gate",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/store/actor/index.ts",
-        'import { evaluatePermission } from "@oni/agent";',
-      ).length === 1,
-    ],
-    [
-      "S8: a type-only brain-surface import is still pinned",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/authority.ts",
-        `import type { ${["Catalog", "Store"].join("")} } from "@oni/agent";`,
-      ).length === 1,
-    ],
-    [
-      "S8: a namespace agent import cannot bypass the surface pin",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/actor-resolver.ts",
-        'import * as Agent from "@oni/agent";',
-      ).length === 1,
-    ],
-    [
-      "S8: the agent surface pin scopes to the channels bands",
-      channelsAgentSurfaceViolations(
-        "apps/oni/src/gateway.ts",
-        'import { openSessionStore } from "@oni/agent";',
-      ).length === 0,
-    ],
-    [
-      "S8: a dynamic agent import cannot bypass the surface pin",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/routing-resolution.ts",
-        'const agent = await import("@oni/agent");',
-      ).length === 1,
-    ],
-    [
-      "S8: a require of the agent cannot bypass the surface pin",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/actor-resolver.ts",
-        'const agent = require("@oni/agent");',
-      ).length === 1,
-    ],
-    [
-      "S8: a dynamic agent SUBPATH import is pinned too",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/index.ts",
-        'const s = await import("@oni/agent/store");',
-      ).length === 1,
-    ],
-    [
-      "S8: a brain-surface re-export cannot launder past the pin",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/index.ts",
-        'export { openCatalogStore } from "@oni/agent";',
-      ).length === 1,
-    ],
-    [
-      "S8: a perimeter-surface re-export stays legal",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/index.ts",
-        'export { createDecisionFactPort } from "@oni/agent";',
-      ).length === 0,
-    ],
-    [
-      "S8: retired independent authority cannot regain a perimeter allowance",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/index.ts",
-        `import { ${["Wait", "Store"].join("")} } from "@oni/agent";`,
-      ).length === 1,
-    ],
-    [
-      "S8: the channels judgment band may not name the Journal ports",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/index.ts",
-        'import { Journal } from "@oni/agent";',
-      ).length === 1,
     ],
     [
       "#1276: a core file may not import plugins/ (check a)",
@@ -2099,13 +1822,6 @@ function selfTest(): number {
         "apps/oni/src/runtime.ts",
         'import { Core } from "@oni/agent";\nimport { x } from "./composition/model-selection";',
       ).length === 0,
-    ],
-    [
-      "S8: a wholesale agent re-export is refused",
-      channelsAgentSurfaceViolations(
-        "packages/channels/src/router/index.ts",
-        'export * from "@oni/agent";',
-      ).length === 1,
     ],
   ];
 

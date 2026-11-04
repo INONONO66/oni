@@ -407,22 +407,10 @@ test.each([
     "not allowed by layer order",
   ],
   [
-    "channels driver dependency",
-    "packages/channels/src/provider/driver.ts",
-    'import { DecisionFacts } from "@oni/agent";',
-    "S8 banding",
-  ],
-  [
     "channels driver router edge",
     "packages/channels/src/provider/driver.ts",
     'import { route } from "../router/index.js";',
     "drivers may not reach into src/router/",
-  ],
-  [
-    "channels brain store access",
-    "packages/channels/src/router/illegal.ts",
-    'import { Session } from "@oni/agent";',
-    "names agent surface Session",
   ],
   [
     "deep package import",
@@ -679,7 +667,7 @@ test("#1247 S8 pin: an extra namespace, missing namespace and non-barrel form fa
   expect(declaration.some((line) => line.includes("export form outside the #1276 surface"))).toBe(true);
 
   const shrunk = agentIndexPerimeterViolations(
-    'export * as Core from "./core";\nexport { evaluatePermission } from "./core/gate/match";\n',
+    'export * as Core from "./core";\nexport type { PolicyEvaluationInput } from "./core/gate/types";\n',
   );
   expect(shrunk.some((line) => line.includes("agent namespaces expected"))).toBe(true);
 });
@@ -687,7 +675,7 @@ test("#1247 S8 pin: an extra namespace, missing namespace and non-barrel form fa
 test("#1247 S8 pin: alias, indentation, and missing semicolon cannot smuggle a name", () => {
   // The EXPORTED name (after `as`) is what goes public; the pinned local name must not whitelist it.
   const aliased = agentIndexPerimeterViolations(
-    'export { evaluatePermission as rogue } from "./kernel/gate/match";\n',
+    'export { PolicyEvaluationInput as rogue } from "./core/gate/types";\n',
   );
   expect(aliased.some((line) => line.includes("exports rogue outside the pinned S8 perimeter"))).toBe(true);
 
@@ -697,9 +685,9 @@ test("#1247 S8 pin: alias, indentation, and missing semicolon cannot smuggle a n
   const semicolonFree = agentIndexPerimeterViolations('export { rogue } from "./kernel/turn"\n');
   expect(semicolonFree.some((line) => line.includes("exports rogue outside the pinned S8 perimeter"))).toBe(true);
 
-  // Aliasing a pinned name onto another pinned name stays within the perimeter.
+  // Aliasing a local name onto the pinned exported name stays within the perimeter.
   const pinnedAlias = agentIndexPerimeterViolations(
-    `${coreGateFiles["packages/agent/src/index.ts"]}\nexport { decisionFromEvaluation as evaluatePermission } from "./kernel/gate/match";\n`,
+    `${coreGateFiles["packages/agent/src/index.ts"]}\nexport type { EvaluationInput as PolicyEvaluationInput } from "./core/gate/types";\n`,
   );
   expect(pinnedAlias).toEqual([]);
 });
@@ -712,22 +700,17 @@ test("#1247 S8 pin: unaliased star export and default export are rejected forms"
   expect(defaulted.some((line) => line.includes("export form outside the #1276 surface"))).toBe(true);
 });
 
-test("#1247 S8 pin: a seventh named export trips the count diagnostic itself", () => {
+test("#1247 S8 pin: a second named export trips the count diagnostic itself", () => {
   const names = [
-    "decisionFromEvaluation",
-    "evaluatePermission",
     "PolicyEvaluationInput",
-    "requireSubAdapter",
-    "withStoreTimestamps",
-    "createDecisionFactPort",
-    // Seventh entry re-exports a pinned name under a second pinned alias, so
-    // every NAME stays pinned and only the count rule can catch the growth.
-    "evaluatePermission as decisionFromEvaluation",
+    // Second entry re-exports another local under the pinned name, so every
+    // NAME stays pinned and only the count rule can catch the growth.
+    "EvaluationInput as PolicyEvaluationInput",
   ];
-  const source = names.map((name) => `export { ${name} } from "./kernel/gate/match";`).join("\n");
+  const source = names.map((name) => `export type { ${name} } from "./core/gate/types";`).join("\n");
   const violations = agentIndexPerimeterViolations(source);
   expect(violations).toContain(
-    "VIOLATION: packages/agent/src/index.ts has 7 named exports over the pinned 6 — shrink only, never grow",
+    "VIOLATION: packages/agent/src/index.ts has 2 named exports over the pinned 1 — shrink only, never grow",
   );
 });
 

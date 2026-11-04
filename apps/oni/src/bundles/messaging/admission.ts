@@ -1,8 +1,7 @@
 import { ChannelsFailure, SendAdmissionConflict } from "@oni/channels";
 import { Gateway, type DecisionFact, type Outbound } from "@oni/protocol";
-import type { ChannelStores } from "@oni/channels";
 import { z } from "zod";
-import type { GatewayRouterPorts } from "../message-ports.js";
+import type { GatewayRouterPorts, GatewayStores } from "../message-ports.js";
 import { evaluateSocialBudget } from "./social-budget.js";
 
 const SEND_ADMITTED_FACT = "gateway.send.admitted";
@@ -65,7 +64,7 @@ function sendStreamId(messageId: string): string {
 }
 
 function existingAdmission(
-  stores: ChannelStores,
+  stores: GatewayStores,
   input: Gateway.SendInput,
   target: Gateway.DeliveryTarget,
 ): SendAdmission | SendAdmissionConflict | undefined {
@@ -106,7 +105,7 @@ function recordedAdmission(
 }
 
 function recordAdmission(
-  stores: ChannelStores,
+  stores: GatewayStores,
   input: Gateway.SendInput,
   target: Gateway.DeliveryTarget,
   budgeted: boolean,
@@ -146,7 +145,7 @@ function debitRow(
 }
 
 function repairBudgetDebit(
-  stores: ChannelStores,
+  stores: GatewayStores,
   input: Gateway.SendInput,
   admission: SendAdmission,
 ): void {
@@ -175,13 +174,13 @@ export function activeBudgetFor(
  * (a draft, a report, a question are the Owner's own mail). A budget the
  * Owner did declare for themselves is honored like any other.
  */
-export function ownerTarget(stores: Pick<ChannelStores, "actors">, actorId: string): boolean {
+export function ownerTarget(stores: Pick<GatewayStores, "actors">, actorId: string): boolean {
   return stores.actors.getIdentity(actorId)?.trustTier === "owner";
 }
 
 /** Runs synchronously inside the caller's ledger transaction, before any physical delivery. */
 export function admitSend(
-  stores: ChannelStores,
+  stores: GatewayStores,
   authorization: AuthorizedSend,
   ports: Pick<NonNullable<GatewayRouterPorts["messaging"]>, "budgets">,
   deny: DenySend,
@@ -238,7 +237,7 @@ export function admitSend(
  * caller's ledger transaction, before any physical delivery.
  */
 export function admitReply(
-  stores: ChannelStores,
+  stores: GatewayStores,
   input: Gateway.SendInput,
   target: Gateway.DeliveryTarget,
 ): SendAdmission {

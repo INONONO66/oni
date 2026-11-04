@@ -21,8 +21,6 @@ const SDK_SUBPATH_HOMES: ReadonlyMap<string, string> = new Map([
   ["agent-messenger/instagram", "src/provider/instagram/account-sdk.ts"],
   ["agent-messenger/kakaotalk", "src/provider/kakaotalk/account-sdk.ts"],
 ]);
-const JUDGMENT_ALLOWED_PACKAGES = new Set(["@oni/agent"]);
-const JUDGMENT_DIRS = ["src/router/", "src/authn/", "src/store/"] as const;
 // #1317: the channel-facing persistence band owns its SQLite adapters, so the
 // runtime's built-in driver is legal there — and only there.
 const SQLITE_BAND_DIR = "src/store/sqlite/";
@@ -84,11 +82,7 @@ function isAllowed(specifier: string, path: string): boolean {
   if (specifier === "bun:ffi" && path === "src/provider/telegram/account-custody.ts") return true;
   const dependency = packageName(specifier);
   if (DRIVER_ALLOWED_PACKAGES.has(dependency)) return true;
-  if (SDK_SUBPATH_HOMES.get(specifier) === path) return true;
-  return (
-    JUDGMENT_DIRS.some((directory) => path.startsWith(directory)) &&
-    JUDGMENT_ALLOWED_PACKAGES.has(dependency)
-  );
+  return SDK_SUBPATH_HOMES.get(specifier) === path;
 }
 
 function detectBandViolations(sources: readonly ScannedSource[]): readonly string[] {
@@ -195,9 +189,9 @@ describe("channels band import boundary", () => {
       detectBandViolations([
         {
           path: "src/websocket.ts",
-          text: 'import Ledger = require("@oni/agent");',
+          text: 'import Ledger = require("@oni/machines");',
         },
       ]),
-    ).toEqual(["src/websocket.ts: imports @oni/agent"]);
+    ).toEqual(["src/websocket.ts: imports @oni/machines"]);
   });
 });

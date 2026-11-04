@@ -26,10 +26,9 @@ const excludedPathParts = ["/dist/", "/node_modules/", "/coverage/", "/generated
 const excludedSuffixes = [".d.ts", ".generated.ts", ".gen.ts"];
 
 // Only the canonical permission evaluator leaf may implement raw allowlist/denylist
-// membership; every public caller still routes through evaluatePermission
-// (the agent gate, the engine's owner since #498 W1; folded into agent by #1246).
+// membership (the agent gate, the engine's owner since #498 W1; folded into
+// agent by #1246).
 const canonicalPolicyEvaluator = new Set(["packages/agent/src/core/gate/bind.ts"]);
-const canonicalPolicyRequiredFiles = new Set(["packages/channels/src/authn/decision.ts"]);
 
 const listMembershipPattern = /\b(?:denylist|allowlist)\s*\??\.\s*includes\s*\(/g;
 const channelNormalizerTriggerPattern = /\bevaluateTriggers\s*\(/g;
@@ -60,15 +59,14 @@ const runReasonCodeComparisonPattern =
 
 /**
  * File-path allowlists go silently vacuous when a scanned file is renamed or
- * deleted: `missing-canonical-policy-evaluator` only fires for a path in
- * `canonicalPolicyRequiredFiles`, so a rename removes the file from the set's
- * reach and the rule stops checking it with no signal. Assert every pinned
- * path exists so a rename fails loud here instead (mirrors
- * lint-side-effects.ts's "Missing hot file" guard).
+ * deleted: `ad-hoc-list-membership` exempts only a path in
+ * `canonicalPolicyEvaluator`, so a rename moves the exemption off the real
+ * file with no signal. Assert every pinned path exists so a rename fails loud
+ * here instead (mirrors lint-side-effects.ts's "Missing hot file" guard).
  */
 export async function main(): Promise<void> {
   await verifyPinnedFilesExist(
-    [...canonicalPolicyEvaluator, ...canonicalPolicyRequiredFiles],
+    [...canonicalPolicyEvaluator],
     (filePath) =>
       `Missing pinned guard file: ${filePath} — a rule that keys off this path would silently go vacuous; update lint-guards.ts if the rename/deletion is intentional`,
   );
@@ -96,7 +94,6 @@ export async function main(): Promise<void> {
 
 export function validateGuardSource(filePath: string, source: string): GuardViolation[] {
   return [
-    ...validateCanonicalPolicyUsage(filePath, source),
     ...validateChannelTriggerEvaluation(filePath, source),
     ...validateListMembership(filePath, source),
     ...validateInlineAuthorization(filePath, source),
@@ -131,22 +128,6 @@ function shouldSkip(filePath: string): boolean {
   }
 
   return excludedPathParts.some((part) => filePath.includes(part));
-}
-
-function validateCanonicalPolicyUsage(filePath: string, source: string): GuardViolation[] {
-  if (!canonicalPolicyRequiredFiles.has(filePath) || source.includes("evaluatePermission(")) {
-    return [];
-  }
-
-  return [
-    {
-      ruleId: "missing-canonical-policy-evaluator",
-      filePath,
-      line: 1,
-      message:
-        "migrated policy middleware must route permission verdicts through evaluatePermission",
-    },
-  ];
 }
 
 function validateChannelTriggerEvaluation(filePath: string, source: string): GuardViolation[] {

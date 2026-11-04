@@ -14,9 +14,9 @@ import type { Image } from "@oni/ai";
 import type { Tts } from "@oni/ai";
 import type { OutputPort } from "./bundles/tools/speech/index";
 import type { ChannelStores, WebSocketHandler, WsConnection } from "@oni/channels";
-import type { ChannelDeliveryRoute, GatewayRouter } from "./bundles/message-ports.js";
+import type { ChannelDeliveryRoute, GatewayRouter, GatewayStoreSource } from "./bundles/message-ports.js";
 import { createGatewayRouter } from "./composition/gateway-router.js";
-import { type ChannelError, decodeChannelFailure, type ChannelStoreSource } from "@oni/channels";
+import { type ChannelError, decodeChannelFailure } from "@oni/channels";
 import { Core, type Bundle, Inspect } from "@oni/agent";
 import type { Gateway, Ingress, LedgerAction } from "@oni/protocol";
 const Entropy = Core.Entropy;
@@ -682,7 +682,7 @@ export function channelTransaction(
 }
 
 /** The perimeter's store source over the app plane (#1317): the channels-owned store plus the ingress session's decision facts. */
-export function channelStoreSource(plane: AppLedgerPlane, now: () => number): ChannelStoreSource {
+export function channelStoreSource(plane: AppLedgerPlane, now: () => number): GatewayStoreSource {
   const ingress = plane.session(GATEWAY_INGRESS_SESSION);
   return {
     now,

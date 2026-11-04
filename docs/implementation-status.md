@@ -1,5 +1,33 @@
 # Implementation Status
 
+## #1847 channels depend on protocol only
+
+PR #1852. `packages/channels` lists `@oni/protocol` as its only workspace
+dependency; `script/topology.ts` carries no channels -> agent edge and the
+root `AGENTS.md` topology is regenerated from it. `src/store/adapter.ts`
+owns the store sub-adapter guard (`requireSubAdapter`, refusing with the
+typed `ChannelStoreInvariant`) and the `withStoreTimestamps` wrapper the
+perimeter stores use. `src/authn/decision.ts` builds the
+`Policy.PolicyDecision` verdict directly from the authn outcome (`allowed`
+plus the allow or deny reason) under the `guardrail.permission` policy id;
+the observer rows it publishes are unchanged and no synthetic rule set
+remains. The decision-fact port left the channels router: `router/stores.ts`
+constructed it and no channels source read it, so
+`apps/oni/src/bundles/message-ports.ts` composes `createGatewayStores` as
+the channel stores plus `Core.createDecisionFactPort`, and the app readers
+(`admission.ts`, `external-message.ts`, `ingress-execution.ts`,
+`ingress-route.ts`) take it from there. Channels never referenced
+`PolicyEvaluationInput` at the base, so its `message` typing needed no
+change.
+
+The agent barrel keeps `PolicyEvaluationInput` as its only named export
+(apps/oni reads it), so the `check-deps` perimeter pin shrinks to that one
+name; the channels-agent S8 surface pin, its self-tests and fixtures, the
+band-boundary test's judgment allowance and the `lint-guards`
+`missing-canonical-policy-evaluator` rule go with the edge. The S8
+driver -> router edge ban stays. `grep -rn "@oni/agent" packages/channels`
+returns nothing. Gate receipts are recorded on PR #1852.
+
 ## #1797 rule and agent store API on the ws door
 
 PR #1827 retains the existing `rule_add`, `rule_remove`, `rule_enable`,

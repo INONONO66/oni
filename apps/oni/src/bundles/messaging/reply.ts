@@ -9,8 +9,7 @@ import {
 } from "@oni/protocol";
 import { type ChannelError, decodeChannelFailure, SendAdmissionConflict } from "@oni/channels";
 import type { KernelDeliveryReceipt } from "@oni/channels";
-import type { ChannelStores } from "@oni/channels";
-import type { GatewayRouterPorts } from "../message-ports.js";
+import type { GatewayRouterPorts, GatewayStores } from "../message-ports.js";
 import { admitReply } from "./admission.js";
 import { resolveInstance } from "./route.js";
 import { ingressSurfaceKey } from "./automation/input.js";
@@ -60,7 +59,7 @@ type OutboundMessage = Readonly<{
 }>;
 
 export interface ReplyPorts {
-  readonly stores: ChannelStores;
+  readonly stores: GatewayStores;
   readonly transaction: GatewayRouterPorts["transaction"];
   /** The surfaces with a mounted delivery route. */
   readonly routes: () => ReadonlyMap<string, Channel.Instance>;
@@ -102,7 +101,7 @@ export interface ReplyMessaging {
  * the binding alone, its ids named after the surface key.
  */
 function deliveryTarget(
-  stores: ChannelStores,
+  stores: GatewayStores,
   binding: ConversationBinding,
   identity: Channel.Identity,
   instance: string,
@@ -151,7 +150,7 @@ function replyInstance(
  * key — that would re-point the conversation's direct routing — so the
  * reply door reads the routed target here instead.
  */
-function automationTarget(stores: ChannelStores, inboundId: string): string | undefined {
+function automationTarget(stores: GatewayStores, inboundId: string): string | undefined {
   const decision = stores.rules.decisions(inboundId)[0];
   const target = decision !== undefined && "target" in decision ? decision.target : undefined;
   return typeof target === "string" && target.startsWith("session:")

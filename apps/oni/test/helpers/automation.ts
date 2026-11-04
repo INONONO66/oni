@@ -1,5 +1,5 @@
 import { Core } from "@oni/agent";
-import { createChannelStores } from "@oni/channels";
+import { createGatewayStores } from "../../src/bundles/message-ports.js";
 import { Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { runAppEffect, channelStoreSource } from "../../src/gateway";
@@ -42,7 +42,7 @@ export async function automationFixture(suite: ResidentSuite, judgeText = "yes")
     },
   });
   const plane = await planeOf(app.runtime);
-  const stores = createChannelStores(channelStoreSource(plane, () => time.now));
+  const stores = createGatewayStores(channelStoreSource(plane, () => time.now));
   stores.actors.registerIdentity({ id: "source", kind: "human", trustTier: "observer" });
   stores.actors.registerEndpoint({ id: "discord:source", actorId: "source", channel: "discord", externalId: "source" });
   return {

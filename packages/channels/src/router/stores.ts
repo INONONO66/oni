@@ -1,4 +1,3 @@
-import { createDecisionFactPort } from "@oni/agent";
 import { createSurfaceKeyStore } from "../store/surface-key/index.js";
 import { createActorRegistry } from "../store/actor/index.js";
 import { createRuleStore, type RuleAdapter } from "../store/rule/index.js";
@@ -10,7 +9,6 @@ export interface ChannelStoreSource {
   readonly rule?: RuleAdapter;
   readonly egressBudget?: ProtocolStorage.EgressBudgetSubAdapter;
   readonly surfaceKey?: ProtocolStorage.SurfaceKeySubAdapter;
-  readonly decisionFacts?: ProtocolStorage.DecisionFactSubAdapter;
   readonly now: () => number;
   transaction<T>(operation: () => T): T;
 }
@@ -21,13 +19,8 @@ export function createChannelStores(source: ChannelStoreSource) {
     rules: createRuleStore(source),
     egressBudgets: createEgressBudgetStore(source),
     surfaceKeys: createSurfaceKeyStore(source),
-    decisionFacts: createDecisionFactPort(source),
     transaction: <T>(operation: () => T): T => source.transaction(operation),
   };
 }
 
 export type ChannelStores = ReturnType<typeof createChannelStores>;
-
-export function unconfiguredChannelStores(now: () => number): ChannelStores {
-  return createChannelStores({ now, transaction: (operation) => operation() });
-}

@@ -1,12 +1,12 @@
 import type { resolveKernelRoute } from "../bundles/messaging/routing-resolution.js";
 import { Ingress, type Gateway, type BusEvent } from "@oni/protocol";
-import type { ChannelStores } from "@oni/channels";
+import type { GatewayStores } from "../bundles/message-ports.js";
 import { endpointFromFacts, endpointFacts } from "../bundles/messaging/endpoint-facts.js";
 import { IngressRoutingError } from "@oni/channels";
 
 /** Record before projection; a competing fact must preserve routing and reply authority. */
 function recordRouteDecided(
-  stores: ChannelStores,
+  stores: GatewayStores,
   streamId: string,
   decision: Ingress.RoutingDecisionPayload,
   at: number,
@@ -98,7 +98,7 @@ function pinInitiatorEndpoint(
 // the typed route_ambiguous rejection — candidates are never mutated on
 // lookup.
 export function recordIngressRoute<Event extends Gateway.DeliveredEvent>(
-  stores: ChannelStores,
+  stores: GatewayStores,
   resolution: ReturnType<typeof resolveKernelRoute<Event>>,
   publish: BusEvent.Sink["publish"],
   at: number,

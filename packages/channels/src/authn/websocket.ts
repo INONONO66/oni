@@ -47,12 +47,8 @@ function tokensEqual(provided: string, expected: string): boolean {
 }
 
 function evaluateWebSocketToken(state: WebSocketAuthState): Policy.PolicyDecision {
-  const policyId = "channel.authn.websocket-token";
   if (!state.token) {
     return evaluateChannelPermission({
-      action: policyId,
-      resource: "websocket.upgrade",
-      field: "authenticated",
       allowed: true,
       allowReason: "websocket token auth not configured",
       denyReason: "websocket token missing or invalid",
@@ -74,9 +70,6 @@ function evaluateWebSocketToken(state: WebSocketAuthState): Policy.PolicyDecisio
     });
     state.response = new Response("Unauthorized", { status: 401 });
     return evaluateChannelPermission({
-      action: policyId,
-      resource: "websocket.upgrade",
-      field: "authenticated",
       allowed: false,
       allowReason: "websocket token accepted",
       denyReason: "websocket token missing or invalid",
@@ -85,9 +78,6 @@ function evaluateWebSocketToken(state: WebSocketAuthState): Policy.PolicyDecisio
 
   state.protocol = subprotocolAuth.selected;
   return evaluateChannelPermission({
-    action: policyId,
-    resource: "websocket.upgrade",
-    field: "authenticated",
     allowed: true,
     allowReason: "websocket subprotocol token accepted",
     denyReason: "websocket token missing or invalid",

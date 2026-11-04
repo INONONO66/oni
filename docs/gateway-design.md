@@ -18,8 +18,8 @@ The model-visible tool is `send_message({to, message, kind?, reply_to?, deadline
 | Owner | Responsibility |
 | --- | --- |
 | Channel provider | Platform transport through the agent-messenger SDK (#1569: login with vault credentials, the SDK's listener and client), facts-only normalization, rendering, concrete delivery receipt under one physical attempt per idempotency key |
-| Channels router | Identity, ordered rule admission (#1793), deterministic correlation, surface labels, actor send kernel |
-| Existing policy compiler/executor | Message pre-admission, approval/transform, action intent/result and post obligations |
+| Channels router | Identity, ordered rule admission (#1793), deterministic correlation, surface labels, actor send kernel; depends on `@oni/protocol` only (#1847) and returns every verdict as a protocol value over app-injected ports |
+| Existing policy compiler/executor (the agent gate, composed by the app) | Message pre-admission, approval/transform, action intent/result and post obligations |
 | App/L1 | Authenticated session/tree/fence facts, runner configuration and injected inbox port |
 | Ledger/L0 | Atomic session configuration plus first inbox, fenced writes, terminal-plus-parent commit, answer/timeout CAS |
 

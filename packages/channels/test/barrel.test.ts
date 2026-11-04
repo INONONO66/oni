@@ -45,7 +45,6 @@ test("channels barrel exposes only its runtime public surface", () => {
     "signWebhookBody",
     "textOfA2A",
     "typingPulse",
-    "unconfiguredChannelStores",
   ].sort());
   expect("WebSocketFrames" in barrel).toBe(false);
   expect("InvalidInbound" in barrel).toBe(false);

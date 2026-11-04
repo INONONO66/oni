@@ -3,7 +3,7 @@ type LedgerError = Core.LedgerError;
 import { Effect } from "effect";
 import { basename, dirname } from "node:path";
 import type { Delivery, LedgerAction, Storage as ProtocolStorage } from "@oni/protocol";
-import { createChannelStores, type ChannelStores } from "@oni/channels";
+import { createGatewayStores, type GatewayStores } from "../../../src/bundles/message-ports.js";
 import { openChannelStore, type ChannelStore } from "@oni/channels";
 import { runEffect } from "../../../../../packages/channels/test/helpers/effect.js";
 
@@ -20,7 +20,7 @@ export interface TestLedger {
   readonly channel: ChannelStore;
   readonly sessions: ReturnType<Core.LedgerPlane["sessionStore"]>;
   readonly kernel: Core.SessionHandleStore.SessionKernel;
-  readonly stores: ChannelStores;
+  readonly stores: GatewayStores;
   /** Swaps only the decision-fact seam, live, for routers already built over this plane. */
   readonly setDecisionFacts: (
     facts: ProtocolStorage.DecisionFactSubAdapter | undefined,
@@ -49,7 +49,7 @@ function createTestLedger(paths?: TestLedgerPaths): TestLedger {
   const seam: { facts: ProtocolStorage.DecisionFactSubAdapter | undefined } = {
     facts: sessions.decisionFacts,
   };
-  const stores = createChannelStores({
+  const stores = createGatewayStores({
     actorRegistry: channel.actorRegistry,
     rule: channel.rule,
     egressBudget: channel.egressBudget,

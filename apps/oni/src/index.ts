@@ -56,8 +56,8 @@ type SessionHostRuntime = Core.SessionHostRuntime;
 const AgentFailure = Core.AgentFailure;
 const ExecutionApprovalError = Core.ExecutionApprovalError;
 import { canonicalJson, SessionTransition, type PlainValue } from "@oni/protocol";
-import { type ChannelProviders, type ProviderTypingRoute, type ProviderVoiceRoute, type ProviderHistoryRoute, createChannelStores, decodeChannelFailure, ChannelsFailure, WebSocketHandler, createWebhookSender, A2AClient } from "@oni/channels";
-import type { ChannelDeliveryRoute, GatewayRouter } from "./bundles/message-ports.js";
+import { type ChannelProviders, type ProviderTypingRoute, type ProviderVoiceRoute, type ProviderHistoryRoute, decodeChannelFailure, ChannelsFailure, WebSocketHandler, createWebhookSender, A2AClient } from "@oni/channels";
+import { type ChannelDeliveryRoute, type GatewayRouter, createGatewayStores } from "./bundles/message-ports.js";
 
 import {
   createFileGenerationStore,
@@ -495,7 +495,7 @@ export async function startOni(options: StartOptions = {}) {
       release: (value: A) => Effect.Effect<void, E2>,
     ) => runAppBoot(runtime, bootResource(resource, release));
     const plane = services.plane;
-    const channelStores = createChannelStores(channelStoreSource(plane, services.now));
+    const channelStores = createGatewayStores(channelStoreSource(plane, services.now));
     const rules = { store: channelStores.rules, id: services.entropy.id };
     const enrollments = plane.stores.machineEnrollments;
     const mclientBin = config.mclientBin ?? resolveMclientBin();

@@ -88,7 +88,7 @@ Read `X <- Y` as Y may depend on X.
 
 ```text
 protocol <- agent, ai, machines, codemode, channels, apps/oni, apps/desktop
-agent <- channels, apps/oni
+agent <- apps/oni
 ai <- apps/oni
 machines <- codemode, apps/oni
 codemode <- apps/oni
@@ -103,7 +103,7 @@ ui <- apps/desktop
 | `ai` | protocol |
 | `machines` | protocol |
 | `codemode` | protocol, machines |
-| `channels` | protocol, agent |
+| `channels` | protocol |
 | `apps/oni` | protocol, channels, agent, ai, machines, codemode |
 | `ui` | none |
 | `apps/desktop` | protocol, ui |

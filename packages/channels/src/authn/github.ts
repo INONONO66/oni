@@ -18,9 +18,6 @@ interface GitHubAuthState {
 
 function hmacVerdict(allowed: boolean, denyReason: string): Policy.PolicyDecision {
   return evaluateChannelPermission({
-    action: "channel.authn.github-hmac",
-    resource: "github.webhook",
-    field: "authenticated",
     allowed,
     allowReason: "github signature verified",
     denyReason,

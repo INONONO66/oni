@@ -9,7 +9,8 @@ const AgentFailure = Core.AgentFailure;
 type AgentFailure = Core.AgentFailure;
 type SessionError = Core.SessionError;
 type SessionHostRuntime = Core.SessionHostRuntime;
-import { createChannelStores, decodeChannelFailure } from "@oni/channels";
+import { decodeChannelFailure } from "@oni/channels";
+import { createGatewayStores } from "./bundles/message-ports.js";
 import { createGatewayRouter } from "./composition/gateway-router.js";
 import { Effect, Logger } from "effect";
 import {
@@ -183,7 +184,7 @@ export function serveProcessSession(
     sink: observations.publish,
     now,
     id: entropy.id,
-    stores: createChannelStores(channelStoreSource(plane, now)),
+    stores: createGatewayStores(channelStoreSource(plane, now)),
     transaction: channelTransaction(plane),
     deliver: (input) => commitDelivery(input).pipe(Effect.mapError(decodeChannelFailure("message.commit"))),
     prepare: prepareMessage(plane, resident.genesis),

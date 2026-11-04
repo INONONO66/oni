@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { createChannelStores, WebSocketHandler, type WsConnection } from "@oni/channels";
+import { WebSocketHandler, type WsConnection } from "@oni/channels";
+import { createGatewayStores } from "../src/bundles/message-ports.js";
 import { channelHistoryLookup, channelHistoryWire } from "../src/composition/channel-history";
 import type { ChannelHistoryLookup } from "../src/composition/channel-history";
 import { channelHistory, parseChannelHistoryArgs } from "../src/cli/channel-history";
@@ -256,7 +257,7 @@ test("gateway history interception answers an Owner while peers and malformed fr
   const plane = testPlane();
   const runtime = gatewayRuntime({ composed: composedHolder(), observations: Bus });
   try {
-    const stores = createChannelStores(channelStoreSource(plane, () => 0));
+    const stores = createGatewayStores(channelStoreSource(plane, () => 0));
     const handler = new WebSocketHandler(() => Effect.void, Bus.publish, { now: () => 0, id: testIds("history-gateway") });
     const frames: string[] = [];
     let lookedUp = 0;
