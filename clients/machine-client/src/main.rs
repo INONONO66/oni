@@ -712,7 +712,6 @@ mod tests {
             exports: vec![],
             host_cert: None,
             host_pin: Some("00".repeat(32)),
-            trust_on_first_use: false,
             unix: None,
             memory_budget_mb: 96,
             no_service: true,
