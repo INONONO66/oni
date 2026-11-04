@@ -4,7 +4,7 @@
  */
 
 import { Channel, type Storage as ProtocolStorage } from "@oni/protocol";
-import { requireSubAdapter } from "@oni/agent";
+import { requireSubAdapter } from "../adapter.js";
 
 export function createSurfaceKeyStore(source: {
   readonly surfaceKey?: ProtocolStorage.SurfaceKeySubAdapter;

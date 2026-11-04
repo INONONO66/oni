@@ -3,7 +3,6 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Core } from "@oni/agent";
 import { openChannelStore, type ChannelStore } from "../../../src/store/sqlite/index.js";
 
 /** Fixed injected clock (#1245): store tests assert exact timestamps. */
@@ -16,14 +15,18 @@ export interface OpenedChannelStore {
   close(): void;
 }
 
-/**
- * The channels-owned store over one bootstrapped SQLite handle (#1317): the
- * same open pragmas production applies to the catalog file, then the
- * channel-store schema. Self-contained — no agent test fixture involved.
- */
+/** The open pragmas production applies to the catalog file the channel store shares (#1317). */
+const OPEN_PRAGMAS = [
+  "PRAGMA busy_timeout = 5000",
+  "PRAGMA journal_mode = WAL",
+  "PRAGMA synchronous = FULL",
+  "PRAGMA foreign_keys = ON",
+];
+
+/** The channels-owned store over one bootstrapped SQLite handle; no agent fixture involved. */
 export function openTestChannelStore(path: string): OpenedChannelStore {
   const db = new Database(path);
-  Core.bootstrapStoreDatabase(db, []);
+  for (const pragma of OPEN_PRAGMAS) db.query(pragma).all();
   return {
     db,
     store: openChannelStore(db, testNow),
