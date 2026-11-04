@@ -178,7 +178,7 @@ describe("Machine.consentRequired", () => {
     };
     expect(Machine.consentRequired(widened, offer)).toEqual({
       capabilities: ["computer.use", "shell.exec"],
-      exports: ["code", "work"],
+      exports: ["work"],
     });
   });
 
