@@ -758,19 +758,21 @@ mod tests {
         assert!(Cli::try_parse_from(["mclient", "upgrade", "--host-contract", "4"]).is_err());
     }
 
+    fn join_options(argv: &[&str]) -> Option<config::JoinOptions> {
+        match Cli::try_parse_from(argv).ok()?.command {
+            Some(Command::Join(options)) => Some(*options),
+            _ => None,
+        }
+    }
+
     #[test]
     fn join_reads_the_token_from_the_environment_unless_overridden() {
-        let cli = Cli::try_parse_from(["mclient", "join", "oni-host", "--token", "jt"])
+        let explicit = join_options(&["mclient", "join", "oni-host", "--token", "jt"])
             .expect("join --token parses");
-        assert!(matches!(
-            cli.command,
-            Some(Command::Join(ref options)) if options.token.as_deref() == Some("jt")
-        ));
-        assert!(Cli::try_parse_from(["mclient", "join", "oni-host", "--token"]).is_err());
-        let bare = Cli::try_parse_from(["mclient", "join", "oni-host"]).expect("join parses");
-        let Some(Command::Join(bare)) = bare.command else {
-            panic!("join parses");
-        };
+        assert_eq!(explicit.token.as_deref(), Some("jt"));
+        assert!(join_options(&["mclient", "join", "oni-host", "--token"]).is_none());
+        assert!(join_options(&["mclient"]).is_none());
+        let bare = join_options(&["mclient", "join", "oni-host"]).expect("join parses");
         assert!(bare.token.is_none());
         let from_env =
             |name: &str| (name == config::JOIN_TOKEN_VARIABLE).then(|| "env-token".to_string());
@@ -780,9 +782,6 @@ mod tests {
         );
         assert_eq!(config::join_token(&bare, &|_| None), None);
         assert_eq!(config::join_token(&bare, &|_| Some(String::new())), None);
-        let Some(Command::Join(explicit)) = cli.command else {
-            panic!("join parses");
-        };
         assert_eq!(
             config::join_token(&explicit, &from_env).as_deref(),
             Some("jt")
