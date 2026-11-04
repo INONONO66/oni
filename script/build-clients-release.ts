@@ -72,6 +72,13 @@ export function buildClientRelease(input: ClientReleaseInput): Machine.Release {
     ),
   });
   writeFileSync(input.release, `${JSON.stringify(release, null, 2)}\n`);
+  writeFileSync(
+    join(directory, "SHA256SUMS"),
+    Machine.releasePlatforms.flatMap((platform) => {
+      const artifact = release.artifacts[platform];
+      return artifact === undefined ? [] : [`${artifact.sha256}  ${artifact.name}\n`];
+    }).join(""),
+  );
   return release;
 }
 

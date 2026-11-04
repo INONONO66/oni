@@ -760,7 +760,11 @@ published under (`Machine.releaseTagPrefix` + version, `mclient-v<version>`,
 #1838), machine contract version, and per-platform archive name, byte count,
 SHA-256 and URL. The SHA-256 of every archive is embedded in that record at
 build time, so a machine verifies against the host's answer, never against
-the download site. Join stages and
+the download site. `.github/workflows/release-mclient.yml` builds the three
+platform archives on a `mclient-v*` tag push and publishes `release.json`,
+`SHA256SUMS`, the archives and their `.sha256` sidecars as the release's
+assets; the macOS archive is signed with the #1724 certificate when its
+secrets exist and ad-hoc otherwise, never failing the release. Join stages and
 probes the host's binary before installing the service, and records the
 host version in `machine-client/pin.json`; if the release is unavailable it
 adopts the running binary with `pinned: false`. The service executes the

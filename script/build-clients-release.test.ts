@@ -41,6 +41,10 @@ test("packages each platform binary with a digest sidecar and a schema-valid rec
   });
   expect(readFileSync(join(directory, "out", "mclient-linux-x86_64.tar.gz.sha256"), "utf-8"))
     .toBe(`${artifact?.sha256}  mclient-linux-x86_64.tar.gz\n`);
+  expect(readFileSync(join(directory, "out", "SHA256SUMS"), "utf-8"))
+    .toBe(`${built.artifacts["darwin-universal"]?.sha256}  mclient-darwin-universal.tar.gz\n${artifact?.sha256}  mclient-linux-x86_64.tar.gz\n`);
+  const sums = Bun.spawnSync(["shasum", "-a", "256", "-c", "SHA256SUMS"], { cwd: join(directory, "out") });
+  expect(sums.exitCode).toBe(0);
   const listing = Bun.spawnSync(["tar", "-tzf", join(directory, "out", "mclient-linux-x86_64.tar.gz")]);
   expect(listing.stdout.toString()).toBe("mclient\n");
   const permissions = Bun.spawnSync(["tar", "-tvzf", join(directory, "out", "mclient-linux-x86_64.tar.gz")]);

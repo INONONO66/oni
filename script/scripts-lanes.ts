@@ -22,6 +22,7 @@ export const scriptsLanes = {
     "lint-side-effects.test.ts",
     "lint-tools.test.ts",
     "main-runner.test.ts",
+    "release-mclient-workflow.test.ts",
     "scripts-lanes.test.ts",
     "tool-target-deletion.test.ts",
     "verify-tsconfig-inheritance.test.ts",
