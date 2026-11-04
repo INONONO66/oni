@@ -131,6 +131,7 @@ describe("code-mode tool bridge", () => {
             cellId: "completion-sugar",
             name: "completion",
             arguments: { prompt: "summarize this" },
+            source: { kind: "machine", machineId: "m-1" },
           },
         ]);
       },

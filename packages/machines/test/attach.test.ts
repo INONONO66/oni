@@ -531,7 +531,14 @@ describe("machine attach handshake", () => {
             .get("mac-studio")
             .runCode({ cellId: "relay", code: "tool.answer()\nimport threading\nthreading.Event().wait()", timeoutMs: 5000 }, controller.signal);
           await relayed.promise;
-          expect(calls).toEqual([{ cellId: "relay", name: "answer", arguments: {} }]);
+          expect(calls).toEqual([
+            {
+              cellId: "relay",
+              name: "answer",
+              arguments: {},
+              source: { kind: "machine", machineId: "mac-studio" },
+            },
+          ]);
           controller.abort();
           expect(await running).toMatchObject({ status: "cancelled", cellId: "relay" });
         } finally {
