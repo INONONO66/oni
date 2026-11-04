@@ -717,7 +717,7 @@ paragraph and `docs/key-generation.md`). A pin mismatch at connect time is
 
 **Join and run.** `mclient join <host> [--name] [--tag]* [--export
 name=/abs/path]* [--host-pin hex | --host-cert pem]
-[--unix path] [--memory-budget-mb N]` writes `~/.oni/machine-client/`
+[--unix path] [--memory-budget-mb N] [--token <join token>]` writes `~/.oni/machine-client/`
 (directory 0700; `client.json`, `client-key.pem`, `client-cert.pem`,
 `host-pin`, `state.json` and `metrics.jsonl` all 0600), prints the
 enrollment receipt `{machineId, name, publicKey, allowedCapabilities,
@@ -725,6 +725,8 @@ allowedExports}` on stdout for the Owner's `provision machine_add`, and
 clears any saved generation. `machineId` is the slug of `--name` (default:
 the hostname). `allowedCapabilities` always lists all four supported
 capabilities so a later attach can offer whatever is available then.
+`--token` is an opaque join token saved as `joinToken` in `client.json`
+(#1838); its issuance and verification are #1833.
 `mclient run [--config path]` keeps the service available through attach
 failures; `--once` makes one attempt and exits nonzero on refusal. A
 memory-budget exit remains code 4. `mclient reconnect` signals the service
@@ -732,6 +734,24 @@ PID from `state.json` with SIGUSR1 so it reconnects now instead of after its
 backoff, or answers `service_unavailable` when absent or dead; it never
 starts another service. `mclient hook ...` is plumbing for launched CLI
 agents and is hidden from `--help`.
+
+**Install (#1838).** `GET /machine/install` is a POSIX `sh` script served
+by the host itself, so one command on a fresh machine needs nothing but the
+host: `curl -fsSL http://<host>:<port>/machine/install | sh -s --
+http://<host>:<port> [--token <join token>]`. The script reads the platform
+from `uname` (`darwin-universal` for either macOS architecture,
+`linux-x86_64`, `linux-arm64`; anything else is `unsupported platform:
+<os>-<arch>`), fetches the host's `/machine/release` answer, downloads the
+archive it names (a relative URL is resolved against the release URL), and
+refuses the download unless its byte count and SHA-256 match that answer:
+`checksum_mismatch: <url>` on stderr, exit 1, nothing written. A verified
+archive installs `~/.oni/bin/mclient` (0755, staged then renamed), prints
+`installed <path> (<tag>, <platform>)` and execs `mclient join <host>
+[--token]`, which stages the same verified release, records the pin and
+installs the service. `oni machine bootstrap <http(s)://host[:port]>
+[--token <join token>]` does the same from the TypeScript CLI with the same
+messages and the join's exit code; both take only the host's HTTP origin
+and the optional token.
 
 **Release pin and update.** The host serves `GET /machine/release`
 from its bundled `dist/clients/release.json` and answers `machine.release`

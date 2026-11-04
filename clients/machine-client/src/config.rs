@@ -112,11 +112,17 @@ pub struct ClientConfig {
     pub unix: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tmux_socket: Option<String>,
+    /// The opaque join token `mclient join --token` was given (#1838); kept
+    /// in the 0600 `client.json` for the attach handshake (#1833) to present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub join_token: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct JoinOptions {
     pub host: String,
+    #[arg(long)]
+    pub token: Option<String>,
     #[arg(long)]
     pub json: bool,
     #[arg(long)]

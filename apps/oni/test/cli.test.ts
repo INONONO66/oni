@@ -759,6 +759,7 @@ describe("cli dispatch", () => {
           viewer: () => Promise.reject(new Error("no viewer in this test")),
           wait: () => Promise.resolve(),
         },
+        bootstrap: { home: "/Users/owner", os: "darwin", arch: "arm64", io, fetch: () => Promise.reject(new Error("no host in this test")) },
         ask: () => Promise.resolve(""),
         writeEnv: () => undefined,
         login: {
@@ -802,12 +803,19 @@ describe("cli dispatch", () => {
     };
   }
 
-  test("machine knows only probe; the client itself joins a host", async () => {
+  test("machine knows probe and bootstrap; the client itself joins a host", async () => {
     const { deps: cli, err } = deps();
     expect(await runCli(["machine"], cli)).toBe(1);
     expect(await runCli(["machine", "attach", "config.json"], cli)).toBe(1);
-    const usage = "usage: oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]";
+    const usage = "usage: oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]\nusage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>]";
     expect(err).toEqual([usage, usage]);
+  });
+
+  test("machine bootstrap dispatch reports a bad host before fetching anything", async () => {
+    const { deps: cli, err } = deps();
+    expect(await runCli(["machine", "bootstrap", "oni-host:3000"], cli)).toBe(1);
+    expect(await runCli(["machine", "bootstrap", "http://oni-host:3000", "--token"], cli)).toBe(1);
+    expect(err).toEqual(["usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>]", "usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>]"]);
   });
 
   test("machine probe dispatch reports invalid options without opening a socket", async () => {

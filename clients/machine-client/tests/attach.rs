@@ -45,6 +45,7 @@ fn config() -> ClientConfig {
         memory_budget_mb: 96,
         unix: None,
         tmux_socket: None,
+        join_token: None,
     }
 }
 
@@ -78,6 +79,7 @@ fn join_options(host: &str) -> JoinOptions {
         no_service: true,
         service_dir: None,
         no_open: true,
+        token: None,
     }
 }
 

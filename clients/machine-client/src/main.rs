@@ -514,6 +514,7 @@ mod tests {
                 memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
                 unix: Some(socket),
                 tmux_socket: None,
+                join_token: None,
             },
             &layout.client(),
         )
@@ -756,6 +757,38 @@ mod tests {
                 if location == "https://host/machine/release"
         ));
         assert!(Cli::try_parse_from(["mclient", "upgrade", "--host-contract", "4"]).is_err());
+    }
+
+    #[test]
+    fn join_carries_an_opaque_token_into_the_client_config() {
+        let cli = Cli::try_parse_from(["mclient", "join", "oni-host", "--token", "jt"])
+            .expect("join --token parses");
+        let Some(Command::Join(options)) = cli.command else {
+            panic!("join parses to its command");
+        };
+        assert_eq!(options.token.as_deref(), Some("jt"));
+        assert!(Cli::try_parse_from(["mclient", "join", "oni-host", "--token"]).is_err());
+        let bare = Cli::try_parse_from(["mclient", "join", "oni-host"]).expect("join parses");
+        assert!(matches!(bare.command, Some(Command::Join(options)) if options.token.is_none()));
+        let config = config::ClientConfig {
+            machine_id: "m".into(),
+            name: "m".into(),
+            host: "oni-host:7643".into(),
+            exports: vec![],
+            tags: vec![],
+            memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
+            unix: None,
+            tmux_socket: None,
+            join_token: Some("jt".into()),
+        };
+        let saved = serde_json::to_value(&config).expect("serializes");
+        assert_eq!(saved["joinToken"], serde_json::json!("jt"));
+        let without = serde_json::to_value(config::ClientConfig {
+            join_token: None,
+            ..config
+        })
+        .expect("serializes");
+        assert!(without.get("joinToken").is_none());
     }
 
     #[test]

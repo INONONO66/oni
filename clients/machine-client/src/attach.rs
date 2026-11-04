@@ -352,6 +352,7 @@ pub async fn join(
         memory_budget_mb: options.memory_budget_mb,
         unix,
         tmux_socket: None,
+        join_token: options.token.clone(),
     };
     let public_key = config::identity(&directory, &config.machine_id)?;
     config::save(&config, &directory)?;
@@ -1121,6 +1122,7 @@ mod tests {
             memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
             tmux_socket: None,
+            join_token: None,
         };
         std::fs::write(root.path().join("one"), b"hello").expect("seed");
         let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;

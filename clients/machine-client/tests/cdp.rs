@@ -210,6 +210,7 @@ fn settings(root: &Path) -> ClientConfig {
         memory_budget_mb: 96,
         unix: Some(root.join("host.sock")),
         tmux_socket: None,
+        join_token: None,
     }
 }
 

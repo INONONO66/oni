@@ -23,6 +23,7 @@ import { type MessagingFacts, messagingReadiness } from "./messaging";
 import { type DeployClient, deployCommand } from "./deploy";
 import { ONI_VERSION } from "../version";
 import { streamProbeCommand, type StreamProbeDeps } from "./stream-probe";
+import { BOOTSTRAP_USAGE, type BootstrapDeps, bootstrapCommand } from "./bootstrap";
 
 /**
  * Command dispatch with every side effect injected. `main.ts` is the only
@@ -36,6 +37,8 @@ export interface CliDeps {
   readonly envPath: string;
   readonly startApp: () => Promise<void>;
   readonly streamProbe: StreamProbeDeps;
+  /** #1838: the one-command machine install, bound to this process's home, platform, exec and fetch. */
+  readonly bootstrap: BootstrapDeps;
   readonly ask: Ask;
   readonly writeEnv: (entries: readonly EnvEntry[]) => void;
   readonly doctorPorts: () => Promise<DoctorPorts>;
@@ -61,6 +64,7 @@ Usage:
   oni onboard               interactive setup → ~/.oni/env
   oni daemon <verb>         install | uninstall | status | start | stop | restart
   oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]  watch one attached display
+  oni machine bootstrap <http(s)://host[:port]> [--token <join token>]  install mclient from the host's release and join it
   oni doctor                read-only diagnostics
   oni logs                  follow the daemon logs
   oni login <platform>      sign the Owner's own account in and declare it (slack | discord | instagram | kakaotalk | telegram)
@@ -97,7 +101,8 @@ export async function runCli(args: readonly string[], deps: CliDeps): Promise<nu
       return daemon(args[1], deps);
     case "machine":
       if (args[1] === "probe") return await streamProbeCommand(args.slice(2), deps.streamProbe, deps);
-      deps.stderr("usage: oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]");
+      if (args[1] === "bootstrap") return await bootstrapCommand(args.slice(2), deps.bootstrap, deps);
+      deps.stderr(`usage: oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]\n${BOOTSTRAP_USAGE}`);
       return 1;
     case "doctor":
       return await doctor(deps);
