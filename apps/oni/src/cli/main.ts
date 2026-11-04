@@ -165,7 +165,7 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
       const result = spawnSync(command, rest, {
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "pipe"],
-        ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
+        ...(env === undefined ? {} : { env: { ...Object.fromEntries(mergeEnvFile("")), ...env } }),
       });
       return { code: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },

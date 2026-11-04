@@ -22,6 +22,9 @@ export function joinHost(origin: string): string {
   return new URL(origin).hostname;
 }
 
+/** The client reads the join token from this variable; it never rides argv or `client.json`. */
+export const JOIN_TOKEN_VARIABLE = "ONI_MCLIENT_JOIN_TOKEN";
+
 /** Shell twin of `oni machine bootstrap`, served at `GET /machine/install`: trusts only the host's `/machine/release` digest, exits 1 on `checksum_mismatch: <url>` before writing anything, and leaves `~/.oni/bin/mclient` to join. */
 export const MACHINE_INSTALL_SCRIPT = `#!/bin/sh
 # oni machine install: served by the host at GET /machine/install.
@@ -153,7 +156,7 @@ echo "verified $TAG ($PLATFORM): mclient join $JOIN_HOST"
 
 # The token reaches join through its environment, never argv or client.json.
 if [ -n "$TOKEN" ]; then
-  ONI_MCLIENT_JOIN_TOKEN="$TOKEN" "$STAGE/mclient" join "$JOIN_HOST"
+  ${JOIN_TOKEN_VARIABLE}="$TOKEN" "$STAGE/mclient" join "$JOIN_HOST"
 else
   "$STAGE/mclient" join "$JOIN_HOST"
 fi

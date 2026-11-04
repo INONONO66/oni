@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { Machine } from "@oni/protocol";
 import { z } from "zod";
-import { HOST_ORIGIN, joinHost, releasePlatform } from "../composition/machine-install";
+import { HOST_ORIGIN, JOIN_TOKEN_VARIABLE, joinHost, releasePlatform } from "../composition/machine-install";
 import type { DaemonIo, ExecResult } from "./daemon";
 import { CliError } from "./errors";
 
@@ -36,9 +36,6 @@ export interface BootstrapDeps {
 /** A stalled host must not hang the CLI: the manifest answers in seconds, the archive is tens of megabytes. */
 const RELEASE_TIMEOUT_MS = 60_000;
 const ARCHIVE_TIMEOUT_MS = 600_000;
-
-/** The client reads the join token from this variable; it never rides argv or `client.json`. */
-export const JOIN_TOKEN_VARIABLE = "ONI_MCLIENT_JOIN_TOKEN";
 
 export interface BootstrapReceipt {
   readonly version: string;
