@@ -1,6 +1,7 @@
 use std::io;
 
 use serde::Serialize;
+use tokio_tungstenite::tungstenite::Error as WsError;
 
 use crate::{
     attach::AttachError,
@@ -78,8 +79,9 @@ pub fn classify(error: &AttachError) -> FailureClass {
             TransportError::HostKeyMismatch
             | TransportError::HostCertificate
             | TransportError::Tls(_)
-            | TransportError::Upgrade(_),
+            | TransportError::Proxy(_),
         ) => FailureClass::Configuration,
+        AttachError::Transport(TransportError::Upgrade(error)) => classify_upgrade(error),
         AttachError::Transport(TransportError::ConnectTimeout)
         | AttachError::Call(CallError::Timeout(_)) => FailureClass::Timeout,
         AttachError::Transport(TransportError::Connect(error)) => classify_io(error),
@@ -102,9 +104,35 @@ pub fn classify(error: &AttachError) -> FailureClass {
     }
 }
 
+/// A host that answers the upgrade with a client error (4xx) or a protocol
+/// refusal will keep refusing; 5xx, transport and I/O failures are retried like
+/// the TCP carrier's.
+fn classify_upgrade(error: &WsError) -> FailureClass {
+    match error {
+        WsError::Http(response) if response.status().is_client_error() => {
+            FailureClass::Configuration
+        }
+        WsError::Http(_) | WsError::ConnectionClosed | WsError::AlreadyClosed => {
+            FailureClass::RemoteUnavailable
+        }
+        WsError::Io(error) => classify_io(error),
+        WsError::Tls(_)
+        | WsError::Capacity(_)
+        | WsError::Protocol(_)
+        | WsError::WriteBufferFull(_)
+        | WsError::Utf8(_)
+        | WsError::AttackAttempt
+        | WsError::Url(_)
+        | WsError::HttpFormat(_) => FailureClass::Configuration,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use tokio_tungstenite::tungstenite::http;
+
     use super::*;
+    use crate::transport::ws::ProxyFailure;
 
     #[test]
     fn attach_refusals_keep_authentication_configuration_and_capacity_separate() {
@@ -133,9 +161,50 @@ mod tests {
         );
         assert_eq!(
             classify(&AttachError::Transport(TransportError::Upgrade(
-                tokio_tungstenite::tungstenite::Error::AttackAttempt
+                WsError::AttackAttempt
             ))),
             FailureClass::Configuration
+        );
+        assert_eq!(
+            classify(&AttachError::Transport(TransportError::Proxy(
+                ProxyFailure::Refused { status: 403 }
+            ))),
+            FailureClass::Configuration
+        );
+    }
+
+    fn upgrade_status(status: u16) -> AttachError {
+        let response = http::Response::builder()
+            .status(status)
+            .body(None)
+            .expect("status response");
+        AttachError::Transport(TransportError::Upgrade(WsError::Http(Box::new(
+            response,
+        ))))
+    }
+
+    #[test]
+    fn upgrade_refusals_stop_while_upgrade_outages_retry() {
+        assert_eq!(classify(&upgrade_status(403)), FailureClass::Configuration);
+        assert_eq!(classify(&upgrade_status(426)), FailureClass::Configuration);
+        assert_eq!(classify(&upgrade_status(503)), FailureClass::RemoteUnavailable);
+        assert_eq!(
+            classify(&AttachError::Transport(TransportError::Upgrade(
+                WsError::ConnectionClosed
+            ))),
+            FailureClass::RemoteUnavailable
+        );
+        assert_eq!(
+            classify(&AttachError::Transport(TransportError::Upgrade(
+                WsError::Io(io::Error::from(io::ErrorKind::ConnectionReset))
+            ))),
+            FailureClass::HostUnreachable
+        );
+        assert_eq!(
+            classify(&AttachError::Transport(TransportError::Upgrade(
+                WsError::Io(io::Error::from(io::ErrorKind::TimedOut))
+            ))),
+            FailureClass::Timeout
         );
         assert_eq!(
             classify(&AttachError::Transport(TransportError::Connect(

@@ -1,4 +1,4 @@
-use std::{future::Future, io, io::Cursor, path::Path, sync::Arc, time::Duration};
+use std::{future::Future, io::Cursor, path::Path, sync::Arc, time::Duration};
 
 use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -131,18 +131,21 @@ fn tls_connector(
     Ok(TlsConnector::from(Arc::new(config)))
 }
 
-async fn secure(
+async fn secure<E: Into<TransportError>>(
     connector: &TlsConnector,
     server_name: &str,
-    tcp: impl Future<Output = io::Result<TcpStream>>,
+    tcp: impl Future<Output = Result<TcpStream, E>>,
 ) -> Result<(TlsStream<TcpStream>, [u8; 32]), TransportError> {
     let name = ServerName::try_from(server_name.to_owned()).map_err(|_| TransportError::Closed)?;
     let stream = timeout(CONNECT_TIMEOUT, async {
-        connector.connect(name, tcp.await?).await
+        let tcp = tcp.await.map_err(Into::into)?;
+        connector
+            .connect(name, tcp)
+            .await
+            .map_err(classify_handshake_error)
     })
     .await
-    .map_err(|_| TransportError::ConnectTimeout)?
-    .map_err(classify_handshake_error)?;
+    .map_err(|_| TransportError::ConnectTimeout)??;
     let pin = stream
         .get_ref()
         .1
@@ -186,7 +189,7 @@ impl Client {
         let tcp = async move {
             match proxy {
                 Some(proxy) => ws::connect_through_proxy(proxy, &endpoint.address).await,
-                None => TcpStream::connect(&endpoint.address).await,
+                None => Ok(TcpStream::connect(&endpoint.address).await?),
             }
         };
         let (stream, pin) = secure(&connector, &endpoint.server_name, tcp).await?;

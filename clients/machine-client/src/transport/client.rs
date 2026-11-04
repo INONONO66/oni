@@ -18,6 +18,7 @@ use super::{
     envelope::{self, Message},
     framing::{self, Framed},
     request_table::{CallError, Pending, RequestTable, CALL_TIMEOUT},
+    ws,
 };
 
 const EXECUTING: usize = 16;
@@ -62,6 +63,8 @@ pub enum TransportError {
     QueueFull,
     #[error("IPC WebSocket upgrade failed: {0}")]
     Upgrade(tokio_tungstenite::tungstenite::Error),
+    #[error("IPC proxy tunnel failed: {0}")]
+    Proxy(#[from] ws::ProxyFailure),
 }
 
 /// A clonable handle that issues calls over a live connection; once the

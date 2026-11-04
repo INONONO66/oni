@@ -410,10 +410,8 @@ async fn proxy_failure(answer: proxy::ProxyAnswer) -> (String, TransportError) {
 async fn wss_dial_reports_a_proxy_refusal() {
     let (_, error) = proxy_failure(proxy::ProxyAnswer::Refuse).await;
     assert!(matches!(
-        &error,
-        TransportError::Connect(error)
-            if error.kind() == io::ErrorKind::ConnectionRefused
-                && error.to_string() == "proxy refused CONNECT"
+        error,
+        TransportError::Proxy(ws::ProxyFailure::Refused { status: 403 })
     ));
 }
 
@@ -421,10 +419,8 @@ async fn wss_dial_reports_a_proxy_refusal() {
 async fn wss_dial_refuses_a_proxy_that_hangs_up_before_answering() {
     let (_, error) = proxy_failure(proxy::ProxyAnswer::HangUp).await;
     assert!(matches!(
-        &error,
-        TransportError::Connect(error)
-            if error.kind() == io::ErrorKind::InvalidData
-                && error.to_string() == "proxy closed before answering CONNECT"
+        error,
+        TransportError::Proxy(ws::ProxyFailure::ClosedEarly)
     ));
 }
 
@@ -432,10 +428,17 @@ async fn wss_dial_refuses_a_proxy_that_hangs_up_before_answering() {
 async fn wss_dial_refuses_an_oversized_proxy_answer() {
     let (_, error) = proxy_failure(proxy::ProxyAnswer::Flood).await;
     assert!(matches!(
-        &error,
-        TransportError::Connect(error)
-            if error.kind() == io::ErrorKind::InvalidData
-                && error.to_string() == "proxy response head too large"
+        error,
+        TransportError::Proxy(ws::ProxyFailure::HeadTooLarge)
+    ));
+}
+
+#[tokio::test]
+async fn wss_dial_refuses_a_proxy_answer_without_a_status_line() {
+    let (_, error) = proxy_failure(proxy::ProxyAnswer::Garbage).await;
+    assert!(matches!(
+        error,
+        TransportError::Proxy(ws::ProxyFailure::Malformed)
     ));
 }
 

@@ -21,7 +21,7 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
-use super::framing::MAX_FRAME_BYTES;
+use super::{client::TransportError, framing::MAX_FRAME_BYTES};
 
 pub const PATH: &str = "/machine";
 const MAX_PROXY_HEAD: usize = 16 * 1024;
@@ -58,10 +58,23 @@ fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
+/// Why the HTTP proxy did not open the CONNECT tunnel; the host was never reached.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ProxyFailure {
+    #[error("proxy refused CONNECT with status {status}")]
+    Refused { status: u16 },
+    #[error("proxy answered CONNECT without an HTTP status line")]
+    Malformed,
+    #[error("proxy closed before answering CONNECT")]
+    ClosedEarly,
+    #[error("proxy response head too large")]
+    HeadTooLarge,
+}
+
 /// Opens a tunnel to `target` through the HTTP proxy at `proxy` (CONNECT);
 /// the head is read byte by byte so the target's first byte stays in the
 /// returned stream, which then carries TLS unchanged.
-pub async fn connect_through_proxy(proxy: &str, target: &str) -> io::Result<TcpStream> {
+pub async fn connect_through_proxy(proxy: &str, target: &str) -> Result<TcpStream, TransportError> {
     let mut stream = TcpStream::connect(proxy).await?;
     let request = format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n");
     stream.write_all(request.as_bytes()).await?;
@@ -69,23 +82,21 @@ pub async fn connect_through_proxy(proxy: &str, target: &str) -> io::Result<TcpS
     let mut byte = [0_u8; 1];
     while !head.ends_with(b"\r\n\r\n") {
         if head.len() >= MAX_PROXY_HEAD {
-            return Err(invalid("proxy response head too large"));
+            return Err(ProxyFailure::HeadTooLarge.into());
         }
         if stream.read(&mut byte).await? == 0 {
-            return Err(invalid("proxy closed before answering CONNECT"));
+            return Err(ProxyFailure::ClosedEarly.into());
         }
         head.push(byte[0]);
     }
     let status = std::str::from_utf8(&head)
         .ok()
         .and_then(|text| text.split(' ').nth(1)?.parse::<u16>().ok());
-    if status != Some(200) {
-        return Err(io::Error::new(
-            io::ErrorKind::ConnectionRefused,
-            "proxy refused CONNECT",
-        ));
+    match status {
+        Some(200) => Ok(stream),
+        Some(status) => Err(ProxyFailure::Refused { status }.into()),
+        None => Err(ProxyFailure::Malformed.into()),
     }
-    Ok(stream)
 }
 
 fn config() -> WebSocketConfig {

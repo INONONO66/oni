@@ -75,6 +75,7 @@ pub enum ProxyAnswer {
     Refuse,
     HangUp,
     Flood,
+    Garbage,
 }
 
 pub struct FakeProxy {
@@ -112,6 +113,10 @@ impl FakeProxy {
                         .await
                         .expect("refusal written"),
                     ProxyAnswer::HangUp => drop(client),
+                    ProxyAnswer::Garbage => client
+                        .write_all(b"nonsense\r\n\r\n")
+                        .await
+                        .expect("garbage written"),
                     ProxyAnswer::Flood => {
                         let mut head = b"HTTP/1.1 200 ".to_vec();
                         head.resize(17 * 1024, b'x');
