@@ -1,14 +1,10 @@
 {
   "status": "attached",
-  "effectiveCapabilities": [
-    "fs.read"
-  ],
+  "effectiveCapabilities": ["fs.read"],
   "effectiveExports": [],
   "generation": 2,
   "consentRequired": {
-    "capabilities": [
-      "shell.exec"
-    ],
+    "capabilities": ["shell.exec"],
     "exports": [],
     "reason": "consent_required"
   }

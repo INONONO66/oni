@@ -321,6 +321,19 @@ function consentFor(offer: Machine.Offer, enrollment: Machine.Enrollment): Conse
 const CONSENT_CONTRACT = 5;
 type ConsentRequired = Extract<Machine.AttachResult, { status: "attached" }>["consentRequired"];
 
+function attachedResult(
+  generation: number,
+  negotiated: { readonly capabilities: readonly Machine.CapabilityId[]; readonly exports: readonly Machine.ExportName[]; readonly consent: ConsentRequired },
+): Machine.AttachResult {
+  return {
+    status: "attached",
+    generation,
+    effectiveCapabilities: [...negotiated.capabilities],
+    effectiveExports: [...negotiated.exports],
+    ...(negotiated.consent === undefined ? {} : { consentRequired: negotiated.consent }),
+  };
+}
+
 function matchesGeneration(offer: Machine.Offer, current: number | undefined): boolean {
   return offer.generation === undefined || offer.generation === current;
 }
@@ -517,13 +530,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           return;
         }
         publishAttachment(offer, source, incumbent, generation, negotiated);
-        respond({
-          status: "attached",
-          generation,
-          effectiveCapabilities: [...negotiated.capabilities],
-          effectiveExports: [...negotiated.exports],
-          ...(negotiated.consent === undefined ? {} : { consentRequired: negotiated.consent }),
-        } satisfies Machine.AttachResult);
+        respond(attachedResult(generation, negotiated));
       }).pipe(admission.withPermits(1));
     }
     /**

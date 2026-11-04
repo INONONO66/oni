@@ -1,19 +1,10 @@
 {
   "status": "attached",
-  "effectiveCapabilities": [
-    "fs.read"
-  ],
-  "effectiveExports": [
-    "notes"
-  ],
+  "effectiveCapabilities": ["fs.read"],
+  "effectiveExports": ["notes"],
   "generation": 2,
   "consentRequired": {
-    "capabilities": [
-      "shell.exec",
-      "computer.use"
-    ],
-    "exports": [
-      "code"
-    ]
+    "capabilities": ["shell.exec", "computer.use"],
+    "exports": ["code"]
   }
 }
