@@ -7,6 +7,7 @@ use serde_json::json;
 
 use super::*;
 use crate::screen::ax::AppIdentity;
+use crate::screen::fixture::Fixture;
 
 #[path = "scoped_tests.rs"]
 mod scoped;
@@ -312,12 +313,8 @@ fn screen_action_wait_subscription_refuses_missing_or_unrepresentable_targets() 
     let mut nodes = tree();
     nodes[0].attributes.enabled = Some(Some(false));
     let calls = Arc::new(AtomicUsize::new(0));
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
-        1,
-    )
-    .observing(Box::new(Fake::new(nodes)))
-    .notifying(Box::new(RejectNotifications(Arc::clone(&calls))));
+    let screen = observed(Fixture::display(256, 128, 1.0), Fake::new(nodes))
+        .notifying(Box::new(RejectNotifications(Arc::clone(&calls))));
     let request: ScreenObserveRequest =
         oni_protocol::decode(json!({"target":{"pid":7,"windowId":9},"screenshot":false}))
             .expect("observe request");
@@ -464,11 +461,7 @@ fn blocked_action_propagates_a_failed_settle_sample() {
 fn empty_accessibility_window_set_is_private_for_input() {
     let fake = Fake::new(tree());
     *fake.windows.lock().expect("lock") = Ok(Vec::new());
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
-        1,
-    )
-    .observing(Box::new(fake));
+    let screen = observed(Fixture::display(32, 16, 1.0), fake);
     assert_eq!(screen.input_private(None), Ok(true));
 }
 
@@ -476,11 +469,7 @@ fn empty_accessibility_window_set_is_private_for_input() {
 fn failed_window_enumeration_marks_input_accessibility_unavailable() {
     let fake = Fake::new(tree());
     *fake.windows.lock().expect("lock") = Err(Fault::Permission);
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
-        1,
-    )
-    .observing(Box::new(fake));
+    let screen = observed(Fixture::display(32, 16, 1.0), fake);
     assert_eq!(
         screen.input_private(None),
         Err(Fault::AccessibilityUnavailable)
@@ -490,21 +479,7 @@ fn failed_window_enumeration_marks_input_accessibility_unavailable() {
 
 #[test]
 fn display_capture_and_stream_propagate_absent_observer() {
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![crate::screen::Window {
-            id: 9,
-            display: 1,
-            title: "Editor".into(),
-            owner: "fixture".into(),
-            pid: Some(7),
-            app: None,
-            x: 0,
-            y: 0,
-            width: 16,
-            height: 16,
-        }],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
+    let source = fixture(32, 16, vec![editor(0, 0, 16)]);
     let screen = Screen::new(Box::new(source), 1);
     let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
         "target":{"kind":"display","display":1},"encoding":{"format":"png"}
@@ -527,7 +502,7 @@ fn stream_propagates_window_listing_failure_after_private_check() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct ListingFails {
-        fixture: crate::screen::fixture::Fixture,
+        fixture: Fixture,
         calls: AtomicUsize,
     }
     impl Source for ListingFails {
@@ -552,14 +527,13 @@ fn stream_propagates_window_listing_failure_after_private_check() {
         }
     }
 
-    let screen = Screen::new(
-        Box::new(ListingFails {
-            fixture: crate::screen::fixture::Fixture::display(32, 16, 1.0),
+    let screen = observed(
+        ListingFails {
+            fixture: Fixture::display(32, 16, 1.0),
             calls: AtomicUsize::new(0),
-        }),
-        1,
-    )
-    .observing(Box::new(Fake::new(tree())));
+        },
+        Fake::new(tree()),
+    );
     let stream = serde_json::from_value(json!({"kind":"display","display":1})).expect("stream");
     assert_eq!(
         screen.frame_private(&stream, 32, &mut Vec::new()),
@@ -570,30 +544,16 @@ fn stream_propagates_window_listing_failure_after_private_check() {
 #[test]
 fn ambiguous_pointer_targets_fail_closed() {
     let fake = Fake::new(tree());
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
-        1,
-    )
-    .observing(Box::new(fake));
+    let screen = observed(Fixture::display(32, 16, 1.0), fake);
     assert_eq!(screen.input_private(Some((-1, -1))), Ok(true));
     let fake = Fake::new(tree());
-    let window = crate::screen::Window {
-        id: 9,
-        display: 1,
-        title: "Editor".into(),
-        owner: "fixture".into(),
-        pid: Some(7),
-        app: None,
-        x: 0,
-        y: 0,
-        width: 16,
-        height: 16,
-    };
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![window.clone(), crate::screen::Window { id: 10, ..window }],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
-    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let window = editor(0, 0, 16);
+    let source = fixture(
+        32,
+        16,
+        vec![window.clone(), crate::screen::Window { id: 10, ..window }],
+    );
+    let screen = observed(source, fake);
     assert_eq!(screen.input_private(Some((4, 4))), Ok(true));
 }
 
@@ -601,35 +561,13 @@ fn ambiguous_pointer_targets_fail_closed() {
 fn pointer_hit_test_uses_captured_window_size_when_observer_cannot_measure_it() {
     let fake = Fake::new(tree());
     fake.missing_size.store(true, Ordering::SeqCst);
-    let window = crate::screen::Window {
-        id: 9,
-        display: 1,
-        title: "Editor".into(),
-        owner: "fixture".into(),
-        pid: Some(7),
-        app: None,
-        x: 100,
-        y: 50,
-        width: 16,
-        height: 16,
-    };
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture {
-            windows: vec![window],
-            ..crate::screen::fixture::Fixture::display(256, 128, 1.0)
-        }),
-        1,
-    )
-    .observing(Box::new(fake));
+    let window = editor(100, 50, 16);
+    let screen = observed(fixture(256, 128, vec![window]), fake);
     assert_eq!(screen.pointer_at(104, 54), Some((7, 9)));
     assert_eq!(screen.pointer_at(120, 54), None);
     let missing = Fake::new(tree());
     missing.missing_size.store(true, Ordering::SeqCst);
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
-        1,
-    )
-    .observing(Box::new(missing));
+    let screen = observed(Fixture::display(256, 128, 1.0), missing);
     assert_eq!(screen.pointer_at(104, 54), None);
 }
 
@@ -637,11 +575,7 @@ fn pointer_hit_test_uses_captured_window_size_when_observer_cannot_measure_it() 
 fn private_edges_track_enter_and_leave_with_the_window_epoch() {
     let fake = Fake::new(tree());
     let walk = Arc::clone(&fake.walk);
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
-        1,
-    )
-    .observing(Box::new(fake));
+    let screen = observed(Fixture::display(32, 16, 1.0), fake);
     assert_eq!(screen.private_edges(), Ok(vec![]));
     walk.lock().expect("walk")[3].attributes.secure = true;
     let target = Target {
@@ -676,21 +610,7 @@ fn global_secure_input_masks_capture_observation_and_refuses_input() {
     let enabled = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&enabled);
     let fake = Fake::new(tree());
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![crate::screen::Window {
-            id: 9,
-            display: 1,
-            title: "Editor".into(),
-            owner: "fixture".into(),
-            pid: Some(7),
-            app: None,
-            x: 0,
-            y: 0,
-            width: 16,
-            height: 16,
-        }],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
+    let source = fixture(32, 16, vec![editor(0, 0, 16)]);
     let screen = Screen::new(Box::new(source), 2)
         .observing(Box::new(fake))
         .with_secure_input(move || flag.load(Ordering::SeqCst));
@@ -767,22 +687,8 @@ fn global_secure_input_masks_capture_observation_and_refuses_input() {
 fn capture_guard_defers_to_capture_permission_when_observation_is_denied() {
     let fake = Fake::new(tree());
     *fake.windows.lock().expect("lock") = Err(Fault::Permission);
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![crate::screen::Window {
-            id: 9,
-            display: 1,
-            title: "Editor".into(),
-            owner: "fixture".into(),
-            pid: Some(7),
-            app: None,
-            x: 0,
-            y: 0,
-            width: 16,
-            height: 16,
-        }],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
-    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let source = fixture(32, 16, vec![editor(0, 0, 16)]);
+    let screen = observed(source, fake);
     assert_eq!(screen.capture_guard(9), Ok(()));
 }
 
@@ -804,21 +710,7 @@ fn capture_guard_refuses_excluded_and_minimized_windows() {
 
 #[test]
 fn window_capture_without_an_observer_uses_the_capture_source() {
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![crate::screen::Window {
-            id: 9,
-            display: 1,
-            title: "Editor".into(),
-            owner: "fixture".into(),
-            pid: Some(7),
-            app: None,
-            x: 0,
-            y: 0,
-            width: 16,
-            height: 16,
-        }],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
+    let source = fixture(32, 16, vec![editor(0, 0, 16)]);
     let screen = Screen::new(Box::new(source), 1);
     let encoding = crate::screen::encode::Encoding {
         format: crate::screen::encode::Format::Png,
@@ -840,11 +732,7 @@ fn window_capture_without_an_observer_uses_the_capture_source() {
 fn window_capture_guard_propagates_observer_failure() {
     let fake = Fake::new(tree());
     *fake.windows.lock().expect("lock") = Err(Fault::Failed("observer unavailable".into()));
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
-        1,
-    )
-    .observing(Box::new(fake));
+    let screen = observed(Fixture::display(32, 16, 1.0), fake);
     let encoding = crate::screen::encode::Encoding {
         format: crate::screen::encode::Format::Png,
         quality: 0,
@@ -865,24 +753,8 @@ fn window_capture_guard_propagates_observer_failure() {
 fn display_capture_and_stream_skip_failed_window_enumeration() {
     let fake = Fake::new(tree());
     *fake.windows.lock().expect("lock") = Err(Fault::Failed("observer unavailable".into()));
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![crate::screen::Window {
-            id: 9,
-            display: 1,
-            title: "Editor".into(),
-            owner: "fixture".into(),
-            pid: Some(7),
-            app: None,
-            x: 0,
-            y: 0,
-            width: 16,
-            height: 16,
-        }],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
-    let screen = Screen::new(Box::new(source), 1)
-        .observing(Box::new(fake))
-        .with_secure_input(|| false);
+    let source = fixture(32, 16, vec![editor(0, 0, 16)]);
+    let screen = observed(source, fake).with_secure_input(|| false);
     let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
         "target":{"kind":"display","display":1},"encoding":{"format":"png"}
     }))
@@ -904,11 +776,7 @@ fn display_capture_and_stream_skip_failed_window_enumeration() {
 #[test]
 fn ordinary_stream_frame_is_returned_unmasked() {
     let fake = Fake::new(tree());
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
-        1,
-    )
-    .observing(Box::new(fake));
+    let screen = observed(Fixture::display(32, 16, 1.0), fake);
     let source = serde_json::from_value(json!({"kind":"display","display":1})).expect("source");
     let mut frame = Vec::new();
     let (size, private) = screen
@@ -924,22 +792,8 @@ fn display_capture_masks_a_private_window() {
     let fake = Fake::new(tree());
     fake.walk.lock().expect("walk")[3].attributes.secure = true;
     let walk = Arc::clone(&fake.walk);
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![crate::screen::Window {
-            id: 9,
-            display: 1,
-            title: "Editor".into(),
-            owner: "fixture".into(),
-            pid: Some(7),
-            app: None,
-            x: 0,
-            y: 0,
-            width: 16,
-            height: 16,
-        }],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
-    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let source = fixture(32, 16, vec![editor(0, 0, 16)]);
+    let screen = observed(source, fake);
     let request: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
         "target":{"kind":"display","display":1},"encoding":{"format":"png"}
     }))
@@ -1076,18 +930,9 @@ fn target_for_tracks_recreation_and_refuses_missing_window() {
 #[test]
 fn offscreen_observation_reference_refuses_pointing() {
     let mut nodes = tree();
-    nodes[0].attributes.frame = Frame {
-        x: 1000,
-        y: 1000,
-        width: 12,
-        height: 12,
-    };
+    nodes[0].attributes.frame = frame(1000, 1000, 12, 12);
     let fake = Fake::new(nodes);
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
-        1,
-    )
-    .observing(Box::new(fake));
+    let screen = observed(Fixture::display(32, 16, 1.0), fake);
     let request: ScreenObserveRequest = oni_protocol::decode(json!({
         "target":{"pid":7,"windowId":9},"screenshot":false
     }))
@@ -1103,22 +948,8 @@ fn offscreen_observation_reference_refuses_pointing() {
 #[test]
 fn ordinary_observation_includes_a_window_screenshot() {
     let fake = Fake::new(tree());
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![crate::screen::Window {
-            id: 9,
-            display: 1,
-            title: "Editor".into(),
-            owner: "fixture".into(),
-            pid: Some(7),
-            app: None,
-            x: 0,
-            y: 0,
-            width: 16,
-            height: 16,
-        }],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
-    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let source = fixture(32, 16, vec![editor(0, 0, 16)]);
+    let screen = observed(source, fake);
     let request: ScreenObserveRequest = oni_protocol::decode(json!({
         "target":{"pid":7,"windowId":9},"screenshot":true
     }))
@@ -1134,11 +965,7 @@ fn ordinary_observation_includes_a_window_screenshot() {
 #[test]
 fn observation_screenshot_capture_failure_does_not_mint_an_observation() {
     let fake = Fake::new(tree());
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
-        1,
-    )
-    .observing(Box::new(fake));
+    let screen = observed(Fixture::display(32, 16, 1.0), fake);
     let request: ScreenObserveRequest = oni_protocol::decode(json!({
         "target":{"pid":7,"windowId":9},"screenshot":true
     }))
@@ -1152,6 +979,41 @@ fn observation_screenshot_capture_failure_does_not_mint_an_observation() {
     }))
     .expect("request");
     assert_eq!(screen.observe(&request)["observationId"], "o1");
+}
+
+fn editor(x: i32, y: i32, size: u32) -> crate::screen::Window {
+    crate::screen::Window {
+        id: 9,
+        display: 1,
+        title: "Editor".into(),
+        owner: "fixture".into(),
+        pid: Some(7),
+        app: None,
+        x,
+        y,
+        width: size,
+        height: size,
+    }
+}
+
+fn fixture(width: u32, height: u32, windows: Vec<crate::screen::Window>) -> Fixture {
+    Fixture {
+        windows,
+        ..Fixture::display(width, height, 1.0)
+    }
+}
+
+fn observed(source: impl crate::screen::Source + 'static, observer: Fake) -> Screen {
+    Screen::new(Box::new(source), 1).observing(Box::new(observer))
+}
+
+fn frame(x: i64, y: i64, width: i64, height: i64) -> Frame {
+    Frame {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
 fn window(token: u64) -> WindowIdentity {
@@ -1180,12 +1042,7 @@ fn surface(window_id: u32, x: i64, parent: Option<u32>) -> WindowIdentity {
     identity.surface = Some(ax::Surface {
         kind: ax::SurfaceKind::Menu,
         parent,
-        frame: Frame {
-            x,
-            y: 1,
-            width: 10,
-            height: 10,
-        },
+        frame: frame(x, 1, 10, 10),
     });
     identity
 }
@@ -1198,11 +1055,7 @@ fn listing_skips_surfaces_off_display_but_keeps_visible_siblings() {
         surface(10, 100, None),
         surface(11, 1, Some(9)),
     ]);
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(32, 16, 1.0)),
-        1,
-    )
-    .observing(Box::new(fake));
+    let screen = observed(Fixture::display(32, 16, 1.0), fake);
     let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
     assert_eq!(listed["windows"].as_array().expect("windows").len(), 1);
     assert_eq!(listed["windows"][0]["windowId"], "11");
@@ -1217,25 +1070,8 @@ fn listing_skips_surfaces_off_display_but_keeps_visible_siblings() {
 fn listing_bounded_surfaces_reports_truncation() {
     let fake = Fake::new(vec![]);
     *fake.windows.lock().expect("windows") = Ok(vec![surface(10, 1, None), surface(11, 2, None)]);
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![
-            crate::screen::Window {
-                id: 9,
-                display: 1,
-                title: "Editor".into(),
-                owner: "fixture".into(),
-                pid: Some(7),
-                app: None,
-                x: 0,
-                y: 0,
-                width: 10,
-                height: 10,
-            };
-            crate::screen::MAX_WINDOWS
-        ],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
-    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let source = fixture(32, 16, vec![editor(0, 0, 10); crate::screen::MAX_WINDOWS]);
+    let screen = observed(source, fake);
     let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
     assert_eq!(
         listed["windows"].as_array().expect("windows").len(),
@@ -1248,22 +1084,8 @@ fn listing_bounded_surfaces_reports_truncation() {
 fn listing_retains_capture_windows_when_accessibility_refuses() {
     let fake = Fake::new(vec![]);
     *fake.windows.lock().expect("windows") = Err(Fault::Permission);
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![crate::screen::Window {
-            id: 9,
-            display: 1,
-            title: "Editor".into(),
-            owner: "fixture".into(),
-            pid: Some(7),
-            app: None,
-            x: 0,
-            y: 0,
-            width: 10,
-            height: 10,
-        }],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
-    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let source = fixture(32, 16, vec![editor(0, 0, 10)]);
+    let screen = observed(source, fake);
     let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
     assert_eq!(listed["windows"].as_array().expect("windows").len(), 1);
     assert_eq!(listed["windows"][0]["windowId"], "9");
@@ -1272,21 +1094,7 @@ fn listing_retains_capture_windows_when_accessibility_refuses() {
 
 #[test]
 fn listing_without_accessibility_observer_keeps_capture_windows() {
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![crate::screen::Window {
-            id: 9,
-            display: 1,
-            title: "Editor".into(),
-            owner: "fixture".into(),
-            pid: Some(7),
-            app: None,
-            x: 0,
-            y: 0,
-            width: 10,
-            height: 10,
-        }],
-        ..crate::screen::fixture::Fixture::display(32, 16, 1.0)
-    };
+    let source = fixture(32, 16, vec![editor(0, 0, 10)]);
     let screen = Screen::new(Box::new(source), 1);
     let listed = screen.list(&oni_protocol::decode(json!({"windows": true})).expect("list"));
     assert_eq!(listed["windows"].as_array().expect("windows").len(), 1);
@@ -1315,12 +1123,7 @@ fn node(role: &str, label: Option<&str>, parent: Option<usize>) -> Node {
             role: role.into(),
             label: label.map(Into::into),
             actions: vec!["AXPress".into()],
-            frame: Frame {
-                x: 0,
-                y: 0,
-                width: 1,
-                height: 1,
-            },
+            frame: frame(0, 0, 1, 1),
             ..Attributes::default()
         },
         parent,
@@ -2017,12 +1820,7 @@ fn elements_clip_bound_and_hide_secure_values() {
         role: "AXSecureTextField".into(),
         value: Some("hunter2".into()),
         actions,
-        frame: Frame {
-            x: -20_000,
-            y: 20_000,
-            width: -5,
-            height: 20_000,
-        },
+        frame: frame(-20_000, 20_000, -5, 20_000),
         secure: true,
         ..Attributes::default()
     };
@@ -2105,12 +1903,7 @@ fn actions_revalidate_the_observation_and_the_element_before_acting() {
 #[test]
 fn points_resolve_the_fresh_element_centre_in_global_points() {
     let mut nodes = tree();
-    nodes[0].attributes.frame = Frame {
-        x: 10,
-        y: 4,
-        width: 41,
-        height: 20,
-    };
+    nodes[0].attributes.frame = frame(10, 4, 41, 20);
     let fake = Fake::new(nodes);
     let observations = Observations::default();
     observe(&observations, &fake, None);
@@ -2243,11 +2036,7 @@ fn screen_pointer_resolves_only_a_point_on_an_active_display() {
     let request: ScreenObserveRequest =
         oni_protocol::decode(json!({"target":{"pid":7,"windowId":9},"screenshot":false}))
             .expect("observe request");
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
-        1,
-    )
-    .observing(Box::new(Fake::new(tree())));
+    let screen = observed(Fixture::display(256, 128, 1.0), Fake::new(tree()));
     assert_eq!(screen.observe(&request)["observationId"], "o1");
     let (display, x, y) = screen.point("o1", "AXButton[0]").expect("pointer");
     assert_eq!((display.id, x, y), (1, 100, 50));
@@ -2257,11 +2046,7 @@ fn screen_pointer_resolves_only_a_point_on_an_active_display() {
     for far_x in [300, i64::from(i32::MAX) + 1] {
         let mut far = tree();
         far[0].attributes.frame.x = far_x;
-        let screen = Screen::new(
-            Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
-            1,
-        )
-        .observing(Box::new(Fake::new(far)));
+        let screen = observed(Fixture::display(256, 128, 1.0), Fake::new(far));
         assert_eq!(screen.observe(&request)["observationId"], "o1");
         assert_eq!(screen.point("o1", "AXButton[0]"), Err(Refusal::OffScreen));
     }
@@ -2271,11 +2056,7 @@ fn screen_pointer_resolves_only_a_point_on_an_active_display() {
 fn background_ref_refuses_a_window_removed_after_point_resolution() {
     let fake = Fake::new(tree());
     let reads = Arc::clone(&fake.window_reads);
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
-        1,
-    )
-    .observing(Box::new(fake));
+    let screen = observed(Fixture::display(256, 128, 1.0), fake);
     let request: ScreenObserveRequest = oni_protocol::decode(json!({
         "target":{"pid":7,"windowId":9},"screenshot":false
     }))
@@ -2304,13 +2085,7 @@ fn background_ref_refuses_a_window_removed_after_point_resolution() {
 fn background_ref_refuses_when_observation_is_forgotten_during_resolution() {
     let fake = Fake::new(tree());
     let forget_on_walk = Arc::clone(&fake.forget_on_walk);
-    let screen = Arc::new(
-        Screen::new(
-            Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
-            1,
-        )
-        .observing(Box::new(fake)),
-    );
+    let screen = Arc::new(observed(Fixture::display(256, 128, 1.0), fake));
     let request: ScreenObserveRequest =
         oni_protocol::decode(json!({"target":{"pid":7,"windowId":9},"screenshot":false}))
             .expect("observe request");
@@ -2336,22 +2111,8 @@ fn background_ref_refuses_when_observation_is_forgotten_during_resolution() {
 fn background_window_refuses_when_target_focus_cannot_be_read() {
     let fake = Fake::new(tree());
     let window_reads = Arc::clone(&fake.window_reads);
-    let source = crate::screen::fixture::Fixture {
-        windows: vec![crate::screen::Window {
-            id: 9,
-            display: 1,
-            title: "Editor".into(),
-            owner: "fixture".into(),
-            pid: Some(7),
-            app: None,
-            x: 100,
-            y: 50,
-            width: 16,
-            height: 16,
-        }],
-        ..crate::screen::fixture::Fixture::display(256, 128, 1.0)
-    };
-    let screen = Screen::new(Box::new(source), 1).observing(Box::new(fake));
+    let source = fixture(256, 128, vec![editor(100, 50, 16)]);
+    let screen = observed(source, fake);
     let capture: oni_protocol::ScreenCaptureRequest = oni_protocol::decode(json!({
         "target":{"kind":"window","windowId":"9"},"encoding":{"format":"png"}
     }))
@@ -2380,11 +2141,7 @@ fn background_window_refuses_when_target_focus_cannot_be_read() {
 
 #[test]
 fn screen_observation_respects_explicit_element_limit() {
-    let screen = Screen::new(
-        Box::new(crate::screen::fixture::Fixture::display(256, 128, 1.0)),
-        1,
-    )
-    .observing(Box::new(Fake::new(tree())));
+    let screen = observed(Fixture::display(256, 128, 1.0), Fake::new(tree()));
     let request: ScreenObserveRequest = oni_protocol::decode(json!({
         "target":{"pid":7,"windowId":9},"screenshot":false,"maxElements":1
     }))
@@ -2399,12 +2156,7 @@ fn screen_observation_respects_explicit_element_limit() {
 fn actionability_decision_names_first_blocker_and_set_value_only_checks_disabled() {
     let mut attributes = Attributes {
         enabled: Some(Some(false)),
-        frame: Frame {
-            x: 100,
-            y: 0,
-            width: 0,
-            height: 3,
-        },
+        frame: frame(100, 0, 0, 3),
         ..Attributes::default()
     };
     let size = (10, 10);
