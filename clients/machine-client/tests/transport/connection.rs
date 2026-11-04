@@ -487,7 +487,10 @@ fn proxy_address_normalizes_the_environment_value() {
         Some("proxy.example:80".to_owned())
     );
     assert_eq!(address(Some("[::1]:3128")), Some("[::1]:3128".to_owned()));
-    for unsupported in ["https://proxy.example:3128", "http://user:pass@proxy.example:3128"] {
+    for unsupported in [
+        "https://proxy.example:3128",
+        "http://user:pass@proxy.example:3128",
+    ] {
         assert!(matches!(
             ws::proxy_address(Some(unsupported)),
             Err(ws::ProxyFailure::Unsupported)

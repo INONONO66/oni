@@ -178,16 +178,17 @@ mod tests {
             .status(status)
             .body(None)
             .expect("status response");
-        AttachError::Transport(TransportError::Upgrade(WsError::Http(Box::new(
-            response,
-        ))))
+        AttachError::Transport(TransportError::Upgrade(WsError::Http(Box::new(response))))
     }
 
     #[test]
     fn upgrade_refusals_stop_while_upgrade_outages_retry() {
         assert_eq!(classify(&upgrade_status(403)), FailureClass::Configuration);
         assert_eq!(classify(&upgrade_status(426)), FailureClass::Configuration);
-        assert_eq!(classify(&upgrade_status(503)), FailureClass::RemoteUnavailable);
+        assert_eq!(
+            classify(&upgrade_status(503)),
+            FailureClass::RemoteUnavailable
+        );
         assert_eq!(
             classify(&AttachError::Transport(TransportError::Upgrade(
                 WsError::ConnectionClosed
