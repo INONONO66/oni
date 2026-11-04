@@ -136,7 +136,7 @@ pub struct JoinOptions {
     pub service_dir: Option<PathBuf>,
     #[arg(long)]
     pub no_open: bool,
-    /// The host key's pin, `encode_pin` text; the only trust a join takes.
+    /// The host key's pin: base64 of the sha256 over its SPKI DER; the only trust a join takes.
     #[arg(long)]
     pub host_pin: Option<String>,
     #[arg(long)]
