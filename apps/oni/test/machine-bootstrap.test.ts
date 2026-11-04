@@ -5,8 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Machine } from "@oni/protocol";
-import { bootstrapCommand, parseBootstrapArgs, runBootstrap } from "../src/cli/bootstrap";
 import { CliError } from "../src/cli/errors";
+import { BootstrapRefusal, type BootstrapRefusalKind, bootstrapCommand, parseBootstrapArgs, runBootstrap } from "../src/cli/bootstrap";
 import type { DaemonIo } from "../src/cli/daemon";
 import { HOST_ORIGIN, joinHost, MACHINE_INSTALL_SCRIPT, releasePlatform } from "../src/composition/machine-install";
 import { Bus } from "./helpers/bus";
@@ -45,6 +45,13 @@ function joinArgv(home: string): string {
 
 function joinToken(home: string): string {
   return readFileSync(clientFile(home, "join-token"), "utf-8").trimEnd();
+}
+
+function refusal(kind: BootstrapRefusalKind, detail: string): BootstrapRefusal {
+  const expected = new BootstrapRefusal(kind, detail);
+  expect(expected.kind).toBe(kind);
+  expect(expected.name).toBe("BootstrapRefusal");
+  return expected;
 }
 
 function stagedJoin(home: string): { readonly staged: boolean; readonly removed: boolean } {
@@ -173,6 +180,12 @@ describe("oni machine bootstrap", () => {
     const out: string[] = [];
     expect(await bootstrapCommand([origin], bootstrapDeps(home), { stdout: (line) => out.push(line), stderr: (line) => err.push(line) })).toBe(1);
     expect(err).toEqual([`checksum_mismatch: ${origin}/mclient.tar.gz`]);
+    await expect(runBootstrap({ host: origin }, bootstrapDeps(home))).rejects.toThrow(refusal("checksum_mismatch", `${origin}/mclient.tar.gz`));
+    const usage: string[] = [];
+    expect(await bootstrapCommand(["oni-host"], bootstrapDeps(home), { stdout: () => undefined, stderr: (line) => usage.push(line) })).toBe(1);
+    expect(usage).toEqual(["usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>] [--force]"]);
+    const broken = { ...bootstrapDeps(home), fetch: () => Promise.reject(new TypeError("socket hang up")) };
+    await expect(bootstrapCommand([origin], broken, { stdout: () => undefined, stderr: () => undefined })).rejects.toThrow(new TypeError("socket hang up"));
     expect(out).toEqual([]);
     expect(existsSync(join(home, ".oni"))).toBe(false);
   });
@@ -238,7 +251,7 @@ describe("oni machine bootstrap", () => {
     const home = tempDir("oni-bootstrap-home-");
     const { origin, downloads } = fakeHost(packArchive(tempDir("oni-bootstrap-archive-")));
     pinClient(home, "0.2.0");
-    await expect(runBootstrap({ host: origin }, bootstrapDeps(home))).rejects.toThrow(new CliError("downgrade_refused: the host's 0.1.0 is older than the pinned 0.2.0 (pass --force)"));
+    await expect(runBootstrap({ host: origin }, bootstrapDeps(home))).rejects.toThrow(refusal("downgrade_refused", "the host's 0.1.0 is older than the pinned 0.2.0 (pass --force)"));
     expect(downloads()).toBe(0);
     expect(existsSync(clientFile(home, "join-argv"))).toBe(false);
     expect((await runBootstrap({ host: origin, force: true }, bootstrapDeps(home))).join.code).toBe(0);
@@ -247,19 +260,19 @@ describe("oni machine bootstrap", () => {
     expect((await runBootstrap({ host: origin }, bootstrapDeps(home))).join.code).toBe(0);
     expect(downloads()).toBe(2);
     writeFileSync(clientFile(home, "pin.json"), "{}");
-    await expect(runBootstrap({ host: origin }, bootstrapDeps(home))).rejects.toThrow(new CliError(`unreadable pin at ${clientFile(home, "pin.json")}`));
+    await expect(runBootstrap({ host: origin }, bootstrapDeps(home))).rejects.toThrow(refusal("unreadable_pin", clientFile(home, "pin.json")));
   });
 
   test("an unsupported platform, a missing release, a bad record and a broken archive are each one typed refusal", async () => {
     const home = tempDir("oni-bootstrap-home-");
     const archive = packArchive(tempDir("oni-bootstrap-archive-"));
     const { origin } = fakeHost(archive);
-    await expect(runBootstrap({ host: origin }, bootstrapDeps(home, { os: "win32", arch: "x64" }))).rejects.toThrow(new CliError("unsupported platform: win32-x64"));
+    await expect(runBootstrap({ host: origin }, bootstrapDeps(home, { os: "win32", arch: "x64" }))).rejects.toThrow(refusal("unsupported_platform", "win32-x64"));
     const absent = fakeHost(archive, { release: false });
-    await expect(runBootstrap({ host: absent.origin }, bootstrapDeps(home))).rejects.toThrow(new CliError(`release unavailable at ${absent.origin}/machine/release`));
+    await expect(runBootstrap({ host: absent.origin }, bootstrapDeps(home))).rejects.toThrow(refusal("release_unavailable", `${absent.origin}/machine/release answered 404`));
     const invalid = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ version: "1" }) });
     servers.push(invalid);
-    await expect(runBootstrap({ host: `http://127.0.0.1:${invalid.port}` }, bootstrapDeps(home))).rejects.toThrow(new CliError(`invalid release record at http://127.0.0.1:${invalid.port}/machine/release`));
+    await expect(runBootstrap({ host: `http://127.0.0.1:${invalid.port}` }, bootstrapDeps(home))).rejects.toThrow(refusal("release_unavailable", `http://127.0.0.1:${invalid.port}/machine/release is not a release record`));
     const gone = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -268,11 +281,11 @@ describe("oni machine bootstrap", () => {
         : new Response("Not found", { status: 404 })),
     });
     servers.push(gone);
-    await expect(runBootstrap({ host: `http://127.0.0.1:${gone.port}` }, bootstrapDeps(home))).rejects.toThrow(new CliError("no linux-x86_64 artifact in the host's release"));
-    await expect(runBootstrap({ host: `http://127.0.0.1:${gone.port}` }, bootstrapDeps(home, { os: "linux", arch: "arm64" }))).rejects.toThrow(new CliError(`download failed: http://127.0.0.1:${gone.port}/a.tar.gz`));
+    await expect(runBootstrap({ host: `http://127.0.0.1:${gone.port}` }, bootstrapDeps(home))).rejects.toThrow(refusal("release_unavailable", "no linux-x86_64 artifact in the host's release"));
+    await expect(runBootstrap({ host: `http://127.0.0.1:${gone.port}` }, bootstrapDeps(home, { os: "linux", arch: "arm64" }))).rejects.toThrow(refusal("download_failed", `http://127.0.0.1:${gone.port}/a.tar.gz answered 404`));
     const broken = new TextEncoder().encode("not an archive");
     const { origin: brokenOrigin } = fakeHost(broken);
-    await expect(runBootstrap({ host: brokenOrigin }, bootstrapDeps(home))).rejects.toThrow(/^tar .*mclient\.tar\.gz failed: /);
+    await expect(runBootstrap({ host: brokenOrigin }, bootstrapDeps(home))).rejects.toThrow(/^extract_failed: tar .*mclient\.tar\.gz: /);
     expect(existsSync(join(home, ".oni", "bin"))).toBe(false);
     expect(readdirSync(clientFile(home, ""))).toEqual([]);
   });

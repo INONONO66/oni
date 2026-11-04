@@ -9,6 +9,16 @@ import { CliError } from "./errors";
 
 export const BOOTSTRAP_USAGE = "usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>] [--force]";
 
+/** Mirrors the client's `UpdateError` kinds: one typed refusal per failure path, the message always `<kind>: <detail>`. */
+export type BootstrapRefusalKind = "unsupported_platform" | "release_unavailable" | "checksum_mismatch" | "download_failed" | "extract_failed" | "unreadable_pin" | "downgrade_refused";
+
+export class BootstrapRefusal extends Error {
+  override readonly name = "BootstrapRefusal";
+  constructor(readonly kind: BootstrapRefusalKind, detail: string) {
+    super(`${kind}: ${detail}`);
+  }
+}
+
 export interface BootstrapOptions {
   readonly host: string;
   readonly token?: string;
@@ -61,9 +71,9 @@ export function parseBootstrapArgs(args: readonly string[]): BootstrapOptions {
 async function hostedRelease(host: string, deps: BootstrapDeps): Promise<{ readonly release: Machine.Release; readonly url: string }> {
   const url = `${host}/machine/release`;
   const response = await deps.fetch(url);
-  if (!response.ok) throw new CliError(`release unavailable at ${url}`);
+  if (!response.ok) throw new BootstrapRefusal("release_unavailable", `${url} answered ${response.status}`);
   const parsed = Machine.Release.safeParse(await response.json());
-  if (!parsed.success) throw new CliError(`invalid release record at ${url}`);
+  if (!parsed.success) throw new BootstrapRefusal("release_unavailable", `${url} is not a release record`);
   return { release: parsed.data, url };
 }
 
@@ -71,7 +81,7 @@ function pinnedVersion(home: string): string | undefined {
   const path = join(home, ".oni", "machine-client", "pin.json");
   if (!existsSync(path)) return undefined;
   const pin = Pin.safeParse(JSON.parse(readFileSync(path, "utf-8")));
-  if (!pin.success) throw new CliError(`unreadable pin at ${path}`);
+  if (!pin.success) throw new BootstrapRefusal("unreadable_pin", path);
   return pin.data.pinnedVersion;
 }
 
@@ -88,10 +98,10 @@ function olderVersion(candidate: string, installed: string): boolean {
 
 async function verifiedArchive(url: string, artifact: Machine.ReleaseArtifact, deps: BootstrapDeps): Promise<Uint8Array> {
   const response = await deps.fetch(url);
-  if (!response.ok) throw new CliError(`download failed: ${url}`);
+  if (!response.ok) throw new BootstrapRefusal("download_failed", `${url} answered ${response.status}`);
   const bytes = new Uint8Array(await response.arrayBuffer());
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  if (bytes.length !== artifact.bytes || sha256 !== artifact.sha256) throw new CliError(`checksum_mismatch: ${url}`);
+  if (bytes.length !== artifact.bytes || sha256 !== artifact.sha256) throw new BootstrapRefusal("checksum_mismatch", url);
   return bytes;
 }
 
@@ -105,7 +115,7 @@ function stageBinary(archive: Uint8Array, home: string, io: DaemonIo): { readonl
   const tar = io.exec(["tar", "-xzf", archivePath, "-C", directory, "mclient"]);
   if (tar.code !== 0) {
     rmSync(directory, { recursive: true, force: true });
-    throw new CliError(`tar ${archivePath} failed: ${tar.stderr}`);
+    throw new BootstrapRefusal("extract_failed", `tar ${archivePath}: ${tar.stderr.trimEnd()}`);
   }
   const binary = join(directory, "mclient");
   chmodSync(binary, 0o755);
@@ -123,14 +133,14 @@ function stageBinary(archive: Uint8Array, home: string, io: DaemonIo): { readonl
  */
 export async function runBootstrap(options: BootstrapOptions, deps: BootstrapDeps): Promise<BootstrapReceipt> {
   const platform = releasePlatform(deps.os, deps.arch);
-  if (platform === undefined) throw new CliError(`unsupported platform: ${deps.os}-${deps.arch}`);
+  if (platform === undefined) throw new BootstrapRefusal("unsupported_platform", `${deps.os}-${deps.arch}`);
   const { release, url } = await hostedRelease(options.host, deps);
   const pinned = pinnedVersion(deps.home);
   if (pinned !== undefined && options.force !== true && olderVersion(release.version, pinned)) {
-    throw new CliError(`downgrade_refused: the host's ${release.version} is older than the pinned ${pinned} (pass --force)`);
+    throw new BootstrapRefusal("downgrade_refused", `the host's ${release.version} is older than the pinned ${pinned} (pass --force)`);
   }
   const artifact = release.artifacts[platform];
-  if (artifact === undefined) throw new CliError(`no ${platform} artifact in the host's release`);
+  if (artifact === undefined) throw new BootstrapRefusal("release_unavailable", `no ${platform} artifact in the host's release`);
   const archiveUrl = new URL(artifact.url, url).toString();
   const archive = await verifiedArchive(archiveUrl, artifact, deps);
   const staged = stageBinary(archive, deps.home, deps.io);
@@ -154,7 +164,10 @@ export async function bootstrapCommand(
     if (receipt.join.stderr !== "") out.stderr(receipt.join.stderr.trimEnd());
     return receipt.join.code;
   } catch (error) {
-    out.stderr(error instanceof Error ? error.message : String(error));
-    return 1;
+    if (error instanceof BootstrapRefusal || error instanceof CliError) {
+      out.stderr(error.message);
+      return 1;
+    }
+    throw error;
   }
 }
