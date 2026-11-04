@@ -153,7 +153,9 @@ record in #1702.
 - On a fresh machine, one command installs the client and joins (#1838):
   `curl -fsSL http://<host>:3000/machine/install | sh -s -- http://<host>:3000`
   (or `oni machine bootstrap http://<host>:3000` where the Oni CLI is
-  installed), with `--token <join token>` once #1833 issues tokens. The
+  installed), with `--token <join token>` once #1833 issues tokens (the
+  token reaches `mclient join` as `ONI_MCLIENT_JOIN_TOKEN` in its
+  environment and is never written to `client.json`). The
   download is verified against the host's `/machine/release` answer and
   `mclient join` runs from a staging copy, so join's own install path is the
   only thing that writes `~/.oni/bin/mclient` (a rerun keeps a joined
