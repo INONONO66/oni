@@ -114,13 +114,6 @@ where
     Ok(socket)
 }
 
-pub async fn accept<S>(stream: S) -> Result<WebSocketStream<S>, WsError>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    tokio_tungstenite::accept_async_with_config(stream, Some(config())).await
-}
-
 /// NDJSON over a WebSocket as `AsyncRead + AsyncWrite`: every complete line
 /// written is sent as one BINARY message and every BINARY message received
 /// is read as its bytes. A text message is a typed refusal; a Close message
@@ -138,6 +131,20 @@ impl<S> Frames<S> {
             inbound: Bytes::new(),
             outbound: Vec::new(),
         }
+    }
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin> Frames<S> {
+    /// Sends every complete line queued so far, asking the sink before each message.
+    fn send_lines(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        while let Some(end) = self.outbound.iter().position(|byte| *byte == b'\n') {
+            ready!(Pin::new(&mut self.socket).poll_ready(cx)).map_err(io::Error::other)?;
+            let line = self.outbound.drain(..=end).collect::<Vec<u8>>();
+            Pin::new(&mut self.socket)
+                .start_send(Message::Binary(line.into()))
+                .map_err(io::Error::other)?;
+        }
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -174,25 +181,26 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for Frames<S> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        ready!(Pin::new(&mut this.socket).poll_ready(cx)).map_err(io::Error::other)?;
+        ready!(this.send_lines(cx))?;
         this.outbound.extend_from_slice(buf);
-        while let Some(end) = this.outbound.iter().position(|byte| *byte == b'\n') {
-            let line = this.outbound.drain(..=end).collect::<Vec<u8>>();
-            Pin::new(&mut this.socket)
-                .start_send(Message::Binary(line.into()))
-                .map_err(io::Error::other)?;
+        if let Poll::Ready(Err(error)) = this.send_lines(cx) {
+            return Poll::Ready(Err(error));
         }
         Poll::Ready(Ok(buf.len()))
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().socket)
+        let this = self.get_mut();
+        ready!(this.send_lines(cx))?;
+        Pin::new(&mut this.socket)
             .poll_flush(cx)
             .map_err(io::Error::other)
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().socket)
+        let this = self.get_mut();
+        ready!(this.send_lines(cx))?;
+        Pin::new(&mut this.socket)
             .poll_close(cx)
             .map_err(io::Error::other)
     }

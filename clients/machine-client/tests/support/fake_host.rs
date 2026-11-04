@@ -13,6 +13,19 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_rustls::TlsAcceptor;
+use tokio_tungstenite::{
+    tungstenite::{protocol::WebSocketConfig, Error as WsError},
+    WebSocketStream,
+};
+
+/// Server side of the upgrade for the fake hosts (the client never accepts).
+pub async fn accept<S>(stream: S) -> Result<WebSocketStream<S>, WsError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let config = WebSocketConfig::default().write_buffer_size(0);
+    tokio_tungstenite::accept_async_with_config(stream, Some(config)).await
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Listener {
@@ -127,7 +140,7 @@ impl FakeHost {
                 return;
             };
             if listener_kind == Listener::WebSocket {
-                let Ok(socket) = ws::accept(stream).await else {
+                let Ok(socket) = accept(stream).await else {
                     return;
                 };
                 serve(ws::Frames::new(socket), events, frames).await;

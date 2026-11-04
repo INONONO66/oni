@@ -12,6 +12,8 @@ use tokio::{
 use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::support::fake_host::accept;
+
 pub struct TextHost {
     pub endpoint: String,
     pub certificate: String,
@@ -44,7 +46,7 @@ impl TextHost {
         tokio::spawn(async move {
             let (tcp, _) = listener.accept().await.expect("accept TCP peer");
             let stream = acceptor.accept(tcp).await.expect("TLS accept");
-            let mut socket = ws::accept(stream).await.expect("upgrade");
+            let mut socket = accept(stream).await.expect("upgrade");
             for message in messages {
                 socket.send(message).await.expect("send");
             }

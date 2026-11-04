@@ -8,7 +8,7 @@ use std::{
 
 use serde_json::Value;
 use tokio::{
-    io::{split, AsyncRead, AsyncWrite},
+    io::{split, AsyncRead, AsyncWrite, AsyncWriteExt},
     sync::{mpsc, watch},
     task::{JoinHandle, JoinSet},
     time::timeout,
@@ -137,7 +137,10 @@ impl Client {
         let writer = tokio::spawn(async move {
             while let Some(frame) = frames.recv().await {
                 match frame {
-                    Outbound::Frame(value) => framing::write_frame(&mut writer, &value).await?,
+                    Outbound::Frame(value) => {
+                        framing::write_frame(&mut writer, &value).await?;
+                        writer.flush().await?;
+                    }
                     Outbound::Close => break,
                 }
             }
