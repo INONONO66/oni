@@ -586,11 +586,29 @@ list in #1697 complements that platform limit.
 
 The host owns a listener SET feeding one attachment registry: the unix socket
 (mode 0600) is always bound; a TCP listener appears only when the Owner
-configures `ONI_MACHINES_TCP_HOST`/`PORT` plus the host TLS identity
-(`ONI_MACHINES_TLS_CERT`/`KEY` — all four or none, else boot refuses
-typed). Handles, events and codemode are transport-blind: a machine is the
-same machine on either door, and if one bind fails startup fails with the
-other listener released.
+configures `ONI_MACHINES_TCP_HOST`/`PORT`, a WebSocket listener (#1830) only
+when the Owner configures `ONI_MACHINES_WS_HOST`/`PORT`, and either requires
+the host TLS identity (`ONI_MACHINES_TLS_CERT`/`KEY` — a half tuple, a
+listener without the pair or the pair without a listener refuses boot typed
+`invalid_machines_tcp` / `invalid_machines_ws`). The config shape is
+`machines.listen.{unix, tcp?, ws?}` plus `machines.tls?`, passed to the host
+as is. Handles, events and codemode are transport-blind: a machine is the
+same machine on any door, and if one bind fails startup fails with the
+other listeners released.
+
+The WebSocket carrier is an HTTP upgrade of the single path `/machine` over
+the same host certificate as the TLS-TCP listener; any other path answers
+404 and a plain GET answers 426. One NDJSON frame travels as exactly one
+BINARY message, newline included, so the frame decoder on either side
+receives the bytes the TCP carrier would deliver; a text message closes the
+socket with code 1003. The listener runs on `Bun.serve`, which does not
+expose the peer certificate of the upgraded connection, so `peer_key_mismatch`
+is not evaluated on this door: like a unix connection, a WebSocket attach is
+admitted by the enrollment selected through the offered machine id until the
+signed handshake (#1832) binds the client key. Clients dial
+`wss://host[:port]/machine` (optionally through an `HTTPS_PROXY` CONNECT
+tunnel) and pin the host key exactly as for TLS-TCP; see
+`docs/first-live-run.md` for the client-side scheme rules.
 
 Trust is key-pinned, not public PKI: `mclient join` records the host key pin,
 and `run` verifies that key on every TLS connection. The host pins the
