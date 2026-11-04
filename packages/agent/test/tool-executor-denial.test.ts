@@ -63,7 +63,7 @@ describe("request origin at the gate (#1841)", () => {
     expect(yield* executor.run({ ...base, origin: { kind: "machine", machineId: "B" } }, body)).toEqual({ terminal: "blocked_pre", reason: "machine_origin" });
     const intents = committed.filter((action) => action.kind === "tool" && opPhaseOf(action) === "echo:intent").map((action) => action.intent.value);
     // The refused call records its decision only; the two admitted calls carry their origin beside the arguments.
-    expect(intents.map((intent) => (intent as { origin?: unknown }).origin)).toEqual([undefined, { kind: "session" }]);
+    expect(intents.map((intent) => (intent as { origin?: { kind: string } }).origin)).toEqual([undefined, { kind: "session" }]);
   })));
 });
 

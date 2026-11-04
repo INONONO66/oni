@@ -9,7 +9,7 @@ import {
   mclientBinary,
   mclientEnrollment,
 } from "../../../machines/test/helpers/mclient";
-import { eventCollector } from "../../../machines/test/helpers/events";
+import { eventCollector, type RecordedEvent } from "../../../machines/test/helpers/events";
 import type { CodemodeError } from "../../src";
 import { MachinesFailure } from "@oni/machines";
 import { createCodemode } from "./helpers/native";
@@ -33,7 +33,7 @@ async function trio(
     call: (call: Call) => Promise<Machine.ToolCallResult>;
     refusal: (call: Call, reason: Reason) => Promise<string>;
     peers: Awaited<ReturnType<typeof createMachineHost>>["peers"];
-    receipts: () => Array<Record<string, unknown>>;
+    receipts: () => Array<{ name: string } & RecordedEvent["payload"]>;
     seen: Machine.ToolCall[];
     upward: Machine.ToolCall[];
   }) => Promise<void>,
