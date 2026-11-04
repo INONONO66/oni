@@ -251,6 +251,7 @@ const Match = z
   .object({
     op: z.string().min(1).optional(),
     operation: z.string().min(1).optional(),
+    origin: z.string().min(1).optional(),
     role: LedgerSession.Role.optional(),
     sessionId: z.string().min(1).optional(),
     message: z.union([Gateway.RuleTableA, Gateway.RuleTableB]).optional(),

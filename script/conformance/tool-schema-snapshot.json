@@ -508,7 +508,7 @@
   },
   {
     "name": "provision",
-    "description": "Administer contacts, channels, credentials, machines, computer leases, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|machine_add|machine_grant|machine_deny|machine_remove|machine_list|machine_peer_lease|permission_allow|permission_deny|computer_request|computer_list|computer_end|computer_exclude|computer_keep|status. Authority changes, computer lease requests and exclusions, machine public keys, peer leases, Owner-account channel instances, their outbound grant, sender restrictions and permission_allow require Owner consent. machine_peer_lease lets machine `from` reach machine `to` for the named ops until ttlMs elapses; machines hold no reach to each other otherwise. permission_allow and permission_deny answer an agent_permission action row from a cli child this session launched; copy its machineId, agentSessionId and requestId. computer_request names app identities, minutes (5-120), and an optional foreground purpose. computer_keep retains a target launched in this turn as a deliverable or handoff. A contact with reach: true is one the Resident may write to cold.",
+    "description": "Administer contacts, channels, credentials, machines, computer leases, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|machine_add|machine_grant|machine_deny|machine_remove|machine_list|machine_peer_lease|machine_peer_lease_end|permission_allow|permission_deny|computer_request|computer_list|computer_end|computer_exclude|computer_keep|status. Authority changes, computer lease requests and exclusions, machine public keys, peer leases, Owner-account channel instances, their outbound grant, sender restrictions and permission_allow require Owner consent. machine_peer_lease lets machine `from` reach machine `to` for the named ops until ttlMs elapses; machines hold no reach to each other otherwise. permission_allow and permission_deny answer an agent_permission action row from a cli child this session launched; copy its machineId, agentSessionId and requestId. computer_request names app identities, minutes (5-120), and an optional foreground purpose. computer_keep retains a target launched in this turn as a deliverable or handoff. A contact with reach: true is one the Resident may write to cold.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1039,7 +1039,7 @@
                     "ttlMs": {
                       "type": "integer",
                       "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
+                      "maximum": 86400000
                     },
                     "delegationId": {
                       "type": "string",
@@ -1047,6 +1047,28 @@
                     }
                   },
                   "required": ["from", "to", "ops", "ttlMs", "delegationId"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "machine_peer_lease_end"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "leaseId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["leaseId"],
                   "additionalProperties": false
                 }
               },
