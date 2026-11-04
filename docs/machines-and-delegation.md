@@ -738,20 +738,26 @@ agents and is hidden from `--help`.
 **Install (#1838).** `GET /machine/install` is a POSIX `sh` script served
 by the host itself, so one command on a fresh machine needs nothing but the
 host: `curl -fsSL http://<host>:<port>/machine/install | sh -s --
-http://<host>:<port> [--token <join token>]`. The script reads the platform
+http://<host>:<port> [--token <join token>] [--force]`. The script reads the platform
 from `uname` (`darwin-universal` for either macOS architecture,
 `linux-x86_64`, `linux-arm64`; anything else is `unsupported platform:
 <os>-<arch>`), fetches the host's `/machine/release` answer, downloads the
 archive it names (a relative URL is resolved against the release URL), and
 refuses the download unless its byte count and SHA-256 match that answer:
 `checksum_mismatch: <url>` on stderr, exit 1, nothing written. A verified
-archive installs `~/.oni/bin/mclient` (0755, staged then renamed), prints
-`installed <path> (<tag>, <platform>)` and execs `mclient join <host>
-[--token]`, which stages the same verified release, records the pin and
-installs the service. `oni machine bootstrap <http(s)://host[:port]>
-[--token <join token>]` does the same from the TypeScript CLI with the same
-messages and the join's exit code; both take only the host's HTTP origin
-and the optional token.
+archive is unpacked (0755) into a throwaway stage under
+`~/.oni/machine-client/` and the script prints `verified <tag> (<platform>):
+mclient join <host>` and runs `mclient join <host> [--token]` from that
+stage: join's own install/update path is the only writer of
+`~/.oni/bin/mclient`, so a rerun on a joined machine keeps its pin and
+binary, a failed join changes nothing under `bin/`, and the stage is removed
+either way. When the host's release is older than the machine's
+`pin.json` the script stops with `downgrade_refused: the host's <version> is
+older than the pinned <version> (pass --force)` before downloading; `--force`
+is the explicit intent to go down. `oni machine bootstrap
+<http(s)://host[:port]> [--token <join token>] [--force]` does the same from
+the TypeScript CLI with the same messages and the join's exit code; both
+take only the host's HTTP origin, the optional token and `--force`.
 
 **Release pin and update.** The host serves `GET /machine/release`
 from its bundled `dist/clients/release.json` and answers `machine.release`

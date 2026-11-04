@@ -1,17 +1,18 @@
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Machine } from "@oni/protocol";
+import { z } from "zod";
 import { HOST_ORIGIN, joinHost, releasePlatform } from "../composition/machine-install";
 import type { DaemonIo, ExecResult } from "./daemon";
 import { CliError } from "./errors";
 
-export const BOOTSTRAP_USAGE = "usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>]";
+export const BOOTSTRAP_USAGE = "usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>] [--force]";
 
 export interface BootstrapOptions {
   readonly host: string;
   readonly token?: string;
+  readonly force?: boolean;
 }
 
 export interface BootstrapDeps {
@@ -23,20 +24,34 @@ export interface BootstrapDeps {
 }
 
 export interface BootstrapReceipt {
-  readonly binary: string;
+  readonly version: string;
   readonly tag: string | undefined;
   readonly platform: Machine.ReleasePlatform;
   readonly joinArgv: readonly string[];
   readonly join: ExecResult;
 }
 
+/** The client's own `machine-client/pin.json`: the version it is installed at. */
+const Pin = z.object({ pinnedVersion: z.string() });
+
 export function parseBootstrapArgs(args: readonly string[]): BootstrapOptions {
   const [host, ...rest] = args;
   if (host === undefined || !HOST_ORIGIN.test(host)) throw new CliError(BOOTSTRAP_USAGE);
-  if (rest.length === 0) return { host };
-  const [flag, token, ...extra] = rest;
-  if (flag !== "--token" || token === undefined || extra.length > 0) throw new CliError(BOOTSTRAP_USAGE);
-  return { host, token };
+  let token: string | undefined;
+  let force = false;
+  for (let index = 0; index < rest.length; index += 1) {
+    const flag = rest[index];
+    const value = rest[index + 1];
+    if (flag === "--force") {
+      force = true;
+    } else if (flag === "--token" && value !== undefined) {
+      token = value;
+      index += 1;
+    } else {
+      throw new CliError(BOOTSTRAP_USAGE);
+    }
+  }
+  return { host, ...(token === undefined ? {} : { token }), ...(force ? { force } : {}) };
 }
 
 async function hostedRelease(host: string, deps: BootstrapDeps): Promise<{ readonly release: Machine.Release; readonly url: string }> {
@@ -48,6 +63,25 @@ async function hostedRelease(host: string, deps: BootstrapDeps): Promise<{ reado
   return { release: parsed.data, url };
 }
 
+function pinnedVersion(home: string): string | undefined {
+  const path = join(home, ".oni", "machine-client", "pin.json");
+  if (!existsSync(path)) return undefined;
+  const pin = Pin.safeParse(JSON.parse(readFileSync(path, "utf-8")));
+  if (!pin.success) throw new CliError(`unreadable pin at ${path}`);
+  return pin.data.pinnedVersion;
+}
+
+function olderVersion(candidate: string, installed: string): boolean {
+  const left = candidate.split(".").map(Number);
+  const right = installed.split(".").map(Number);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const x = left[index] ?? 0;
+    const y = right[index] ?? 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+
 async function verifiedArchive(url: string, artifact: Machine.ReleaseArtifact, deps: BootstrapDeps): Promise<Uint8Array> {
   const response = await deps.fetch(url);
   if (!response.ok) throw new CliError(`download failed: ${url}`);
@@ -57,44 +91,51 @@ async function verifiedArchive(url: string, artifact: Machine.ReleaseArtifact, d
   return bytes;
 }
 
-function installBinary(archive: Uint8Array, home: string, io: DaemonIo): string {
-  const stage = mkdtempSync(join(tmpdir(), "oni-bootstrap-"));
-  try {
-    const archivePath = join(stage, "mclient.tar.gz");
-    writeFileSync(archivePath, archive);
-    const tar = io.exec(["tar", "-xzf", archivePath, "-C", stage, "mclient"]);
-    if (tar.code !== 0) throw new CliError(`tar ${archivePath} failed: ${tar.stderr}`);
-    const directory = join(home, ".oni", "bin");
-    io.makeDir(directory);
-    const staged = join(directory, "mclient.staged");
-    copyFileSync(join(stage, "mclient"), staged);
-    chmodSync(staged, 0o755);
-    const binary = join(directory, "mclient");
-    renameSync(staged, binary);
-    return binary;
-  } finally {
-    rmSync(stage, { recursive: true, force: true });
+/** Unpacked beside the client's own version stages, never on a `noexec` tmpfs. */
+function stageBinary(archive: Uint8Array, home: string, io: DaemonIo): { readonly directory: string; readonly binary: string } {
+  const client = join(home, ".oni", "machine-client");
+  io.makeDir(client);
+  const directory = mkdtempSync(join(client, "bootstrap-"));
+  const archivePath = join(directory, "mclient.tar.gz");
+  writeFileSync(archivePath, archive);
+  const tar = io.exec(["tar", "-xzf", archivePath, "-C", directory, "mclient"]);
+  if (tar.code !== 0) {
+    rmSync(directory, { recursive: true, force: true });
+    throw new CliError(`tar ${archivePath} failed: ${tar.stderr}`);
   }
+  const binary = join(directory, "mclient");
+  chmodSync(binary, 0o755);
+  return { directory, binary };
 }
 
 /**
  * One command on a fresh machine (#1838): the host's `/machine/release`
  * answer names the archive for this platform and the SHA-256 it must carry;
- * a mismatch stops before anything is written. The binary is installed to
- * `~/.oni/bin/mclient` (0755) and runs `mclient join`, which stages the same
- * verified release, records the pin and installs the service.
+ * a mismatch stops before anything is written. The verified binary is
+ * staged and runs `mclient join` from there: join's own update path is the
+ * only writer of `~/.oni/bin/mclient`, so a rerun on a joined machine keeps
+ * its pin and binary, and a failed join changes nothing. A host release
+ * older than the machine's pin is refused unless `--force` says so.
  */
 export async function runBootstrap(options: BootstrapOptions, deps: BootstrapDeps): Promise<BootstrapReceipt> {
   const platform = releasePlatform(deps.os, deps.arch);
   if (platform === undefined) throw new CliError(`unsupported platform: ${deps.os}-${deps.arch}`);
   const { release, url } = await hostedRelease(options.host, deps);
+  const pinned = pinnedVersion(deps.home);
+  if (pinned !== undefined && options.force !== true && olderVersion(release.version, pinned)) {
+    throw new CliError(`downgrade_refused: the host's ${release.version} is older than the pinned ${pinned} (pass --force)`);
+  }
   const artifact = release.artifacts[platform];
   if (artifact === undefined) throw new CliError(`no ${platform} artifact in the host's release`);
   const archiveUrl = new URL(artifact.url, url).toString();
   const archive = await verifiedArchive(archiveUrl, artifact, deps);
-  const binary = installBinary(archive, deps.home, deps.io);
-  const joinArgv = [binary, "join", joinHost(options.host), ...(options.token === undefined ? [] : ["--token", options.token])];
-  return { binary, tag: release.tag, platform, joinArgv, join: deps.io.exec(joinArgv) };
+  const staged = stageBinary(archive, deps.home, deps.io);
+  try {
+    const joinArgv = [staged.binary, "join", joinHost(options.host), ...(options.token === undefined ? [] : ["--token", options.token])];
+    return { version: release.version, tag: release.tag, platform, joinArgv, join: deps.io.exec(joinArgv) };
+  } finally {
+    rmSync(staged.directory, { recursive: true, force: true });
+  }
 }
 
 export async function bootstrapCommand(
@@ -103,7 +144,7 @@ export async function bootstrapCommand(
 ): Promise<number> {
   try {
     const receipt = await runBootstrap(parseBootstrapArgs(args), deps);
-    out.stdout(`installed ${receipt.binary} (${receipt.tag ?? "untagged"}, ${receipt.platform})`);
+    out.stdout(`verified ${receipt.tag ?? receipt.version} (${receipt.platform}): mclient join ${receipt.joinArgv[2]}`);
     if (receipt.join.stdout !== "") out.stdout(receipt.join.stdout.trimEnd());
     if (receipt.join.stderr !== "") out.stderr(receipt.join.stderr.trimEnd());
     return receipt.join.code;

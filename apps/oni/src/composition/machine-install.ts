@@ -27,37 +27,52 @@ export function joinHost(origin: string): string {
 
 /**
  * The POSIX sh install script the host serves at `GET /machine/install`
- * (#1838): one command on a fresh machine does what `oni machine bootstrap`
- * does — detect the platform, read the host's `/machine/release` answer,
- * download the archive it names, refuse it unless its byte count and SHA-256
- * match that answer, install `~/.oni/bin/mclient` (0755) and run
- * `mclient join`, which stages the same verified release, records the pin
- * and installs the service. Nothing external is fetched: the release
- * record, the archive and the script itself all come from the host or the
- * download URL the host's record names. Only the host's HTTP origin and the
- * optional join token are arguments; a tampered archive exits 1 with
- * `checksum_mismatch: <url>` on stderr before anything is installed.
+ * (#1838), the shell twin of `oni machine bootstrap`: it verifies the
+ * archive against the host's `/machine/release` answer, stages the binary
+ * and runs `mclient join` from the stage, so join's own update path is the
+ * only writer of `~/.oni/bin/mclient`. A tampered archive exits 1 with
+ * `checksum_mismatch: <url>` before anything is written.
  */
 export const MACHINE_INSTALL_SCRIPT = `#!/bin/sh
 # oni machine install: served by the host at GET /machine/install.
-#   curl -fsSL http://<host>:<port>/machine/install | sh -s -- http://<host>:<port> [--token <join token>]
+#   curl -fsSL http://<host>:<port>/machine/install | sh -s -- http://<host>:<port> [--token <join token>] [--force]
 set -eu
 
 usage() {
-  echo "usage: sh -s -- <http(s)://host[:port]> [--token <join token>]" >&2
+  echo "usage: sh -s -- <http(s)://host[:port]> [--token <join token>] [--force]" >&2
   exit 2
+}
+
+# older A B: true when dotted version A sorts before B, numerically per part.
+older() {
+  a="$1"
+  b="$2"
+  while [ -n "$a" ] || [ -n "$b" ]; do
+    x="\${a%%.*}"
+    y="\${b%%.*}"
+    [ "$a" = "$x" ] && a="" || a="\${a#*.}"
+    [ "$b" = "$y" ] && b="" || b="\${b#*.}"
+    [ "\${x:-0}" -lt "\${y:-0}" ] 2>/dev/null && return 0
+    [ "\${x:-0}" -gt "\${y:-0}" ] 2>/dev/null && return 1
+  done
+  return 1
 }
 
 HOST="\${1:-}"
 [ -n "$HOST" ] || usage
 shift
 TOKEN=""
+FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --token)
       [ $# -ge 2 ] || usage
       TOKEN="$2"
       shift 2
+      ;;
+    --force)
+      FORCE=1
+      shift
       ;;
     *) usage ;;
   esac
@@ -101,11 +116,21 @@ URL=$(printf '%s' "$ARTIFACT" | sed -n 's/.*"url":"\\([^"]*\\)".*/\\1/p')
 SHA256=$(printf '%s' "$ARTIFACT" | sed -n 's/.*"sha256":"\\([0-9a-f]*\\)".*/\\1/p')
 BYTES=$(printf '%s' "$ARTIFACT" | sed -n 's/.*"bytes":\\([0-9]*\\).*/\\1/p')
 TAG=$(printf '%s' "$RELEASE" | sed -n 's/.*"tag":"\\([^"]*\\)".*/\\1/p')
+VERSION=$(printf '%s' "$RELEASE" | sed -n 's/.*"version":"\\([^"]*\\)".*/\\1/p')
 case "$URL" in
   *://*) ;;
   /*) URL="$HOST$URL" ;;
   *) URL="$HOST/machine/$URL" ;;
 esac
+
+CLIENT="$HOME/.oni/machine-client"
+if [ "$FORCE" = 0 ] && [ -f "$CLIENT/pin.json" ]; then
+  PINNED=$(sed -n 's/.*"pinnedVersion":"\\([^"]*\\)".*/\\1/p' "$CLIENT/pin.json")
+  if older "$VERSION" "$PINNED"; then
+    echo "downgrade_refused: the host's $VERSION is older than the pinned $PINNED (pass --force)" >&2
+    exit 1
+  fi
+fi
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -124,18 +149,18 @@ SIZE=$(wc -c < "$WORK/archive.tar.gz" | tr -d ' ')
   exit 1
 }
 
-tar -xzf "$WORK/archive.tar.gz" -C "$WORK" mclient
-BIN="$HOME/.oni/bin"
-mkdir -p "$BIN"
-cp "$WORK/mclient" "$BIN/mclient.staged"
-chmod 0755 "$BIN/mclient.staged"
-mv -f "$BIN/mclient.staged" "$BIN/mclient"
-echo "installed $BIN/mclient ($TAG, $PLATFORM)"
-rm -rf "$WORK"
-trap - EXIT
+# The stage sits beside the client's own version directories (a tmpfs may be noexec);
+# join copies the binary into its layout and this stage goes away with the trap.
+mkdir -p "$CLIENT"
+STAGE=$(mktemp -d "$CLIENT/bootstrap.XXXXXX")
+trap 'rm -rf "$WORK" "$STAGE"' EXIT
+tar -xzf "$WORK/archive.tar.gz" -C "$STAGE" mclient
+chmod 0755 "$STAGE/mclient"
+echo "verified $TAG ($PLATFORM): mclient join $JOIN_HOST"
 
 if [ -n "$TOKEN" ]; then
-  exec "$BIN/mclient" join "$JOIN_HOST" --token "$TOKEN"
+  "$STAGE/mclient" join "$JOIN_HOST" --token "$TOKEN"
+else
+  "$STAGE/mclient" join "$JOIN_HOST"
 fi
-exec "$BIN/mclient" join "$JOIN_HOST"
 `;
