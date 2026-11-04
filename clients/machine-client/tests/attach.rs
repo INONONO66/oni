@@ -73,7 +73,6 @@ fn join_options(host: &str) -> JoinOptions {
         exports: vec![],
         host_cert: None,
         host_pin: None,
-        trust_on_first_use: false,
         unix: None,
         memory_budget_mb: 96,
         no_service: true,
@@ -338,7 +337,7 @@ fn saved_config_has_private_directory_and_keeps_budget() {
 }
 
 #[test]
-fn trust_selection_uses_pin_then_certificate_then_explicit_tofu() {
+fn trust_selection_uses_pin_then_certificate_then_shared_pem_and_refuses_unpinned() {
     let dir = tempfile::tempdir().expect("home");
     let supplied = dir.path().join("supplied.pem");
     std::fs::write(&supplied, "supplied").expect("certificate");
@@ -364,14 +363,6 @@ fn trust_selection_uses_pin_then_certificate_then_explicit_tofu() {
     assert!(matches!(
         config::trust(&options, dir.path()),
         Err(config::ConfigError::PinRequired)
-    ));
-    let options = JoinOptions {
-        trust_on_first_use: true,
-        ..options
-    };
-    assert!(matches!(
-        config::trust(&options, dir.path()),
-        Ok(HostTrust::TrustOnFirstUse)
     ));
     std::fs::create_dir(dir.path().join("tls")).expect("tls directory");
     std::fs::write(dir.path().join("tls/host-cert.pem"), "certificate").expect("certificate");
@@ -552,7 +543,6 @@ async fn join_unix_records_no_pin_and_clears_saved_generation() {
     let enrollment = attach::join(&options, home.path(), &["fs.read"])
         .await
         .expect("join");
-    assert_eq!(enrollment.notice(), "");
     assert_eq!(enrollment.receipt["machineId"], "work-mac");
     assert_eq!(
         enrollment.receipt["allowedCapabilities"],
@@ -573,40 +563,22 @@ async fn join_unix_records_no_pin_and_clears_saved_generation() {
 }
 
 #[tokio::test]
-async fn trust_on_first_use_join_records_observed_pin() {
+async fn pinned_join_records_the_verified_host_pin() {
     let host = FakeHost::tls().await;
     let home = tempfile::tempdir().expect("home");
+    let expected = hex::encode(host_pin(&host.certificate));
     let options = JoinOptions {
-        trust_on_first_use: true,
+        host_pin: Some(expected.clone()),
         ..join_options(&host.endpoint)
     };
     let enrollment = attach::join(&options, home.path(), &[])
         .await
         .expect("join");
-    let expected = hex::encode(host_pin(&host.certificate));
-    assert_eq!(
-        enrollment.notice(),
-        format!("{}\n", json!({"hostPin": expected}))
-    );
+    assert_eq!(enrollment.receipt["machineId"], "work-mac");
     assert_eq!(
         std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
         expected
     );
-}
-
-#[tokio::test]
-async fn pinned_join_records_pin_without_first_use_notice() {
-    let host = FakeHost::tls().await;
-    let home = tempfile::tempdir().expect("home");
-    let options = JoinOptions {
-        host_pin: Some(hex::encode(host_pin(&host.certificate))),
-        ..join_options(&host.endpoint)
-    };
-    let enrollment = attach::join(&options, home.path(), &[])
-        .await
-        .expect("join");
-    assert_eq!(enrollment.notice(), "");
-    assert!(home.path().join("machine-client/host-pin").exists());
 }
 
 #[tokio::test]
@@ -1430,7 +1402,7 @@ async fn join_refuses_an_unwritable_host_pin() {
     let home = tempfile::tempdir().expect("home");
     std::fs::create_dir_all(home.path().join("machine-client/host-pin")).expect("blocking pin");
     let options = JoinOptions {
-        trust_on_first_use: true,
+        host_pin: Some(hex::encode(host_pin(&host.certificate))),
         ..join_options(&host.endpoint)
     };
     assert!(matches!(
@@ -1452,7 +1424,7 @@ async fn join_reports_permission_denied_when_host_pin_directory_is_read_only() {
     std::fs::set_permissions(&pins, std::fs::Permissions::from_mode(0o500))
         .expect("read-only directory");
     let options = JoinOptions {
-        trust_on_first_use: true,
+        host_pin: Some(hex::encode(host_pin(&host.certificate))),
         ..join_options(&host.endpoint)
     };
 

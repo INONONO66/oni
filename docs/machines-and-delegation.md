@@ -696,7 +696,7 @@ paragraph and `docs/key-generation.md`). A pin mismatch at connect time is
 `peer_key_mismatch` and terminal.
 
 **Join and run.** `mclient join <host> [--name] [--tag]* [--export
-name=/abs/path]* [--host-pin hex | --host-cert pem | --trust-on-first-use]
+name=/abs/path]* [--host-pin hex | --host-cert pem]
 [--unix path] [--memory-budget-mb N]` writes `~/.oni/machine-client/`
 (directory 0700; `client.json`, `client-key.pem`, `client-cert.pem`,
 `host-pin`, `state.json` and `metrics.jsonl` all 0600), prints the

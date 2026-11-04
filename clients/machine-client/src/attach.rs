@@ -146,15 +146,6 @@ pub struct Hooks {
 #[derive(Debug)]
 pub struct Enrollment {
     pub receipt: Value,
-    pub first_use_pin: Option<String>,
-}
-
-impl Enrollment {
-    pub fn notice(&self) -> String {
-        self.first_use_pin
-            .as_ref()
-            .map_or_else(String::new, |pin| format!("{}\n", json!({"hostPin": pin})))
-    }
 }
 
 #[derive(Deserialize)]
@@ -291,17 +282,13 @@ async fn connect_tls(
     Ok(Client::connect_tls(&address, &name, trust, &cert, &key, service).await)
 }
 
-async fn record_pin(
-    host: &str,
-    directory: &Path,
-    trust: HostTrust,
-) -> Result<Option<String>, AttachError> {
-    let first_use = matches!(trust, HostTrust::TrustOnFirstUse);
+/// Connects once with the configured trust and persists the verified host
+/// key as `host-pin`, the only trust `run` consults afterwards.
+async fn record_pin(host: &str, directory: &Path, trust: HostTrust) -> Result<(), AttachError> {
     let (connection, pin) = connect_tls(host, directory, trust, refuse_inbound()).await??;
     drop(connection);
-    let pin = hex::encode(pin);
-    config::write_private(&directory.join("host-pin"), pin.as_bytes())?;
-    Ok(first_use.then_some(pin))
+    config::write_private(&directory.join("host-pin"), hex::encode(pin).as_bytes())?;
+    Ok(())
 }
 
 /// Asks the host for the client release it pins; `machine.release` is answered
@@ -353,10 +340,9 @@ pub async fn join(
     };
     let public_key = config::identity(&directory, &config.machine_id)?;
     config::save(&config, &directory)?;
-    let first_use_pin = match trust {
-        Some(trust) => record_pin(&config.host, &directory, trust).await?,
-        None => None,
-    };
+    if let Some(trust) = trust {
+        record_pin(&config.host, &directory, trust).await?;
+    }
     clear_generation(&directory)?;
     let allowed_exports = config.exports.iter().map(|entry| &entry.name);
     Ok(Enrollment {
@@ -365,7 +351,6 @@ pub async fn join(
             "allowedCapabilities": capabilities,
             "allowedExports": allowed_exports.collect::<Vec<_>>()
         }),
-        first_use_pin,
     })
 }
 

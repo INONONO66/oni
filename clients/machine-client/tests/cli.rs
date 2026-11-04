@@ -524,7 +524,7 @@ fn run_admits_a_saved_offline_pin_before_loading_config() {
 }
 
 #[test]
-fn join_requires_explicit_pin_or_tofu_for_network_host() {
+fn join_requires_an_explicit_pin_or_certificate_for_a_network_host() {
     let directory = tempfile::tempdir().expect("isolated home");
     let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
         .env("HOME", directory.path())

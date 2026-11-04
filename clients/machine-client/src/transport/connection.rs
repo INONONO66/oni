@@ -18,14 +18,13 @@ use super::client::{Client, Handler, TransportError};
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(5_000);
 
 struct HostKeyVerifier {
-    expected: Option<[u8; 32]>,
+    expected: [u8; 32],
     algorithms: WebPkiSupportedAlgorithms,
 }
 
 pub enum HostTrust {
     Pin([u8; 32]),
     CertPem(Vec<u8>),
-    TrustOnFirstUse,
 }
 
 impl std::fmt::Debug for HostKeyVerifier {
@@ -53,12 +52,10 @@ impl ServerCertVerifier for HostKeyVerifier {
         _now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
         let observed = public_key_pin(end_entity.as_ref())?;
-        if let Some(expected) = self.expected {
-            if observed != expected {
-                return Err(Error::InvalidCertificate(
-                    CertificateError::ApplicationVerificationFailure,
-                ));
-            }
+        if observed != self.expected {
+            return Err(Error::InvalidCertificate(
+                CertificateError::ApplicationVerificationFailure,
+            ));
         }
         Ok(ServerCertVerified::assertion())
     }
@@ -118,15 +115,14 @@ impl Client {
         handler: Handler,
     ) -> Result<(Self, [u8; 32]), TransportError> {
         let expected = match trust {
-            HostTrust::Pin(pin) => Some(pin),
+            HostTrust::Pin(pin) => pin,
             HostTrust::CertPem(pem) => {
                 let cert = rustls_pemfile::certs(&mut Cursor::new(pem))
                     .next()
                     .transpose()?
                     .ok_or(TransportError::HostCertificate)?;
-                Some(public_key_pin(cert.as_ref())?)
+                public_key_pin(cert.as_ref())?
             }
-            HostTrust::TrustOnFirstUse => None,
         };
         let certs = rustls_pemfile::certs(&mut Cursor::new(client_cert_pem))
             .collect::<Result<Vec<_>, _>>()?;
@@ -168,7 +164,7 @@ mod tests {
     #[test]
     fn verifier_debug_name_omits_public_key_material() {
         let verifier = HostKeyVerifier {
-            expected: Some([0; 32]),
+            expected: [0; 32],
             algorithms: rustls::crypto::ring::default_provider().signature_verification_algorithms,
         };
         assert_eq!(format!("{verifier:?}"), "HostKeyVerifier");
@@ -177,7 +173,7 @@ mod tests {
     #[test]
     fn malformed_presented_certificate_is_refused() {
         let verifier = HostKeyVerifier {
-            expected: Some([0; 32]),
+            expected: [0; 32],
             algorithms: rustls::crypto::ring::default_provider().signature_verification_algorithms,
         };
         let server_name = ServerName::try_from("localhost").expect("server name");
@@ -194,7 +190,7 @@ mod tests {
             .expect("test identity");
         let der = CertificateDer::from(identity.cert.der().as_ref().to_vec());
         let verifier = HostKeyVerifier {
-            expected: Some(public_key_pin(der.as_ref()).expect("valid certificate")),
+            expected: public_key_pin(der.as_ref()).expect("valid certificate"),
             algorithms: rustls::crypto::ring::default_provider().signature_verification_algorithms,
         };
         let name = ServerName::try_from("localhost").expect("server name");
@@ -209,7 +205,7 @@ mod tests {
             .expect("test identity");
         let der = CertificateDer::from(identity.cert.der().as_ref().to_vec());
         let verifier = HostKeyVerifier {
-            expected: Some([0; 32]),
+            expected: [0; 32],
             algorithms: rustls::crypto::ring::default_provider().signature_verification_algorithms,
         };
         let name = ServerName::try_from("localhost").expect("server name");

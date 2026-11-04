@@ -293,7 +293,6 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
     let layout = Layout::new(config::root());
     let path = layout.client().join("client.json");
     if !options.json {
-        eprint!("{}", enrollment.notice());
         println!("{}", enrollment.receipt);
         println!("config: {}", path.display());
     }
