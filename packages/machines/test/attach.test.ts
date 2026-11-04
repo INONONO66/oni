@@ -81,6 +81,41 @@ describe("machine attach handshake", () => {
     } finally { peer.close(); await host.close(); }
   });
 
+  test("attached tells a contract-5 peer the enrollment delta it must consent to, without widening authority", async () => {
+    await withHost(
+      () => ({ ...enrollment, allowedExports: ["work"] }),
+      async ({ host, path }) => {
+        const peer = await connectIpcClient(path);
+        try {
+          expect(await peer.call(Machine.WireMethod.Attach, {
+            ...offer(), peer: { kind: "client", contractVersion: Machine.contractVersion },
+          })).toEqual({
+            status: "attached",
+            generation: 1,
+            effectiveCapabilities: ["fs.read"],
+            effectiveExports: [],
+            consentRequired: { capabilities: ["shell.exec"], exports: ["work"] },
+          });
+          expect(host.list()).toMatchObject([{ capabilities: ["fs.read"], exports: [] }]);
+        } finally { peer.close(); }
+      },
+    );
+  });
+
+  test("a peer below contract 5 is attached without the consent field it cannot decode", async () => {
+    await withHost(
+      () => enrollment,
+      async ({ path }) => {
+        const peer = await connectIpcClient(path);
+        try {
+          expect(await peer.call(Machine.WireMethod.Attach, {
+            ...offer(), peer: { kind: "daemon", contractVersion: 4 },
+          })).toEqual({ status: "attached", generation: 1, effectiveCapabilities: ["fs.read"], effectiveExports: [] });
+        } finally { peer.close(); }
+      },
+    );
+  });
+
   test("failed durable capability recording refuses attach without publishing authority", async () => {
     const path = socketPath();
     const host = await createMachineHost({
@@ -498,6 +533,7 @@ describe("machine attach handshake", () => {
           generation: 2,
           effectiveCapabilities: ["shell.exec"],
           effectiveExports: [],
+          consentRequired: { capabilities: ["fs.read"], exports: [] },
         });
         expect(host.list().find((entry) => entry.machineId === "mac-studio")?.capabilities).toEqual(
           ["shell.exec"],
