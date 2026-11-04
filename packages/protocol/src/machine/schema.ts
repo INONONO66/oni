@@ -514,7 +514,8 @@ export const PeerLease = z
     from: MachineId,
     to: MachineId,
     ops: z.array(PeerLeaseOp).min(1).max(5),
-    ttlMs: z.number().int().positive(),
+    /** One delegation-scale day at most: a lease is temporary reach, never a standing grant. */
+    ttlMs: z.number().int().positive().max(86_400_000),
     expiresAt: EpochMs,
     delegationId: z.string().min(1),
   })

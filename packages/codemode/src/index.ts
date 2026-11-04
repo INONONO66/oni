@@ -290,12 +290,19 @@ export function createCodemode(options: CodemodeOptions) {
         message: `machine_isolated: ${origin.machineId} ${detail}`,
       });
     }
-    /** A machine-originated call naming another machine spends a live peer lease for its op class, or is refused. */
+    /**
+     * A machine-originated call naming another machine spends a live peer lease
+     * for its op class, or is refused. Fail closed: an op with no lease class
+     * cannot name another machine at all, so a new machine-naming op is
+     * isolated until `PEER_OPS` classes it.
+     */
     function isolate(call: Machine.ToolCall, origin: Machine.ToolCallSource): Effect.Effect<void, Failure> {
       return Effect.suspend(() => {
-        const op = PEER_OPS[call.name];
         const target = call.arguments.machineId;
-        if (origin.kind === "session" || op === undefined || typeof target !== "string" || target === origin.machineId) return Effect.void;
+        if (origin.kind === "session" || target === undefined || target === origin.machineId) return Effect.void;
+        const op = PEER_OPS[call.name];
+        if (op === undefined || typeof target !== "string")
+          return Effect.fail(isolated(origin, `may not name another machine through ${call.name}`));
         const lease = options.peers?.peerLease(origin.machineId, target, op);
         return lease === undefined ? Effect.fail(isolated(origin, `holds no peer lease for ${op} on ${target}`)) : Effect.void;
       });
@@ -545,7 +552,8 @@ export function createCodemode(options: CodemodeOptions) {
         const selected = select(query);
         return makeHandle(selected.machineId, selected.lease.id);
       },
-      callTool: (call: Machine.ToolCall) => callTool(call).pipe(Effect.mapError((error) => new MachinesFailure({ operation: "code.tool", cause: error.message || String(error) }))),
+      // The host port takes a MachineError; a codemode refusal keeps its typed reason in the operation (`code.tool.<reason>`).
+      callTool: (call: Machine.ToolCall) => callTool(call).pipe(Effect.mapError((error) => new MachinesFailure({ operation: error instanceof CodemodeError ? `code.tool.${error.reason}` : "code.tool", cause: error.message || String(error) }))),
       close,
       cell: {
         run: (code: string, tenant: string, runOptions: RunOptions = {}): Effect.Effect<Machine.CellState, Failure> => Effect.gen(function* () {

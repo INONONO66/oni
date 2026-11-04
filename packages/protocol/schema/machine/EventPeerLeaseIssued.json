@@ -42,7 +42,7 @@
         },
         "ttlMs": {
           "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
+          "maximum": 86400000,
           "type": "integer"
         }
       },
