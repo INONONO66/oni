@@ -1,8 +1,9 @@
 use super::*;
 use oni_machine_client::transport::{
-    connection::{public_key_pin, HostTrust},
+    connection::{public_key_pin, HostPin},
     ws,
 };
+use support::fake_host::pin_of;
 use tokio_tungstenite::tungstenite::{Bytes, Message};
 
 #[tokio::test]
@@ -158,7 +159,7 @@ async fn tls_fake_host_authenticates_and_exchanges_frames() {
     let (client, _) = Client::connect_tls(
         &host.endpoint,
         "localhost",
-        HostTrust::CertPem(host.certificate.as_bytes().to_vec()),
+        host.pin(),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         handler(|_, _| async { Ok(json!(null)) }),
@@ -180,7 +181,7 @@ async fn tls_host_key_pin_does_not_depend_on_hostname() {
     let (client, _) = Client::connect_tls(
         &host.endpoint,
         "different.example",
-        HostTrust::CertPem(host.certificate.as_bytes().to_vec()),
+        host.pin(),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         handler(|_, _| async { Ok(json!(null)) }),
@@ -197,20 +198,76 @@ async fn tls_host_key_pin_does_not_depend_on_hostname() {
 }
 
 #[tokio::test]
-async fn tls_host_key_mismatch_refuses_connection() {
-    let host = FakeHost::tls().await;
+async fn a_host_certificate_for_a_different_key_is_refused_before_any_frame() {
+    let mut host = FakeHost::tls().await;
     let different = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
         .expect("different test key");
     let error = Client::connect_tls(
         &host.endpoint,
         "localhost",
-        HostTrust::CertPem(different.cert.pem().into_bytes()),
+        HostPin(pin_of(&different.cert.pem())),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         handler(|_, _| async { Ok(json!(null)) }),
     )
     .await;
     assert!(matches!(error, Err(TransportError::HostKeyMismatch)));
+    assert_eq!(
+        host.incoming.recv().await,
+        None,
+        "the handshake was all the host saw"
+    );
+}
+
+#[tokio::test]
+async fn a_certificate_renewed_for_the_pinned_key_passes_the_pin() {
+    let (mut host, replaced) = FakeHost::tls_renewed().await;
+    assert_ne!(host.certificate, replaced);
+    let pin = HostPin(pin_of(&replaced));
+    assert_eq!(pin, host.pin());
+    let (client, observed) = Client::connect_tls(
+        &host.endpoint,
+        "localhost",
+        pin,
+        host.certificate.as_bytes(),
+        host.private_key.as_bytes(),
+        handler(|_, _| async { Ok(json!(null)) }),
+    )
+    .await
+    .expect("the renewed certificate carries the pinned key");
+    assert_eq!(observed, pin.0);
+    let exchange = async {
+        let request = host.incoming.recv().await.expect("TLS request");
+        host.send(json!({"v":2,"type":"response","id":request["id"],"result":"renewed"}))
+            .await;
+    };
+    let (call, ()) = tokio::join!(client.call("ping", None), exchange);
+    assert_eq!(call.expect("result"), Some(json!("renewed")));
+}
+
+#[tokio::test]
+async fn an_issued_chain_for_the_pinned_key_passes_the_pin() {
+    let (mut host, replaced) = FakeHost::tls_chain().await;
+    assert_eq!(host.certificate.matches("BEGIN CERTIFICATE").count(), 2);
+    let pin = HostPin(pin_of(&replaced));
+    let (client, observed) = Client::connect_tls(
+        &host.endpoint,
+        "localhost",
+        pin,
+        host.certificate.as_bytes(),
+        host.private_key.as_bytes(),
+        handler(|_, _| async { Ok(json!(null)) }),
+    )
+    .await
+    .expect("the chain's leaf carries the pinned key");
+    assert_eq!(observed, pin.0);
+    let exchange = async {
+        let request = host.incoming.recv().await.expect("TLS request");
+        host.send(json!({"v":2,"type":"response","id":request["id"],"result":"chain"}))
+            .await;
+    };
+    let (call, ()) = tokio::join!(client.call("ping", None), exchange);
+    assert_eq!(call.expect("result"), Some(json!("chain")));
 }
 
 #[tokio::test]
@@ -219,7 +276,7 @@ async fn tls12_host_key_pin_verifies_handshake_signature() {
     let (client, _) = Client::connect_tls(
         &host.endpoint,
         "localhost",
-        HostTrust::CertPem(host.certificate.as_bytes().to_vec()),
+        host.pin(),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         handler(|_, _| async { Ok(json!(null)) }),
@@ -245,7 +302,7 @@ async fn tls_transport_error_is_distinct_from_a_host_key_mismatch() {
     let connect = Client::connect_tls(
         &address,
         "localhost",
-        HostTrust::CertPem(host.certificate.as_bytes().to_vec()),
+        host.pin(),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         handler(|_, _| async { Ok(json!(null)) }),
@@ -259,27 +316,12 @@ async fn tls_transport_error_is_distinct_from_a_host_key_mismatch() {
 }
 
 #[tokio::test]
-async fn empty_host_certificate_is_refused_before_connecting() {
-    let host = FakeHost::tls().await;
-    let result = Client::connect_tls(
-        &host.endpoint,
-        "localhost",
-        HostTrust::CertPem(vec![]),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
-        handler(|_, _| async { Ok(json!(null)) }),
-    )
-    .await;
-    assert!(matches!(result, Err(TransportError::HostCertificate)));
-}
-
-#[tokio::test]
 async fn explicit_pin_refuses_a_different_host_key() {
     let host = FakeHost::tls().await;
     let result = Client::connect_tls(
         &host.endpoint,
         "localhost",
-        HostTrust::Pin([0; 32]),
+        HostPin([0; 32]),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         handler(|_, _| async { Ok(json!(null)) }),
@@ -301,7 +343,7 @@ async fn explicit_pin_accepts_matching_host_key() {
     let (_, observed) = Client::connect_tls(
         &host.endpoint,
         "localhost",
-        HostTrust::Pin(pin),
+        HostPin(pin),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         handler(|_, _| async { Ok(json!(null)) }),
@@ -352,7 +394,7 @@ async fn wss_fake_host_authenticates_and_pins_the_same_host_key() {
     let (client, pin) = Client::connect_wss(
         &host.ws_endpoint(),
         None,
-        HostTrust::CertPem(host.certificate.as_bytes().to_vec()),
+        host.pin(),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         service(),
@@ -377,7 +419,7 @@ async fn wss_dial_tunnels_through_the_connect_proxy() {
     let (client, _) = Client::connect_wss(
         &host.ws_endpoint(),
         Some(&proxy.address),
-        HostTrust::CertPem(host.certificate.as_bytes().to_vec()),
+        host.pin(),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         service(),
@@ -394,7 +436,7 @@ async fn proxy_failure(answer: proxy::ProxyAnswer) -> (String, TransportError) {
     let error = Client::connect_wss(
         &host.ws_endpoint(),
         Some(&proxy.address),
-        HostTrust::CertPem(host.certificate.as_bytes().to_vec()),
+        host.pin(),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         service(),
@@ -452,7 +494,7 @@ async fn wss_text_message_is_refused_as_invalid_data() {
     let (mut client, _) = Client::connect_wss(
         &host.endpoint(),
         None,
-        HostTrust::CertPem(host.certificate.clone().into_bytes()),
+        HostPin(pin_of(&host.certificate)),
         host.certificate.as_bytes(),
         host.private_key.as_bytes(),
         service(),

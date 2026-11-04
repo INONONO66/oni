@@ -32,7 +32,7 @@ use crate::{
     transport::{
         classes::{self, FailureClass},
         client::{handler, Caller, Client, Handler, TransportError},
-        connection::HostTrust,
+        connection::HostPin,
         events,
         request_table::CallError,
         retry::{Event, Next, Random, Retry},
@@ -274,7 +274,7 @@ fn refuse_inbound() -> Handler {
 async fn connect_tls(
     host: &str,
     directory: &Path,
-    trust: HostTrust,
+    trust: HostPin,
     service: Handler,
 ) -> Result<Result<(Client, [u8; 32]), TransportError>, AttachError> {
     let cert = fs::read(directory.join("client-cert.pem"))?;
@@ -293,12 +293,15 @@ async fn connect_tls(
     })
 }
 
-/// Connects once with the configured trust and persists the verified host
-/// key as `host-pin`, the only trust `run` consults afterwards.
-async fn record_pin(host: &str, directory: &Path, trust: HostTrust) -> Result<(), AttachError> {
+/// Connects once with the given pin and persists the verified host key as
+/// `host-pin`, the only trust `run` consults afterwards.
+async fn record_pin(host: &str, directory: &Path, trust: HostPin) -> Result<(), AttachError> {
     let (connection, pin) = connect_tls(host, directory, trust, refuse_inbound()).await??;
     drop(connection);
-    config::write_private(&directory.join("host-pin"), hex::encode(pin).as_bytes())?;
+    config::write_private(
+        &directory.join("host-pin"),
+        config::encode_pin(&pin).as_bytes(),
+    )?;
     Ok(())
 }
 
@@ -312,7 +315,7 @@ pub async fn release(
         Some(path) => Client::connect_unix(path, refuse_inbound()).await?,
         None => {
             let pin = fs::read_to_string(directory.join("host-pin"))?;
-            let trust = HostTrust::Pin(config::parse_pin(&pin)?);
+            let trust = HostPin(config::parse_pin(&pin)?);
             connect_tls(&config.host, directory, trust, refuse_inbound())
                 .await??
                 .0
@@ -336,7 +339,7 @@ pub async fn join(
         .or_else(|| config::unix_path(&options.host));
     let trust = match unix {
         Some(_) => None,
-        None => Some(config::trust(options, home)?),
+        None => Some(config::trust(options)?),
     };
     let host = match (&unix, config::carrier(&options.host)?) {
         (None, Carrier::Tcp { .. }) => config::resolve_address(&options.host)?,
@@ -542,7 +545,7 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
             Some(path) => Client::connect_unix(path, service).await,
             None => {
                 let pin = fs::read_to_string(self.directory.join("host-pin"))?;
-                let trust = HostTrust::Pin(config::parse_pin(&pin)?);
+                let trust = HostPin(config::parse_pin(&pin)?);
                 connect_tls(&self.config.host, self.directory, trust, service)
                     .await?
                     .map(|(client, _)| client)
