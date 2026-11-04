@@ -8,11 +8,11 @@ import { createMachineHost as nativeHost } from "../src/host";
 import { createMemoryGenerationStore } from "../src/generation-store";
 import { createMachineHost, refusingToolPort } from "./helpers/native";
 import { connectIpcTcpClient, connectIpcWsClient } from "./ipc/helpers/native";
-import { attachMclient, mclientBinary } from "./helpers/mclient";
+import { type AttachedMclient, attachMclient, mclientBinary, mclientEnrollment } from "./helpers/mclient";
 import { eventCollector } from "./helpers/events";
 import { exit as runExit } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
-import { daemonIdentity, daemonFingerprint, hostIdentity, wrongIdentity } from "./ipc/helpers/tls-fixtures";
+import { daemonIdentity, daemonFingerprint, hostFingerprint, hostIdentity, wrongIdentity } from "./ipc/helpers/tls-fixtures";
 
 const silent = { publish: () => undefined };
 function sequentialIds(prefix: string): () => string {
@@ -143,6 +143,36 @@ describe("host listener set (#1270)", () => {
         await overWs.close();
       }
     } finally {
+      await host.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the real mclient attaches over wss, presents its client certificate and serves fs and exec (#1830)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "om-listen-mclient-wss-"));
+    writeFileSync(join(root, "note"), "wss-mclient");
+    const events = eventCollector();
+    const host = await createMachineHost({
+      listen: { ws: { host: "127.0.0.1", port: 0 } },
+      tls: hostIdentity,
+      enrollment: (id) => (id === "desk-wss" ? mclientEnrollment("desk-wss", { publicKey: daemonFingerprint }) : undefined),
+      events: events.sink,
+      now: () => 4,
+    });
+    let client: AttachedMclient | undefined;
+    try {
+      client = await attachMclient({
+        host, events, machineId: "desk-wss", root,
+        wss: { port: host.endpoints.ws?.port ?? 0, hostPin: hostFingerprint, identity: daemonIdentity },
+      });
+      expect(host.list().map((machine) => machine.machineId)).toEqual(["desk-wss"]);
+      const read = await host.get("desk-wss").fs.read(join(root, "note"));
+      expect(Buffer.from(read.data).toString()).toBe("wss-mclient");
+      expect(await host.get("desk-wss").exec("cat note; exit 3", root)).toEqual({
+        status: "completed", stdout: Buffer.from("wss-mclient"), stderr: Buffer.from(""), exitCode: 3, signal: null, truncated: false,
+      });
+    } finally {
+      await client?.stop();
       await host.close();
       rmSync(root, { recursive: true, force: true });
     }
