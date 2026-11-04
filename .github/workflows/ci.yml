@@ -365,6 +365,7 @@ jobs:
         with:
           name: workspace-dist
       - run: bun run ci restore
+      - run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - run: bun run ci test --lane scripts-contracts
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
