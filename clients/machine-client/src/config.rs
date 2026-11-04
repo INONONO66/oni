@@ -169,7 +169,7 @@ pub const AGENT_HOOK_SOCKET: &str = "hook.sock";
 /// launched it, so its hooks reach that client whatever config it runs.
 pub const AGENT_HOOK_SOCKET_VARIABLE: &str = "ONI_MCLIENT_HOOK_SOCKET";
 
-/// The opaque join token (#1838) `mclient join` presents to the attach
+/// The opaque join token `mclient join` presents to the attach
 /// handshake (#1833): read from the environment, never persisted.
 pub const JOIN_TOKEN_VARIABLE: &str = "ONI_MCLIENT_JOIN_TOKEN";
 

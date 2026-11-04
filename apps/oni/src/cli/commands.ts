@@ -37,7 +37,7 @@ export interface CliDeps {
   readonly envPath: string;
   readonly startApp: () => Promise<void>;
   readonly streamProbe: StreamProbeDeps;
-  /** #1838: the one-command machine install, bound to this process's home, platform, exec and fetch. */
+  /** The one-command machine install, bound to this process's home, platform, exec and fetch. */
   readonly bootstrap: BootstrapDeps;
   readonly ask: Ask;
   readonly writeEnv: (entries: readonly EnvEntry[]) => void;

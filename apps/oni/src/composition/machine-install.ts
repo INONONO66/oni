@@ -1,7 +1,7 @@
 import type { Machine } from "@oni/protocol";
 
 /**
- * The release artifact key for a platform (#1838), the same table the client
+ * The release artifact key for a platform, the same table the client
  * keeps in `release::platform`: macOS installs the universal archive, Linux
  * picks by architecture, anything else has no artifact. Node names the
  * platform `darwin`/`linux` and the architecture `x64`/`arm64`; the shell

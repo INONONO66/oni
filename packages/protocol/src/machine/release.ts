@@ -26,7 +26,7 @@ export const Release = z
   .object({
     version: z.string().min(1),
     /**
-     * The git tag the release was published under (#1838): the host derives
+     * The git tag the release was published under: the host derives
      * it as `releaseTagPrefix` + `version` when it serves the record; a
      * locally packaged record carries none.
      */

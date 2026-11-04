@@ -378,7 +378,7 @@ export const Report = z
     streams: z.array(StreamObservation).max(STREAM_MAX_CONCURRENT).optional(),
     memoryBudget: MemoryBudget.optional(),
     /**
-     * Host-owned mark (#1838): present on the report the host keeps when the
+     * Host-owned mark: present on the report the host keeps when the
      * reporting peer attached with a contract version older than the host's
      * own, so `mclient upgrade` is due on that machine. The host sets or
      * drops it at receipt; a client never decides it.

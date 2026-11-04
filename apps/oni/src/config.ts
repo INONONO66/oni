@@ -293,7 +293,7 @@ export function resolveMclientRelease(env: Record<string, string | undefined> = 
 /**
  * Read per request so a rebuilt release is served without a restart; absent
  * or malformed = no release. The served record names its git tag
- * (`releaseTagPrefix` + version, #1838) so a machine can tell which published
+ * (`releaseTagPrefix` + version) so a machine can tell which published
  * release it installs.
  */
 export function readClientRelease(path: string): Machine.Release | undefined {

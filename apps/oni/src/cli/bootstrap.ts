@@ -127,7 +127,7 @@ function stageBinary(archive: Uint8Array, home: string, io: DaemonIo): { readonl
 }
 
 /**
- * One command on a fresh machine (#1838): the host's `/machine/release`
+ * One command on a fresh machine: the host's `/machine/release`
  * answer names the archive for this platform and the SHA-256 it must carry;
  * a mismatch stops before anything is written. The verified binary is
  * staged and runs `mclient join` from there: join's own update path is the
