@@ -300,6 +300,8 @@ export interface DispatchContext {
   readonly sessionId: string;
   readonly turnId: string;
   readonly signal?: AbortSignal;
+  /** The caller the composition attributed the call to; rides the pre decision and the intent row. */
+  readonly origin?: PlainValue;
 }
 
 export interface Dispatcher {

@@ -10,7 +10,7 @@ import { stringQueryTool, valueTool } from "./helpers/query-tool";
 
 import type { LedgerAction } from "@oni/protocol";
 import { createDispatcher } from "../src/plugins/tool";
-import { allowAllPolicy as allowAll, opPhaseOf } from "./helpers/compiled-policy";
+import { allowAllPolicy as allowAll, compiledPolicy, opPhaseOf } from "./helpers/compiled-policy";
 import { turnExecutor } from "./helpers/effect-g1";
 import { isolated } from "./helpers/isolated";
 
@@ -18,6 +18,11 @@ const denyPre = policySnapshot({ registry: KERNEL_POLICY_REGISTRY, generation: 1
   name: "compaction", kind: "tool", phase: "pre", match: { encodingVersion: 1, value: { op: "echo" } },
   verdict: { encodingVersion: 1, value: { type: "deny", reason: "not_allowed" } }, priority: 1, generation: 1,
 }] });
+// #1841: a `tool.pre` row matches the request origin by its `kind`; a session call or no origin at all does not match.
+const denyMachineOrigin = compiledPolicy([{
+  name: "deny-machine-echo", kind: "tool", phase: "pre", match: { encodingVersion: 1, value: { op: "echo", origin: "machine" } },
+  verdict: { encodingVersion: 1, value: { type: "deny", reason: "machine_origin" } }, priority: 1, generation: 1,
+}]);
 function echoTool(onRun: () => void) {
   return valueTool({ name: "echo", description: "Echo input", execute: async (value) => { onRun(); return value; } });
 }
@@ -44,6 +49,21 @@ describe("compiled tool.pre denial", () => {
     if (Exit.isFailure(exit))
       expect(Cause.squash(exit.cause)).toMatchObject({ name: "ToolRefused", errorKind: "precondition_failed" });
     expect(executions.count).toBe(0);
+  })));
+});
+
+describe("request origin at the gate (#1841)", () => {
+  it("matches when.origin against the origin kind and records the origin on the intent row", async () => isolated(Effect.gen(function* () {
+    const committed: LedgerAction.Append[] = [];
+    const executor = durableExecutor(denyMachineOrigin, committed);
+    const body = () => Effect.succeed("ran");
+    const base = { kind: "tool", op: "echo", intent: {}, effect: {} } as const;
+    expect(yield* executor.run(base, body)).toMatchObject({ terminal: "executed", value: "ran" });
+    expect(yield* executor.run({ ...base, origin: { kind: "session" } }, body)).toMatchObject({ terminal: "executed", value: "ran" });
+    expect(yield* executor.run({ ...base, origin: { kind: "machine", machineId: "B" } }, body)).toEqual({ terminal: "blocked_pre", reason: "machine_origin" });
+    const intents = committed.filter((action) => action.kind === "tool" && opPhaseOf(action) === "echo:intent").map((action) => action.intent.value);
+    // The refused call records its decision only; the two admitted calls carry their origin beside the arguments.
+    expect(intents.map((intent) => (intent as { origin?: { kind: string } }).origin)).toEqual([undefined, { kind: "session" }]);
   })));
 });
 

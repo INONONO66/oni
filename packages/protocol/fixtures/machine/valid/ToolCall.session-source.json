@@ -1,0 +1,10 @@
+{
+  "cellId": "c1",
+  "name": "read",
+  "arguments": {
+    "path": "a.txt"
+  },
+  "source": {
+    "kind": "session"
+  }
+}

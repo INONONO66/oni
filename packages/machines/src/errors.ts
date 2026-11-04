@@ -22,7 +22,7 @@ const RefusalFields = z.object({
     "not_found", "already_exists", "wrong_kind", "io_error", "too_large", "ambiguous_export", "invalid_method",
     "invalid_response", "closed", "ambiguous_machine", "peer_key_mismatch", "disconnected",
     "host_tool_missing", "machine_saturated", "lease_expired", "lease_scheduler_missing", "stale_generation",
-    "transfer_not_found", "invalid_sequence", "digest_mismatch",
+    "transfer_not_found", "invalid_sequence", "digest_mismatch", "peer_lease_invalid",
   ]),
   message: z.string(),
   credit: Machine.LeaseRefusal.optional(),

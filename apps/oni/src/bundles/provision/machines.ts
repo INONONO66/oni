@@ -1,16 +1,18 @@
 import { Core } from "@oni/agent";
 import type { createMachineEnrollmentStore } from "@oni/channels";
-import type { MachineHost } from "@oni/machines";
+import { MachineRefusalError, type MachineHost } from "@oni/machines";
 import { canonicalDigest, Machine, type BusEvent, type ToolExecutionContext } from "@oni/protocol";
 import type { MachineOperation, MachineResult } from "./machine-schema";
 import type { PermissionPort } from "../seams";
 
 export interface MachinePort {
   readonly enrollments: ReturnType<typeof createMachineEnrollmentStore>;
-  readonly host: Pick<MachineHost, "list" | "unenroll">;
+  readonly host: Pick<MachineHost, "list" | "unenroll" | "peers">;
   readonly selfId: string;
   readonly events: BusEvent.Sink;
   readonly now: () => number;
+  /** #1841: a lease names a delegation that still has work in flight (composition binds the catalog read). */
+  readonly delegationLive: (delegationId: string) => boolean;
 }
 
 export function executePermission(
@@ -31,6 +33,52 @@ export function executePermission(
   return { op: operation.op, result: outcome };
 }
 
+type ConsentedMachineOperation = Extract<
+  MachineOperation,
+  { op: "machine_add" | "machine_grant" | "machine_deny" | "machine_peer_lease" | "machine_peer_lease_end" }
+>;
+
+/**
+ * #1841: a peer lease is the only machine-to-machine reach; the Owner issues it for two enrolled
+ * machines and one live delegation. Both facts are checked before consent is asked for, so the
+ * Owner never answers a request that could not be issued.
+ */
+function executePeerLease(
+  port: MachinePort,
+  operation: Extract<MachineOperation, { op: "machine_peer_lease" }>,
+  caller: "owner" | `session:${string}`,
+): MachineResult {
+  const { from, to, delegationId } = operation.args;
+  for (const machineId of [from, to])
+    if (machineId !== port.selfId && port.enrollments.get(machineId)?.removedAt !== null)
+      throw new Core.ToolRefused("provision", `machine is not enrolled: ${machineId}`);
+  if (!port.delegationLive(delegationId))
+    throw new Core.ToolRefused("provision", `delegation is not live: ${delegationId}`);
+  if (caller !== "owner")
+    return { op: operation.op, result: { type: "require_approval", id: from } };
+  try {
+    return { op: operation.op, result: { lease: port.host.peers.issue(operation.args) } };
+  } catch (error) {
+    if (error instanceof MachineRefusalError)
+      throw new Core.ToolRefused("provision", error.message);
+    throw error;
+  }
+}
+
+/** The Owner ends a lease before its clock does; a lease already ended is refused, not re-ended. */
+function executePeerLeaseEnd(
+  port: MachinePort,
+  operation: Extract<MachineOperation, { op: "machine_peer_lease_end" }>,
+  caller: "owner" | `session:${string}`,
+): MachineResult {
+  const { leaseId } = operation.args;
+  if (caller !== "owner")
+    return { op: operation.op, result: { type: "require_approval", id: leaseId } };
+  const lease = port.host.peers.revoke(leaseId);
+  if (lease === undefined) throw new Core.ToolRefused("provision", `peer lease is not live: ${leaseId}`);
+  return { op: operation.op, result: { lease } };
+}
+
 export function executeMachine(
   port: MachinePort | undefined,
   operation: Exclude<MachineOperation, { op: "permission_allow" | "permission_deny" }>,
@@ -38,6 +86,8 @@ export function executeMachine(
 ): MachineResult {
   if (port === undefined) throw new Core.ToolRefused("provision", "machine provisioning is not composed");
   if (operation.op === "machine_list") return { op: operation.op, result: { rows: port.host.list() } };
+  if (operation.op === "machine_peer_lease") return executePeerLease(port, operation, caller);
+  if (operation.op === "machine_peer_lease_end") return executePeerLeaseEnd(port, operation, caller);
   const { machineId } = operation.args;
   if (machineId === port.selfId) throw new Core.ToolRefused("provision", "self enrollment is configured at boot");
   switch (operation.op) {
@@ -75,19 +125,35 @@ export function executeMachine(
   }
 }
 
-export function machineDomainRevisions(enrollments: MachinePort["enrollments"] | undefined, machineId: string): Record<string, number> {
-  return { [`machine:${machineId}`]: enrollments?.get(machineId)?.revision ?? -1 };
+export function machineDomainRevisions(enrollments: MachinePort["enrollments"] | undefined, ...machineIds: string[]): Record<string, number> {
+  return Object.fromEntries(machineIds.map((machineId) => [`machine:${machineId}`, enrollments?.get(machineId)?.revision ?? -1]));
+}
+
+/**
+ * Consent to a peer lease is bound to both machines' enrollments; ending one binds to nothing (the
+ * lease itself is the precondition, and an ended lease refuses at execution); every other machine op
+ * binds to its one machine.
+ */
+export function consentedMachineRevisions(enrollments: MachinePort["enrollments"] | undefined, operation: ConsentedMachineOperation): Record<string, number> {
+  switch (operation.op) {
+    case "machine_peer_lease":
+      return machineDomainRevisions(enrollments, operation.args.from, operation.args.to);
+    case "machine_peer_lease_end":
+      return {};
+    default:
+      return machineDomainRevisions(enrollments, operation.args.machineId);
+  }
 }
 
 /** The saved tool invocation holds the proposed key; revisions bind consent to current authority. */
 export function executeApprovedMachine(
   port: MachinePort | undefined,
-  operation: Extract<MachineOperation, { op: "machine_add" | "machine_grant" | "machine_deny" }>,
+  operation: ConsentedMachineOperation,
   context: ToolExecutionContext,
 ): MachineResult {
   if (context.domainRevisions === undefined)
     return executeMachine(port, operation, `session:${context.sessionId}`);
-  if (canonicalDigest({ ...context.domainRevisions }) !== canonicalDigest(machineDomainRevisions(port?.enrollments, operation.args.machineId)))
+  if (canonicalDigest({ ...context.domainRevisions }) !== canonicalDigest(consentedMachineRevisions(port?.enrollments, operation)))
     throw new Core.ToolRefused("provision", "domain revision changed");
   return executeMachine(port, operation, "owner");
 }

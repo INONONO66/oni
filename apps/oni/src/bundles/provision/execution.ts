@@ -22,15 +22,16 @@ import {
 } from "./channels";
 import { executeBundleDisable, executeBundleEnable } from "./bundles";
 import { executeProvisionStatus } from "./status";
-import { executeApprovedMachine, executeMachine, executePermission, machineDomainRevisions, type MachinePort } from "./machines";
+import { consentedMachineRevisions, executeApprovedMachine, executeMachine, executePermission, type MachinePort } from "./machines";
 import type { MachineOperation } from "./machine-schema";
 import { computerApproval, executeComputer } from "./computer";
 import { ComputerOperation } from "./computer-schema";
 
 function machineConsent(
   operation: z.output<typeof ProvisionInput>["operation"],
-): operation is Extract<MachineOperation, { op: "machine_add" | "machine_grant" | "machine_deny" }> {
-  return operation.op === "machine_add" || operation.op === "machine_grant" || operation.op === "machine_deny";
+): operation is Extract<MachineOperation, { op: "machine_add" | "machine_grant" | "machine_deny" | "machine_peer_lease" | "machine_peer_lease_end" }> {
+  return operation.op === "machine_add" || operation.op === "machine_grant" || operation.op === "machine_deny" ||
+    operation.op === "machine_peer_lease" || operation.op === "machine_peer_lease_end";
 }
 /** Machine-family consent; #1665: allowing a child's permission request is the Owner's, denying needs none. */
 function machineApproval(
@@ -38,7 +39,7 @@ function machineApproval(
   enrollments: MachinePort["enrollments"] | undefined,
 ): { required: boolean; domainRevisions: Record<string, number> } | undefined {
   if (machineConsent(operation))
-    return { required: true, domainRevisions: machineDomainRevisions(enrollments, operation.args.machineId) };
+    return { required: true, domainRevisions: consentedMachineRevisions(enrollments, operation) };
   if (operation.op === "permission_allow") return { required: true, domainRevisions: {} };
   return undefined;
 }
@@ -70,6 +71,8 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
       case "machine_add":
       case "machine_grant":
       case "machine_deny":
+      case "machine_peer_lease":
+      case "machine_peer_lease_end":
         return executeApprovedMachine(port?.machines, operation, context);
       case "machine_remove":
       case "machine_list":

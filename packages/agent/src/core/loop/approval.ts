@@ -160,7 +160,8 @@ export function recoverAdmission(
 ): Admitted {
   const intent = object(original.intent.value);
   const inputHash = canonicalDigest({ kind: request.kind, phase: "pre", op: request.op, role: options.identity.role,
-    sessionId: options.identity.sessionId, ...(request.message === undefined ? {} : { message: request.message }), value: request.intent });
+    sessionId: options.identity.sessionId, ...(request.message === undefined ? {} : { message: request.message }),
+    ...(request.origin === undefined ? {} : { origin: request.origin }), value: request.intent });
   const action = recordedDecision(options.ledger, original, intent.policyDecisionId);
   if (action === undefined || intent.value === undefined) throw new ExecutionApprovalError({ code: "stale_approval" });
   const { gate, ...decisionIntent } = object(action.intent.value);
@@ -192,7 +193,8 @@ function replayRecordedValue(
 ): PlainValue {
   const replayed = policy.evaluate({
     kind: request.kind, phase: "pre", op: request.op, role: identity.role, sessionId: identity.sessionId,
-    ...(request.message === undefined ? {} : { message: request.message }), value: request.intent, recorded,
+    ...(request.message === undefined ? {} : { message: request.message }),
+    ...(request.origin === undefined ? {} : { origin: request.origin }), value: request.intent, recorded,
   });
   if (replayed.replayed !== true) throw new ExecutionApprovalError({ code: "stale_approval" });
   return replayed.value;

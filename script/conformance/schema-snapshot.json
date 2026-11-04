@@ -168,6 +168,7 @@
     "deadline",
     "kind",
     "messageId",
+    "reply",
     "replyTo",
     "senderSessionId",
     "sourceActionId"
@@ -176,6 +177,7 @@
     "childSessionId",
     "kind",
     "messageId",
+    "reply",
     "replyTo",
     "sourceActionId",
     "terminalKind"
@@ -560,6 +562,20 @@
     "userId",
     "workspace"
   ],
+  "Ingress.InternalEventSchema": [
+    "agentName",
+    "channel",
+    "id",
+    "meta",
+    "mode",
+    "payload",
+    "surface",
+    "target",
+    "traceId",
+    "userId",
+    "workspace"
+  ],
+  "Ingress.MatchContext": ["event", "ruleId", "verdict", "when"],
   "Ingress.Message": [
     "account",
     "addressed",
@@ -586,20 +602,6 @@
     "threadId",
     "workspaceId"
   ],
-  "Ingress.InternalEventSchema": [
-    "agentName",
-    "channel",
-    "id",
-    "meta",
-    "mode",
-    "payload",
-    "surface",
-    "target",
-    "traceId",
-    "userId",
-    "workspace"
-  ],
-  "Ingress.MatchContext": ["event", "ruleId", "verdict", "when"],
   "Ingress.MetaSchema": [
     "actor",
     "agentName",
@@ -1178,6 +1180,15 @@
   "Machine.PeekCode": ["cellId"],
   "Machine.PeekRefused": ["reason", "status"],
   "Machine.PeekResult": ["output", "running"],
+  "Machine.PeerLease": [
+    "delegationId",
+    "expiresAt",
+    "from",
+    "id",
+    "ops",
+    "to",
+    "ttlMs"
+  ],
   "Machine.PeerScreenCapture#ok": [
     "accessibilityTree",
     "accessibilityUnavailable",
@@ -1403,9 +1414,11 @@
   "Machine.StreamSignalRequest": ["seq", "signal", "streamId"],
   "Machine.StreamSignalResult#accepted": ["seq", "status"],
   "Machine.StreamSignalResult#refused": ["message", "reason", "status"],
-  "Machine.ToolCall": ["arguments", "cellId", "name"],
+  "Machine.ToolCall": ["arguments", "cellId", "name", "source"],
   "Machine.ToolCallResult#completed": ["status", "value"],
   "Machine.ToolCallResult#failed": ["error", "status"],
+  "Machine.ToolCallSource#machine": ["kind", "machineId"],
+  "Machine.ToolCallSource#session": ["kind"],
   "Machine.TransportFacts": ["attempts", "lastFailure"],
   "Machine.WindowCloseRequest": ["target"],
   "Machine.WindowCloseResult#ok": ["closed", "status"],
@@ -1716,6 +1729,13 @@
     "verdict"
   ],
   "Provisioning.Agent": ["enabled", "id", "model", "prompt", "tools"],
+  "Provisioning.AgentRequest#agent_add": ["record", "requestId", "type"],
+  "Provisioning.AgentRequest#agent_disable": ["id", "requestId", "type"],
+  "Provisioning.AgentRequest#agent_list": ["requestId", "type"],
+  "Provisioning.AgentResponse#3": ["detail", "reason", "requestId", "type"],
+  "Provisioning.AgentResponse#agent_added": ["record", "requestId", "type"],
+  "Provisioning.AgentResponse#agent_disabled": ["record", "requestId", "type"],
+  "Provisioning.AgentResponse#agent_listed": ["records", "requestId", "type"],
   "Provisioning.ChannelDeclareRefused": [
     "detail",
     "reason",

@@ -7,7 +7,10 @@ type MachineEventPayload =
   | ReturnType<typeof Machine.Events.Reported.schema.parse>
   | ReturnType<typeof Machine.Events.HumanInput.schema.parse>
   | ReturnType<typeof Machine.Events.PtyOutput.schema.parse>
-  | ReturnType<typeof Machine.Events.Private.schema.parse>;
+  | ReturnType<typeof Machine.Events.Private.schema.parse>
+  | ReturnType<typeof Machine.Events.PeerLeaseIssued.schema.parse>
+  | ReturnType<typeof Machine.Events.PeerLeaseUsed.schema.parse>
+  | ReturnType<typeof Machine.Events.PeerLeaseEnded.schema.parse>;
 type EnrollmentEventPayload =
   | ReturnType<typeof Machine.Events.Enrolled.schema.parse>
   | ReturnType<typeof Machine.Events.Unenrolled.schema.parse>;
@@ -25,6 +28,9 @@ function parseEvent<T>(name: string, payload: T): RecordedEvent {
   if (name === Machine.Events.PtyOutput.name) return { name, payload: Machine.Events.PtyOutput.schema.parse(payload) };
   if (name === Machine.Events.Private.name) return { name, payload: Machine.Events.Private.schema.parse(payload) };
   if (name === Machine.Events.LeaseRefused.name) return { name, payload: Machine.Events.LeaseRefused.schema.parse(payload) };
+  if (name === Machine.Events.PeerLeaseIssued.name) return { name, payload: Machine.Events.PeerLeaseIssued.schema.parse(payload) };
+  if (name === Machine.Events.PeerLeaseUsed.name) return { name, payload: Machine.Events.PeerLeaseUsed.schema.parse(payload) };
+  if (name === Machine.Events.PeerLeaseEnded.name) return { name, payload: Machine.Events.PeerLeaseEnded.schema.parse(payload) };
   return { name, payload: Machine.Events.Detached.schema.parse(payload) };
 }
 

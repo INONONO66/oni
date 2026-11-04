@@ -357,11 +357,18 @@ function innerOperation(value: PlainValue): string | undefined {
   return typeof operation.op === "string" ? operation.op : undefined;
 }
 
+function originKind(origin: PlainValue | undefined): string | undefined {
+  if (origin === null || origin === undefined || typeof origin !== "object" || Array.isArray(origin)) return undefined;
+  return typeof origin.kind === "string" ? origin.kind : undefined;
+}
+
 function projectedWhenOf(input: PolicyEvaluationInput): Record<string, PlainValue> {
   const when: Record<string, PlainValue> = {};
   if (input.op !== undefined) when.op = input.op;
   const operation = innerOperation(input.value);
   if (operation !== undefined) when.operation = operation;
+  const origin = originKind(input.origin);
+  if (origin !== undefined) when.origin = origin;
   if (input.role !== undefined) when.role = input.role;
   if (input.sessionId !== undefined) when.sessionId = input.sessionId;
   return when;

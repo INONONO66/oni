@@ -230,6 +230,18 @@
       "name": "EventLeaseRefused"
     },
     {
+      "file": "EventPeerLeaseEnded.json",
+      "name": "EventPeerLeaseEnded"
+    },
+    {
+      "file": "EventPeerLeaseIssued.json",
+      "name": "EventPeerLeaseIssued"
+    },
+    {
+      "file": "EventPeerLeaseUsed.json",
+      "name": "EventPeerLeaseUsed"
+    },
+    {
       "file": "EventPrivate.json",
       "name": "EventPrivate"
     },
@@ -364,6 +376,14 @@
     {
       "file": "PeekResult.json",
       "name": "PeekResult"
+    },
+    {
+      "file": "PeerLease.json",
+      "name": "PeerLease"
+    },
+    {
+      "file": "PeerLeaseOp.json",
+      "name": "PeerLeaseOp"
     },
     {
       "file": "PeerScreenCapture.json",
@@ -604,6 +624,10 @@
     {
       "file": "ToolCallResult.json",
       "name": "ToolCallResult"
+    },
+    {
+      "file": "ToolCallSource.json",
+      "name": "ToolCallSource"
     },
     {
       "file": "TransportFacts.json",

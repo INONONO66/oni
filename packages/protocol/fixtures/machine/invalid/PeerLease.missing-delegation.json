@@ -1,0 +1,8 @@
+{
+  "id": "pl-1",
+  "from": "macbook",
+  "to": "vooy-server",
+  "ops": ["exec"],
+  "ttlMs": 1,
+  "expiresAt": 1700000000001
+}

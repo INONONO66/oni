@@ -22,6 +22,7 @@ import { type Clock, Context, Effect, Layer, Option, Scope, Semaphore } from "ef
 import { catalogDelegationReads, delegationGuardHandlers } from "../bundles/delegation-policy/index";
 import { AppLedger, type SessionReadModel } from "./cluster-runtime";
 import { ComposedGeneration, type ComposedContext } from "./composed";
+import { activeChildRead } from "./delegation-leases";
 import { AppPointTable } from "./point-table";
 import { captureNow } from "./platform";
 
@@ -208,13 +209,7 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
           });
           return composedPolicyRegistry(generation, consultants, delegationGuardHandlers(catalogDelegationReads(
             plane.read.sessions.list,
-            // #1258 M-4: a child is active while work is in flight — an open
-            // turn or an undelivered input, both durable journal facts.
-            (childId) => {
-              const kernel = plane.read.session(childId);
-              return kernel.latestOpenTurn(childId) !== undefined ||
-                kernel.pendingMessages(childId).length > 0;
-            },
+            activeChildRead(plane.read),
           )));
         }),
       ).pipe(Layer.provideMerge(seed));

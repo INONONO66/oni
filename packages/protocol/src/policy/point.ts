@@ -95,7 +95,9 @@ export const CORE_POINT_RECORDS: readonly PointRecord[] = Object.freeze([
 
 /** Six capability points, present only while their owner is composed. */
 export const CAPABILITY_POINT_RECORDS: readonly PointRecord[] = Object.freeze([
-  point("tool.pre", "tool", ["gate", "rewrite", "emit", "observe"], ["input"], ["op", "argsPattern", "annotations"], { rewriteOpen: true }),
+  // `origin` (#1841): the kind of caller the dispatcher attributed the call to
+  // (`session` or `machine`), so a row can fence machine-originated calls.
+  point("tool.pre", "tool", ["gate", "rewrite", "emit", "observe"], ["input"], ["op", "origin", "annotations"], { rewriteOpen: true }),
   point("tool.post", "tool", ["gate", "rewrite", "emit", "observe"], ["output"], ["op", "status"], { rewriteOpen: true }),
   point("compaction.pre", "compaction", ["gate", "rewrite", "emit", "observe"], ["summary"], ["reason"]),
   point("compaction.post", "compaction", ["emit", "observe"], [], []),

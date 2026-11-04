@@ -198,6 +198,7 @@ function buildDispatcher(definitions: readonly ToolDispatchDefinition[], options
         callId: call.id,
         ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
       },
+      ...(providedContext.origin === undefined ? {} : { origin: providedContext.origin }),
       ...(originalAction === undefined ? {} : { originalAction }),
       ...(approval === undefined
         ? {}
@@ -318,7 +319,8 @@ function buildDispatcher(definitions: readonly ToolDispatchDefinition[], options
       }
       for (const [waveId, group] of groups) {
         if (!approvalWaves.has(waveId)) continue;
-        const prepared = group.map(({ action, call }) => prepare(call, context, "model", action));
+        const prepared = group.map(({ action, call, origin }) =>
+          prepare(call, origin === undefined ? context : { ...context, origin }, "model", action));
         if (prepared.some((item) => item.kind === "refused"))
           return yield* Effect.die(new Error("captured invocation no longer parses"));
         const ready = prepared.filter(
@@ -368,7 +370,7 @@ function guardedOperations(ledger: ExecutionLedger, turnId: string): LedgerActio
 }
 
 function recoverableWaves(actions: readonly LedgerAction.Node[], turnId: string | undefined) {
-  const groups = new Map<string, { action: LedgerAction.Node; call: Tool.Call }[]>();
+  const groups = new Map<string, { action: LedgerAction.Node; call: Tool.Call; origin?: PlainValue }[]>();
   const settledIntents = new Set(
     actions
       .filter((action) => {
@@ -402,7 +404,8 @@ function recoverableWaves(actions: readonly LedgerAction.Node[], turnId: string 
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
       throw new AgentInvariantViolation(`invalid durable invocation: ${action.id}`);
     const group = groups.get(intent.waveId) ?? [];
-    group.push({ action, call: { id: intent.callId, tool: intent.op, input: parsed } });
+    // The recorded origin re-enters the recovered request so its pre hash still matches.
+    group.push({ action, call: { id: intent.callId, tool: intent.op, input: parsed }, ...(intent.origin === undefined ? {} : { origin: intent.origin }) });
     groups.set(intent.waveId, group);
   }
   return groups;

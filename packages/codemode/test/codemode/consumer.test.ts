@@ -57,6 +57,8 @@ async function pair(
     callTool: (call) => mode.callTool(call),
   });
   mode = createCodemode({
+    // #1841: a nested cell on B reaches the session's `hold` upward only because the harness allows that name.
+    machineTools: ["hold"],
     ...tools,
     machines: { ...host, place(request, workClass) {
       const result = host.place(request, workClass);

@@ -1,0 +1,7 @@
+{
+  "machineId": "macbook",
+  "time": 1700000000000,
+  "leaseId": "pl-1",
+  "to": "vooy-server",
+  "reason": "revoked"
+}

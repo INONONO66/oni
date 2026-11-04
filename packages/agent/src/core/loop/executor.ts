@@ -42,7 +42,8 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
     return Effect.suspend(() => {
       const input = {
         kind: request.kind, phase, op: request.op, role: options.identity.role, sessionId: options.identity.sessionId,
-        ...(request.message === undefined ? {} : { message: request.message }), value,
+        ...(request.message === undefined ? {} : { message: request.message }),
+        ...(request.origin === undefined ? {} : { origin: request.origin }), value,
       };
       return admit(options.policy, input).pipe(Effect.flatMap((decision) => {
       return record.commit({

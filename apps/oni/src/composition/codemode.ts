@@ -1,4 +1,4 @@
-import { createCodemode, type RunOptions } from "@oni/codemode";
+import { CodemodeError, createCodemode, type RunOptions } from "@oni/codemode";
 import { Inspect } from "@oni/agent";
 import { MachinesFailure, type CaptureOutputStore } from "@oni/machines";
 import { Core } from "@oni/agent";
@@ -7,10 +7,19 @@ const AgentFailure = Core.AgentFailure;
 type InvocationFrame = Core.InvocationFrame;
 import { Effect, Exit, type Scope } from "effect";
 import type { MachineHost } from "@oni/machines";
-import { Machine, toolResultText } from "@oni/protocol";
+import { Machine, type PlainValue, toolResultText } from "@oni/protocol";
 
 /** Bind product dispatch; interpreter state and cell provenance live in codemode. */
 export type ComposedCodemode = Effect.Success<ReturnType<typeof createCodemode>>;
+
+/**
+ * #1841: the origin codemode attributed to a call (`session` or `machine`) is
+ * the request origin at both doors, so the pre decision hashes it, a
+ * `tool.pre` row can match `origin`, and the intent row records it.
+ */
+function originOf(call: Machine.ToolCall): { readonly origin?: PlainValue } {
+  return call.source === undefined ? {} : { origin: call.source };
+}
 
 function bindings(frame: InvocationFrame, id: () => string): NonNullable<RunOptions["bindings"]> {
   return {
@@ -23,6 +32,7 @@ function bindings(frame: InvocationFrame, id: () => string): NonNullable<RunOpti
             kind: "tool",
             op: call.name,
             intent: call.arguments,
+            ...originOf(call),
             effect: {
               category:
                 call.name === "codemode.read" ||
@@ -40,7 +50,7 @@ function bindings(frame: InvocationFrame, id: () => string): NonNullable<RunOpti
         return result.terminal === "executed"
           ? Machine.ToolCallResult.parse(result.value)
           : { status: "failed" as const, error: result.reason };
-      }).pipe(Effect.mapError((error) => new MachinesFailure({ operation: call.name, cause: String(error) })));
+      }).pipe(Effect.mapError((error) => error instanceof CodemodeError ? error : new MachinesFailure({ operation: call.name, cause: String(error) })));
     },
     tools(tenant) {
       const { cell: dispatcher } = frame;
@@ -51,7 +61,7 @@ function bindings(frame: InvocationFrame, id: () => string): NonNullable<RunOpti
               tool: call.name,
               input: call.arguments,
             },
-            { sessionId: tenant, turnId: call.cellId },
+            { sessionId: tenant, turnId: call.cellId, ...originOf(call) },
         );
         // D5 (assumed: tool result split — content / details / structuredContent):
         // the cell consumes typed data, never the model text.
@@ -95,6 +105,14 @@ export function sessionOutputsSource(
   };
 }
 
+/**
+ * #1841: the catalog tools a machine-originated cell may call upward. Model
+ * calls only: file, bash and eval execute on the session's default machine,
+ * monitor and cron wake the session, send_message and provision spend its
+ * authority, so none of them is reachable from another machine.
+ */
+export const MACHINE_ORIGIN_TOOLS: ReadonlyArray<string> = ["speech", "image"];
+
 export function composeCodemode(
   machines: MachineHost,
   sources: {
@@ -112,6 +130,8 @@ export function composeCodemode(
       id: sources.id,
       machines,
       self: sources.selfMachineId ?? "self",
+      peers: machines.peers,
+      machineTools: MACHINE_ORIGIN_TOOLS,
       ...(outputs === undefined
         ? {}
         : { toolOutput: (tenant: string, outputId: string) => Effect.sync(() => outputs(tenant, outputId)) }),

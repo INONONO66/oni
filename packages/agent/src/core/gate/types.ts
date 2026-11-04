@@ -206,6 +206,8 @@ export interface PolicyEvaluationInput {
   readonly role?: "resident" | "child";
   readonly sessionId?: string;
   readonly message?: MessagePolicyContext;
+  /** The caller the dispatcher attributed the call to (`{ kind, ... }`); its `kind` projects to `when.origin`. */
+  readonly origin?: PlainValue;
   readonly value: PlainValue;
   readonly recorded?: GateDecision;
 }

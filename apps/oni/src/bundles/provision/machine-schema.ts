@@ -21,6 +21,8 @@ export const MachineOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("machine_deny"), args: z.object({ machineId: Machine.MachineId }).strict() }).strict(),
   z.object({ op: z.literal("machine_remove"), args: z.object({ machineId: Machine.MachineId }).strict() }).strict(),
   z.object({ op: z.literal("machine_list"), args: z.object({}).strict() }).strict(),
+  z.object({ op: z.literal("machine_peer_lease"), args: Machine.PeerLease.omit({ id: true, expiresAt: true }) }).strict(),
+  z.object({ op: z.literal("machine_peer_lease_end"), args: z.object({ leaseId: z.string().min(1) }).strict() }).strict(),
   z.object({ op: z.literal("permission_allow"), args: PermissionRequestRef }).strict(),
   z.object({ op: z.literal("permission_deny"), args: PermissionRequestRef }).strict(),
 ]);
@@ -44,6 +46,14 @@ export const MachineResult = z.discriminatedUnion("op", [
     z.object({ type: z.literal("require_approval"), id: Machine.MachineId }).strict(),
   ]) }).strict(),
   z.object({ op: z.literal("machine_list"), result: z.object({ rows: z.array(Machine.Info) }).strict() }).strict(),
+  z.object({ op: z.literal("machine_peer_lease"), result: z.union([
+    z.object({ lease: Machine.PeerLease }).strict(),
+    z.object({ type: z.literal("require_approval"), id: Machine.MachineId }).strict(),
+  ]) }).strict(),
+  z.object({ op: z.literal("machine_peer_lease_end"), result: z.union([
+    z.object({ lease: Machine.PeerLease }).strict(),
+    z.object({ type: z.literal("require_approval"), id: z.string().min(1) }).strict(),
+  ]) }).strict(),
   z.object({ op: z.literal("permission_allow"), result: z.union([
     PermissionAnswered,
     z.object({ type: z.literal("require_approval"), id: z.string() }).strict(),

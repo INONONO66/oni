@@ -59,6 +59,8 @@ export interface ExecutionRequest {
   readonly effect: PlainValue;
     readonly recovery?: RecoveryClassification;
   readonly message?: PolicyEvaluationInput["message"];
+  /** The attributed caller: hashed into the pre decision and recorded beside the intent. */
+  readonly origin?: PolicyEvaluationInput["origin"];
   readonly revert?: () => Effect.Effect<void, ExecutionError>;
     readonly revertData?: () => PlainValue | undefined;
     readonly boundary?: boolean;

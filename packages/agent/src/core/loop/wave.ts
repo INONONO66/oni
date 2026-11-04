@@ -75,6 +75,7 @@ function invocationFor<R>(stage: Omit<Stage<R>, "intent">, waveId: string) {
       domainRevisions: { ...stage.request.approval?.domainRevisions }, recovery: recoveryClassification(stage.request),
       toolsGeneration: options.identity.toolsGeneration ?? null,
       systemHash: options.identity.systemHash ?? null,
+      ...(stage.request.origin === undefined ? {} : { origin: stage.request.origin }),
     };
   }
 

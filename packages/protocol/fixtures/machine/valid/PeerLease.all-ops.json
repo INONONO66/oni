@@ -1,0 +1,9 @@
+{
+  "id": "pl-2",
+  "from": "macbook",
+  "to": "vooy-server",
+  "ops": ["exec", "fs", "pty", "computer", "code"],
+  "ttlMs": 60000,
+  "expiresAt": 1700000060000,
+  "delegationId": "dl-1"
+}

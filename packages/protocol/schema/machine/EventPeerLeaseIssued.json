@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "lease": {
+      "additionalProperties": false,
+      "properties": {
+        "delegationId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "expiresAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "from": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "ops": {
+          "items": {
+            "enum": [
+              "exec",
+              "fs",
+              "pty",
+              "computer",
+              "code"
+            ],
+            "type": "string"
+          },
+          "maxItems": 5,
+          "minItems": 1,
+          "type": "array"
+        },
+        "to": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "ttlMs": {
+          "exclusiveMinimum": 0,
+          "maximum": 86400000,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "from",
+        "to",
+        "ops",
+        "ttlMs",
+        "expiresAt",
+        "delegationId"
+      ],
+      "type": "object"
+    },
+    "machineId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "time": {
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "machineId",
+    "time",
+    "lease"
+  ],
+  "type": "object"
+}

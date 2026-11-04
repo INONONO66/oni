@@ -1059,6 +1059,51 @@ its state and lets its successor start fresh.
 Attachment loss closes the client runner and awaits process cleanup.
 Facade close cancels and awaits its live requests.
 
+#### Machine isolation and peer leases (#1841)
+
+Machines know only the host. Every `Machine.ToolCall` the host routes carries a
+host-filled `source`: `{ kind: "session" }` for a call the host routes on behalf
+of the session itself (cells on the self machine included) and
+`{ kind: "machine", machineId }` for a call that arrived over another
+attachment, taken from the connection that delivered it. The client sends
+nothing new and cannot forge it: codemode re-attributes every call before it
+routes, so a `source` written by a peer is overwritten.
+
+A machine-originated call is fenced twice:
+
+- Upward: before the call reaches the session catalog it passes only when its
+  name is a cell op (`codemode.*`, `completion`, `tool_output`, `capture_data`)
+  or in the short tool list the app allows machines to call upward
+  (`MACHINE_ORIGIN_TOOLS`, model calls only). `provision`, `send_message` and
+  every registration, grant, hook or channel family refuse with the typed
+  `machine_origin_refused`. A session-originated call follows the existing
+  `tool.pre` guard path unchanged; the boundary adds the attributed `source` to
+  the guard intent, so a guard handler may condition on it.
+- Sideways: a machine-originated cell op naming another machine
+  (`machine("B").exec`, `read`, `pty`, `screen`, nested `eval`) spends a live
+  peer lease for that op class or refuses with the typed `machine_isolated`;
+  `listMachines` and `machine(tag=)` from a machine see only its lease targets.
+  Session-originated fan-out (`machine(tag=)` from the host session) needs no
+  lease and is unchanged. Bytes always traverse the host; there is no
+  machine-to-machine socket.
+
+A peer lease is the only machine-to-machine reach and there is no permanent
+address grant. `Machine.PeerLease { id, from, to, ops: (exec|fs|pty|computer|
+code)[], ttlMs, expiresAt, delegationId }` lives in the host's in-memory
+`peers` store: issued through `provision{op: machine_peer_lease}` (Owner consent
+via the `provision-machine-peer-lease-consent` row, bound to both machines'
+enrollment revisions), ended by `provision{op: machine_peer_lease_end}`, by
+the host clock, by the delegation's settlement, by the unenrollment of either
+machine or by host close, and never durable as reach: a restarted host starts
+with no lease between machines. Each issue, use and end is one row of the
+app catalog's `peer_lease_receipt` table (`apps/oni/src/peer-lease-receipts.ts`:
+`issued` with the lease, `used` with the op, `ended` with `reason:
+expired|revoked`), written before the host publishes the matching
+`machine.peer_lease_issued|used|ended` event; a refused write throws out of
+the lease operation, so no lease is live that the catalog does not hold, and
+the rows answer which machine reached which after the host is gone. The bus
+events are projections and confer nothing.
+
 `mclient run --config <settings.json>` attaches the Rust machine peer.
 The app's self machine starts that binary as a child; `oni daemon` manages
 the separate Resident service. The settings file carries machine identity,

@@ -27,11 +27,53 @@ interface BackgroundCell {
   readonly quarantined: boolean;
 }
 const RETAINED_SETTLED_CELLS = 64;
+/**
+ * #1841: the host's peer-lease store, consulted on every machine-originated
+ * call that names another machine. Sync like `list`/`place`: the host owns the
+ * clock, the receipts and the expiry; codemode only asks.
+ */
+export interface PeerLeasePort {
+  /** The live lease letting `from` reach `to` for `op` (the host records its use), else `undefined`. */
+  readonly peerLease: (
+    from: Machine.MachineId,
+    to: Machine.MachineId,
+    op: Machine.PeerLeaseOp,
+  ) => Machine.PeerLease | undefined;
+  /** The machines `from` may currently reach: all its `listMachines`/`findMachine` can see. */
+  readonly peerTargets: (from: Machine.MachineId) => ReadonlyArray<Machine.MachineId>;
+}
+/** The op class each machine-naming cell op spends a peer lease on (#1841). */
+const PEER_OPS: Readonly<Record<string, Machine.PeerLeaseOp>> = {
+  "codemode.read": "fs",
+  "codemode.write": "fs",
+  "codemode.ls": "fs",
+  "codemode.bash": "exec",
+  "codemode.eval": "code",
+  "codemode.screen": "computer",
+  "codemode.input": "computer",
+  "codemode.ptyOpen": "pty",
+  "codemode.ptyWrite": "pty",
+  "codemode.ptyRead": "pty",
+  "codemode.ptyResize": "pty",
+  "codemode.ptyClose": "pty",
+  "codemode.ptyList": "pty",
+};
+type MachineOrigin = Extract<Machine.ToolCallSource, { kind: "machine" }>;
 export interface CodemodeOptions {
   /** Injected cell-id entropy (#1245): required, no ambient crypto fallback. */
   readonly id: () => string;
   readonly machines?: Pick<MachineHost, "list" | "get" | "place">;
+  /** The session's own machine: cells running there are session origin, every other attachment is a machine origin (#1841). */
   readonly self?: string;
+  /** #1841: the host's peer-lease store. Unbound, no machine-originated call reaches another machine. */
+  readonly peers?: PeerLeasePort;
+  /**
+   * #1841: catalog tool names a machine-originated cell may still call upward
+   * through `tools`; everything else is `machine_origin_refused`. Cell ops
+   * (`codemode.*`, `completion`, `tool_output`, `capture_data`) resolve before
+   * this list is consulted, so it never widens them.
+   */
+  readonly machineTools?: ReadonlyArray<string>;
   readonly completion?: (request: Machine.CompletionRequest) => Effect.Effect<string, Failure>;
   /**
    * #1305: resolves a projected tool result's stored output for the owning
@@ -231,16 +273,71 @@ export function createCodemode(options: CodemodeOptions) {
       if (!handle) { handle = makeHandle(parsed, leaseId); handles.set(key, handle); }
       return handle;
     }
+    /**
+     * #1841: the host stamps the attachment that delivered the call; a cell on
+     * the session's own machine (`self`) and a call the host routes for the
+     * session itself are session origin, every other attachment is a machine.
+     */
+    function originOf(call: Machine.ToolCall): Machine.ToolCallSource {
+      const source = call.source;
+      return source === undefined || source.kind === "session" || source.machineId === options.self
+        ? { kind: "session" }
+        : source;
+    }
+    function isolated(origin: MachineOrigin, detail: string) {
+      return new CodemodeError({
+        reason: "machine_isolated",
+        message: `machine_isolated: ${origin.machineId} ${detail}`,
+      });
+    }
+    /**
+     * A machine-originated call naming another machine spends a live peer lease
+     * for its op class, or is refused. Fail closed: an op with no lease class
+     * cannot name another machine at all, so a new machine-naming op is
+     * isolated until `PEER_OPS` classes it.
+     */
+    function isolate(call: Machine.ToolCall, origin: Machine.ToolCallSource): Effect.Effect<void, Failure> {
+      return Effect.suspend(() => {
+        const target = call.arguments.machineId;
+        if (origin.kind === "session" || target === undefined || target === origin.machineId) return Effect.void;
+        const op = PEER_OPS[call.name];
+        if (op === undefined || typeof target !== "string")
+          return Effect.fail(isolated(origin, `may not name another machine through ${call.name}`));
+        const lease = options.peers?.peerLease(origin.machineId, target, op);
+        return lease === undefined ? Effect.fail(isolated(origin, `holds no peer lease for ${op} on ${target}`)) : Effect.void;
+      });
+    }
+    /** #1841: upward from a machine, only the tools the session listed for cells; never provision, messaging or registration. */
+    function upward(call: Machine.ToolCall, origin: Machine.ToolCallSource, caller: Caller): Effect.Effect<Machine.ToolCallResult, Failure> {
+      if (origin.kind === "machine" && !(options.machineTools ?? []).includes(call.name))
+        return Effect.fail(new CodemodeError({ reason: "machine_origin_refused", message: `machine_origin_refused: ${origin.machineId} may not call ${call.name}` }));
+      return caller(call);
+    }
     function callTool(call: Machine.ToolCall): Effect.Effect<Machine.ToolCallResult, Failure> {
       return Effect.suspend(() => {
         const binding = live.get(call.cellId);
         if (!binding) return Effect.succeed({ status: "failed", error: `no tools are bound to cell ${call.cellId}` } as const);
-        return binding.boundary ? binding.boundary(call, () => dispatch(call)) : dispatch(call);
+        const attributed: Machine.ToolCall = { ...call, source: originOf(call) };
+        return binding.boundary ? binding.boundary(attributed, () => dispatch(attributed)) : dispatch(attributed);
       });
     }
-    function dispatchCatalog(call: Machine.ToolCall): Effect.Effect<Machine.ToolCallResult | undefined, Failure> {
-      if (call.name === "codemode.listMachines") return Effect.try({ try: () => Machine.ToolCallResult.parse({ status: "completed", value: machines().list() }), catch: decodeCodeFailure("machines.list") });
-      if (call.name === "codemode.findMachine") return Effect.try({ try: (): Machine.ToolCallResult => { const selected = select(z.object({ query: FindInput }).strict().parse(call.arguments).query); return { status: "completed", value: { machineId: selected.machineId, leaseId: selected.lease.id } }; }, catch: decodeCodeFailure("machines.find") });
+    /** What the caller may see: the session sees every machine, a machine only its lease targets (#1841). */
+    function visibleMachines(origin: Machine.ToolCallSource) {
+      const all = machines().list();
+      if (origin.kind === "session") return all;
+      const targets = options.peers?.peerTargets(origin.machineId) ?? [];
+      return all.filter((info) => targets.includes(info.machineId));
+    }
+    /** The session places by tag as before; a machine resolves the tag only among its lease targets. */
+    function find(query: z.output<typeof FindInput>, origin: Machine.ToolCallSource) {
+      if (origin.kind === "session") return select(query);
+      const member = visibleMachines(origin).find((info) => info.tags.includes(query.tag));
+      if (member === undefined) throw isolated(origin, `holds no peer lease for tag ${query.tag}`);
+      return reserve({ machineId: member.machineId }, "exec");
+    }
+    function dispatchCatalog(call: Machine.ToolCall, origin: Machine.ToolCallSource): Effect.Effect<Machine.ToolCallResult | undefined, Failure> {
+      if (call.name === "codemode.listMachines") return Effect.try({ try: () => Machine.ToolCallResult.parse({ status: "completed", value: visibleMachines(origin) }), catch: decodeCodeFailure("machines.list") });
+      if (call.name === "codemode.findMachine") return Effect.try({ try: (): Machine.ToolCallResult => { const selected = find(z.object({ query: FindInput }).strict().parse(call.arguments).query, origin); return { status: "completed", value: { machineId: selected.machineId, leaseId: selected.lease.id } }; }, catch: decodeCodeFailure("machines.find") });
       return Effect.succeed(undefined);
     }
     function dispatchMachineOp(call: Machine.ToolCall): Effect.Effect<Machine.ToolCallResult | undefined, Failure> {
@@ -358,12 +455,14 @@ export function createCodemode(options: CodemodeOptions) {
       return Effect.gen(function* () {
         const binding = live.get(call.cellId);
         if (!binding) return yield* new CodemodeError({ reason: "unknown_cell_id", message: "cell has settled" });
-        const resolvers = [dispatchCatalog, dispatchMachineOp, dispatchComputerOp, dispatchPtyIo, dispatchPtyControl, (op: Machine.ToolCall) => dispatchHostOp(op, binding)];
+        const origin = originOf(call);
+        yield* isolate(call, origin);
+        const resolvers = [(op: Machine.ToolCall) => dispatchCatalog(op, origin), dispatchMachineOp, dispatchComputerOp, dispatchPtyIo, dispatchPtyControl, (op: Machine.ToolCall) => dispatchHostOp(op, binding)];
         for (const resolve of resolvers) {
           const result = yield* binding.captureOutputs === undefined ? resolve(call) : resolve(call).pipe(Effect.provideService(CaptureOutputs, binding.captureOutputs));
           if (result !== undefined) return result;
         }
-        return yield* binding.caller(call);
+        return yield* upward(call, origin, binding.caller);
       });
     }
     function tenantCell(cellId: string, tenant: string): BackgroundCell {
@@ -453,7 +552,8 @@ export function createCodemode(options: CodemodeOptions) {
         const selected = select(query);
         return makeHandle(selected.machineId, selected.lease.id);
       },
-      callTool: (call: Machine.ToolCall) => callTool(call).pipe(Effect.mapError((error) => new MachinesFailure({ operation: "code.tool", cause: error.message || String(error) }))),
+      // The host port takes a MachineError; a codemode refusal keeps its typed reason in the operation (`code.tool.<reason>`).
+      callTool: (call: Machine.ToolCall) => callTool(call).pipe(Effect.mapError((error) => new MachinesFailure({ operation: error instanceof CodemodeError ? `code.tool.${error.reason}` : "code.tool", cause: error.message || String(error) }))),
       close,
       cell: {
         run: (code: string, tenant: string, runOptions: RunOptions = {}): Effect.Effect<Machine.CellState, Failure> => Effect.gen(function* () {

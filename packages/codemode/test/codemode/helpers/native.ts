@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Machine } from "@oni/protocol";
-import { createCodemode as create } from "../../../src";
+import { createCodemode as create, type PeerLeasePort } from "../../../src";
 import { decodeCodeFailure } from "../../../src/failure";
 import type { CodeError } from "../../../src/errors";
 import type { CaptureOutputStore } from "@oni/machines";
@@ -28,6 +28,8 @@ export function createCodemode(options: {
   boundary?: (tenant: string) => Boundary;
   captureOutputs?: (tenant: string) => CaptureOutputStore;
   self?: string;
+  peers?: PeerLeasePort;
+  machineTools?: readonly string[];
 } = {}) {
   const completion = options.completion;
   const toolOutput = options.toolOutput;
@@ -43,6 +45,8 @@ export function createCodemode(options: {
     boundary: boundary ? (tenant) => { const decide = boundary(tenant); return (call, body) => code(() => decide(call, () => run(body()))); } : undefined,
     captureOutputs: options.captureOutputs,
     self: options.self,
+    peers: options.peers,
+    machineTools: options.machineTools,
   }));
   const shutdown = async () => { await run(native.close()); await close(); };
   type Handle = ReturnType<typeof native.getMachine>;

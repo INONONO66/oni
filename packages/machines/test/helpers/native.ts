@@ -46,7 +46,7 @@ export async function createMachineHost(options: Omit<Parameters<typeof Native.c
   const callTool = options.callTool;
   const { value: native, close } = await acquire(Native.createMachineHost({ ...options, generations: options.generations ?? Native.createMemoryGenerationStore(), scheduler: options.scheduler ?? { schedule: () => () => undefined }, id: options.id ?? sequentialIds("host-req"), dispatcherBound: options.dispatcherBound ?? 256, callTool: callTool ? (call) => foreign(() => callTool(call)) : refusingToolPort }));
   const handles = new Map<string, MachineHandle>();
-  return { native, list: native.list, place: native.place, capacity: native.capacity, endpoints: native.endpoints,
+  return { native, list: native.list, place: native.place, capacity: native.capacity, endpoints: native.endpoints, peers: native.peers,
     get(id: string) { let handle = handles.get(id); if (!handle) { handle = machineHandle(native.get(id)); handles.set(id, handle); } return handle; },
     close: async () => { await run(native.close()); await close(); },
   };

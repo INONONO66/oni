@@ -19,6 +19,7 @@ import { captureMetadata, pngDimensions, storeCapture } from "./capture-output";
 import { IpcConnectionError, IpcRemoteError, IpcTimeoutError } from "./ipc/errors";
 import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
+import { createPeerLeases, type PeerLeaseStore } from "./peer-lease";
 import type { AttachGenerationStore } from "./generation-store";
 import type { StreamingMachineHandle, StreamWriteOptions, StreamWriteReceipt } from "./stream-write";
 import type { z } from "zod";
@@ -263,6 +264,8 @@ export interface MachineHost {
     readonly unix?: string;
     readonly tcp?: { readonly host: string; readonly port: number };
   };
+  /** Host-issued, time-bounded machine-to-machine reach (#1841); a machine holds none until one is issued. */
+  readonly peers: PeerLeaseStore;
   close(): Effect.Effect<void, MachineError>;
 }
 /** The per-connection transport surface every machine operation routes through. */
@@ -360,6 +363,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     const clocks = new Map<string, ClockSamples>();
     const staleAfterMs = options.staleAfterMs ?? REPORT_STALE_AFTER_MS;
     const capacity = createCapacity({ ...options, rows, list });
+    const peers = createPeerLeases(options);
     function detach(key: string, reason: DetachReason): void {
       const attachment = attachments.get(key);
       if (attachment === undefined) return;
@@ -384,10 +388,12 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       detach(key, "superseded");
       if (key !== source.key) stale.server.disconnect(stale.rawId);
     }
+    /** #1841: the call is attributed to the attachment that delivered it, whatever `source` the peer sent. */
     function callTool(call: Machine.ToolCall, key: string): Effect.Effect<Machine.ToolCallResult, MachineError> {
       return Effect.suspend(() => {
-        if (!attachments.has(key) || !inFlight.get(key)?.has(call.cellId)) return new MachineCellError({ code: "unknown_cell_id", cellId: call.cellId, message: `no cell in flight: ${call.cellId}` });
-        return options.callTool(call);
+        const attachment = attachments.get(key);
+        if (attachment === undefined || !inFlight.get(key)?.has(call.cellId)) return new MachineCellError({ code: "unknown_cell_id", cellId: call.cellId, message: `no cell in flight: ${call.cellId}` });
+        return options.callTool({ ...call, source: { kind: "machine", machineId: attachment.offer.machineId } });
       });
     }
     function decidePermission(request: Machine.AgentPermissionRequest, source: RequestSource): Effect.Effect<Machine.AgentPermissionDecision> {
@@ -1461,6 +1467,8 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       },
       unenroll(id, reason = "enrollment_removed") {
         revoked.set(id, (revoked.get(id) ?? 0) + 1);
+        // #1841: a machine leaving the host takes every lease it held or served with it.
+        peers.revokeAll((lease) => lease.from === id || lease.to === id);
         const key = connectionByMachine.get(id);
         const attachment = key === undefined ? undefined : attachments.get(key);
         if (attachment === undefined) return;
@@ -1468,6 +1476,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         attachment.server.disconnect(attachment.rawId);
       },
       endpoints: { ...(unixPath === undefined ? {} : { unix: unixPath }), ...(tcpBound === undefined ? {} : { tcp: tcpBound }) },
+      peers,
       close: () => close,
     };
   });

@@ -41,6 +41,7 @@ import { computerStore } from "./bundles/approval-policy/computer-store";
 import { computerCapture } from "./bundles/approval-policy/computer-capture";
 import { computerTurn } from "./bundles/approval-policy/computer-turn";
 import { computerEvents } from "./bundles/approval-policy/computer-events";
+import { withPeerLeaseReceipts } from "./peer-lease-receipts";
 import { consentOrigin } from "./bundles/approval-policy/consent-origin";
 import { AGENT_PERMISSION_HOST_DEADLINE_MS, type AgentPermissionPort, createAgentPermissionPort } from "./bundles/approval-policy/agent-permission";
 import computerExclusions from "../policy/computer-exclusions.json";
@@ -122,6 +123,7 @@ import {
 } from "./composition/cluster-runtime";
 import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow, effectScheduler } from "./composition/platform";
+import { liveDelegationRead, settleEndingLeases } from "./composition/delegation-leases";
 import { agentSessionTail, createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
 import { createMediaResolver } from "./composition/media";
 import { channelHistoryLookup } from "./composition/channel-history";
@@ -620,10 +622,12 @@ export async function startOni(options: StartOptions = {}) {
       // #1255 S3: the product's composed manifest, adopted at each session's
       // next turn start. Late-bound: the resident below owns the tool faces.
       composed: { current: () => residentAdoption?.() },
-      // #1311: the product settlement fold injected into the core seam.
-      settleChild,
+      // #1311: the product settlement fold injected into the core seam; #1841: a
+      // settling delegation ends its peer leases (the machine plane below binds the ender).
+      settleChild: settleEndingLeases(settleChild, (delegationId) => endDelegationLeases(delegationId)),
     });
     let residentAdoption: (() => Core.ComposedManifest | undefined) | undefined;
+    let endDelegationLeases: (delegationId: string) => void = () => undefined;
     // Request transitions never steal a live activation's fence: the borrowed
     // kernel view commits under the running turn's authority (idle sessions
     // keep the documented takeover adoption).
@@ -799,7 +803,7 @@ export async function startOni(options: StartOptions = {}) {
     const machinery = await composeMachinePlane(runtime, machinesConfig, resolveMachineGenerationsPath(config), {
       agentPermission: agentPermission.decide,
       enrollments,
-      events: computerEvents(computer, services.observations),
+      events: withPeerLeaseReceipts(computerEvents(computer, services.observations), plane.stores.recordPeerLease),
       mclientBin,
       release: clientRelease,
       id: services.entropy.id,
@@ -819,12 +823,16 @@ export async function startOni(options: StartOptions = {}) {
     });
     const host: MachineHost = machinery.host;
     computer.initialize();
+    endDelegationLeases = (delegationId) => {
+      host.peers.revokeAll((lease) => lease.delegationId === delegationId);
+    };
     const machineProvision: MachinePort = {
       enrollments,
       host,
       selfId: machinery.self.machineId,
       events: services.observations,
       now: services.now,
+      delegationLive: liveDelegationRead(plane.read),
     };
 
     // A cell's catalog shares the dispatcher's tool.pre policy boundary.
@@ -1362,7 +1370,12 @@ export async function startOni(options: StartOptions = {}) {
           ? Effect.tryPromise({
               try: () => work.trackPromise(sessionId, () => processSessions.wake(sessionId)),
               catch: foreignFailure((fields) => new AgentFailure(fields), "process.wake"),
-            }).pipe(Effect.asVoid)
+            }).pipe(
+              // #1841: a process child seals its turn inside its own process,
+              // where no host lives; its peer leases end when the process returns.
+              Effect.ensuring(Effect.sync(() => endDelegationLeases(sessionId))),
+              Effect.asVoid,
+            )
           : turns.run(
               computerTurns.wrapRunner(
                 input.authority.sessionId,
