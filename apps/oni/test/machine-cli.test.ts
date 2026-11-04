@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:
 import net from "node:net";
 import { join } from "node:path";
 import { createMachineHost, createMemoryGenerationStore } from "@oni/machines";
-import { Machine } from "@oni/protocol";
+import { type BusEvent, Machine } from "@oni/protocol";
 import { pinnedTcpHostOptions, spawnClient, writeClientDirectory } from "./helpers/machine-cli";
 import { composeCodemode, type ComposedCodemode } from "../src/composition/codemode";
 import { modelToolOutput } from "./helpers/tool-dispatch";
@@ -19,9 +19,9 @@ import { startProxy } from "../../../packages/machines/test/helpers/proxy";
 beforeAll(mclientBinary, 180_000);
 
 /** The next `event` the bus publishes for `machineId`, bounded so a missed signal fails instead of hanging. */
-function nextMachineEvent(
+function nextMachineEvent<E extends BusEvent.Descriptor<{ readonly machineId: string }>>(
   events: ReturnType<typeof testBus>,
-  event: typeof Machine.Events.Attached | typeof Machine.Events.Detached | typeof Machine.Events.Reported,
+  event: E,
   machineId: string,
   label: string,
 ): Promise<void> {
@@ -193,7 +193,7 @@ test("a real client redials a pinned TLS host after a transport drop", async () 
   const cli = await spawnClient(configPath, { host, events, machineId: "net-2" });
   try {
     const first = await cli.attachment();
-    expect(first.status).toBe("attached");
+    if (first.status !== "attached") throw new Error(`first attachment refused: ${first.reason}`);
     // The production reconnect (real timers, jittered first delay) redials
     // through the surviving listener under the saved generation; the host's
     // detach, attach and report events are the signals, so the test never sleeps.
