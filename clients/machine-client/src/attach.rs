@@ -14,7 +14,7 @@ use std::{
 };
 
 use oni_protocol::{AttachResult, ReportResult};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinError, JoinSet};
@@ -118,6 +118,53 @@ pub struct Negotiated {
     pub exports: Vec<String>,
 }
 
+/// One admitted attach: the grant the handlers serve, and what the host's
+/// enrollment allows beyond this offer; nothing of that opens until the
+/// operator records consent (`mclient grant`).
+#[derive(Debug)]
+pub struct Admission {
+    pub negotiated: Negotiated,
+    pub consent_required: Option<Consent>,
+}
+
+/// The enrollment's excess over the offer, as the host told it.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub struct Consent {
+    pub capabilities: Vec<String>,
+    pub exports: Vec<String>,
+}
+
+const CONSENT_FILE: &str = "consent.json";
+
+/// The operator-facing record of what the host still wants: written after
+/// every attach that names an excess, removed when nothing is outstanding.
+pub fn record_consent(directory: &Path, consent: Option<&Consent>) -> io::Result<()> {
+    let path = directory.join(CONSENT_FILE);
+    match consent {
+        Some(consent) => {
+            let record = json!({
+                "status": "consent_required",
+                "capabilities": consent.capabilities,
+                "exports": consent.exports
+            });
+            config::write_private(&path, record.to_string().as_bytes())
+        }
+        None => match fs::remove_file(path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        },
+    }
+}
+
+/// The outstanding consent record, if the last attach left one.
+pub fn pending_consent(directory: &Path) -> io::Result<Option<Consent>> {
+    match fs::read(directory.join(CONSENT_FILE)) {
+        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// Told the host's grant when an attach succeeds, and when its connection ends.
 pub trait Session: Send + Sync {
     /// Handed a caller onto the admitted connection just before `attached`.
@@ -148,6 +195,8 @@ pub struct Hooks {
 #[derive(Debug)]
 pub struct Enrollment {
     pub receipt: Value,
+    /// What this machine consented to offer; the host enrolls nothing wider.
+    pub declared: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -191,19 +240,26 @@ pub fn offer(
     offered
 }
 
-pub fn result(value: Value) -> Result<Negotiated, AttachError> {
+pub fn result(value: Value) -> Result<Admission, AttachError> {
     match oni_protocol::decode::<AttachResult>(value)? {
         AttachResult::Attached {
             generation,
             effective_capabilities,
             effective_exports,
-        } => Ok(Negotiated {
-            generation,
-            capabilities: effective_capabilities
-                .into_iter()
-                .map(String::from)
-                .collect(),
-            exports: effective_exports.into_iter().map(String::from).collect(),
+            consent_required,
+        } => Ok(Admission {
+            negotiated: Negotiated {
+                generation,
+                capabilities: effective_capabilities
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                exports: effective_exports.into_iter().map(String::from).collect(),
+            },
+            consent_required: consent_required.map(|consent| Consent {
+                capabilities: consent.capabilities.into_iter().map(String::from).collect(),
+                exports: consent.exports.into_iter().map(String::from).collect(),
+            }),
         }),
         AttachResult::Refused { reason } => {
             let name = reason.to_string();
@@ -309,14 +365,13 @@ async fn verify_host(
 /// The host pin `join` recorded once the operator approved it: the only
 /// trust a network host gets afterwards, so a missing pin is a typed refusal.
 fn pinned_trust(directory: &Path) -> Result<HostTrust, AttachError> {
-    let pin = match fs::read_to_string(directory.join("host-pin")) {
-        Ok(pin) => pin,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Err(config::ConfigError::HostUntrusted.into());
-        }
-        Err(error) => return Err(error.into()),
-    };
-    Ok(HostTrust::Pin(config::parse_pin(&pin)?))
+    let path = directory.join("host-pin");
+    if !path.exists() {
+        return Err(config::ConfigError::HostUntrusted.into());
+    }
+    Ok(HostTrust::Pin(config::parse_pin(&fs::read_to_string(
+        path,
+    )?)?))
 }
 
 /// Asks the host for the client release it pins; `machine.release` is answered
@@ -368,6 +423,7 @@ pub async fn join(
         (Some(_), _) | (None, Carrier::Wss(_)) => options.host.clone(),
     };
     let name = options.name.clone().unwrap_or_else(config::hostname);
+    let declared = config::declared(&options.capabilities, capabilities)?;
     let config = ClientConfig {
         machine_id: config::slug(&name),
         name,
@@ -377,6 +433,7 @@ pub async fn join(
         memory_budget_mb: options.memory_budget_mb,
         unix,
         tmux_socket: None,
+        declared: Some(declared.clone()),
     };
     let token = config::join_token(options, &|name| std::env::var(name).ok());
     let public_key = config::identity(&directory, &config.machine_id)?;
@@ -393,10 +450,11 @@ pub async fn join(
     Ok(Enrollment {
         receipt: json!({
             "machineId": config.machine_id, "name": config.name, "publicKey": public_key,
-            "allowedCapabilities": capabilities,
+            "allowedCapabilities": declared,
             "allowedExports": allowed_exports.collect::<Vec<_>>(),
             "tokenPresented": token.is_some()
         }),
+        declared,
     })
 }
 
@@ -475,6 +533,26 @@ pub struct Attachment<'a, P: ?Sized> {
 
 fn join_failure(error: JoinError) -> AttachError {
     AttachError::Terminal(error.to_string())
+}
+
+/// The machine's side of mutual approval: a grant wider than what this
+/// client offered is refused as terminal `consent_required`, whatever the
+/// host's enrollment says. Only `mclient grant` widens the offer.
+pub fn within_offer(
+    admission: Admission,
+    capabilities: &[String],
+    exports: &[config::Export],
+) -> Result<Admission, AttachError> {
+    let offered_capability = |name: &String| capabilities.contains(name);
+    let offered_export = |name: &String| exports.iter().any(|export| &export.name == name);
+    let negotiated = &admission.negotiated;
+    if negotiated.capabilities.iter().all(offered_capability)
+        && negotiated.exports.iter().all(offered_export)
+    {
+        Ok(admission)
+    } else {
+        Err(AttachError::Terminal("consent_required".to_owned()))
+    }
 }
 
 fn classify_attach_error(error: AttachError) -> Result<FailureClass, AttachError> {
@@ -609,10 +687,16 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
                 return Ok(false);
             }
         };
-        match result(response) {
-            Ok(negotiated) => {
+        match result(response)
+            .and_then(|admission| within_offer(admission, self.capabilities, &self.config.exports))
+        {
+            Ok(Admission {
+                negotiated,
+                consent_required,
+            }) => {
                 self.generation = Some(negotiated.generation);
                 save_generation(self.directory, negotiated.generation)?;
+                record_consent(self.directory, consent_required.as_ref())?;
                 self.hooks.session.connected(client.caller());
                 self.hooks.session.attached(&negotiated);
                 Ok(true)
@@ -1153,6 +1237,7 @@ mod tests {
             memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
             tmux_socket: None,
+            declared: None,
         };
         std::fs::write(root.path().join("one"), b"hello").expect("seed");
         let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;

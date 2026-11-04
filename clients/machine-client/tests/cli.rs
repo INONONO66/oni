@@ -425,7 +425,8 @@ fn update_check_verifies_release_contract_without_connecting_or_switching() {
             .output()
             .expect("update --check")
     };
-    let accepted = check(&["--host-contract", "4"]);
+    let own = oni_protocol::CONTRACT_VERSION.to_string();
+    let accepted = check(&["--host-contract", &own]);
     assert_eq!(accepted.status.code(), Some(0));
     let response: serde_json::Value = serde_json::from_slice(&accepted.stdout).expect("check");
     assert_eq!(response["status"], "compatible");
@@ -446,7 +447,7 @@ fn update_check_verifies_release_contract_without_connecting_or_switching() {
     // calls `probe --release`; the hidden alias answers exactly like the check.
     let legacy = Command::new(env!("CARGO_BIN_EXE_mclient"))
         .env("HOME", home.path())
-        .args(["probe", "--release", path, "--host-contract", "4"])
+        .args(["probe", "--release", path, "--host-contract", &own])
         .output()
         .expect("probe --release");
     assert_eq!(legacy.status.code(), Some(0));
@@ -966,6 +967,173 @@ fn join_unix_persists_private_identity_and_enrollment() {
         serde_json::from_slice(&std::fs::read(client.join("client.json")).expect("config"))
             .expect("json");
     assert_eq!(config["memoryBudgetMb"], 64);
+    assert_eq!(config["declared"].as_array().expect("declared").len(), 9);
+    // Key custody: the private key stays in its 0600 file; neither the
+    // receipt nor the prompts carry its bytes, only the public-key pin.
+    let key = std::fs::read_to_string(client.join("client-key.pem")).expect("private key");
+    let key_body = key
+        .lines()
+        .find(|line| !line.starts_with("-----"))
+        .expect("key body");
+    assert!(key.contains("PRIVATE KEY"));
+    assert!(!stdout.contains(key_body) && !stdout.contains("PRIVATE KEY"));
+    let stderr = String::from_utf8(output.stderr).expect("stderr");
+    assert!(!stderr.contains(key_body) && !stderr.contains("PRIVATE KEY"));
+    let public_key = receipt["publicKey"].as_str().expect("public key pin");
+    assert_eq!(public_key.len(), 64);
+    let status = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", directory.path())
+        .args(["status", "--json"])
+        .output()
+        .expect("status");
+    let record: serde_json::Value = serde_json::from_slice(&status.stdout).expect("status JSON");
+    assert_eq!(record["identity"], public_key);
+    assert_eq!(record["consentRequired"], serde_json::Value::Null);
+}
+
+/// Consent is the operator's choice at `join`: the declared set bounds the
+/// enrollment receipt, and a capability this client cannot serve is refused.
+#[test]
+fn join_declares_only_the_selected_capabilities() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let join = |capabilities: &[&str]| {
+        let mut args = vec![
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--no-service",
+            "--no-open",
+        ];
+        for capability in capabilities {
+            args.extend(["--capability", capability]);
+        }
+        Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(args)
+            .output()
+            .expect("mclient runs")
+    };
+    let refused = join(&["fs.read", "mind.read"]);
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("unsupported_capability: mind.read"));
+    assert!(!home.path().join(".oni/machine-client/client.json").exists());
+
+    let output = join(&["fs.read", "shell.exec", "fs.read"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout");
+    let receipt: serde_json::Value =
+        serde_json::from_str(stdout.lines().next().expect("enrollment JSON"))
+            .expect("enrollment JSON");
+    assert_eq!(
+        receipt["allowedCapabilities"],
+        serde_json::json!(["fs.read", "shell.exec"])
+    );
+    assert!(stdout.contains("offered capabilities: fs.read, shell.exec\n"));
+    let config: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(home.path().join(".oni/machine-client/client.json")).expect("config"),
+    )
+    .expect("json");
+    assert_eq!(
+        config["declared"],
+        serde_json::json!(["fs.read", "shell.exec"])
+    );
+}
+
+/// `mclient grant` is the only way the offer grows: it records consent in
+/// the saved config, reports the declared set, and tells a stopped service
+/// nothing needs restarting. Unknown names are refused.
+#[test]
+fn grant_records_consent_in_the_saved_config() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let join = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args([
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--capability",
+            "fs.read",
+            "--no-service",
+            "--no-open",
+        ])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(join.status.code(), Some(0));
+    let grant = |capability: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(["grant", capability])
+            .output()
+            .expect("mclient runs")
+    };
+    let refused = grant("mind.read");
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("unsupported_capability: mind.read"));
+
+    let granted = grant("shell.exec");
+    assert_eq!(
+        granted.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&granted.stderr)
+    );
+    let stdout = String::from_utf8(granted.stdout).expect("stdout");
+    assert!(stdout.contains("declared capabilities: fs.read, shell.exec\n"));
+    assert!(stdout.contains("service: not running\n"));
+    let config: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(home.path().join(".oni/machine-client/client.json")).expect("config"),
+    )
+    .expect("json");
+    assert_eq!(
+        config["declared"],
+        serde_json::json!(["fs.read", "shell.exec"])
+    );
+    // Granting again keeps the set as it is.
+    let again = grant("shell.exec");
+    assert!(String::from_utf8_lossy(&again.stdout)
+        .contains("declared capabilities: fs.read, shell.exec\n"));
+}
+
+/// `status` surfaces the host's outstanding wish so the operator can answer
+/// it, naming the exact `grant` command per capability.
+#[test]
+fn status_reports_the_consent_the_host_still_wants() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let client = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&client).expect("client directory");
+    std::fs::write(
+        client.join("consent.json"),
+        br#"{"status":"consent_required","capabilities":["shell.exec"],"exports":["notes"]}"#,
+    )
+    .expect("consent record");
+    let json = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["status", "--json"])
+        .output()
+        .expect("status");
+    let record: serde_json::Value = serde_json::from_slice(&json.stdout).expect("status JSON");
+    assert_eq!(
+        record["consentRequired"],
+        serde_json::json!({"capabilities":["shell.exec"],"exports":["notes"]})
+    );
+    assert_eq!(record["identity"], serde_json::Value::Null);
+    let text = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["status"])
+        .output()
+        .expect("status");
+    let stdout = String::from_utf8(text.stdout).expect("stdout");
+    assert!(stdout.contains("consent required: capability shell.exec — mclient grant shell.exec\n"));
+    assert!(
+        stdout.contains("consent required: export notes — re-join with --export notes=<path>\n")
+    );
 }
 
 #[test]

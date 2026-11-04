@@ -87,6 +87,9 @@ pub enum ConfigError {
     InvalidPin,
     #[error("invalid export")]
     InvalidExport,
+    /// A capability this client cannot serve was declared.
+    #[error("unsupported_capability: {0}")]
+    UnsupportedCapability(String),
     #[error("invalid saved client identity (client-cert.pem/client-key.pem); restore the matching pair or delete both and re-enroll with Owner")]
     InvalidIdentity,
     #[error("configuration I/O: {0}")]
@@ -116,6 +119,11 @@ pub struct ClientConfig {
     pub unix: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tmux_socket: Option<String>,
+    /// The capabilities the operator consented to offer; the service offers
+    /// nothing outside this set however the host's enrollment grows. Absent
+    /// in a config written before consent existed: everything available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared: Option<Vec<String>>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -133,6 +141,9 @@ pub struct JoinOptions {
     pub tags: Vec<String>,
     #[arg(long = "export")]
     pub exports: Vec<String>,
+    /// Offer only these capabilities (repeatable); default: every supported one.
+    #[arg(long = "capability")]
+    pub capabilities: Vec<String>,
     #[arg(long)]
     pub no_service: bool,
     #[arg(long)]
@@ -377,6 +388,68 @@ pub fn save(config: &ClientConfig, directory: &Path) -> Result<(), ConfigError> 
 
 pub fn load(path: &Path) -> Result<ClientConfig, ConfigError> {
     Ok(serde_json::from_slice(&fs::read(path)?)?)
+}
+
+/// The declared set `join` records: the operator's selection, else every
+/// supported capability. A name this client cannot serve is refused.
+pub fn declared(selected: &[String], supported: &[&str]) -> Result<Vec<String>, ConfigError> {
+    if selected.is_empty() {
+        return Ok(supported.iter().map(|name| (*name).to_owned()).collect());
+    }
+    let mut declared = Vec::new();
+    for name in selected {
+        if !supported.contains(&name.as_str()) {
+            return Err(ConfigError::UnsupportedCapability(name.clone()));
+        }
+        if !declared.contains(name) {
+            declared.push(name.clone());
+        }
+    }
+    Ok(declared)
+}
+
+/// Records the operator's consent to offer `capability`: the saved config's
+/// declared set grows by it (a config without one declares every supported
+/// capability first) and the next attach offers it. Returns the declared set.
+pub fn grant(
+    directory: &Path,
+    capability: &str,
+    supported: &[&str],
+) -> Result<Vec<String>, ConfigError> {
+    if !supported.contains(&capability) {
+        return Err(ConfigError::UnsupportedCapability(capability.to_owned()));
+    }
+    let mut config = load(&directory.join("client.json"))?;
+    let mut declared = config.declared.take().unwrap_or_else(|| {
+        supported
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<Vec<_>>()
+    });
+    if !declared.iter().any(|name| name == capability) {
+        declared.push(capability.to_owned());
+    }
+    config.declared = Some(declared.clone());
+    save(&config, directory)?;
+    Ok(declared)
+}
+
+/// The saved identity's public-key pin, read from the certificate alone:
+/// `status` shows the operator which key the host enrolled without the
+/// private key ever leaving its 0600 file. `None` before the first `join`.
+pub fn identity_pin(directory: &Path) -> Result<Option<String>, ConfigError> {
+    let cert = match fs::read(directory.join("client-cert.pem")) {
+        Ok(cert) => cert,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let certificate = rustls_pemfile::certs(&mut Cursor::new(cert))
+        .next()
+        .transpose()
+        .map_err(|_| ConfigError::InvalidIdentity)?
+        .ok_or(ConfigError::InvalidIdentity)?;
+    let pin = public_key_pin(certificate.as_ref()).map_err(|_| ConfigError::InvalidIdentity)?;
+    Ok(Some(hex::encode(pin)))
 }
 
 pub fn identity(directory: &Path, name: &str) -> Result<String, ConfigError> {

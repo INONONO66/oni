@@ -16,7 +16,10 @@ use std::{
 
 use oni_machine_client::{
     agent::hook,
-    attach::{self, offer, result, run_with_events, AttachError, Attachment, Hooks, Outcome},
+    attach::{
+        self, offer, result, run_with_events, within_offer, AttachError, Attachment, Consent,
+        Hooks, Outcome,
+    },
     budget::{self, Budget, BudgetAction, Metrics, NoRetention, Pressure, Retained, StreamTotals},
     config::{self, ClientConfig, Export, JoinOptions},
     handlers::{available, Service},
@@ -45,6 +48,7 @@ fn config() -> ClientConfig {
         memory_budget_mb: 96,
         unix: None,
         tmux_socket: None,
+        declared: None,
     }
 }
 
@@ -71,6 +75,7 @@ fn join_options(host: &str) -> JoinOptions {
         name: Some("Work-Mac".into()),
         tags: vec![],
         exports: vec![],
+        capabilities: vec![],
         host_cert: None,
         host_pin: None,
         yes: true,
@@ -138,10 +143,13 @@ fn host_pin(certificate: &str) -> [u8; 32] {
     public_key_pin(der.as_ref()).expect("pin")
 }
 
+/// The host grants the offer in full, as the real one does when the
+/// enrollment covers it; anything wider the client refuses as
+/// `consent_required`.
 fn attached(request: &Value, generation: u64) -> Value {
     json!({"v":2,"type":"response","id":request["id"],"result":{
-        "status":"attached","effectiveCapabilities":["fs.read"],"effectiveExports":[],
-        "generation":generation
+        "status":"attached","effectiveCapabilities":request["params"]["offeredCapabilities"],
+        "effectiveExports":[],"generation":generation
     }})
 }
 
@@ -237,10 +245,89 @@ fn reconnect_offer_contains_generation_and_exact_supplied_capabilities() {
         value["offeredCapabilities"],
         json!(["fs.read", "pty.session"])
     );
-    assert_eq!(value["peer"], json!({"kind":"client","contractVersion":4}));
+    assert_eq!(value["peer"], json!({"kind":"client","contractVersion":5}));
     assert_eq!(value["resources"], json!({"cpus":4,"memoryBytes":1024}));
     assert_eq!(value["exports"], json!([{"name":"home","path":"/home/me"}]));
     assert!(attach::now_ms() > 0);
+}
+
+/// The host names what its enrollment allows beyond the offer; the client
+/// keeps that aside for the operator and still serves only the offer.
+#[test]
+fn attached_result_carries_the_consent_the_host_still_wants() {
+    let attached = result(json!({
+        "status":"attached","effectiveCapabilities":["fs.read"],"effectiveExports":["home"],
+        "generation":9,"consentRequired":{"capabilities":["shell.exec"],"exports":["notes"]}
+    }))
+    .expect("attached");
+    assert_eq!(attached.negotiated.capabilities, ["fs.read"]);
+    assert_eq!(
+        attached.consent_required,
+        Some(Consent {
+            capabilities: vec!["shell.exec".into()],
+            exports: vec!["notes".into()],
+        })
+    );
+}
+
+/// Mutual approval, machine side: a grant wider than this client's offer
+/// is refused as terminal `consent_required`, whatever the host enrolled.
+#[test]
+fn grant_beyond_the_offer_is_refused_consent_required() {
+    let offered = vec!["fs.read".to_owned()];
+    let exports = config().exports;
+    let admission = |capabilities: &[&str], exports: &[&str]| {
+        result(json!({
+            "status":"attached","effectiveCapabilities":capabilities,"effectiveExports":exports,
+            "generation":3
+        }))
+        .expect("attached")
+    };
+    let within = within_offer(admission(&["fs.read"], &["home"]), &offered, &exports)
+        .expect("the offer itself is admitted");
+    assert_eq!(within.negotiated.generation.get(), 3);
+    for wider in [
+        admission(&["fs.read", "shell.exec"], &["home"]),
+        admission(&["fs.read"], &["home", "notes"]),
+    ] {
+        let error = within_offer(wider, &offered, &exports).expect_err("wider than offered");
+        assert!(matches!(error, AttachError::Terminal(_)));
+        assert_eq!(error.reason(), "consent_required");
+        assert_eq!(error.exit_code(), 3);
+    }
+}
+
+/// The consent record is the operator's to-do list: written while the host
+/// wants more, removed once nothing is outstanding, never world-readable.
+#[test]
+fn consent_record_follows_the_outstanding_delta() {
+    let home = tempfile::tempdir().expect("home");
+    let directory = home.path();
+    assert!(attach::pending_consent(directory)
+        .expect("no record")
+        .is_none());
+    let consent = Consent {
+        capabilities: vec!["shell.exec".into()],
+        exports: vec![],
+    };
+    attach::record_consent(directory, Some(&consent)).expect("record");
+    assert_eq!(
+        attach::pending_consent(directory).expect("record"),
+        Some(consent)
+    );
+    assert_eq!(
+        std::fs::metadata(directory.join("consent.json"))
+            .expect("record")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    attach::record_consent(directory, None).expect("clear");
+    attach::record_consent(directory, None).expect("clearing twice is fine");
+    assert!(attach::pending_consent(directory)
+        .expect("cleared")
+        .is_none());
 }
 
 #[test]
@@ -260,9 +347,10 @@ fn attachment_refusal_classifies_terminal_reasons() {
     assert!(matches!(retrying, AttachError::Call(_)));
     assert_eq!(retrying.exit_code(), 2);
     let attached = result(json!({"status":"attached","effectiveCapabilities":["fs.read"],"effectiveExports":["home"],"generation":9})).expect("attached");
-    assert_eq!(attached.generation.get(), 9);
-    assert_eq!(attached.capabilities, ["fs.read"]);
-    assert_eq!(attached.exports, ["home"]);
+    assert_eq!(attached.negotiated.generation.get(), 9);
+    assert_eq!(attached.negotiated.capabilities, ["fs.read"]);
+    assert_eq!(attached.negotiated.exports, ["home"]);
+    assert!(attached.consent_required.is_none());
     let mismatch = AttachError::Transport(TransportError::HostKeyMismatch);
     assert_eq!(
         (mismatch.exit_code(), mismatch.reason().as_str()),
