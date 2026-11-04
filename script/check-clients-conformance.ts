@@ -18,6 +18,7 @@
  * timeout. Nothing is built here: the binary must already exist.
  */
 import { createHash, randomBytes } from "node:crypto";
+import { z } from "zod";
 import {
   existsSync,
   mkdirSync,
@@ -180,7 +181,10 @@ export async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
   check(joined.code === 0, `mclient join exited ${joined.code}: ${joined.stderr}`);
   const receiptLine = joined.stdout.split("\n")[0];
   check(receiptLine !== undefined, "mclient join omitted the enrollment receipt");
-  const receipt = Machine.Enrollment.omit({ enrolledAt: true }).parse(JSON.parse(receiptLine));
+  const { tokenPresented, ...receipt } = Machine.Enrollment.omit({ enrolledAt: true })
+    .extend({ tokenPresented: z.boolean() })
+    .parse(JSON.parse(receiptLine));
+  check(!tokenPresented, "mclient join reported a token it was never given");
   record(
     `join wrote ${setup.config} and receipt for ${receipt.machineId} [${receipt.allowedCapabilities.join(", ")}]`,
   );
