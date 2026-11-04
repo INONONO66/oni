@@ -436,6 +436,9 @@ pub async fn join(
         declared: Some(declared.clone()),
     };
     let token = config::join_token(options, &|name| std::env::var(name).ok());
+    if options.rekey {
+        config::discard_identity(&directory)?;
+    }
     let public_key = config::identity(&directory, &config.machine_id)?;
     if let Some(trust) = trust {
         let pin = hex::encode(verify_host(&config.host, &directory, trust).await?);

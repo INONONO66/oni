@@ -79,6 +79,7 @@ fn join_options(host: &str) -> JoinOptions {
         host_cert: None,
         host_pin: None,
         yes: true,
+        rekey: false,
         unix: None,
         memory_budget_mb: 96,
         no_service: true,
@@ -808,7 +809,7 @@ async fn join_without_operator_approval_is_refused_host_untrusted() {
     );
     assert_eq!(
         oni_machine_client::transport::classes::classify(&error),
-        oni_machine_client::transport::classes::FailureClass::Authentication
+        oni_machine_client::transport::classes::FailureClass::Configuration
     );
     assert_eq!(
         shown.lock().expect("prompt").clone(),
@@ -1587,6 +1588,11 @@ fn identity_refuses_an_unwritable_key_path() {
         config::identity(directory.path(), "laptop"),
         Err(config::ConfigError::Io(_))
     ));
+    // A key that is not a file cannot be discarded either; a missing one can.
+    assert!(config::discard_identity(directory.path()).is_err());
+    std::fs::remove_dir(directory.path().join("client-key.pem")).expect("unblock key");
+    config::discard_identity(directory.path()).expect("nothing to discard");
+    assert!(!directory.path().join("client-key.pem").exists());
 }
 
 #[test]

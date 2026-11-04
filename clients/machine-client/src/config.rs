@@ -157,6 +157,10 @@ pub struct JoinOptions {
     /// Trust the verified host pin without the operator prompt (scripts).
     #[arg(long)]
     pub yes: bool,
+    /// Replace the identity key. The host pins the enrolled key, so the new
+    /// one attaches only once the Owner enrolls it again.
+    #[arg(long)]
+    pub rekey: bool,
     #[arg(long)]
     pub unix: Option<PathBuf>,
     #[arg(long, default_value_t = DEFAULT_MEMORY_BUDGET_MB)]
@@ -450,6 +454,17 @@ pub fn identity_pin(directory: &Path) -> Result<Option<String>, ConfigError> {
         .ok_or(ConfigError::InvalidIdentity)?;
     let pin = public_key_pin(certificate.as_ref()).map_err(|_| ConfigError::InvalidIdentity)?;
     Ok(Some(hex::encode(pin)))
+}
+
+/// Discards the saved identity so the next `identity` call mints a new key.
+pub fn discard_identity(directory: &Path) -> io::Result<()> {
+    for name in ["client-cert.pem", "client-key.pem"] {
+        match fs::remove_file(directory.join(name)) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 pub fn identity(directory: &Path, name: &str) -> Result<String, ConfigError> {

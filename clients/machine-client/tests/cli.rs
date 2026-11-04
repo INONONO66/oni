@@ -1137,21 +1137,25 @@ fn status_reports_the_consent_the_host_still_wants() {
 }
 
 #[test]
-fn rejoin_preserves_enrolled_identity_and_receipt() {
+fn rejoin_preserves_enrolled_identity_and_receipt_until_rekey() {
     let home = tempfile::tempdir().expect("isolated home");
-    let join = || {
+    let join = |rekey: bool| {
+        let mut args = vec![
+            "join",
+            "localhost",
+            "--name",
+            "macbook",
+            "--unix",
+            "/tmp/oni.sock",
+            "--no-service",
+            "--no-open",
+        ];
+        if rekey {
+            args.push("--rekey");
+        }
         let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
             .env("HOME", home.path())
-            .args([
-                "join",
-                "localhost",
-                "--name",
-                "macbook",
-                "--unix",
-                "/tmp/oni.sock",
-                "--no-service",
-                "--no-open",
-            ])
+            .args(args)
             .output()
             .expect("mclient runs");
         assert_eq!(
@@ -1168,11 +1172,11 @@ fn rejoin_preserves_enrolled_identity_and_receipt() {
             .expect("public key")
             .to_owned()
     };
-    let first = join();
+    let first = join(false);
     let directory = home.path().join(".oni/machine-client");
     let key = std::fs::read(directory.join("client-key.pem")).expect("first key");
     let cert = std::fs::read(directory.join("client-cert.pem")).expect("first certificate");
-    let second = join();
+    let second = join(false);
     assert_eq!(second, first);
     assert_eq!(
         std::fs::read(directory.join("client-key.pem")).expect("rejoined key"),
@@ -1182,6 +1186,29 @@ fn rejoin_preserves_enrolled_identity_and_receipt() {
         std::fs::read(directory.join("client-cert.pem")).expect("rejoined certificate"),
         cert
     );
+    // Rotation is a re-invitation: the receipt carries a new pin the host does
+    // not know yet, and the old key is gone from disk.
+    let rotated = join(true);
+    assert_ne!(rotated, first);
+    assert_eq!(rotated.len(), 64);
+    let rotated_key = std::fs::read(directory.join("client-key.pem")).expect("rotated key");
+    assert_ne!(rotated_key, key);
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(directory.join("client-key.pem"))
+            .expect("rotated key")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    let status = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["status", "--json"])
+        .output()
+        .expect("status");
+    let record: serde_json::Value = serde_json::from_slice(&status.stdout).expect("status JSON");
+    assert_eq!(record["identity"], rotated);
 }
 
 #[test]
