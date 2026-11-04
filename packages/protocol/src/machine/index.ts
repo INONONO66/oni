@@ -273,6 +273,7 @@ export namespace Machine {
 
   export const effectiveCapabilities = Fold.effectiveCapabilities;
   export const effectiveExports = Fold.effectiveExports;
+  export const consentRequired = Fold.consentRequired;
   export const PlacementRequest = Fold.PlacementRequest;
   export type PlacementRequest = Fold.PlacementRequest;
   export const PlacementOutcome = Fold.PlacementOutcome;

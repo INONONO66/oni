@@ -67,6 +67,23 @@ export function effectiveExports(enrollment: Enrollment, offer: Offer): Effectiv
   return { kind: "effective", machineId: enrollment.machineId, exports: intersect(enrollment.allowedExports ?? [], (offer.exports ?? []).map((entry) => entry.name)) };
 }
 
+function excess<T extends string>(allowed: readonly T[], offered: readonly T[]): T[] {
+  const present = new Set(offered);
+  return [...new Set(allowed.filter((value) => !present.has(value)))].sort();
+}
+
+/**
+ * allowed − offered: what the Owner's enrollment permits that the machine
+ * did not offer. The host never grants past the offer; this delta is told to
+ * the peer so its operator can consent (declare) before the next attach.
+ * `undefined` when the enrollment grants nothing beyond the offer.
+ */
+export function consentRequired(enrollment: Enrollment, offer: Offer): { capabilities: CapabilityId[]; exports: ExportName[] } | undefined {
+  const capabilities = excess(enrollment.allowedCapabilities, offer.offeredCapabilities);
+  const exports = excess(enrollment.allowedExports ?? [], (offer.exports ?? []).map((entry) => entry.name));
+  return capabilities.length === 0 && exports.length === 0 ? undefined : { capabilities, exports };
+}
+
 export const PlacementRequest = z
   .object({
     tag: z.string().min(1),
