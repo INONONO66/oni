@@ -411,17 +411,18 @@ fn host_addresses_split_ports_and_resolve_directly() {
 #[test]
 fn host_address_schemes_select_the_carrier() {
     use oni_machine_client::transport::ws::WsEndpoint;
+    let carrier = |host: &str| config::carrier(host).expect("carrier selected");
     let tcp = |address: &str, server_name: &str| config::Carrier::Tcp {
         address: address.to_owned(),
         server_name: server_name.to_owned(),
     };
     assert_eq!(
-        config::carrier("host.example"),
+        carrier("host.example"),
         tcp("host.example:7643", "host.example")
     );
-    assert_eq!(config::carrier("tcp://[::1]:9"), tcp("[::1]:9", "::1"));
+    assert_eq!(carrier("tcp://[::1]:9"), tcp("[::1]:9", "::1"));
     assert_eq!(
-        config::carrier("wss://host.example"),
+        carrier("wss://host.example"),
         config::Carrier::Wss(WsEndpoint {
             address: "host.example:443".into(),
             server_name: "host.example".into(),
@@ -429,13 +430,17 @@ fn host_address_schemes_select_the_carrier() {
         })
     );
     assert_eq!(
-        config::carrier("wss://[::1]:8443/edge/machine"),
+        carrier("wss://[::1]:8443/edge/machine"),
         config::Carrier::Wss(WsEndpoint {
             address: "[::1]:8443".into(),
             server_name: "::1".into(),
             path: "/edge/machine".into(),
         })
     );
+    assert!(matches!(
+        config::carrier("ws://host.example:8080/machine"),
+        Err(config::ConfigError::PlaintextWs)
+    ));
     assert_eq!(
         config::unix_path("unix:/run/oni/host.sock"),
         Some(PathBuf::from("/run/oni/host.sock"))
@@ -657,6 +662,24 @@ async fn unix_scheme_join_selects_the_unix_carrier_without_a_pin() {
         config::load(&home.path().join("machine-client/client.json")).expect("saved config");
     assert_eq!(saved.unix, Some(PathBuf::from(&host.endpoint)));
     assert!(!home.path().join("machine-client/host-pin").exists());
+}
+
+#[tokio::test]
+async fn plaintext_ws_join_is_refused_before_any_dial() {
+    let host = FakeHost::ws().await;
+    let home = tempfile::tempdir().expect("home");
+    let options = JoinOptions {
+        host_pin: Some(hex::encode(host_pin(&host.certificate))),
+        ..join_options(&format!("ws://{}/machine", host.endpoint))
+    };
+    let error = attach::join(&options, home.path(), &[])
+        .await
+        .expect_err("plaintext ws refused");
+    assert!(matches!(
+        error,
+        AttachError::Config(config::ConfigError::PlaintextWs)
+    ));
+    assert!(!home.path().join("machine-client/client.json").exists());
 }
 
 #[tokio::test]

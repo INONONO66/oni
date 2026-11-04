@@ -145,7 +145,8 @@ record in #1702.
   same client identity and host pin as TLS-TCP. With `HTTPS_PROXY` or
   `https_proxy` set (`http://proxy:3128` or `proxy:3128`), the `wss://`
   dial opens an HTTP CONNECT tunnel through that proxy first; TLS and the
-  host pin are verified end to end inside the tunnel.
+  host pin are verified end to end inside the tunnel. A plaintext `ws://`
+  address is refused as `plaintext_ws_refused` before any dial.
 - On macOS, `mclient join <host>` installs the LaunchAgent and opens Screen
   Recording settings. Grant the installed client binary access; the running
   service checks the grant every five seconds and restarts itself once it

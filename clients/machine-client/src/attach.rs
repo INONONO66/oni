@@ -276,10 +276,10 @@ async fn connect_tls(
     directory: &Path,
     trust: HostTrust,
     service: Handler,
-) -> Result<Result<(Client, [u8; 32]), TransportError>, io::Error> {
+) -> Result<Result<(Client, [u8; 32]), TransportError>, AttachError> {
     let cert = fs::read(directory.join("client-cert.pem"))?;
     let key = fs::read(directory.join("client-key.pem"))?;
-    Ok(match config::carrier(host) {
+    Ok(match config::carrier(host)? {
         Carrier::Tcp {
             address,
             server_name,
@@ -336,7 +336,7 @@ pub async fn join(
         Some(_) => None,
         None => Some(config::trust(options, home)?),
     };
-    let host = match (&unix, config::carrier(&options.host)) {
+    let host = match (&unix, config::carrier(&options.host)?) {
         (None, Carrier::Tcp { .. }) => config::resolve_address(&options.host)?,
         (Some(_), _) | (None, Carrier::Wss(_)) => options.host.clone(),
     };

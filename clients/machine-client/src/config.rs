@@ -27,7 +27,9 @@ const DEFAULT_WSS_PORT: &str = "443";
 /// 443 and path `/machine` by default; `HTTPS_PROXY`/`https_proxy` tunnels
 /// it through HTTP CONNECT); `tcp://host[:port]` or a bare `host[:port]`
 /// dials the raw TLS-TCP listener (port 7643 by default). Both TLS carriers
-/// present the same client identity and verify the same host pin.
+/// present the same client identity and verify the same host pin. A plaintext
+/// `ws://` address is refused ([`ConfigError::PlaintextWs`]): the wire never
+/// leaves the host unencrypted and the address is never read as a TCP host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Carrier {
     Tcp {
@@ -41,7 +43,10 @@ pub fn unix_path(host: &str) -> Option<PathBuf> {
     host.strip_prefix("unix:").map(PathBuf::from)
 }
 
-pub fn carrier(host: &str) -> Carrier {
+pub fn carrier(host: &str) -> Result<Carrier, ConfigError> {
+    if host.starts_with("ws://") {
+        return Err(ConfigError::PlaintextWs);
+    }
     if let Some(rest) = host.strip_prefix("wss://") {
         let (authority, path) = rest
             .split_once('/')
@@ -49,17 +54,17 @@ pub fn carrier(host: &str) -> Carrier {
                 (authority, format!("/{path}"))
             });
         let (name, port) = split_port(authority);
-        return Carrier::Wss(WsEndpoint {
+        return Ok(Carrier::Wss(WsEndpoint {
             address: with_port(name, port.unwrap_or(DEFAULT_WSS_PORT)),
             server_name: name.to_owned(),
             path,
-        });
+        }));
     }
     let (address, server_name) = endpoint(host.strip_prefix("tcp://").unwrap_or(host));
-    Carrier::Tcp {
+    Ok(Carrier::Tcp {
         address,
         server_name,
-    }
+    })
 }
 
 /// One Retina `screen()` capture retains ~103 MB RSS that the allocator does
@@ -70,6 +75,8 @@ pub const DEFAULT_MEMORY_BUDGET_MB: u64 = 512;
 pub enum ConfigError {
     #[error("host_unresolved")]
     HostUnresolved,
+    #[error("plaintext_ws_refused")]
+    PlaintextWs,
     #[error("pin_required")]
     PinRequired,
     #[error("invalid host pin")]
