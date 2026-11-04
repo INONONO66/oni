@@ -12,7 +12,7 @@ import { type AttachedMclient, attachMclient, mclientBinary, mclientEnrollment }
 import { eventCollector } from "./helpers/events";
 import { exit as runExit } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
-import { daemonIdentity, daemonFingerprint, hostIdentity, hostPin, wrongIdentity } from "./ipc/helpers/tls-fixtures";
+import { daemonIdentity, daemonFingerprint, hostChainIdentity, hostIdentity, hostPin, hostRenewedIdentity, wrongIdentity } from "./ipc/helpers/tls-fixtures";
 
 const silent = { publish: () => undefined };
 function sequentialIds(prefix: string): () => string {
@@ -174,6 +174,46 @@ describe("host listener set (#1270)", () => {
     } finally {
       await client?.stop();
       await host.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("host certificate rotation: successive hosts serve a renewed certificate and then an ACME-style chain for the same key, and the real mclient reattaches with the pin it recorded at join under the unchanged enrollment", async () => {
+    const root = mkdtempSync(join(tmpdir(), "om-listen-rotate-"));
+    writeFileSync(join(root, "note"), "rotated");
+    const generations = createMemoryGenerationStore();
+    const enrolled = mclientEnrollment("desk-rotate", { publicKey: daemonFingerprint });
+    const attached: number[] = [];
+    try {
+      for (const identity of [hostIdentity, hostRenewedIdentity, hostChainIdentity]) {
+        const events = eventCollector();
+        const host = await createMachineHost({
+          listen: { ws: { host: "127.0.0.1", port: 0 } },
+          tls: identity,
+          enrollment: (id) => (id === "desk-rotate" ? enrolled : undefined),
+          events: events.sink,
+          generations,
+          now: () => 4,
+        });
+        let client: AttachedMclient | undefined;
+        try {
+          // The pin file the client wrote at join never changes: it names the
+          // host KEY, which every rotated certificate still carries.
+          client = await attachMclient({
+            host, events, machineId: "desk-rotate", root,
+            wss: { port: host.endpoints.ws?.port ?? 0, hostPin, identity: daemonIdentity },
+          });
+          attached.push(client.info.generation);
+          const read = await host.get("desk-rotate").fs.read(join(root, "note"));
+          expect(Buffer.from(read.data).toString()).toBe("rotated");
+        } finally {
+          await client?.stop();
+          await host.close();
+        }
+      }
+      // Three successive attachments of ONE enrolled machine, never a new enrollment.
+      expect(attached).toEqual([1, 2, 3]);
+    } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
