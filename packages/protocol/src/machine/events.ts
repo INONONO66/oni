@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BusEvent } from "../bus/index.js";
-import { CapabilityId, Enrollment, LeaseRefusal, Load, MachineId, PtyCursor, PtySessionName, uniqueCapabilities } from "./schema.js";
+import { CapabilityId, Enrollment, LeaseRefusal, Load, MachineId, PeerLease, PeerLeaseOp, PtyCursor, PtySessionName, uniqueCapabilities } from "./schema.js";
 import { EpochMs } from "../time.js";
 import { HumanInputNotification } from "./facts.js";
 import { PrivateEvent, WindowTarget } from "./observe.js";
@@ -51,5 +51,23 @@ export const Events = {
     target: WindowTarget.required({ epoch: true }),
     state: z.enum(["entered", "left"]),
     reason: PrivateEvent.shape.reason.optional(),
+  }), { visibility: "llm_reason" }),
+  /**
+   * Peer lease receipts (#1841). `machineId` is the lease's `from` machine, the
+   * one whose reach grew; `issued` carries the whole record, `used` names the
+   * op routed under it, `ended` says whether the clock or the host ended it.
+   */
+  PeerLeaseIssued: BusEvent.define("machine.peer_lease_issued", EventBase.extend({ lease: PeerLease }), {
+    visibility: "llm_reason",
+  }),
+  PeerLeaseUsed: BusEvent.define("machine.peer_lease_used", EventBase.extend({
+    leaseId: PeerLease.shape.id,
+    to: MachineId,
+    op: PeerLeaseOp,
+  }), { visibility: "llm_reason" }),
+  PeerLeaseEnded: BusEvent.define("machine.peer_lease_ended", EventBase.extend({
+    leaseId: PeerLease.shape.id,
+    to: MachineId,
+    reason: z.enum(["expired", "revoked"]),
   }), { visibility: "llm_reason" }),
 } as const;

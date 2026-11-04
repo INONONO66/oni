@@ -16,6 +16,41 @@
     "name": {
       "minLength": 1,
       "type": "string"
+    },
+    "source": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "session",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "machine",
+              "type": "string"
+            },
+            "machineId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "machineId"
+          ],
+          "type": "object"
+        }
+      ]
     }
   },
   "required": [

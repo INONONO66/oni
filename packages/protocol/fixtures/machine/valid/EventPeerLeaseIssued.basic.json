@@ -1,0 +1,13 @@
+{
+  "machineId": "macbook",
+  "time": 1700000000000,
+  "lease": {
+    "id": "pl-1",
+    "from": "macbook",
+    "to": "vooy-server",
+    "ops": ["exec", "fs"],
+    "ttlMs": 60000,
+    "expiresAt": 1700000060000,
+    "delegationId": "dl-1"
+  }
+}

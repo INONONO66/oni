@@ -476,15 +476,50 @@ export type CellOutput = z.infer<typeof CellOutput>;
  * A `tool.<name>(...)` call made from inside a running cell, travelling back to
  * the host over the same attachment (docs/machines-and-delegation.md §5.5).
  * This is what makes a cell worth more than N tool round trips.
+ *
+ * `source` is HOST-filled, never sent by a client (#1841): the host stamps
+ * `machine` with the id of the attachment that delivered the call, and
+ * `session` for calls it routes on behalf of the session itself. A call
+ * without `source` is a bare wire call the host has not attributed yet.
  */
+export const ToolCallSource = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("session") }).strict(),
+  z.object({ kind: z.literal("machine"), machineId: MachineId }).strict(),
+]);
+export type ToolCallSource = z.infer<typeof ToolCallSource>;
+
 export const ToolCall = z
   .object({
     cellId: z.string().min(1),
     name: z.string().min(1),
     arguments: z.record(z.string(), PlainValueSchema),
+    source: ToolCallSource.optional(),
   })
   .strict();
 export type ToolCall = z.infer<typeof ToolCall>;
+
+/**
+ * The only road between two machines (#1841): a host-issued, temporary,
+ * Owner-approved lease from one machine to another. Machines know only the
+ * host; without a live lease a machine-originated call naming another machine
+ * is `machine_isolated`. No permanent address grant exists. Bytes still
+ * traverse the host — the lease authorises routing, it opens no socket.
+ */
+export const PeerLeaseOp = z.enum(["exec", "fs", "pty", "computer", "code"]);
+export type PeerLeaseOp = z.infer<typeof PeerLeaseOp>;
+
+export const PeerLease = z
+  .object({
+    id: z.string().min(1),
+    from: MachineId,
+    to: MachineId,
+    ops: z.array(PeerLeaseOp).min(1).max(5),
+    ttlMs: z.number().int().positive(),
+    expiresAt: EpochMs,
+    delegationId: z.string().min(1),
+  })
+  .strict();
+export type PeerLease = z.infer<typeof PeerLease>;
 
 /**
  * Two arms because the cell can only do two things with the answer: use the

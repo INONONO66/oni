@@ -154,10 +154,16 @@ export namespace Machine {
   export type CellState = Schema.CellState;
   export const CompletionRequest = Schema.CompletionRequest;
   export type CompletionRequest = Schema.CompletionRequest;
+  export const ToolCallSource = Schema.ToolCallSource;
+  export type ToolCallSource = Schema.ToolCallSource;
   export const ToolCall = Schema.ToolCall;
   export type ToolCall = Schema.ToolCall;
   export const ToolCallResult = Schema.ToolCallResult;
   export type ToolCallResult = Schema.ToolCallResult;
+  export const PeerLeaseOp = Schema.PeerLeaseOp;
+  export type PeerLeaseOp = Schema.PeerLeaseOp;
+  export const PeerLease = Schema.PeerLease;
+  export type PeerLease = Schema.PeerLease;
   export const FsRequest = Schema.FsRequest;
   export type FsRequest = Schema.FsRequest;
   export type FsValue = Schema.FsValue;
