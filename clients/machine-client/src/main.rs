@@ -763,10 +763,10 @@ mod tests {
     fn join_carries_an_opaque_token_into_the_client_config() {
         let cli = Cli::try_parse_from(["mclient", "join", "oni-host", "--token", "jt"])
             .expect("join --token parses");
-        let Some(Command::Join(options)) = cli.command else {
-            panic!("join parses to its command");
-        };
-        assert_eq!(options.token.as_deref(), Some("jt"));
+        assert!(matches!(
+            cli.command,
+            Some(Command::Join(ref options)) if options.token.as_deref() == Some("jt")
+        ));
         assert!(Cli::try_parse_from(["mclient", "join", "oni-host", "--token"]).is_err());
         let bare = Cli::try_parse_from(["mclient", "join", "oni-host"]).expect("join parses");
         assert!(matches!(bare.command, Some(Command::Join(options)) if options.token.is_none()));
