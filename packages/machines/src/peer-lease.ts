@@ -4,9 +4,10 @@ import { MachineRefusalError } from "./errors";
 
 /**
  * Host-owned peer leases (#1841): the only way one machine reaches another.
- * Every lease is time-bounded on the host clock and journaled at issue, at
- * each use and when the clock or the host ends it. Nothing here is durable:
- * a restarted host starts with no reach between machines.
+ * Every lease is time-bounded on the host clock and published at issue, at
+ * each use and when the clock or the host ends it; the issue fact goes out
+ * before the lease is stored, so a sink that refuses it leaves no lease. Nothing
+ * here is durable: a restarted host starts with no reach between machines.
  */
 export interface PeerLeaseStore {
   /** Issues a lease from the record minus what the host fills (`id`, `expiresAt`); refuses `peer_lease_invalid` for a self lease or a record the contract rejects. */
@@ -81,12 +82,12 @@ export function createPeerLeases(options: {
           message: `peer_lease_invalid: ${parsed.success ? "a machine needs no lease to itself" : parsed.error.issues.map((issue) => issue.message).join("; ")}`,
         });
       const lease = parsed.data;
-      leases.set(lease.id, { lease, cancel: arm(lease) });
       options.events.publish(Machine.Events.PeerLeaseIssued, {
         machineId: lease.from,
         time: options.now(),
         lease,
       });
+      leases.set(lease.id, { lease, cancel: arm(lease) });
       return lease;
     },
     revoke: (leaseId) => revokeAll((lease) => lease.id === leaseId)[0],

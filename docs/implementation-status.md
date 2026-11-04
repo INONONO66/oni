@@ -1,5 +1,44 @@
 # Implementation Status
 
+## #1841 machine isolation and peer leases
+
+PR #1855 on `feat/1841-machine-isolation` (epic #1829 Phase 1). Machines know
+only the host; one machine reaches another only through a temporary,
+host-issued lease. Contract in `docs/machines-and-delegation.md` §2.6
+"Machine isolation and peer leases".
+
+- Origin: `Machine.ToolCall.source` is `{ kind: "session" }` or
+  `{ kind: "machine", machineId }`, filled by the host from the attachment
+  that delivered the call and re-attributed by codemode at both of its doors
+  (`callTool` and the prelude bridge) before routing, so a peer cannot forge
+  it. The attributed source rides the `tool.pre` intent; `owner-policy.json`
+  rows may match on it.
+- Upward: a machine-originated call passes only as a cell op (`codemode.*`,
+  `completion`, `tool_output`, `capture_data`) or a `MACHINE_ORIGIN_TOOLS`
+  model call; `provision`, `send_message`, registration, grant, hook and
+  channel families refuse `machine_origin_refused`, and the typed refusal
+  survives the app's codemode boundary.
+- Sideways: `dispatchHostOp`, `findMachine` and `listMachines` from a
+  machine-originated cell spend a live `Machine.PeerLease` for the op class
+  (`exec|fs|pty|computer|code`) or refuse `machine_isolated`; an op the
+  classifier does not know is refused, never passed. Session-originated
+  fan-out is unchanged.
+- Leases: `provision{machine_peer_lease}` issues under Owner consent bound to
+  both machines' enrollment revisions and a live delegation
+  (`delegationLive`); `machine_peer_lease_end` revokes; the host clock, the
+  delegation's settlement (`endDelegationLeases`), unenrollment of either
+  machine and host close also end leases. TTL is capped at 86 400 000 ms.
+- Receipts: every issue, use and end is one `peer_lease_receipt` row in the
+  app catalog (`apps/oni/src/peer-lease-receipts.ts`, attached in
+  `withChannelStores`), written before the matching bus event is published; a
+  refused write leaves no lease. The rows outlive the host and every
+  subscriber.
+- Verification: `packages/codemode/test/codemode/isolation.test.ts`,
+  `packages/machines/test/peer-lease.test.ts`,
+  `apps/oni/test/{machine-provision,peer-lease-receipts,codemode-origin-intent,delegation-leases}.test.ts`;
+  machine-contract fixtures for `ToolCallSource`, `PeerLease`, `PeerLeaseOp`
+  and the three peer-lease events (Rust `clients/protocol` decodes them).
+
 ## #1845 machine-layer slop removal
 
 PR #1853 on `refactor/1845-machine-slop` (epic #1829 Phase 1). Five of the

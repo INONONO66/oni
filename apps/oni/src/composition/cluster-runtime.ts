@@ -6,6 +6,7 @@ type ObservationPublishFailure = Core.ObservationPublishFailure;
 import { type ChannelStore, createActorRegistry, createChannelInstanceStore, createMachineEnrollmentStore, createSecretStore, openChannelStore } from "@oni/channels";
 import { Context, Deferred, Effect, Exit, Layer, type Scope } from "effect";
 import { createAgentStore, type AgentStore } from "../agents";
+import { createPeerLeaseReceiptWriter } from "../peer-lease-receipts";
 import { createStoreEditWriter } from "../store-edits";
 
 /**
@@ -31,6 +32,7 @@ export function reportObservationPublishFailure(failure: ObservationPublishFailu
 /** Catalog-backed durable stores the app composes tools and boot over. */
 interface AppCatalogStores {
   readonly recordStoreEdit: ReturnType<typeof createStoreEditWriter>;
+  readonly recordPeerLease: ReturnType<typeof createPeerLeaseReceiptWriter>;
   readonly agents: AgentStore;
   readonly actors: ReturnType<typeof createActorRegistry>;
   readonly persons: ReturnType<typeof createPersonStore>;
@@ -58,11 +60,12 @@ export interface AppLedgerPlane extends Pick<Core.LedgerHost,
  * without adopting the ledger's lifecycle (closing the plane closes the file).
  */
 export function withChannelStores(ledger: Core.LedgerHost, now: () => number): AppLedgerPlane {
-  const { channel, machineEnrollments, agents, recordStoreEdit } = ledger.attach((database) => ({
+  const { channel, machineEnrollments, agents, recordStoreEdit, recordPeerLease } = ledger.attach((database) => ({
     channel: openChannelStore(database, now),
     machineEnrollments: createMachineEnrollmentStore(database),
     agents: createAgentStore(database),
     recordStoreEdit: createStoreEditWriter(database),
+    recordPeerLease: createPeerLeaseReceiptWriter(database),
   }));
   return {
     read: ledger.read,
@@ -75,6 +78,7 @@ export function withChannelStores(ledger: Core.LedgerHost, now: () => number): A
     channel,
     stores: {
       recordStoreEdit,
+      recordPeerLease,
       agents,
       actors: createActorRegistry(channel),
       persons: createPersonStore(channel),

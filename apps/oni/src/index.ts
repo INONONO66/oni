@@ -41,6 +41,7 @@ import { computerStore } from "./bundles/approval-policy/computer-store";
 import { computerCapture } from "./bundles/approval-policy/computer-capture";
 import { computerTurn } from "./bundles/approval-policy/computer-turn";
 import { computerEvents } from "./bundles/approval-policy/computer-events";
+import { withPeerLeaseReceipts } from "./peer-lease-receipts";
 import { consentOrigin } from "./bundles/approval-policy/consent-origin";
 import { AGENT_PERMISSION_HOST_DEADLINE_MS, type AgentPermissionPort, createAgentPermissionPort } from "./bundles/approval-policy/agent-permission";
 import computerExclusions from "../policy/computer-exclusions.json";
@@ -802,7 +803,7 @@ export async function startOni(options: StartOptions = {}) {
     const machinery = await composeMachinePlane(runtime, machinesConfig, resolveMachineGenerationsPath(config), {
       agentPermission: agentPermission.decide,
       enrollments,
-      events: computerEvents(computer, services.observations),
+      events: withPeerLeaseReceipts(computerEvents(computer, services.observations), plane.stores.recordPeerLease),
       mclientBin,
       release: clientRelease,
       id: services.entropy.id,

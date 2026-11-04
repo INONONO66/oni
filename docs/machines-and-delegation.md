@@ -1092,11 +1092,17 @@ address grant. `Machine.PeerLease { id, from, to, ops: (exec|fs|pty|computer|
 code)[], ttlMs, expiresAt, delegationId }` lives in the host's in-memory
 `peers` store: issued through `provision{op: machine_peer_lease}` (Owner consent
 via the `provision-machine-peer-lease-consent` row, bound to both machines'
-enrollment revisions), expired by the host clock or revoked by the host, never
-durable, so a restarted host starts with no reach between machines. Each
-issue, use and end is a journal receipt (`machine.peer_lease_issued`,
-`machine.peer_lease_used`, `machine.peer_lease_ended` with `reason:
-expired|revoked`).
+enrollment revisions), ended by `provision{op: machine_peer_lease_end}`, by
+the host clock, by the delegation's settlement, by the unenrollment of either
+machine or by host close, and never durable as reach: a restarted host starts
+with no lease between machines. Each issue, use and end is one row of the
+app catalog's `peer_lease_receipt` table (`apps/oni/src/peer-lease-receipts.ts`:
+`issued` with the lease, `used` with the op, `ended` with `reason:
+expired|revoked`), written before the host publishes the matching
+`machine.peer_lease_issued|used|ended` event; a refused write throws out of
+the lease operation, so no lease is live that the catalog does not hold, and
+the rows answer which machine reached which after the host is gone. The bus
+events are projections and confer nothing.
 
 `mclient run --config <settings.json>` attaches the Rust machine peer.
 The app's self machine starts that binary as a child; `oni daemon` manages
