@@ -1,5 +1,47 @@
 # Implementation Status
 
+## #1830 WebSocket carrier for the machine wire
+
+PR #1856 on `feat/1830-ws-carrier` (epic #1829 Phase 1). A third door for
+machine attachment beside unix and TLS-TCP; the wire protocol is unchanged.
+Contract in `docs/machines-and-delegation.md` §2.6 and the client-side scheme
+rules in `docs/first-live-run.md`.
+
+- Host: `machines.listen.ws` (`ONI_MACHINES_WS_HOST`/`PORT`) binds
+  `packages/machines/src/ipc/ws-server.ts`: an HTTP upgrade of the single
+  path `/machine` over the TLS-TCP listener's certificate (other paths 404,
+  a plain GET 426). The door terminates TLS itself with `requestCert` and
+  hands the peer certificate's key fingerprint to the same admission as TCP,
+  so `peer_key_mismatch` is evaluated identically and a peer without a
+  certificate is ended in the handshake. One NDJSON frame travels as one
+  BINARY message, newline included (`ws-frames.ts`); a text message closes
+  the socket with 1003. Config is `machines.listen.{unix, tcp?, ws?}` plus
+  `machines.tls?`: a half listener tuple refuses boot typed
+  `invalid_machines_tcp` / `invalid_machines_ws`, a half or missing TLS pair
+  with either listener `invalid_machines_tls`. If one bind fails the other
+  listeners are released.
+- Client: `mclient join` selects the carrier by address scheme
+  (`clients/machine-client/src/config.rs::carrier`): `unix:<path>`, `tcp://`
+  or bare `host[:port]` (7643), `wss://host[:port][/machine]` (443,
+  `/machine`). `ws://` is refused typed `ConfigError::PlaintextWs` before any
+  dial. `transport/ws.rs` dials `wss://` through `HTTPS_PROXY`/`https_proxy`
+  (`http://proxy:3128`, `proxy:3128`, `proxy`) with a manual HTTP CONNECT
+  tunnel; TLS, the client identity and the host pin are verified inside the
+  tunnel. `https://` or credentialed proxies refuse
+  `ProxyFailure::Unsupported`; CONNECT refusals, early close, oversized or
+  malformed answers and upgrade failures carry typed classes
+  (`Configuration` for 403/426, retryable for outages). `NO_PROXY` is not
+  read.
+- Verification: carrier-neutral IPC tests run over unix, tcp and ws;
+  `packages/machines/test/ipc/carrier-byte-identity.test.ts` proves the ws
+  bytes equal the TCP bytes; `carrier-latency.test.ts` records the round trip
+  (200 sequential echoes: unix p50 0.061 / p95 0.105 ms, tcp 0.130 / 0.180,
+  ws 0.119 / 0.143); a real mclient attaches over wss to the Bun listener;
+  `clients/machine-client/tests/{attach,transport/connection}.rs` cover the
+  scheme selection, the plaintext and proxy refusals and the pinned wss join.
+  Not established: a live attach through a real corporate proxy, and the
+  443/ACME domain path ([ino] #1836).
+
 ## #1841 machine isolation and peer leases
 
 PR #1855 on `feat/1841-machine-isolation` (epic #1829 Phase 1). Machines know
