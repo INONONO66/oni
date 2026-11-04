@@ -1423,7 +1423,6 @@ mod private_tests {
             memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
             tmux_socket: None,
-            join_token: None,
         };
         let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
         let screen = Screen::new(Box::new(Fixture::display(32, 16, 1.0)), 1).observing(observer);
@@ -1503,7 +1502,6 @@ mod private_tests {
             memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
             tmux_socket: None,
-            join_token: None,
         };
         let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
         let service = Service::open_with(&config, pty, screen).expect("service");

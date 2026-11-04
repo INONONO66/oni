@@ -159,12 +159,13 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     entryPath: fileURLToPath(import.meta.url),
   };
   const io: DaemonIo = {
-    exec: (argv: readonly string[]): ExecResult => {
+    exec: (argv: readonly string[], env?: Readonly<Record<string, string>>): ExecResult => {
       const [command, ...rest] = argv;
       if (command === undefined) throw new CliError("exec requires a command");
       const result = spawnSync(command, rest, {
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "pipe"],
+        ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
       });
       return { code: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },

@@ -112,15 +112,13 @@ pub struct ClientConfig {
     pub unix: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tmux_socket: Option<String>,
-    /// The opaque join token `mclient join --token` was given (#1838); kept
-    /// in the 0600 `client.json` for the attach handshake (#1833) to present.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub join_token: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct JoinOptions {
     pub host: String,
+    /// Explicit override of `ONI_MCLIENT_JOIN_TOKEN`; the environment keeps
+    /// the token out of `ps` and shell history.
     #[arg(long)]
     pub token: Option<String>,
     #[arg(long)]
@@ -170,6 +168,18 @@ pub const AGENT_HOOK_SOCKET: &str = "hook.sock";
 /// Set in every launched CLI session to the socket of the client that
 /// launched it, so its hooks reach that client whatever config it runs.
 pub const AGENT_HOOK_SOCKET_VARIABLE: &str = "ONI_MCLIENT_HOOK_SOCKET";
+
+/// The opaque join token (#1838) `mclient join` presents to the attach
+/// handshake (#1833): read from the environment, never persisted.
+pub const JOIN_TOKEN_VARIABLE: &str = "ONI_MCLIENT_JOIN_TOKEN";
+
+pub fn join_token(options: &JoinOptions, env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    options
+        .token
+        .clone()
+        .or_else(|| env(JOIN_TOKEN_VARIABLE))
+        .filter(|token| !token.is_empty())
+}
 
 /// Set in every launched CLI session to the file its startup hook creates
 /// (`mclient hook ready`) once the CLI is at its prompt; the launching

@@ -352,8 +352,8 @@ pub async fn join(
         memory_budget_mb: options.memory_budget_mb,
         unix,
         tmux_socket: None,
-        join_token: options.token.clone(),
     };
+    let token = config::join_token(options, &|name| std::env::var(name).ok());
     let public_key = config::identity(&directory, &config.machine_id)?;
     config::save(&config, &directory)?;
     if let Some(trust) = trust {
@@ -365,7 +365,8 @@ pub async fn join(
         receipt: json!({
             "machineId": config.machine_id, "name": config.name, "publicKey": public_key,
             "allowedCapabilities": capabilities,
-            "allowedExports": allowed_exports.collect::<Vec<_>>()
+            "allowedExports": allowed_exports.collect::<Vec<_>>(),
+            "tokenPresented": token.is_some()
         }),
     })
 }
@@ -1122,7 +1123,6 @@ mod tests {
             memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
             tmux_socket: None,
-            join_token: None,
         };
         std::fs::write(root.path().join("one"), b"hello").expect("seed");
         let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;

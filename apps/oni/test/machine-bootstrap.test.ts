@@ -32,7 +32,7 @@ function tempDir(prefix: string): string {
 }
 
 /** A stand-in `mclient` run from the bootstrap stage: it records its argv and its own path beside the stage, under `~/.oni/machine-client`. */
-const FAKE_MCLIENT = '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$(dirname "$0")/../join-argv"\nprintf \'%s\\n\' "$0" > "$(dirname "$0")/../join-exe"\n';
+const FAKE_MCLIENT = '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$(dirname "$0")/../join-argv"\nprintf \'%s\\n\' "$0" > "$(dirname "$0")/../join-exe"\nprintf \'%s\\n\' "$ONI_MCLIENT_JOIN_TOKEN" > "$(dirname "$0")/../join-token"\n';
 const FAILING_MCLIENT = `${FAKE_MCLIENT}exit 5\n`;
 
 function clientFile(home: string, name: string): string {
@@ -41,6 +41,10 @@ function clientFile(home: string, name: string): string {
 
 function joinArgv(home: string): string {
   return readFileSync(clientFile(home, "join-argv"), "utf-8");
+}
+
+function joinToken(home: string): string {
+  return readFileSync(clientFile(home, "join-token"), "utf-8").trimEnd();
 }
 
 function stagedJoin(home: string): { readonly staged: boolean; readonly removed: boolean } {
@@ -107,9 +111,9 @@ function fakeHost(archive: Uint8Array<ArrayBuffer>, options: { readonly tamper?:
 
 function realIo(): DaemonIo {
   return {
-    exec: (argv) => {
+    exec: (argv, env) => {
       const [command, ...rest] = argv;
-      const result = spawnSync(command ?? "", rest, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
+      const result = spawnSync(command ?? "", rest, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } });
       return { code: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
     writeFile: (path, content) => writeFileSync(path, content),
@@ -180,15 +184,16 @@ describe("oni machine bootstrap", () => {
     const err: string[] = [];
     const io = realIo();
     let stagedMode = 0;
-    const deps = { ...bootstrapDeps(home, { os: "darwin", arch: "arm64" }), io: { ...io, exec: (argv: readonly string[]) => {
+    const deps = { ...bootstrapDeps(home, { os: "darwin", arch: "arm64" }), io: { ...io, exec: (argv: readonly string[], env?: Readonly<Record<string, string>>) => {
       if (argv[1] === "join") stagedMode = statSync(argv[0] ?? "").mode & 0o777;
-      return io.exec(argv);
+      return io.exec(argv, env);
     } } };
     expect(await bootstrapCommand([origin, "--token", "join-token"], deps, { stdout: (line) => out.push(line), stderr: (line) => err.push(line) })).toBe(0);
     expect(out).toEqual(["verified mclient-v0.1.0 (darwin-universal): mclient join 127.0.0.1"]);
     expect(err).toEqual([]);
     expect(stagedMode).toBe(0o755);
-    expect(joinArgv(home)).toBe("join\n127.0.0.1\n--token\njoin-token\n");
+    expect(joinArgv(home)).toBe("join\n127.0.0.1\n");
+    expect(joinToken(home)).toBe("join-token");
     expect(stagedJoin(home)).toEqual({ staged: true, removed: true });
     expect(existsSync(join(home, ".oni", "bin"))).toBe(false);
   });
@@ -200,7 +205,9 @@ describe("oni machine bootstrap", () => {
     expect(receipt.joinArgv.slice(1)).toEqual(["join", "127.0.0.1"]);
     expect(receipt.joinArgv[0]?.startsWith(clientFile(home, "bootstrap-"))).toBe(true);
     expect(receipt.join.code).toBe(0);
+    expect(receipt.tokenPresented).toBe(false);
     expect(joinArgv(home)).toBe("join\n127.0.0.1\n");
+    expect(joinToken(home)).toBe("");
     const out: string[] = [];
     const err: string[] = [];
     const io = realIo();
@@ -304,12 +311,14 @@ describe("GET /machine/install", () => {
     const { origin } = fakeHost(archive);
     const installed = await installScript(home, [origin, "--token", "join-token"]);
     expect(installed).toEqual({ code: 0, stdout: `verified mclient-v0.1.0 (${releasePlatform(process.platform, process.arch)}): mclient join 127.0.0.1\n`, stderr: "" });
-    expect(joinArgv(home)).toBe("join\n127.0.0.1\n--token\njoin-token\n");
+    expect(joinArgv(home)).toBe("join\n127.0.0.1\n");
+    expect(joinToken(home)).toBe("join-token");
     expect(stagedJoin(home)).toEqual({ staged: true, removed: true });
     expect(existsSync(join(home, ".oni", "bin"))).toBe(false);
     const plainHome = tempDir("oni-install-home-");
     expect((await installScript(plainHome, [origin])).code).toBe(0);
     expect(joinArgv(plainHome)).toBe("join\n127.0.0.1\n");
+    expect(joinToken(plainHome)).toBe("");
   });
 
   test("the script keeps a joined machine's pinned binary, refuses a downgrade unless --force, and cleans its stage after a failed join", async () => {

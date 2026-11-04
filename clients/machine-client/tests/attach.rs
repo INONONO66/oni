@@ -45,7 +45,6 @@ fn config() -> ClientConfig {
         memory_budget_mb: 96,
         unix: None,
         tmux_socket: None,
-        join_token: None,
     }
 }
 

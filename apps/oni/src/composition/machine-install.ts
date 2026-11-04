@@ -158,8 +158,9 @@ tar -xzf "$WORK/archive.tar.gz" -C "$STAGE" mclient
 chmod 0755 "$STAGE/mclient"
 echo "verified $TAG ($PLATFORM): mclient join $JOIN_HOST"
 
+# The token reaches join through its environment, never argv or client.json.
 if [ -n "$TOKEN" ]; then
-  "$STAGE/mclient" join "$JOIN_HOST" --token "$TOKEN"
+  ONI_MCLIENT_JOIN_TOKEN="$TOKEN" "$STAGE/mclient" join "$JOIN_HOST"
 else
   "$STAGE/mclient" join "$JOIN_HOST"
 fi

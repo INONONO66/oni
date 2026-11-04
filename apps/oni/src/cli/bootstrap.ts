@@ -23,11 +23,15 @@ export interface BootstrapDeps {
   readonly fetch: (url: string) => Promise<Response>;
 }
 
+/** The client reads the join token from this variable; it never rides argv or `client.json`. */
+export const JOIN_TOKEN_VARIABLE = "ONI_MCLIENT_JOIN_TOKEN";
+
 export interface BootstrapReceipt {
   readonly version: string;
   readonly tag: string | undefined;
   readonly platform: Machine.ReleasePlatform;
   readonly joinArgv: readonly string[];
+  readonly tokenPresented: boolean;
   readonly join: ExecResult;
 }
 
@@ -131,8 +135,9 @@ export async function runBootstrap(options: BootstrapOptions, deps: BootstrapDep
   const archive = await verifiedArchive(archiveUrl, artifact, deps);
   const staged = stageBinary(archive, deps.home, deps.io);
   try {
-    const joinArgv = [staged.binary, "join", joinHost(options.host), ...(options.token === undefined ? [] : ["--token", options.token])];
-    return { version: release.version, tag: release.tag, platform, joinArgv, join: deps.io.exec(joinArgv) };
+    const joinArgv = [staged.binary, "join", joinHost(options.host)];
+    const join = options.token === undefined ? deps.io.exec(joinArgv) : deps.io.exec(joinArgv, { [JOIN_TOKEN_VARIABLE]: options.token });
+    return { version: release.version, tag: release.tag, platform, joinArgv, tokenPresented: options.token !== undefined, join };
   } finally {
     rmSync(staged.directory, { recursive: true, force: true });
   }

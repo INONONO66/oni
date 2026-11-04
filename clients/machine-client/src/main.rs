@@ -514,7 +514,6 @@ mod tests {
                 memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
                 unix: Some(socket),
                 tmux_socket: None,
-                join_token: None,
             },
             &layout.client(),
         )
@@ -760,7 +759,7 @@ mod tests {
     }
 
     #[test]
-    fn join_carries_an_opaque_token_into_the_client_config() {
+    fn join_reads_the_token_from_the_environment_unless_overridden() {
         let cli = Cli::try_parse_from(["mclient", "join", "oni-host", "--token", "jt"])
             .expect("join --token parses");
         assert!(matches!(
@@ -769,26 +768,26 @@ mod tests {
         ));
         assert!(Cli::try_parse_from(["mclient", "join", "oni-host", "--token"]).is_err());
         let bare = Cli::try_parse_from(["mclient", "join", "oni-host"]).expect("join parses");
-        assert!(matches!(bare.command, Some(Command::Join(options)) if options.token.is_none()));
-        let config = config::ClientConfig {
-            machine_id: "m".into(),
-            name: "m".into(),
-            host: "oni-host:7643".into(),
-            exports: vec![],
-            tags: vec![],
-            memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
-            unix: None,
-            tmux_socket: None,
-            join_token: Some("jt".into()),
+        let Some(Command::Join(bare)) = bare.command else {
+            panic!("join parses");
         };
-        let saved = serde_json::to_value(&config).expect("serializes");
-        assert_eq!(saved["joinToken"], serde_json::json!("jt"));
-        let without = serde_json::to_value(config::ClientConfig {
-            join_token: None,
-            ..config
-        })
-        .expect("serializes");
-        assert!(without.get("joinToken").is_none());
+        assert!(bare.token.is_none());
+        let from_env =
+            |name: &str| (name == config::JOIN_TOKEN_VARIABLE).then(|| "env-token".to_string());
+        assert_eq!(
+            config::join_token(&bare, &from_env).as_deref(),
+            Some("env-token")
+        );
+        assert_eq!(config::join_token(&bare, &|_| None), None);
+        assert_eq!(config::join_token(&bare, &|_| Some(String::new())), None);
+        let Some(Command::Join(explicit)) = cli.command else {
+            panic!("join parses");
+        };
+        assert_eq!(
+            config::join_token(&explicit, &from_env).as_deref(),
+            Some("jt")
+        );
+        assert_eq!(config::JOIN_TOKEN_VARIABLE, "ONI_MCLIENT_JOIN_TOKEN");
     }
 
     #[test]

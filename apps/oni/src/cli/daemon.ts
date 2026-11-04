@@ -27,7 +27,7 @@ export interface ExecResult {
 }
 
 export interface DaemonIo {
-  readonly exec: (argv: readonly string[]) => ExecResult;
+  readonly exec: (argv: readonly string[], env?: Readonly<Record<string, string>>) => ExecResult;
   readonly writeFile: (path: string, content: string) => void;
   readonly makeDir: (path: string) => void;
   readonly removeFile: (path: string) => void;

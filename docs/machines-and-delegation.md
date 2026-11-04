@@ -725,8 +725,11 @@ allowedExports}` on stdout for the Owner's `provision machine_add`, and
 clears any saved generation. `machineId` is the slug of `--name` (default:
 the hostname). `allowedCapabilities` always lists all four supported
 capabilities so a later attach can offer whatever is available then.
-`--token` is an opaque join token saved as `joinToken` in `client.json`
-(#1838); its issuance and verification are #1833.
+The opaque join token (#1838) is read from `ONI_MCLIENT_JOIN_TOKEN` in
+join's environment (`--token` is an explicit override); join reports
+`tokenPresented` in its receipt and never writes the token to `client.json`
+or the service unit, so it stays out of `ps` and shell history. Its
+issuance and verification are #1833.
 `mclient run [--config path]` keeps the service available through attach
 failures; `--once` makes one attempt and exits nonzero on refusal. A
 memory-budget exit remains code 4. `mclient reconnect` signals the service
@@ -747,8 +750,8 @@ refuses the download unless its byte count and SHA-256 match that answer:
 `checksum_mismatch: <url>` on stderr, exit 1, nothing written. A verified
 archive is unpacked (0755) into a throwaway stage under
 `~/.oni/machine-client/` and the script prints `verified <tag> (<platform>):
-mclient join <host>` and runs `mclient join <host> [--token]` from that
-stage: join's own install/update path is the only writer of
+mclient join <host>` and runs `mclient join <host>` from that stage, the
+token handed over as `ONI_MCLIENT_JOIN_TOKEN` in join's environment: join's own install/update path is the only writer of
 `~/.oni/bin/mclient`, so a rerun on a joined machine keeps its pin and
 binary, a failed join changes nothing under `bin/`, and the stage is removed
 either way. When the host's release is older than the machine's
