@@ -760,7 +760,15 @@ older than the pinned <version> (pass --force)` before downloading; `--force`
 is the explicit intent to go down. `oni machine bootstrap
 <http(s)://host[:port]> [--token <join token>] [--force]` does the same from
 the TypeScript CLI with the same messages and the join's exit code; both
-take only the host's HTTP origin, the optional token and `--force`.
+take only the host's HTTP origin (IPv6 literals bracketed, one trailing
+slash tolerated), the optional token and `--force`. The trust root is the
+host channel itself: the digest and the archive come from the same origin,
+so the check defends against a corrupted or swapped download, not against
+a host that is already dishonest; reach the host over `https://` or a
+tailnet rather than plain HTTP across a network you do not control. Both
+surfaces give up on a stalled host (connect timeout 15 s and a 60 s cap on
+the manifest for `curl`; 60 s on the manifest and 10 min on the archive for
+the CLI) instead of hanging.
 
 **Release pin and update.** The host serves `GET /machine/release`
 from its bundled `dist/clients/release.json` and answers `machine.release`

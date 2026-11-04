@@ -82,11 +82,11 @@ function packArchive(directory: string, script = FAKE_MCLIENT): Uint8Array<Array
  * platform shares the same bytes) and `/mclient.tar.gz` serves them; a
  * `tamper` server advertises the right URL under a wrong digest.
  */
-function fakeHost(archive: Uint8Array<ArrayBuffer>, options: { readonly tamper?: boolean; readonly release?: boolean; readonly hostname?: string } = {}): { readonly origin: string; readonly downloads: () => number } {
+function fakeHost(archive: Uint8Array<ArrayBuffer>, options: { readonly tamper?: boolean; readonly shortBytes?: boolean; readonly release?: boolean; readonly hostname?: string } = {}): { readonly origin: string; readonly downloads: () => number } {
   let downloads = 0;
   const digest = createHash("sha256").update(archive).digest("hex");
   const sha256 = options.tamper === true ? digest.replace(/^./, digest.startsWith("0") ? "1" : "0") : digest;
-  const artifact = (name: string) => ({ name, bytes: archive.length, sha256, url: "/mclient.tar.gz" });
+  const artifact = (name: string) => ({ name, bytes: archive.length - (options.shortBytes === true ? 1 : 0), sha256, url: "/mclient.tar.gz" });
   const release: Machine.Release = {
     version: "0.1.0",
     contractVersion: Machine.contractVersion,
@@ -193,6 +193,9 @@ describe("oni machine bootstrap", () => {
     expect(await bootstrapCommand([origin], bootstrapDeps(home), { stdout: (line) => out.push(line), stderr: (line) => err.push(line) })).toBe(1);
     expect(err).toEqual([`checksum_mismatch: ${origin}/mclient.tar.gz`]);
     await expect(runBootstrap({ host: origin }, bootstrapDeps(home))).rejects.toThrow(refusal("checksum_mismatch", `${origin}/mclient.tar.gz`));
+    const short = fakeHost(packArchive(tempDir("oni-bootstrap-archive-")), { shortBytes: true });
+    await expect(runBootstrap({ host: short.origin }, bootstrapDeps(home))).rejects.toThrow(refusal("checksum_mismatch", `${short.origin}/mclient.tar.gz`));
+    expect((await installScript(tempDir("oni-install-home-"), [short.origin])).stderr).toBe(`checksum_mismatch: ${short.origin}/mclient.tar.gz\n`);
     const usage: string[] = [];
     expect(await bootstrapCommand(["oni-host"], bootstrapDeps(home), { stdout: () => undefined, stderr: (line) => usage.push(line) })).toBe(1);
     expect(usage).toEqual(["usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>] [--force]"]);
