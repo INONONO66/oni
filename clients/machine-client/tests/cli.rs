@@ -740,7 +740,7 @@ fn no_arguments_reports_usage_and_exits_two() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("utf-8 stderr"),
-        "usage: mclient --version | join <host> | status | run | update | reconnect\n"
+        "usage: mclient --version | join <host> | status | run | update|upgrade | reconnect\n"
     );
     assert!(output.stdout.is_empty());
 }

@@ -64,7 +64,7 @@ Usage:
   oni onboard               interactive setup → ~/.oni/env
   oni daemon <verb>         install | uninstall | status | start | stop | restart
   oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]  watch one attached display
-  oni machine bootstrap <http(s)://host[:port]> [--token <join token>]  install mclient from the host's release and join it
+      bootstrap <http(s)://host[:port]> [--token <join token>]  install mclient from the host's release and join it
   oni doctor                read-only diagnostics
   oni logs                  follow the daemon logs
   oni login <platform>      sign the Owner's own account in and declare it (slack | discord | instagram | kakaotalk | telegram)
