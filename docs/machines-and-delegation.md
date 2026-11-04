@@ -601,19 +601,20 @@ the same host certificate as the TLS-TCP listener; any other path answers
 404 and a plain GET answers 426. One NDJSON frame travels as exactly one
 BINARY message, newline included, so the frame decoder on either side
 receives the bytes the TCP carrier would deliver; a text message closes the
-socket with code 1003. The listener runs on `Bun.serve`, which does not
-expose the peer certificate of the upgraded connection, so `peer_key_mismatch`
-is not evaluated on this door: like a unix connection, a WebSocket attach is
-admitted by the enrollment selected through the offered machine id until the
-signed handshake (#1832) binds the client key. Clients dial
-`wss://host[:port]/machine` (optionally through an `HTTPS_PROXY` CONNECT
-tunnel) and pin the host key exactly as for TLS-TCP; see
-`docs/first-live-run.md` for the client-side scheme rules.
+socket with code 1003. The host terminates TLS on this door itself and
+requests the client certificate exactly as the TLS-TCP listener does: a peer
+that presents no certificate is ended during the handshake, before any HTTP
+upgrade, and the presented key's fingerprint is handed to admission, so
+`peer_key_mismatch` is evaluated on a WebSocket attach exactly as on TCP.
+Clients dial `wss://host[:port]/machine` (optionally through an `HTTPS_PROXY`
+CONNECT tunnel — the tunnel is a raw byte pipe, so the client certificate is
+presented through it unchanged) and pin the host key exactly as for TLS-TCP;
+see `docs/first-live-run.md` for the client-side scheme rules.
 
 Trust is key-pinned, not public PKI: `mclient join` records the host key pin,
 and `run` verifies that key on every TLS connection. The host pins the
 client's key through the REQUIRED `Enrollment.publicKey` (sha256
-over SPKI DER, 64 lowercase hex). On TCP, an
+over SPKI DER, 64 lowercase hex). On TCP and WebSocket, an
 offered machineId whose presented key differs from the enrollment pin is
 refused `peer_key_mismatch` before admission, and a pin-mismatched intruder
 never displaces a valid attachment. Unix connections carry no peer key; the

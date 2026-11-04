@@ -105,7 +105,7 @@ describe("host listener set (#1270)", () => {
     const host = await createMachineHost({
       listen: { ws: { host: "127.0.0.1", port: 0 } },
       tls: hostIdentity,
-      enrollment: (id) => (id === "via-ws" ? enrollment("via-ws", unixPin) : undefined),
+      enrollment: (id) => (id === "via-ws" ? enrollment("via-ws", daemonFingerprint) : undefined),
       events: events.sink,
       now: () => 3,
     });
@@ -114,6 +114,17 @@ describe("host listener set (#1270)", () => {
       expect(host.endpoints.tcp).toBeUndefined();
       const port = host.endpoints.ws?.port ?? 0;
       expect(port).toBeGreaterThan(0);
+      const intruder = await connectIpcWsClient({
+        ws: { host: "127.0.0.1", port }, tls: wrongIdentity, hostCertificate: hostIdentity.certificate,
+      });
+      try {
+        expect(await intruder.call(Machine.WireMethod.Attach, {
+          ...offer("via-ws", root), peer: { kind: "client", contractVersion: Machine.contractVersion },
+        })).toEqual({ status: "refused", reason: "peer_key_mismatch" });
+        expect(host.list()).toEqual([]);
+      } finally {
+        await intruder.close();
+      }
       const overWs = await connectIpcWsClient({
         ws: { host: "127.0.0.1", port }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate,
       }, { onRequest: (method, params, respond) => {

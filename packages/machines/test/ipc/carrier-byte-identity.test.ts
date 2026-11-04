@@ -2,8 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import tls from "node:tls";
 import { Ipc } from "@oni/protocol";
 import { pinnedTlsDial } from "../../src/ipc/client";
-import { IPC_WS_PATH } from "../../src/ipc/ws-server";
+import { OPCODE_BINARY } from "../../src/ipc/ws-frames";
 import { connectIpcTcpClient, connectIpcWsClient, createIpcTcpServer, createIpcWsServer } from "./helpers/native";
+import { rawWs } from "./helpers/raw-ws";
 import { deferred, within } from "./helpers/signal";
 import { daemonIdentity, hostIdentity } from "./helpers/tls-fixtures";
 
@@ -66,15 +67,13 @@ describe("carrier byte identity (#1830)", () => {
     socket.once("secureConnect", () => socket.write(REQUEST_BYTES));
     cleanups.push(() => socket.destroy());
 
-    const overWs = deferred<Buffer>();
-    const raw = new WebSocket(`wss://${LOOPBACK}:${wsServer.port}${IPC_WS_PATH}`, { tls: { rejectUnauthorized: false } });
-    raw.binaryType = "arraybuffer";
-    raw.onopen = () => raw.send(REQUEST_BYTES);
-    raw.onmessage = (event) => overWs.resolve(Buffer.from(event.data as ArrayBuffer));
-    cleanups.push(() => raw.close());
+    const raw = rawWs(clientSpec(wsServer.port));
+    cleanups.push(() => raw.destroy());
+    await within(raw.opened, "ws open");
+    raw.send(OPCODE_BINARY, REQUEST_BYTES);
 
     const tcpBytes = await within(overTcp.promise, "tcp response bytes");
-    const wsBytes = await within(overWs.promise, "ws response bytes");
+    const wsBytes = await within(raw.nextMessage(), "ws response bytes");
     expect(wsBytes.equals(tcpBytes)).toBe(true);
     expect(JSON.parse(wsBytes.toString())).toMatchObject({ id: REQUEST.id, result: { echoed: { carrier: "same" } } });
   });
