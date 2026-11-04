@@ -56,6 +56,15 @@ enum Command {
         #[arg(long, requires = "check")]
         host_contract: Option<u64>,
     },
+    /// `update --check --file <release>` under the name clients published before
+    /// it call while they verify this binary as their staged release.
+    #[command(hide = true)]
+    Probe {
+        #[arg(long)]
+        release: PathBuf,
+        #[arg(long)]
+        host_contract: Option<u64>,
+    },
     /// Ask the running service to reconnect now instead of after its backoff.
     Reconnect {
         #[arg(long)]
@@ -100,6 +109,10 @@ async fn main() -> ExitCode {
             host_contract,
         }) => check(from, file, host_contract).await,
         Some(Command::Update { from, file, .. }) => update(from, file).await,
+        Some(Command::Probe {
+            release,
+            host_contract,
+        }) => check(None, Some(release), host_contract).await,
         Some(Command::Reconnect { config }) => reconnect(config.as_deref()),
         Some(Command::Hook(Hook::Permission { cli })) => {
             let socket = config::agent_hook_socket();

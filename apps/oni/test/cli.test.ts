@@ -806,7 +806,8 @@ describe("cli dispatch", () => {
     const { deps: cli, err } = deps();
     expect(await runCli(["machine"], cli)).toBe(1);
     expect(await runCli(["machine", "attach", "config.json"], cli)).toBe(1);
-    expect(err).toEqual(Array(2).fill("usage: oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]"));
+    const usage = "usage: oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]";
+    expect(err).toEqual([usage, usage]);
   });
 
   test("machine probe dispatch reports invalid options without opening a socket", async () => {

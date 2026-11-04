@@ -437,6 +437,15 @@ fn update_check_verifies_release_contract_without_connecting_or_switching() {
     let orphan = mclient(&["update", "--host-contract", "4"]);
     assert_eq!(orphan.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&orphan.stderr).contains("--check"));
+    // A client staging this binary from a release before `update --check` still
+    // calls `probe --release`; the hidden alias answers exactly like the check.
+    let legacy = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["probe", "--release", path, "--host-contract", "4"])
+        .output()
+        .expect("probe --release");
+    assert_eq!(legacy.status.code(), Some(0));
+    assert_eq!(legacy.stdout, accepted.stdout);
 }
 
 #[tokio::test]
@@ -741,11 +750,15 @@ fn help_lists_user_commands_and_hides_agent_hook_plumbing() {
     let output = mclient(&["--help"]);
     assert_eq!(output.status.code(), Some(0));
     let help = String::from_utf8(output.stdout).expect("utf-8 help");
+    let listed = |name: &str| {
+        help.lines()
+            .any(|line| line.trim_start().split_whitespace().next() == Some(name))
+    };
     for command in ["join", "status", "run", "update", "reconnect"] {
-        assert!(help.contains(&format!("\n  {command}")), "{help}");
+        assert!(listed(command), "{help}");
     }
     for hidden in ["hook", "probe", "retry"] {
-        assert!(!help.contains(&format!("\n  {hidden}")), "{help}");
+        assert!(!listed(hidden), "{help}");
     }
     let update = mclient(&["update", "--help"]);
     let help = String::from_utf8(update.stdout).expect("utf-8 help");
