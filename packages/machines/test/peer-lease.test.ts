@@ -122,6 +122,24 @@ test("revoke ends a live lease with a revoked receipt and a later scheduled expi
   ]);
 });
 
+test("revokeAll ends every live lease the predicate selects, journals each as revoked and returns them in issue order", () => {
+  const { leases, receipts, tick } = store({ scheduler: false });
+  const first = leases.issue(request);
+  const second = leases.issue({ ...request, to: "C", delegationId: "d-2" });
+  const third = leases.issue({ ...request, from: "B", to: "A" });
+  expect(leases.revokeAll(() => false)).toEqual([]);
+  expect(leases.revokeAll((lease) => lease.delegationId === "d-1")).toEqual([first, third]);
+  expect(leases.list()).toEqual([second]);
+  expect(leases.revokeAll((lease) => lease.delegationId === "d-1")).toEqual([]);
+  tick(150);
+  expect(leases.revokeAll(() => true)).toEqual([]);
+  expect(receipts().filter((event) => event.name === "machine.peer_lease_ended")).toEqual([
+    { name: "machine.peer_lease_ended", machineId: "A", time: 100, leaseId: "lease-1", to: "B", reason: "revoked" },
+    { name: "machine.peer_lease_ended", machineId: "B", time: 100, leaseId: "lease-3", to: "A", reason: "revoked" },
+    { name: "machine.peer_lease_ended", machineId: "A", time: 150, leaseId: "lease-2", to: "C", reason: "expired" },
+  ]);
+});
+
 test("issue refuses a self lease and a record the contract rejects as peer_lease_invalid", () => {
   const { leases, receipts } = store();
   expect(() => leases.issue({ ...request, to: "A" })).toThrow(

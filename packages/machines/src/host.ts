@@ -1467,6 +1467,8 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       },
       unenroll(id, reason = "enrollment_removed") {
         revoked.set(id, (revoked.get(id) ?? 0) + 1);
+        // #1841: a machine leaving the host takes every lease it held or served with it.
+        peers.revokeAll((lease) => lease.from === id || lease.to === id);
         const key = connectionByMachine.get(id);
         const attachment = key === undefined ? undefined : attachments.get(key);
         if (attachment === undefined) return;

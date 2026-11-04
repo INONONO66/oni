@@ -13,6 +13,8 @@ export interface PeerLeaseStore {
   issue(request: Omit<Machine.PeerLease, "id" | "expiresAt">): Machine.PeerLease;
   /** Ends a lease early; `undefined` when no such lease is live. */
   revoke(leaseId: string): Machine.PeerLease | undefined;
+  /** Ends every live lease `where` selects (a finished delegation, a machine leaving the host), journaling each as `revoked`. */
+  revokeAll(where: (lease: Machine.PeerLease) => boolean): Machine.PeerLease[];
   /** The live lease letting `from` reach `to` for `op`, journaling its use; `undefined` refuses. */
   peerLease(
     from: Machine.MachineId,
@@ -61,6 +63,11 @@ export function createPeerLeases(options: {
     };
     return options.scheduler?.schedule(lease.ttlMs, expire);
   }
+  function revokeAll(where: (lease: Machine.PeerLease) => boolean): Machine.PeerLease[] {
+    const ended = live().filter(where);
+    for (const lease of ended) end(lease.id, "revoked");
+    return ended;
+  }
   return {
     issue(request) {
       const parsed = Machine.PeerLease.safeParse({
@@ -82,8 +89,8 @@ export function createPeerLeases(options: {
       });
       return lease;
     },
-    revoke: (leaseId) =>
-      live().some((lease) => lease.id === leaseId) ? end(leaseId, "revoked") : undefined,
+    revoke: (leaseId) => revokeAll((lease) => lease.id === leaseId)[0],
+    revokeAll,
     peerLease(from, to, op) {
       const lease = live().find(
         (entry) => entry.from === from && entry.to === to && entry.ops.includes(op),

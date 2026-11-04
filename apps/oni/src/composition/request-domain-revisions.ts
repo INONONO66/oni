@@ -72,7 +72,7 @@ export function createRequestDomainRevisions(deps: RequestDomainDeps) {
     const input = request.parsedInput;
     if (input !== null && typeof input === "object" && !Array.isArray(input)) {
       const machine = MachineOperation.safeParse(input.operation);
-      if (machine.success && (machine.data.op === "machine_add" || machine.data.op === "machine_grant" || machine.data.op === "machine_deny" || machine.data.op === "machine_peer_lease"))
+      if (machine.success && (machine.data.op === "machine_add" || machine.data.op === "machine_grant" || machine.data.op === "machine_deny" || machine.data.op === "machine_peer_lease" || machine.data.op === "machine_peer_lease_end"))
         return consentedMachineRevisions(deps.machineEnrollments, machine.data);
       const revisions = operationDomainRevisions(deps, input.operation, request.sessionId);
       if (revisions !== undefined) return revisions;

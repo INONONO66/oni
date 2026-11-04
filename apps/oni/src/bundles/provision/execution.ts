@@ -29,8 +29,9 @@ import { ComputerOperation } from "./computer-schema";
 
 function machineConsent(
   operation: z.output<typeof ProvisionInput>["operation"],
-): operation is Extract<MachineOperation, { op: "machine_add" | "machine_grant" | "machine_deny" | "machine_peer_lease" }> {
-  return operation.op === "machine_add" || operation.op === "machine_grant" || operation.op === "machine_deny" || operation.op === "machine_peer_lease";
+): operation is Extract<MachineOperation, { op: "machine_add" | "machine_grant" | "machine_deny" | "machine_peer_lease" | "machine_peer_lease_end" }> {
+  return operation.op === "machine_add" || operation.op === "machine_grant" || operation.op === "machine_deny" ||
+    operation.op === "machine_peer_lease" || operation.op === "machine_peer_lease_end";
 }
 /** Machine-family consent; #1665: allowing a child's permission request is the Owner's, denying needs none. */
 function machineApproval(
@@ -71,6 +72,7 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
       case "machine_grant":
       case "machine_deny":
       case "machine_peer_lease":
+      case "machine_peer_lease_end":
         return executeApprovedMachine(port?.machines, operation, context);
       case "machine_remove":
       case "machine_list":

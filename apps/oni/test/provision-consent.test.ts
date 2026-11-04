@@ -105,6 +105,10 @@ it("consent is a require_approval policy row on authority-granting provision ops
       { type: "require_approval", reason: "provision.machine_peer_lease requires Owner consent" },
     ],
     [
+      { op: "provision", operation: "machine_peer_lease_end" },
+      { type: "require_approval", reason: "provision.machine_peer_lease_end requires Owner consent" },
+    ],
+    [
       { op: "provision", operation: "computer_request" },
       { type: "require_approval", reason: "provision.computer_request requires Owner consent" },
     ],

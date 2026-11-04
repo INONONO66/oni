@@ -52,9 +52,16 @@ test("enrollment removal fails in-flight calls once while another real client re
     expect(host.list().find((row) => row.machineId === "worker")?.live?.stale).toBe(false);
     const pending = captureError(host.get("worker").runCode({ cellId: "held", code: "x", timeoutMs: 60_000 }));
     await within(entered.promise, "peer entered");
+    const held = host.native.peers.issue({ from: "other", to: "worker", ops: ["exec"], ttlMs: 1_000, delegationId: "d-1" });
+    const served = host.native.peers.issue({ from: "worker", to: "other", ops: ["fs"], ttlMs: 1_000, delegationId: "d-1" });
     const detached = events.next(Machine.Events.Detached.name);
     records.delete("worker");
     host.native.unenroll("worker");
+    expect(host.native.peers.list()).toEqual([]);
+    expect(events.events.filter((event) => event.name === Machine.Events.PeerLeaseEnded.name).map((event) => event.payload)).toEqual([
+      { machineId: "other", time: 10, leaseId: held.id, to: "worker", reason: "revoked" },
+      { machineId: "worker", time: 10, leaseId: served.id, to: "other", reason: "revoked" },
+    ]);
     expect((await within(detached, "revocation")).payload).toMatchObject({ reason: "enrollment_removed" });
     expect(await within(pending, "pending disconnect")).toMatchObject({ reason: "disconnected" });
     expect(host.list().map((row) => row.machineId)).toEqual(["other"]);
