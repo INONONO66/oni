@@ -189,9 +189,9 @@ describe("channels band import boundary", () => {
       detectBandViolations([
         {
           path: "src/websocket.ts",
-          text: 'import Ledger = require("@oni/agent");',
+          text: 'import Ledger = require("@oni/machines");',
         },
       ]),
-    ).toEqual(["src/websocket.ts: imports @oni/agent"]);
+    ).toEqual(["src/websocket.ts: imports @oni/machines"]);
   });
 });
