@@ -284,10 +284,12 @@ async fn connect_tls(
             address,
             server_name,
         } => Client::connect_tls(&address, &server_name, trust, &cert, &key, service).await,
-        Carrier::Wss(endpoint) => {
-            let proxy = ws::proxy_from_env();
-            Client::connect_wss(&endpoint, proxy.as_deref(), trust, &cert, &key, service).await
-        }
+        Carrier::Wss(endpoint) => match ws::proxy_from_env() {
+            Ok(proxy) => {
+                Client::connect_wss(&endpoint, proxy.as_deref(), trust, &cert, &key, service).await
+            }
+            Err(failure) => Err(TransportError::Proxy(failure)),
+        },
     })
 }
 

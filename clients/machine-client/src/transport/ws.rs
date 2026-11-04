@@ -22,6 +22,7 @@ use tokio_tungstenite::{
 };
 
 use super::{client::TransportError, framing::MAX_FRAME_BYTES};
+use crate::config;
 
 pub const PATH: &str = "/machine";
 const MAX_PROXY_HEAD: usize = 16 * 1024;
@@ -39,19 +40,31 @@ impl WsEndpoint {
     }
 }
 
-pub fn proxy_address(value: Option<&str>) -> Option<String> {
-    let value = value?.trim();
+/// Reads a proxy value as `host:port` (port 80 when omitted). Only a plain
+/// `http://` CONNECT proxy is supported: a TLS proxy or credentials are
+/// refused as [`ProxyFailure::Unsupported`], never dialed as a host name.
+pub fn proxy_address(value: Option<&str>) -> Result<Option<String>, ProxyFailure> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if value.starts_with("https://") || value.contains('@') {
+        return Err(ProxyFailure::Unsupported);
+    }
     let bare = value
         .strip_prefix("http://")
         .unwrap_or(value)
         .trim_end_matches('/');
-    (!bare.is_empty()).then(|| bare.to_owned())
+    let (host, port) = config::split_port(bare);
+    Ok((!host.is_empty()).then(|| config::with_port(host, port.unwrap_or("80"))))
 }
 
-pub fn proxy_from_env() -> Option<String> {
-    ["HTTPS_PROXY", "https_proxy"]
-        .iter()
-        .find_map(|name| proxy_address(std::env::var(name).ok().as_deref()))
+pub fn proxy_from_env() -> Result<Option<String>, ProxyFailure> {
+    for name in ["HTTPS_PROXY", "https_proxy"] {
+        if let Some(address) = proxy_address(std::env::var(name).ok().as_deref())? {
+            return Ok(Some(address));
+        }
+    }
+    Ok(None)
 }
 
 fn invalid(message: &'static str) -> io::Error {
@@ -69,6 +82,8 @@ pub enum ProxyFailure {
     ClosedEarly,
     #[error("proxy response head too large")]
     HeadTooLarge,
+    #[error("only a plain http:// proxy without credentials is supported")]
+    Unsupported,
 }
 
 /// Opens a tunnel to `target` through the HTTP proxy at `proxy` (CONNECT);

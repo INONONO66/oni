@@ -212,7 +212,7 @@ pub fn split_port(value: &str) -> (&str, Option<&str>) {
         .map_or((value, None), |(host, port)| (host, Some(port)))
 }
 
-fn with_port(host: &str, port: &str) -> String {
+pub(crate) fn with_port(host: &str, port: &str) -> String {
     if host.contains(':') {
         format!("[{host}]:{port}")
     } else {

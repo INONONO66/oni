@@ -470,14 +470,27 @@ async fn wss_text_message_is_refused_as_invalid_data() {
 
 #[test]
 fn proxy_address_normalizes_the_environment_value() {
-    assert_eq!(ws::proxy_address(None), None);
-    assert_eq!(ws::proxy_address(Some("  ")), None);
+    let address = |value: Option<&str>| ws::proxy_address(value).expect("proxy address");
+    assert_eq!(address(None), None);
+    assert_eq!(address(Some("  ")), None);
+    assert_eq!(address(Some("http://")), None);
     assert_eq!(
-        ws::proxy_address(Some("http://proxy.example:3128/")),
+        address(Some("http://proxy.example:3128/")),
         Some("proxy.example:3128".to_owned())
     );
     assert_eq!(
-        ws::proxy_address(Some("10.0.0.1:8080")),
+        address(Some("10.0.0.1:8080")),
         Some("10.0.0.1:8080".to_owned())
     );
+    assert_eq!(
+        address(Some("http://proxy.example")),
+        Some("proxy.example:80".to_owned())
+    );
+    assert_eq!(address(Some("[::1]:3128")), Some("[::1]:3128".to_owned()));
+    for unsupported in ["https://proxy.example:3128", "http://user:pass@proxy.example:3128"] {
+        assert!(matches!(
+            ws::proxy_address(Some(unsupported)),
+            Err(ws::ProxyFailure::Unsupported)
+        ));
+    }
 }
