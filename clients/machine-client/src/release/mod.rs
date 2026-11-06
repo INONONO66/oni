@@ -439,6 +439,32 @@ mod tests {
     }
 
     #[test]
+    fn update_refuses_a_tampered_sha256_before_staging_or_switching() {
+        let directory = tempfile::tempdir().expect("directory");
+        let archive = fixture(directory.path(), &staged("2.0.0", 0), "true");
+        let layout = layout(directory.path());
+        switch(&layout.current(), Path::new("/old/mclient")).expect("old current");
+        let base = directory
+            .path()
+            .join("release.json")
+            .to_string_lossy()
+            .into_owned();
+        let mut document = release_for(&archive, "2.0.0", "archive.tgz");
+        document["artifacts"]["linux-x86_64"]["sha256"] = Value::from("0".repeat(64));
+        let error = update(&layout, document, &base, Some("linux-x86_64"), Some(2))
+            .expect_err("tampered release");
+        assert!(matches!(error, UpdateError::ChecksumMismatch));
+        assert_eq!(error.class(), "checksum_mismatch");
+        assert_eq!(
+            fs::read_link(layout.current()).expect("current untouched"),
+            Path::new("/old/mclient")
+        );
+        assert!(!layout.previous().exists());
+        assert!(!layout.stage("2.0.0").exists());
+        assert_eq!(load_pin(&layout.client()).expect("no pin"), None);
+    }
+
+    #[test]
     fn update_stages_probes_switches_and_keeps_previous() {
         let directory = tempfile::tempdir().expect("directory");
         let archive = fixture(directory.path(), &staged("2.0.0", 0), "true");

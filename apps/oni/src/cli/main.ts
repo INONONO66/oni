@@ -159,12 +159,13 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     entryPath: fileURLToPath(import.meta.url),
   };
   const io: DaemonIo = {
-    exec: (argv: readonly string[]): ExecResult => {
+    exec: (argv: readonly string[], env?: Readonly<Record<string, string>>): ExecResult => {
       const [command, ...rest] = argv;
       if (command === undefined) throw new CliError("exec requires a command");
       const result = spawnSync(command, rest, {
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "pipe"],
+        ...(env === undefined ? {} : { env: { ...Object.fromEntries(mergeEnvFile("")), ...env } }),
       });
       return { code: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
@@ -368,6 +369,7 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
       if (token === undefined || token.length === 0) throw new CliError("stream probe requires ONI_WS_TOKEN");
       return connectProbe(`ws://${host}:${env.get("ONI_WS_PORT") ?? "3000"}/ws`, token);
     }),
+    bootstrap: { home, os: process.platform, arch: process.arch, io, fetch: (url, init) => fetch(url, init) },
     messagingFacts,
     supervise: () => {
       applyEnvFile(envPath);

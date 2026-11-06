@@ -261,11 +261,11 @@ describe("machine.report heartbeat", () => {
       expect(host.list()[0]?.live).toBeUndefined();
       expect(await peer.call(Machine.WireMethod.Report, v3Report)).toEqual({ status: "accepted" });
       const { machineId: _machineId, streams: _streams, ...live } = Machine.Report.parse(foldedReport);
-      expect(host.list()[0]?.live).toEqual({ ...live, stale: false });
+      expect(host.list()[0]?.live).toEqual({ ...live, stale: false, upgradeRequired: true });
       await expect(peer.call(Machine.WireMethod.Report, {
         ...v3Report, screen: { permission: "invalid" },
       })).rejects.toMatchObject({ _tag: "IpcRemoteError", method: Machine.WireMethod.Report, code: 1000, message: "IPC error 1000: invalid_report" });
-      expect(host.list()[0]?.live).toEqual({ ...live, stale: false });
+      expect(host.list()[0]?.live).toEqual({ ...live, stale: false, upgradeRequired: true });
       await peer.close();
       const current = await connectIpcClient(host.endpoints.unix ?? "");
       try {

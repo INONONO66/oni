@@ -1,5 +1,47 @@
 # Implementation Status
 
+## #1838 one-command machine install
+
+PR #1857 on `feat/1838-install-cli` (epic #1829 Phase 2). A fresh machine
+joins the host with one command; every binary the host hands out is
+sha256-verified before it is written.
+
+- Install: the host serves a POSIX script at `GET /machine/install`
+  (`apps/oni/src/composition/machine-install.ts`); `curl -fsSL
+  <host>/machine/install | sh -s -- <host> [--token]` and the CLI verb
+  `oni machine bootstrap <http(s)://host[:port]> [--token]`
+  (`apps/oni/src/cli/bootstrap.ts`) walk the same path: read
+  `/machine/release` (renamed from `/machine-client/release`, now carrying
+  the release tag), pick the artifact by platform (macOS universal, Linux by
+  architecture, nothing else), stage the archive and run `mclient join` from
+  the stage. Join's own path is the only writer of `~/.oni/bin/mclient`.
+- Refusals: a download whose byte count or sha256 differs from the release
+  record is `checksum_mismatch` before anything is written; a rerun on a
+  joined machine never touches the pinned binary, and a host release older
+  than the pin is `downgrade_refused` unless `--force`; an unsupported
+  platform, a missing release, a bad record and a broken archive are each
+  one typed refusal (`BootstrapRefusal`), other errors propagate.
+- Token: the join token rides `ONI_MCLIENT_JOIN_TOKEN` in join's environment
+  (`--token` is an explicit override) and is never written to `client.json`
+  or argv; join reports `tokenPresented` in its receipt and the conformance
+  driver reads the receipt as `Enrollment` plus that field.
+- Upgrade: `mclient upgrade` aliases `update` on the verified path; the host
+  marks a peer's report `upgradeRequired` when its contract version is older
+  than the host's and drops a peer's own claim. The `release-mclient`
+  workflow publishes `SHA256SUMS` beside the archives and verifies it before
+  creating the release.
+- Verification: `apps/oni/test/machine-bootstrap.test.ts` (script and CLI:
+  tampered sha256, stage-then-join, pinned binary kept, downgrade refusal,
+  typed refusals), `apps/oni/test/cli.test.ts`,
+  `packages/machines/test/{report,host-admission}.test.ts`
+  (`upgradeRequired` is host-owned), `clients/machine-client/tests/attach.rs`
+  (`join_presents_the_environment_token_without_persisting_it`),
+  `clients/machine-client/tests/cli.rs`,
+  `script/release-mclient-workflow.test.ts`; machine-contract fixtures for
+  `Release`, `Info.upgrade-required` and `Report.upgrade-required`. Not
+  established: a live install on a fresh machine against the oni host (the
+  [ino] 443/ACME path, #1836).
+
 ## #1830 WebSocket carrier for the machine wire
 
 PR #1856 on `feat/1830-ws-carrier` (epic #1829 Phase 1). A third door for

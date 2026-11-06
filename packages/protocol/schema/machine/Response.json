@@ -358,6 +358,10 @@
                     ],
                     "type": "object"
                   },
+                  "upgradeRequired": {
+                    "const": true,
+                    "type": "boolean"
+                  },
                   "windows": {
                     "additionalProperties": {
                       "additionalProperties": false,

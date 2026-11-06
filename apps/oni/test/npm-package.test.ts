@@ -52,7 +52,7 @@ describe("health endpoint", () => {
     expect(await response.json()).toEqual({ ok: true });
   });
 
-  test("GET /machine-client/release serves the bundled release record or refuses", async () => {
+  test("GET /machine/release serves the bundled release record under its tag or refuses", async () => {
     const directory = tempDir("oni-release-");
     const releasePath = join(directory, "release.json");
     const app = await startOni({
@@ -69,7 +69,7 @@ describe("health endpoint", () => {
       },
     });
     stopApp = () => app.stop();
-    const url = `http://127.0.0.1:${app.port}/machine-client/release`;
+    const url = `http://127.0.0.1:${app.port}/machine/release`;
     const absent = await fetch(url);
     expect(absent.status).toBe(404);
     expect(await absent.json()).toEqual({ reason: "release_unavailable" });
@@ -92,7 +92,9 @@ describe("health endpoint", () => {
     writeFileSync(releasePath, JSON.stringify(release));
     const served = await fetch(url);
     expect(served.status).toBe(200);
-    expect(await served.json()).toEqual(release);
+    expect(await served.json()).toEqual({ ...release, tag: "mclient-v0.1.0" });
+    writeFileSync(releasePath, JSON.stringify({ ...release, tag: "mclient-v9.9.9" }));
+    expect(await (await fetch(url)).json()).toEqual({ ...release, tag: "mclient-v0.1.0" });
   });
 });
 

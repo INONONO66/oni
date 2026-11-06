@@ -521,10 +521,12 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           respond({ status: "refused", reason: "invalid_report" });
           return;
         }
-        const incoming = parsed.data;
+        const { upgradeRequired: _claimed, ...incoming } = parsed.data;
         if (attachment.offer.machineId !== incoming.machineId) { respond({ status: "refused", reason: "machine_mismatch" }); return; }
         const receivedAt = options.now();
-        reports.set(source.key, { report: incoming, receivedAt });
+        // The host owns the upgrade mark: an older peer contract means `mclient upgrade` is due.
+        const report: Machine.Report = attachment.offer.peer.contractVersion < Machine.contractVersion ? { ...incoming, upgradeRequired: true } : incoming;
+        reports.set(source.key, { report, receivedAt });
         respond({ status: "accepted" });
         options.events.publish(Machine.Events.Reported, { machineId: incoming.machineId, time: receivedAt, reportedAt: incoming.reportedAt, load: incoming.load });
         yield* recoverInputs(attachment);

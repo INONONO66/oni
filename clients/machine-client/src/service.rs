@@ -514,6 +514,7 @@ mod tests {
                 assert_eq!(verdict.verdict, "partial");
                 let options = JoinOptions {
                     host: "localhost".into(),
+                    token: None,
                     json: false,
                     name: None,
                     tags: vec![],

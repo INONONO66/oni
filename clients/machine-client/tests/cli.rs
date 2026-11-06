@@ -740,7 +740,7 @@ fn no_arguments_reports_usage_and_exits_two() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(output.stderr).expect("utf-8 stderr"),
-        "usage: mclient --version | join <host> | status | run | update | reconnect\n"
+        "usage: mclient --version | join <host> | status | run | update|upgrade | reconnect\n"
     );
     assert!(output.stdout.is_empty());
 }
@@ -948,6 +948,58 @@ fn json_join_reports_setup_without_human_join_output() {
     assert!(status["needs"].as_array().is_some());
     assert!(status["verdict"].as_str().is_some());
     assert!(home.path().join(".oni/machine-client/client.json").exists());
+}
+
+#[test]
+fn join_presents_the_environment_token_without_persisting_it() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("ONI_MCLIENT_JOIN_TOKEN", "secret-join-token")
+        .args([
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--no-service",
+            "--no-open",
+        ])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("join text");
+    let receipt: serde_json::Value =
+        serde_json::from_str(stdout.lines().next().expect("receipt line")).expect("receipt JSON");
+    assert_eq!(receipt["tokenPresented"], serde_json::json!(true));
+    assert!(!stdout.contains("secret-join-token"), "{stdout}");
+    let client = std::fs::read_to_string(home.path().join(".oni/machine-client/client.json"))
+        .expect("client.json");
+    assert!(
+        !client.contains("joinToken") && !client.contains("secret-join-token"),
+        "{client}"
+    );
+    let without = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env_remove("ONI_MCLIENT_JOIN_TOKEN")
+        .args([
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--no-service",
+            "--no-open",
+        ])
+        .output()
+        .expect("mclient runs");
+    let stdout = String::from_utf8(without.stdout).expect("join text");
+    let receipt: serde_json::Value =
+        serde_json::from_str(stdout.lines().next().expect("receipt line")).expect("receipt JSON");
+    assert_eq!(receipt["tokenPresented"], serde_json::json!(false));
 }
 
 #[test]

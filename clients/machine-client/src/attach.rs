@@ -353,6 +353,7 @@ pub async fn join(
         unix,
         tmux_socket: None,
     };
+    let token = config::join_token(options, &|name| std::env::var(name).ok());
     let public_key = config::identity(&directory, &config.machine_id)?;
     config::save(&config, &directory)?;
     if let Some(trust) = trust {
@@ -364,7 +365,8 @@ pub async fn join(
         receipt: json!({
             "machineId": config.machine_id, "name": config.name, "publicKey": public_key,
             "allowedCapabilities": capabilities,
-            "allowedExports": allowed_exports.collect::<Vec<_>>()
+            "allowedExports": allowed_exports.collect::<Vec<_>>(),
+            "tokenPresented": token.is_some()
         }),
     })
 }

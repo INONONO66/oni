@@ -7,3 +7,10 @@ export const contractVersion = 4 as const;
 
 /** Peer contract versions a host admits at `machine.attach`. */
 export const supportedContractVersions = [3, 4] as const;
+
+/**
+ * Git tag prefix of a client release: a release of `Release.version` is
+ * published under `${releaseTagPrefix}${version}`, the tag `GET
+ * /machine/release` reports for the record the host was built with.
+ */
+export const releaseTagPrefix = "mclient-v" as const;

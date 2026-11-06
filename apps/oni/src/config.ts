@@ -290,7 +290,12 @@ export function resolveMclientRelease(env: Record<string, string | undefined> = 
   return join(dirname(process.argv[1] ?? process.execPath), "..", "clients", "release.json");
 }
 
-/** Read per request so a rebuilt release is served without a restart; absent or malformed = no release. */
+/**
+ * Read per request so a rebuilt release is served without a restart; absent
+ * or malformed = no release. The served record names its git tag
+ * (`releaseTagPrefix` + version) so a machine can tell which published
+ * release it installs.
+ */
 export function readClientRelease(path: string): Machine.Release | undefined {
   try {
     const parsed = Machine.Release.safeParse(JSON.parse(readFileSync(path, "utf-8")));
@@ -298,7 +303,8 @@ export function readClientRelease(path: string): Machine.Release | undefined {
     for (const artifact of Object.values(parsed.data.artifacts)) {
       if (artifact !== undefined && !/^(https?:\/\/|file:\/\/)/.test(artifact.url)) return undefined;
     }
-    return parsed.data;
+    const { tag: _local, ...record } = parsed.data;
+    return { ...record, tag: `${Machine.releaseTagPrefix}${parsed.data.version}` };
   } catch (error) {
     if (error instanceof SyntaxError || (error instanceof Error && "code" in error)) return undefined;
     throw error;

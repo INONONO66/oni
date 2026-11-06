@@ -1,4 +1,4 @@
-name: Clients Release
+name: Release mclient
 
 on:
   push:
@@ -128,8 +128,9 @@ jobs:
             linux-x86_64=built/mclient-linux-x86_64/mclient \
             linux-arm64=built/mclient-linux-arm64/mclient \
             darwin-universal=built/mclient-darwin-universal/mclient
-      - name: Verify published archive executables
+      - name: Verify published archive executables and digests
         run: |
+          (cd clients && sha256sum -c SHA256SUMS)
           for platform in linux-x86_64 linux-arm64 darwin-universal; do
             mode=$(tar -tvzf "clients/mclient-${platform}.tar.gz" | awk '$NF == "mclient" {print $1}')
             test "$mode" = "-rwxr-xr-x"
@@ -142,4 +143,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" --title "$TAG" --notes "mclient ${TAG#mclient-v}" clients/release.json clients/mclient-*.tar.gz clients/mclient-*.tar.gz.sha256
+        run: gh release create "$TAG" --title "$TAG" --notes "mclient ${TAG#mclient-v}" clients/release.json clients/SHA256SUMS clients/mclient-*.tar.gz clients/mclient-*.tar.gz.sha256

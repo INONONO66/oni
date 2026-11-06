@@ -44,6 +44,10 @@ enum Command {
         #[arg(long)]
         once: bool,
     },
+    /// Fetch the host's release, verify its sha256, switch the current
+    /// binary and restart the service; `upgrade` is the same verb under the
+    /// name the install script and `oni machine bootstrap` print.
+    #[command(alias = "upgrade")]
     Update {
         #[arg(long, conflicts_with = "file")]
         from: Option<String>,
@@ -133,7 +137,9 @@ async fn main() -> ExitCode {
             };
         }
         None => {
-            eprintln!("usage: mclient --version | join <host> | status | run | update | reconnect");
+            eprintln!(
+                "usage: mclient --version | join <host> | status | run | update|upgrade | reconnect"
+            );
             return ExitCode::from(2);
         }
     };
@@ -706,6 +712,7 @@ mod tests {
         let _proxy = RestoreEnv::set("HTTPS_PROXY", "https://proxy.example:3128".as_ref());
         let options = JoinOptions {
             host: "wss://127.0.0.1:1/machine".into(),
+            token: None,
             json: false,
             name: None,
             tags: vec![],
@@ -723,6 +730,64 @@ mod tests {
             error,
             AttachError::Transport(TransportError::Proxy(ProxyFailure::Unsupported))
         ));
+    }
+
+    #[test]
+    fn upgrade_is_the_update_verb_on_the_same_verified_path() {
+        let cli = Cli::try_parse_from(["mclient", "upgrade"]).expect("upgrade parses");
+        assert!(matches!(
+            cli.command,
+            Some(Command::Update {
+                from: None,
+                file: None,
+                check: false,
+                host_contract: None
+            })
+        ));
+        let cli = Cli::try_parse_from([
+            "mclient",
+            "upgrade",
+            "--from",
+            "https://host/machine/release",
+        ])
+        .expect("upgrade --from parses");
+        assert!(matches!(
+            cli.command,
+            Some(Command::Update { from: Some(ref location), check: false, .. })
+                if location == "https://host/machine/release"
+        ));
+        assert!(Cli::try_parse_from(["mclient", "upgrade", "--host-contract", "4"]).is_err());
+    }
+
+    fn join_options(argv: &[&str]) -> Option<config::JoinOptions> {
+        match Cli::try_parse_from(argv).ok()?.command {
+            Some(Command::Join(options)) => Some(*options),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn join_reads_the_token_from_the_environment_unless_overridden() {
+        let explicit = join_options(&["mclient", "join", "oni-host", "--token", "jt"])
+            .expect("join --token parses");
+        assert_eq!(explicit.token.as_deref(), Some("jt"));
+        assert!(join_options(&["mclient", "join", "oni-host", "--token"]).is_none());
+        assert!(join_options(&["mclient"]).is_none());
+        let bare = join_options(&["mclient", "join", "oni-host"]).expect("join parses");
+        assert!(bare.token.is_none());
+        let from_env =
+            |name: &str| (name == config::JOIN_TOKEN_VARIABLE).then(|| "env-token".to_string());
+        assert_eq!(
+            config::join_token(&bare, &from_env).as_deref(),
+            Some("env-token")
+        );
+        assert_eq!(config::join_token(&bare, &|_| None), None);
+        assert_eq!(config::join_token(&bare, &|_| Some(String::new())), None);
+        assert_eq!(
+            config::join_token(&explicit, &from_env).as_deref(),
+            Some("jt")
+        );
+        assert_eq!(config::JOIN_TOKEN_VARIABLE, "ONI_MCLIENT_JOIN_TOKEN");
     }
 
     #[test]

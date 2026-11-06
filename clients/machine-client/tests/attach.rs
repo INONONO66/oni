@@ -78,6 +78,7 @@ fn join_options(host: &str) -> JoinOptions {
         no_service: true,
         service_dir: None,
         no_open: true,
+        token: None,
     }
 }
 

@@ -717,7 +717,7 @@ paragraph and `docs/key-generation.md`). A pin mismatch at connect time is
 
 **Join and run.** `mclient join <host> [--name] [--tag]* [--export
 name=/abs/path]* [--host-pin hex | --host-cert pem]
-[--unix path] [--memory-budget-mb N]` writes `~/.oni/machine-client/`
+[--unix path] [--memory-budget-mb N] [--token <join token>]` writes `~/.oni/machine-client/`
 (directory 0700; `client.json`, `client-key.pem`, `client-cert.pem`,
 `host-pin`, `state.json` and `metrics.jsonl` all 0600), prints the
 enrollment receipt `{machineId, name, publicKey, allowedCapabilities,
@@ -725,6 +725,11 @@ allowedExports}` on stdout for the Owner's `provision machine_add`, and
 clears any saved generation. `machineId` is the slug of `--name` (default:
 the hostname). `allowedCapabilities` always lists all four supported
 capabilities so a later attach can offer whatever is available then.
+The opaque join token (#1838) is read from `ONI_MCLIENT_JOIN_TOKEN` in
+join's environment (`--token` is an explicit override); join reports
+`tokenPresented` in its receipt and never writes the token to `client.json`
+or the service unit, so it stays out of `ps` and shell history. Its
+issuance and verification are #1833.
 `mclient run [--config path]` keeps the service available through attach
 failures; `--once` makes one attempt and exits nonzero on refusal. A
 memory-budget exit remains code 4. `mclient reconnect` signals the service
@@ -733,10 +738,50 @@ backoff, or answers `service_unavailable` when absent or dead; it never
 starts another service. `mclient hook ...` is plumbing for launched CLI
 agents and is hidden from `--help`.
 
-**Release pin and update.** The host serves `GET /machine-client/release`
+**Install (#1838).** `GET /machine/install` is a POSIX `sh` script served
+by the host itself, so one command on a fresh machine needs nothing but the
+host: `curl -fsSL http://<host>:<port>/machine/install | sh -s --
+http://<host>:<port> [--token <join token>] [--force]`. The script reads the platform
+from `uname` (`darwin-universal` for either macOS architecture,
+`linux-x86_64`, `linux-arm64`; anything else is `unsupported platform:
+<os>-<arch>`), fetches the host's `/machine/release` answer, downloads the
+archive it names (a relative URL is resolved against the release URL), and
+refuses the download unless its byte count and SHA-256 match that answer:
+`checksum_mismatch: <url>` on stderr, exit 1, nothing written. A verified
+archive is unpacked (0755) into a throwaway stage under
+`~/.oni/machine-client/` and the script prints `verified <tag> (<platform>):
+mclient join <host>` and runs `mclient join <host>` from that stage, the
+token handed over as `ONI_MCLIENT_JOIN_TOKEN` in join's environment: join's own install/update path is the only writer of
+`~/.oni/bin/mclient`, so a rerun on a joined machine keeps its pin and
+binary, a failed join changes nothing under `bin/`, and the stage is removed
+either way. When the host's release is older than the machine's
+`pin.json` the script stops with `downgrade_refused: the host's <version> is
+older than the pinned <version> (pass --force)` before downloading; `--force`
+is the explicit intent to go down. `oni machine bootstrap
+<http(s)://host[:port]> [--token <join token>] [--force]` does the same from
+the TypeScript CLI with the same messages and the join's exit code; both
+take only the host's HTTP origin (IPv6 literals bracketed, one trailing
+slash tolerated), the optional token and `--force`. The trust root is the
+host channel itself: the digest and the archive come from the same origin,
+so the check defends against a corrupted or swapped download, not against
+a host that is already dishonest; reach the host over `https://` or a
+tailnet rather than plain HTTP across a network you do not control. Both
+surfaces give up on a stalled host (connect timeout 15 s and a 60 s cap on
+the manifest for `curl`; 60 s on the manifest and 10 min on the archive for
+the CLI) instead of hanging.
+
+**Release pin and update.** The host serves `GET /machine/release`
 from its bundled `dist/clients/release.json` and answers `machine.release`
-before attachment. The release names its version, machine contract version,
-and per-platform archive name, byte count, SHA-256 and URL. Join stages and
+before attachment. The release names its version, the git tag it was
+published under (`Machine.releaseTagPrefix` + version, `mclient-v<version>`,
+#1838), machine contract version, and per-platform archive name, byte count,
+SHA-256 and URL. The SHA-256 of every archive is embedded in that record at
+build time, so a machine verifies against the host's answer, never against
+the download site. `.github/workflows/release-mclient.yml` builds the three
+platform archives on a `mclient-v*` tag push and publishes `release.json`,
+`SHA256SUMS`, the archives and their `.sha256` sidecars as the release's
+assets; the macOS archive is signed with the #1724 certificate when its
+secrets exist and ad-hoc otherwise, never failing the release. Join stages and
 probes the host's binary before installing the service, and records the
 host version in `machine-client/pin.json`; if the release is unavailable it
 adopts the running binary with `pinned: false`. The service executes the
@@ -745,8 +790,9 @@ adopts the running binary with `pinned: false`. The service executes the
 `unpinned_binary` without a matching saved pin unless
 `--allow-unpinned` is set.
 
-`mclient update` reads the saved host connection; `--from URL` or
-`--file PATH` selects an explicit release document. It verifies the archive
+`mclient update` (alias `mclient upgrade`, the name the install script and
+`oni machine bootstrap` print, #1838) reads the saved host connection;
+`--from URL` or `--file PATH` selects an explicit release document. It verifies the archive
 length and SHA-256, extracts the staged binary, checks `--version --json`,
 and runs the staged binary's `update --check --file` against the release
 and, when obtained from the host, its contract version (`--host-contract`).
@@ -761,7 +807,11 @@ service or `current`. Once verified, update retains
 pin, and restarts the service. An active or
 rollback version directory cannot be overwritten during staging. If the
 service manager refuses the restart, the previous link and pin are restored
-and the attempt is recorded as a refusal.
+and the attempt is recorded as a refusal. When an attached peer's contract
+version is older than the host's, the host marks that machine's report
+`upgradeRequired: true` (visible in `machine.list` as `live.upgradeRequired`);
+the mark is host-owned — a peer's own claim is dropped at the report
+boundary — and clears once a re-attach presents the current contract.
 
 **Generation and reconnect.** The accepted `AttachResult.attached.generation`
 is saved to `state.json` and presented on every later offer; a first offer

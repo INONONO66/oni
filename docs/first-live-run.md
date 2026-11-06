@@ -150,6 +150,19 @@ record in #1702.
   or `user:pass@` is refused typed before any dial) and `NO_PROXY` is not
   read. A plaintext `ws://` address is refused as `plaintext_ws_refused`
   before any dial.
+- On a fresh machine, one command installs the client and joins (#1838):
+  `curl -fsSL http://<host>:3000/machine/install | sh -s -- http://<host>:3000`
+  (or `oni machine bootstrap http://<host>:3000` where the Oni CLI is
+  installed), with `--token <join token>` once #1833 issues tokens (the
+  token reaches `mclient join` as `ONI_MCLIENT_JOIN_TOKEN` in its
+  environment and is never written to `client.json`). The
+  download is verified against the host's `/machine/release` answer and
+  `mclient join` runs from a staging copy, so join's own install path is the
+  only thing that writes `~/.oni/bin/mclient` (a rerun keeps a joined
+  machine's pin; an older host release is `downgrade_refused` unless
+  `--force`); a tampered archive stops with `checksum_mismatch`. Later, `mclient upgrade` (the same path as `mclient
+  update`) refreshes the binary, and a machine whose contract no longer
+  matches the host's is listed with `upgradeRequired` in `machine_list`.
 - On macOS, `mclient join <host>` installs the LaunchAgent and opens Screen
   Recording settings. Grant the installed client binary access; the running
   service checks the grant every five seconds and restarts itself once it

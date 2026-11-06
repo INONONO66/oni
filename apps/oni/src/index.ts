@@ -34,6 +34,7 @@ import { timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { compactionOptions } from "./bundles/compaction/index";
+import { MACHINE_INSTALL_SCRIPT } from "./composition/machine-install";
 import { readHooksJson } from "./bundles/hooks-json/index";
 import { ownerPolicy } from "./composition/policy";
 import { ComputerPolicy } from "./bundles/approval-policy/computer-policy";
@@ -342,10 +343,11 @@ function createHttpRoutes(
 ) {
   const publicGet = new Map<string, () => Response>([
     ["/health", () => Response.json({ ok: true })],
-    ["/machine-client/release", () => {
+    ["/machine/release", () => {
       const current = release();
       return Response.json(current ?? { reason: "release_unavailable" }, current === undefined ? { status: 404 } : undefined);
     }],
+    ["/machine/install", () => new Response(MACHINE_INSTALL_SCRIPT, { headers: { "content-type": "text/plain; charset=utf-8" } })],
   ]);
   return (
     request: Request,
