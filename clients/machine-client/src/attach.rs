@@ -65,6 +65,10 @@ pub enum AttachError {
     Call(#[from] CallError),
     #[error("{0}")]
     Terminal(String),
+    /// The host granted wider than this client offered: the machine's side
+    /// of mutual approval, cleared only by `mclient grant` or a re-join.
+    #[error("consent_required")]
+    ConsentRequired,
     #[error("memory budget exceeded")]
     MemoryBudget,
     #[error("screen grant observed, restarting for it to apply")]
@@ -85,6 +89,7 @@ impl AttachError {
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::Terminal(_)
+            | Self::ConsentRequired
             | Self::Config(config::ConfigError::HostUntrusted)
             | Self::Transport(TransportError::HostKeyMismatch)
             | Self::Once(
@@ -156,13 +161,27 @@ pub fn record_consent(directory: &Path, consent: Option<&Consent>) -> io::Result
     }
 }
 
-/// The outstanding consent record, if the last attach left one.
-pub fn pending_consent(directory: &Path) -> io::Result<Option<Consent>> {
+/// The outstanding consent record, if the last attach left one; a record
+/// that no longer parses is refused as `InvalidConsent`, never read as none.
+pub fn pending_consent(directory: &Path) -> Result<Option<Consent>, config::ConfigError> {
     match fs::read(directory.join(CONSENT_FILE)) {
-        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|_| config::ConfigError::InvalidConsent),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
+        Err(error) => Err(error.into()),
     }
+}
+
+/// Consent bounds the offer: an undeclared capability is never offered, so
+/// the host's enrollment cannot reach it until `mclient grant` records it.
+/// A config without a declared set offers everything the drivers serve.
+pub fn offered(capabilities: &[String], declared: Option<&[String]>) -> Vec<String> {
+    capabilities
+        .iter()
+        .filter(|capability| declared.is_none_or(|declared| declared.contains(capability)))
+        .cloned()
+        .collect()
 }
 
 /// Told the host's grant when an attach succeeds, and when its connection ends.
@@ -423,7 +442,11 @@ pub async fn join(
         (Some(_), _) | (None, Carrier::Wss(_)) => options.host.clone(),
     };
     let name = options.name.clone().unwrap_or_else(config::hostname);
-    let declared = config::declared(&options.capabilities, capabilities)?;
+    let declared = config::declared(
+        &options.capabilities,
+        capabilities,
+        config::saved_declared(&directory)?,
+    )?;
     let config = ClientConfig {
         machine_id: config::slug(&name),
         name,
@@ -436,10 +459,15 @@ pub async fn join(
         declared: Some(declared.clone()),
     };
     let token = config::join_token(options, &|name| std::env::var(name).ok());
-    if options.rekey {
-        config::discard_identity(&directory)?;
-    }
-    let public_key = config::identity(&directory, &config.machine_id)?;
+    // A rotation is staged beside the enrolled identity and swapped in only
+    // once the host is verified and the join recorded, so a declined or
+    // failed rekey leaves the key the host knows in place.
+    let identity = if options.rekey {
+        config::Identity::stage(&directory, &config.machine_id)?
+    } else {
+        config::Identity::saved(&directory, &config.machine_id)?
+    };
+    let public_key = identity.pin().to_owned();
     if let Some(trust) = trust {
         let pin = hex::encode(verify_host(&config.host, &directory, trust).await?);
         if !options.yes && !approve(&config.host, &pin) {
@@ -449,6 +477,8 @@ pub async fn join(
     }
     config::save(&config, &directory)?;
     clear_generation(&directory)?;
+    record_consent(&directory, None)?;
+    identity.commit()?;
     let allowed_exports = config.exports.iter().map(|entry| &entry.name);
     Ok(Enrollment {
         receipt: json!({
@@ -518,7 +548,11 @@ pub enum Outcome {
 pub struct Attachment<'a, P: ?Sized> {
     config: &'a ClientConfig,
     directory: &'a Path,
+    /// Everything the drivers serve; each offer is this set bounded by consent.
     capabilities: &'a [String],
+    /// The operator's declared set, re-read from the saved config before every
+    /// attach so `mclient grant` widens a running service's next offer.
+    declared: Option<Vec<String>>,
     hooks: &'a Hooks,
     probe: &'a P,
     generation: Option<NonZeroU64>,
@@ -554,7 +588,7 @@ pub fn within_offer(
     {
         Ok(admission)
     } else {
-        Err(AttachError::Terminal("consent_required".to_owned()))
+        Err(AttachError::ConsentRequired)
     }
 }
 
@@ -599,6 +633,7 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
             config,
             directory,
             capabilities,
+            declared: config.declared.clone(),
             hooks,
             probe,
             generation: read_generation(directory)?,
@@ -620,7 +655,19 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         self.input_producer.clone()
     }
 
+    /// Picks up a consent set `mclient grant` recorded since the service
+    /// loaded its config; a config that was never saved keeps the loaded one.
+    fn reload_declared(&mut self) -> Result<(), AttachError> {
+        match config::load(&self.directory.join(config::CONFIG_FILE)) {
+            Ok(saved) => self.declared = saved.declared,
+            Err(config::ConfigError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        Ok(())
+    }
+
     pub async fn once(&mut self) -> Result<Outcome, AttachError> {
+        self.reload_declared()?;
         self.human.discard_edges();
         let (ready, attached) = watch::channel(false);
         let Some(mut client) = self.connect(attached).await? else {
@@ -671,9 +718,10 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
 
     async fn negotiate(&mut self, client: &Client) -> Result<bool, AttachError> {
         let cpus = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
+        let capabilities = offered(self.capabilities, self.declared.as_deref());
         let offered = offer(
             self.config,
-            self.capabilities,
+            &capabilities,
             self.generation,
             now_ms(),
             cpus,
@@ -691,7 +739,7 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
             }
         };
         match result(response)
-            .and_then(|admission| within_offer(admission, self.capabilities, &self.config.exports))
+            .and_then(|admission| within_offer(admission, &capabilities, &self.config.exports))
         {
             Ok(Admission {
                 negotiated,
@@ -704,7 +752,7 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
                 self.hooks.session.attached(&negotiated);
                 Ok(true)
             }
-            Err(error @ AttachError::Terminal(_)) => Err(error),
+            Err(error @ (AttachError::Terminal(_) | AttachError::ConsentRequired)) => Err(error),
             Err(error) => {
                 self.last_failure = Some(classes::classify(&error));
                 Ok(false)

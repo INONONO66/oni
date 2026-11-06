@@ -92,6 +92,9 @@ pub enum ConfigError {
     UnsupportedCapability(String),
     #[error("invalid saved client identity (client-cert.pem/client-key.pem); restore the matching pair or delete both and re-enroll with Owner")]
     InvalidIdentity,
+    /// The consent record the last attach wrote no longer parses.
+    #[error("invalid consent record (consent.json); delete it and reconnect")]
+    InvalidConsent,
     #[error("configuration I/O: {0}")]
     Io(#[from] io::Error),
     #[error("configuration JSON: {0}")]
@@ -383,10 +386,16 @@ pub fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))
 }
 
-pub fn save(config: &ClientConfig, directory: &Path) -> Result<(), ConfigError> {
+pub const CONFIG_FILE: &str = "client.json";
+
+fn private_directory(directory: &Path) -> io::Result<()> {
     fs::create_dir_all(directory)?;
-    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
-    write_private(&directory.join("client.json"), &serde_json::to_vec(config)?)?;
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+}
+
+pub fn save(config: &ClientConfig, directory: &Path) -> Result<(), ConfigError> {
+    private_directory(directory)?;
+    write_private(&directory.join(CONFIG_FILE), &serde_json::to_vec(config)?)?;
     Ok(())
 }
 
@@ -394,11 +403,29 @@ pub fn load(path: &Path) -> Result<ClientConfig, ConfigError> {
     Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
 
-/// The declared set `join` records: the operator's selection, else every
-/// supported capability. A name this client cannot serve is refused.
-pub fn declared(selected: &[String], supported: &[&str]) -> Result<Vec<String>, ConfigError> {
+/// The declared set the saved config carries, `None` before the first join.
+/// A saved config that no longer parses is refused rather than read as none,
+/// so a re-join cannot widen consent past what the operator recorded.
+pub fn saved_declared(directory: &Path) -> Result<Option<Vec<String>>, ConfigError> {
+    match load(&directory.join(CONFIG_FILE)) {
+        Ok(config) => Ok(config.declared),
+        Err(ConfigError::Io(error)) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// The declared set `join` records: the operator's selection, else the set
+/// the saved config already declares (consent survives a re-join), else
+/// every supported capability. A name this client cannot serve is refused.
+pub fn declared(
+    selected: &[String],
+    supported: &[&str],
+    saved: Option<Vec<String>>,
+) -> Result<Vec<String>, ConfigError> {
     if selected.is_empty() {
-        return Ok(supported.iter().map(|name| (*name).to_owned()).collect());
+        return Ok(
+            saved.unwrap_or_else(|| supported.iter().map(|name| (*name).to_owned()).collect())
+        );
     }
     let mut declared = Vec::new();
     for name in selected {
@@ -423,7 +450,7 @@ pub fn grant(
     if !supported.contains(&capability) {
         return Err(ConfigError::UnsupportedCapability(capability.to_owned()));
     }
-    let mut config = load(&directory.join("client.json"))?;
+    let mut config = load(&directory.join(CONFIG_FILE))?;
     let mut declared = config.declared.take().unwrap_or_else(|| {
         supported
             .iter()
@@ -438,11 +465,19 @@ pub fn grant(
     Ok(declared)
 }
 
+const CERT_FILE: &str = "client-cert.pem";
+const KEY_FILE: &str = "client-key.pem";
+
+/// Where a rotation waits until the join that minted it succeeds.
+fn staged(name: &str) -> String {
+    format!("{name}.next")
+}
+
 /// The saved identity's public-key pin, read from the certificate alone:
 /// `status` shows the operator which key the host enrolled without the
 /// private key ever leaving its 0600 file. `None` before the first `join`.
 pub fn identity_pin(directory: &Path) -> Result<Option<String>, ConfigError> {
-    let cert = match fs::read(directory.join("client-cert.pem")) {
+    let cert = match fs::read(directory.join(CERT_FILE)) {
         Ok(cert) => cert,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
@@ -456,22 +491,90 @@ pub fn identity_pin(directory: &Path) -> Result<Option<String>, ConfigError> {
     Ok(Some(hex::encode(pin)))
 }
 
-/// Discards the saved identity so the next `identity` call mints a new key.
-pub fn discard_identity(directory: &Path) -> io::Result<()> {
-    for name in ["client-cert.pem", "client-key.pem"] {
-        match fs::remove_file(directory.join(name)) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-            _ => {}
+/// The identity a `join` enrolls: the saved pair, or a staged rotation that
+/// becomes the saved pair only when [`Identity::commit`] runs. Dropping an
+/// uncommitted rotation removes its files, so a declined or failed `--rekey`
+/// leaves the key the host knows untouched.
+#[must_use = "a staged rotation is discarded unless committed"]
+pub struct Identity {
+    directory: PathBuf,
+    pin: String,
+    staged: bool,
+}
+
+impl Identity {
+    /// The saved identity, minted in place on the first join.
+    pub fn saved(directory: &Path, name: &str) -> Result<Self, ConfigError> {
+        Ok(Self {
+            directory: directory.to_owned(),
+            pin: identity(directory, name)?,
+            staged: false,
+        })
+    }
+
+    /// Mints a new key pair beside the saved one, which keeps serving until
+    /// the rotation is committed.
+    pub fn stage(directory: &Path, name: &str) -> Result<Self, ConfigError> {
+        private_directory(directory)?;
+        let (cert, key) = mint(name)?;
+        let pin = public_key_pin(cert.der()).map_err(|_| ConfigError::InvalidPin)?;
+        // Built before the files exist so a failed write drops them again.
+        let identity = Self {
+            directory: directory.to_owned(),
+            pin: hex::encode(pin),
+            staged: true,
+        };
+        write_private(&directory.join(staged(CERT_FILE)), cert.pem().as_bytes())?;
+        write_private(
+            &directory.join(staged(KEY_FILE)),
+            key.serialize_pem().as_bytes(),
+        )?;
+        Ok(identity)
+    }
+
+    /// The public-key pin the enrollment receipt carries.
+    pub fn pin(&self) -> &str {
+        &self.pin
+    }
+
+    /// Makes a staged rotation the saved identity; a saved one is left as is.
+    pub fn commit(mut self) -> io::Result<()> {
+        if self.staged {
+            for name in [CERT_FILE, KEY_FILE] {
+                fs::rename(self.directory.join(staged(name)), self.directory.join(name))?;
+            }
+            self.staged = false;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Identity {
+    fn drop(&mut self) {
+        if self.staged {
+            // Best effort by nature of `Drop`: a staged file that cannot be
+            // removed is never read, since only committed names are loaded.
+            for name in [CERT_FILE, KEY_FILE] {
+                let _ = fs::remove_file(self.directory.join(staged(name)));
+            }
         }
     }
-    Ok(())
+}
+
+fn mint(name: &str) -> Result<(rcgen::Certificate, rcgen::KeyPair), ConfigError> {
+    let mut params = rcgen::CertificateParams::new(vec![name.to_owned()])?;
+    let current = time::OffsetDateTime::now_utc();
+    params.not_before = current;
+    params.not_after = current + time::Duration::days(3652);
+    let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?;
+    let cert = params.self_signed(&key)?;
+    Ok((cert, key))
 }
 
 pub fn identity(directory: &Path, name: &str) -> Result<String, ConfigError> {
-    fs::create_dir_all(directory)?;
-    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
-    let saved_cert = fs::read(directory.join("client-cert.pem"));
-    let saved_key = fs::read(directory.join("client-key.pem"));
+    private_directory(directory)?;
+    let saved_cert = fs::read(directory.join(CERT_FILE));
+    let saved_key = fs::read(directory.join(KEY_FILE));
     match (saved_cert, saved_key) {
         (Ok(cert), Ok(key)) => {
             let certificate = rustls_pemfile::certs(&mut Cursor::new(cert))
@@ -498,17 +601,9 @@ pub fn identity(directory: &Path, name: &str) -> Result<String, ConfigError> {
         }
         _ => return Err(ConfigError::InvalidIdentity),
     }
-    let mut params = rcgen::CertificateParams::new(vec![name.to_owned()])?;
-    let current = time::OffsetDateTime::now_utc();
-    params.not_before = current;
-    params.not_after = current + time::Duration::days(3652);
-    let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?;
-    let cert = params.self_signed(&key)?;
-    write_private(&directory.join("client-cert.pem"), cert.pem().as_bytes())?;
-    write_private(
-        &directory.join("client-key.pem"),
-        key.serialize_pem().as_bytes(),
-    )?;
+    let (cert, key) = mint(name)?;
+    write_private(&directory.join(CERT_FILE), cert.pem().as_bytes())?;
+    write_private(&directory.join(KEY_FILE), key.serialize_pem().as_bytes())?;
     let pin = public_key_pin(cert.der()).map_err(|_| ConfigError::InvalidPin)?;
     Ok(hex::encode(pin))
 }

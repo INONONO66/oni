@@ -244,8 +244,6 @@ struct Drivers {
     exports: HashMap<String, PathBuf>,
     fs: FsDriver,
     pty: Arc<Pty>,
-    /// The operator's consented set; `None` offers everything available.
-    declared: Option<Vec<String>>,
 }
 
 impl Service {
@@ -362,18 +360,12 @@ impl Service {
             exports,
             fs,
             pty: Arc::new(pty),
-            declared: config.declared.clone(),
         })
     }
 
     fn assemble(
         machine_id: String,
-        Drivers {
-            exports,
-            fs,
-            pty,
-            declared,
-        }: Drivers,
+        Drivers { exports, fs, pty }: Drivers,
         (screen, input, clipboard): (Screen, Input, Clipboard),
         cdp: Cdp,
         address: std::net::IpAddr,
@@ -409,11 +401,6 @@ impl Service {
         }
         if Code::available() {
             offered.push(PYTHON_KERNEL.to_owned());
-        }
-        // Consent bounds availability: an undeclared capability is never offered,
-        // so the host's enrollment cannot reach it until `mclient grant` records it.
-        if let Some(declared) = declared {
-            offered.retain(|capability| declared.contains(capability));
         }
         let tmux_socket = pty.socket().map(str::to_owned);
         Arc::new(Self {

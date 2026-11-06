@@ -1,13 +1,11 @@
-#[allow(dead_code)]
-mod support;
+#[path = "support/tls.rs"]
+mod tls;
 
 use std::{
     io::Write,
     os::unix::fs::PermissionsExt,
     process::{Command, Output, Stdio},
 };
-
-use support::fake_host::FakeHost;
 
 fn mclient(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_mclient"))
@@ -653,11 +651,35 @@ fn run_admits_a_saved_offline_pin_before_loading_config() {
 /// `y` records exactly the pin that was shown, and `--yes` never prompts.
 #[tokio::test]
 async fn join_prompts_for_the_host_pin_unless_yes() {
+    struct TlsHost {
+        endpoint: String,
+        certificate: String,
+    }
+    /// A host for one `join` to verify: it answers one TLS handshake with a
+    /// fresh identity and serves nothing after it. The client's own key is
+    /// not enrolled here, so the acceptor refuses it once the server
+    /// certificate (all the join reads) has gone out.
+    async fn tls_host() -> TlsHost {
+        let (certificate, private_key) = tls::identity();
+        let acceptor = tls::acceptor(&certificate, &private_key, &[&rustls::version::TLS13]);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind TCP socket");
+        let endpoint = listener.local_addr().expect("listener address").to_string();
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.expect("accept TCP peer");
+            let _ = acceptor.accept(tcp).await;
+        });
+        TlsHost {
+            endpoint,
+            certificate,
+        }
+    }
     /// Joins `host` over `--host-cert` with stdin closed, or answering `answer`.
     async fn join(
         home: &std::path::Path,
         cert: &str,
-        host: &FakeHost,
+        host: &TlsHost,
         yes: bool,
         answer: Option<&[u8]>,
     ) -> Output {
@@ -694,7 +716,7 @@ async fn join_prompts_for_the_host_pin_unless_yes() {
     let certificate = home.path().join("host-cert.pem");
     let cert = certificate.to_str().expect("certificate path");
     let client = home.path().join(".oni/machine-client");
-    let host = FakeHost::tls().await;
+    let host = tls_host().await;
     let declined = join(home.path(), cert, &host, false, None).await;
     assert_eq!(declined.status.code(), Some(3));
     assert!(declined.stdout.is_empty());
@@ -716,7 +738,7 @@ async fn join_prompts_for_the_host_pin_unless_yes() {
     assert!(!client.join("host-pin").exists());
     assert!(!client.join("client.json").exists());
 
-    let host = FakeHost::tls().await;
+    let host = tls_host().await;
     let approved = join(home.path(), cert, &host, false, Some(b"y\n")).await;
     let stderr = String::from_utf8(approved.stderr).expect("stderr");
     assert_eq!(approved.status.code(), Some(0), "{stderr}");
@@ -731,7 +753,7 @@ async fn join_prompts_for_the_host_pin_unless_yes() {
     );
     assert!(client.join("client.json").exists());
 
-    let host = FakeHost::tls().await;
+    let host = tls_host().await;
     let scripted = join(home.path(), cert, &host, true, None).await;
     let stderr = String::from_utf8(scripted.stderr).expect("stderr");
     assert_eq!(scripted.status.code(), Some(0), "{stderr}");
@@ -967,7 +989,11 @@ fn join_unix_persists_private_identity_and_enrollment() {
         serde_json::from_slice(&std::fs::read(client.join("client.json")).expect("config"))
             .expect("json");
     assert_eq!(config["memoryBudgetMb"], 64);
-    assert_eq!(config["declared"].as_array().expect("declared").len(), 9);
+    assert_eq!(
+        config["declared"],
+        serde_json::json!(oni_machine_client::handlers::SUPPORTED),
+        "a join without --capability declares exactly what this client serves"
+    );
     // Key custody: the private key stays in its 0600 file; neither the
     // receipt nor the prompts carry its bytes, only the public-key pin.
     let key = std::fs::read_to_string(client.join("client-key.pem")).expect("private key");
@@ -1136,6 +1162,109 @@ fn status_reports_the_consent_the_host_still_wants() {
     );
 }
 
+/// Consent survives a re-join: without `--capability` the saved declared set
+/// is kept (including what `grant` added), and an explicit selection
+/// replaces it.
+#[test]
+fn rejoin_without_capability_keeps_the_declared_set() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let join = |capabilities: &[&str]| {
+        let mut args = vec![
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--no-service",
+            "--no-open",
+        ];
+        for capability in capabilities {
+            args.extend(["--capability", capability]);
+        }
+        let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(args)
+            .output()
+            .expect("mclient runs");
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).expect("stdout");
+        let receipt: serde_json::Value =
+            serde_json::from_str(stdout.lines().next().expect("receipt")).expect("JSON receipt");
+        receipt["allowedCapabilities"].clone()
+    };
+    let declared = || -> serde_json::Value {
+        let config: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(home.path().join(".oni/machine-client/client.json")).expect("config"),
+        )
+        .expect("json");
+        config["declared"].clone()
+    };
+    assert_eq!(join(&["fs.read"]), serde_json::json!(["fs.read"]));
+    assert_eq!(join(&[]), serde_json::json!(["fs.read"]));
+    assert_eq!(declared(), serde_json::json!(["fs.read"]));
+
+    let granted = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["grant", "shell.exec"])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(granted.status.code(), Some(0));
+    assert_eq!(join(&[]), serde_json::json!(["fs.read", "shell.exec"]));
+    assert_eq!(declared(), serde_json::json!(["fs.read", "shell.exec"]));
+
+    assert_eq!(join(&["pty.session"]), serde_json::json!(["pty.session"]));
+    assert_eq!(declared(), serde_json::json!(["pty.session"]));
+}
+
+/// A consent record or saved identity that no longer parses is a typed
+/// refusal from `status`, never a report that reads as healthy.
+#[test]
+fn status_refuses_a_corrupt_consent_record_or_identity() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let client = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&client).expect("client directory");
+    let status = || {
+        Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(["status", "--json"])
+            .output()
+            .expect("status")
+    };
+    std::fs::write(client.join("consent.json"), b"{not json").expect("corrupt consent");
+    let refused = status();
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(refused.stdout.is_empty());
+    let refusal: serde_json::Value = serde_json::from_slice(&refused.stderr).expect("JSON refusal");
+    assert_eq!(
+        refusal["reason"],
+        "invalid consent record (consent.json); delete it and reconnect"
+    );
+
+    std::fs::remove_file(client.join("consent.json")).expect("remove consent");
+    std::fs::write(client.join("client-cert.pem"), b"not a certificate").expect("corrupt cert");
+    let refused = status();
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(refused.stdout.is_empty());
+    let refusal: serde_json::Value = serde_json::from_slice(&refused.stderr).expect("JSON refusal");
+    assert_eq!(
+        refusal["reason"]
+            .as_str()
+            .map(|reason| reason.starts_with("invalid saved client identity")),
+        Some(true)
+    );
+
+    std::fs::remove_file(client.join("client-cert.pem")).expect("remove certificate");
+    let healthy = status();
+    assert_eq!(healthy.status.code(), Some(0));
+    let record: serde_json::Value = serde_json::from_slice(&healthy.stdout).expect("status JSON");
+    assert_eq!(record["identity"], serde_json::Value::Null);
+    assert_eq!(record["consentRequired"], serde_json::Value::Null);
+}
+
 #[test]
 fn rejoin_preserves_enrolled_identity_and_receipt_until_rekey() {
     let home = tempfile::tempdir().expect("isolated home");
@@ -1187,7 +1316,7 @@ fn rejoin_preserves_enrolled_identity_and_receipt_until_rekey() {
         cert
     );
     // Rotation is a re-invitation: the receipt carries a new pin the host does
-    // not know yet, and the old key is gone from disk.
+    // not know yet, and the rotated pair has replaced the old one on disk.
     let rotated = join(true);
     assert_ne!(rotated, first);
     assert_eq!(rotated.len(), 64);

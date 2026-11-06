@@ -105,10 +105,7 @@ async fn main() -> ExitCode {
     }
     let result = match cli.command {
         Some(Command::Join(options)) => join(&options).await,
-        Some(Command::Status { json }) => {
-            status(json);
-            Ok(())
-        }
+        Some(Command::Status { json }) => status(json),
         Some(Command::Run {
             config,
             allow_unpinned,
@@ -400,15 +397,14 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
             )
         })?;
     if options.json {
-        print_status(true, options.service_dir.as_deref(), options.no_service);
+        print_status(true, options.service_dir.as_deref(), options.no_service)
     } else {
         println!("service: {} ({})", state.name, state.state);
         println!("offered capabilities: {}", enrollment.declared.join(", "));
         println!("{}", service::screen(options.no_open, &service_binary)?);
         println!("{}", pin_line(&pin));
-        print_status(false, options.service_dir.as_deref(), options.no_service);
+        print_status(false, options.service_dir.as_deref(), options.no_service)
     }
-    Ok(())
 }
 
 /// The binary the service runs: on macOS the published real path, so TCC
@@ -424,17 +420,23 @@ fn service_binary(_layout: &Layout, selected: PathBuf) -> std::io::Result<PathBu
     Ok(selected)
 }
 
-fn status(json: bool) {
-    print_status(json, None, false);
+fn status(json: bool) -> Result<(), AttachError> {
+    print_status(json, None, false)
 }
 
-fn print_status(json: bool, service_dir: Option<&Path>, no_service: bool) {
+/// A consent record or identity that no longer parses is a refusal, not a
+/// blank line: the operator sees the typed reason instead of a healthy report.
+fn print_status(
+    json: bool,
+    service_dir: Option<&Path>,
+    no_service: bool,
+) -> Result<(), AttachError> {
     let (screen, input) = oni_machine_client::computer::platform();
     let mut verdict = screen.capability(input.ready());
     service::setup_needs(&mut verdict, &config::home(), service_dir, no_service);
     let directory = config::agent_registry_directory();
-    let consent = attach::pending_consent(&directory).ok().flatten();
-    let identity = config::identity_pin(&directory).ok().flatten();
+    let consent = attach::pending_consent(&directory)?;
+    let identity = config::identity_pin(&directory)?;
     let record = serde_json::json!({
         "ok": !verdict.needs.iter().any(|row| !row.on_screen),
         "version": VERSION,
@@ -469,6 +471,7 @@ fn print_status(json: bool, service_dir: Option<&Path>, no_service: bool) {
             }
         }
     }
+    Ok(())
 }
 
 fn selected_binary(
@@ -788,6 +791,9 @@ mod tests {
             no_service: true,
             service_dir: None,
             no_open: true,
+            capabilities: vec![],
+            rekey: false,
+            yes: false,
         };
         let error = join(&options).await.expect_err("proxy refused");
         assert!(matches!(

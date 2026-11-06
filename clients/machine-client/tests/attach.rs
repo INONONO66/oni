@@ -292,10 +292,134 @@ fn grant_beyond_the_offer_is_refused_consent_required() {
         admission(&["fs.read"], &["home", "notes"]),
     ] {
         let error = within_offer(wider, &offered, &exports).expect_err("wider than offered");
-        assert!(matches!(error, AttachError::Terminal(_)));
+        assert!(matches!(error, AttachError::ConsentRequired));
         assert_eq!(error.reason(), "consent_required");
         assert_eq!(error.exit_code(), 3);
+        assert_eq!(
+            oni_machine_client::transport::classes::classify(&error),
+            oni_machine_client::transport::classes::FailureClass::Configuration
+        );
     }
+}
+
+/// The offer never exceeds the declared set: a service whose drivers serve
+/// more than the operator consented to offers only the declared names, so
+/// the host's wider enrollment cannot reach the rest.
+#[test]
+fn undeclared_capabilities_are_left_out_of_the_offer() {
+    let served: Vec<String> = ["fs.read", "shell.exec", "pty.open"]
+        .map(str::to_owned)
+        .into();
+    let declared: Vec<String> = ["shell.exec", "fs.read", "screen.capture"]
+        .map(str::to_owned)
+        .into();
+    assert_eq!(
+        attach::offered(&served, Some(&declared)),
+        vec!["fs.read".to_owned(), "shell.exec".to_owned()]
+    );
+    assert_eq!(attach::offered(&served, None), served);
+    assert!(attach::offered(&served, Some(&[])).is_empty());
+}
+
+/// The same bound on the wire: a service that serves `fs.read` and
+/// `shell.exec` under a config declaring only `fs.read` offers `fs.read`
+/// alone, and the host's grant of exactly that offer attaches.
+#[tokio::test]
+async fn attach_offers_only_the_declared_capabilities() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let mut settings = unix_settings(&host, directory.path()).await;
+    settings.declared = Some(vec!["fs.read".into()]);
+    config::save(&settings, directory.path()).expect("declared config");
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let served = ["fs.read".to_owned(), "shell.exec".to_owned()];
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &served, &hooks, &probe).expect("new");
+    let exchange = async {
+        let request = expect(&mut host, "machine.attach").await;
+        assert_eq!(request["params"]["offeredCapabilities"], json!(["fs.read"]));
+        host.send(attached(&request, 2)).await;
+        expect(&mut host, "machine.report").await;
+        drop(host);
+    };
+    let (outcome, ()) = tokio::join!(attachment.once(), exchange);
+    assert!(matches!(outcome, Ok(Outcome::Ended(_))), "{outcome:?}");
+}
+
+/// The attach loop leaves the operator's to-do list behind: an attach the
+/// host settles with a `consentRequired` delta writes it to `consent.json`,
+/// the next attach without one removes the record, and a grant wider than
+/// the offer ends the attempt as `consent_required` without recording
+/// anything: the machine refuses it rather than asking for consent.
+#[tokio::test]
+async fn attach_records_the_consent_delta_the_host_still_wants() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let mut settings = unix_settings(&host, directory.path()).await;
+    settings.declared = Some(vec!["fs.read".into()]);
+    config::save(&settings, directory.path()).expect("declared config");
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let served = ["fs.read".to_owned(), "shell.exec".to_owned()];
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &served, &hooks, &probe).expect("new");
+    let exchange = async {
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(reply(
+            &request,
+            json!({
+                "status": "attached", "generation": 2,
+                "effectiveCapabilities": ["fs.read"], "effectiveExports": ["home"],
+                "consentRequired": {"capabilities": ["shell.exec"], "exports": ["notes"]}
+            }),
+        ))
+        .await;
+        expect(&mut host, "machine.report").await;
+        host.reopen().await
+    };
+    let (outcome, mut host) = tokio::join!(attachment.once(), exchange);
+    assert!(matches!(outcome, Ok(Outcome::Ended(_))), "{outcome:?}");
+    assert_eq!(
+        attach::pending_consent(directory.path()).expect("record"),
+        Some(Consent {
+            capabilities: vec!["shell.exec".into()],
+            exports: vec!["notes".into()],
+        })
+    );
+
+    let exchange = async {
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(attached(&request, 3)).await;
+        expect(&mut host, "machine.report").await;
+        host.reopen().await
+    };
+    let (outcome, mut host) = tokio::join!(attachment.once(), exchange);
+    assert!(matches!(outcome, Ok(Outcome::Ended(_))), "{outcome:?}");
+    assert!(attach::pending_consent(directory.path())
+        .expect("cleared")
+        .is_none());
+
+    let exchange = async {
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(reply(
+            &request,
+            json!({
+                "status": "attached", "generation": 4,
+                "effectiveCapabilities": ["fs.read", "shell.exec"],
+                "effectiveExports": ["home", "notes"]
+            }),
+        ))
+        .await;
+    };
+    let (outcome, ()) = tokio::join!(attachment.once(), exchange);
+    assert!(
+        matches!(outcome, Err(AttachError::ConsentRequired)),
+        "{outcome:?}"
+    );
+    assert!(attach::pending_consent(directory.path())
+        .expect("no record for a refusal")
+        .is_none());
 }
 
 /// The consent record is the operator's to-do list: written while the host
@@ -831,6 +955,91 @@ async fn join_without_operator_approval_is_refused_host_untrusted() {
     assert!(client.join("client.json").exists());
 }
 
+/// `--rekey` is a re-invitation the host has not answered yet, so the new
+/// key is staged and swapped in only after the host is verified and the join
+/// recorded: a declined host or a failed dial leaves the enrolled identity
+/// exactly as it was, with no staged files left behind.
+#[tokio::test]
+async fn declined_or_failed_rekey_leaves_the_enrolled_identity_intact() {
+    let home = tempfile::tempdir().expect("home");
+    let client = home.path().join("machine-client");
+    let first = attach::join(
+        &join_options("unix:/tmp/oni.sock"),
+        home.path(),
+        &[],
+        trusted,
+    )
+    .await
+    .expect("first join");
+    let key = std::fs::read(client.join("client-key.pem")).expect("enrolled key");
+    let cert = std::fs::read(client.join("client-cert.pem")).expect("enrolled certificate");
+    let unchanged = |receipt: &serde_json::Value| {
+        assert_eq!(receipt["publicKey"], first.receipt["publicKey"]);
+        assert_eq!(
+            std::fs::read(client.join("client-key.pem")).expect("key"),
+            key
+        );
+        assert_eq!(
+            std::fs::read(client.join("client-cert.pem")).expect("certificate"),
+            cert
+        );
+        assert!(!client.join("client-key.pem.next").exists());
+        assert!(!client.join("client-cert.pem.next").exists());
+    };
+
+    let host = FakeHost::tls().await;
+    let declined = JoinOptions {
+        host_pin: Some(hex::encode(host_pin(&host.certificate))),
+        rekey: true,
+        yes: false,
+        ..join_options(&host.endpoint)
+    };
+    let error = attach::join(&declined, home.path(), &[], |_, _| false)
+        .await
+        .expect_err("declined host");
+    assert!(matches!(
+        error,
+        AttachError::Config(config::ConfigError::HostUntrusted)
+    ));
+    unchanged(&first.receipt);
+
+    let host = FakeHost::tls().await;
+    let failed = JoinOptions {
+        host_pin: Some("00".repeat(32)),
+        rekey: true,
+        ..join_options(&host.endpoint)
+    };
+    let error = attach::join(&failed, home.path(), &[], trusted)
+        .await
+        .expect_err("pin mismatch");
+    assert_eq!(error.reason(), "peer_key_mismatch");
+    unchanged(&first.receipt);
+
+    // The same rotation succeeds once the host is verified and approved.
+    let host = FakeHost::tls().await;
+    let expected = hex::encode(host_pin(&host.certificate));
+    let approved = JoinOptions {
+        host_pin: Some(expected.clone()),
+        rekey: true,
+        yes: false,
+        ..join_options(&host.endpoint)
+    };
+    let rotated = attach::join(&approved, home.path(), &[], |_, pin| pin == expected)
+        .await
+        .expect("approved rotation");
+    assert_ne!(rotated.receipt["publicKey"], first.receipt["publicKey"]);
+    assert_ne!(
+        std::fs::read(client.join("client-key.pem")).expect("rotated key"),
+        key
+    );
+    assert_eq!(
+        config::identity_pin(&client).expect("pin").as_deref(),
+        rotated.receipt["publicKey"].as_str()
+    );
+    assert!(!client.join("client-key.pem.next").exists());
+    assert!(!client.join("client-cert.pem.next").exists());
+}
+
 #[tokio::test]
 async fn pin_mismatch_join_is_refused_as_terminal() {
     let host = FakeHost::tls().await;
@@ -1357,6 +1566,64 @@ async fn explicit_retry_reconnects_after_authentication_refusal() {
     assert_eq!(offer["params"]["capabilities"], json!(["ping"]));
 }
 
+/// `mclient grant` reaches a running service through the reconnect signal:
+/// the consent it records is read back before the next attach, so the host
+/// sees the wider offer without a service restart.
+#[tokio::test]
+async fn grant_widens_the_running_offer_on_the_reconnect_signal() {
+    let mut host = FakeHost::unix().await;
+    let directory = tempfile::tempdir().expect("client directory");
+    let mut settings = unix_settings(&host, directory.path()).await;
+    settings.declared = Some(vec!["fs.read".into()]);
+    config::save(&settings, directory.path()).expect("declared config");
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let served = ["fs.read".to_owned(), "shell.exec".to_owned()];
+    let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let run = run_with_events(
+        &settings,
+        directory.path(),
+        &served,
+        &hooks,
+        &probe,
+        &mut events,
+    );
+    let exchange = async {
+        let request = expect(&mut host, "machine.attach").await;
+        assert_eq!(request["params"]["offeredCapabilities"], json!(["fs.read"]));
+        host.send(attached(&request, 5)).await;
+        expect(&mut host, "machine.report").await;
+        let declared = config::grant(
+            directory.path(),
+            "shell.exec",
+            &oni_machine_client::handlers::SUPPORTED,
+        )
+        .expect("grant");
+        assert_eq!(
+            declared,
+            vec!["fs.read".to_owned(), "shell.exec".to_owned()]
+        );
+        let mut host = host.reopen().await;
+        sender.send(Event::Retry).expect("retry event");
+        let request = expect(&mut host, "machine.attach").await;
+        host.send(attached(&request, 6)).await;
+        expect(&mut host, "machine.report").await;
+        request
+    };
+    let offer = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::select! {
+            outcome = run => panic!("service stopped: {outcome:?}"),
+            offer = exchange => offer,
+        }
+    })
+    .await
+    .expect("the signalled reattach offers the granted capability");
+    assert_eq!(
+        offer["params"]["offeredCapabilities"],
+        json!(["fs.read", "shell.exec"])
+    );
+}
+
 #[tokio::test]
 async fn failed_metrics_append_returns_io_from_reconnect_loop() {
     let directory = tempfile::tempdir().expect("client directory");
@@ -1588,11 +1855,15 @@ fn identity_refuses_an_unwritable_key_path() {
         config::identity(directory.path(), "laptop"),
         Err(config::ConfigError::Io(_))
     ));
-    // A key that is not a file cannot be discarded either; a missing one can.
-    assert!(config::discard_identity(directory.path()).is_err());
-    std::fs::remove_dir(directory.path().join("client-key.pem")).expect("unblock key");
-    config::discard_identity(directory.path()).expect("nothing to discard");
-    assert!(!directory.path().join("client-key.pem").exists());
+    // A rotation stages beside the saved pair, so the blocked key path does
+    // not stop it; dropping it uncommitted leaves no staged file behind.
+    let staged = config::Identity::stage(directory.path(), "laptop").expect("staged rotation");
+    assert_eq!(staged.pin().len(), 64);
+    assert!(directory.path().join("client-key.pem.next").exists());
+    drop(staged);
+    assert!(!directory.path().join("client-key.pem.next").exists());
+    assert!(!directory.path().join("client-cert.pem.next").exists());
+    assert!(!directory.path().join("client-cert.pem").exists());
 }
 
 #[test]
