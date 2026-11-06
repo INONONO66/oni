@@ -712,6 +712,7 @@ mod tests {
         let _proxy = RestoreEnv::set("HTTPS_PROXY", "https://proxy.example:3128".as_ref());
         let options = JoinOptions {
             host: "wss://127.0.0.1:1/machine".into(),
+            token: None,
             json: false,
             name: None,
             tags: vec![],
