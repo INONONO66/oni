@@ -46,7 +46,7 @@ export function mclientBinary(): Promise<string> {
 }
 
 /** Mirrors `ClientConfig` in `clients/machine-client/src/config.rs`. */
-export interface MclientSettings {
+interface MclientSettings {
   readonly machineId: string;
   readonly name: string;
   readonly host: string;
@@ -94,7 +94,7 @@ function unixCarrier(options: {
 }
 
 /** What `mclient join --json` prints as `receipt`: the client's own identity and the host pin it recorded. */
-export interface MclientJoinReceipt {
+interface MclientJoinReceipt {
   readonly machineId: string;
   readonly name: string;
   readonly publicKey: Machine.KeyFingerprint;

@@ -418,10 +418,11 @@ async fn a_legacy_hex_host_pin_fails_typed_with_the_rejoin_command() {
         outcome,
         Err(AttachError::Config(config::ConfigError::LegacyHostPin))
     ));
-    assert!(matches!(
-        tokio::time::timeout(Duration::from_millis(200), host.incoming.recv()).await,
-        Err(_)
-    ));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), host.incoming.recv())
+            .await
+            .is_err()
+    );
     assert_eq!(
         std::fs::read_to_string(directory.path().join("host-pin")).expect("pin"),
         "ab".repeat(32)
