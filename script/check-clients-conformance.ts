@@ -157,6 +157,11 @@ export async function finished(
   return { code, stdout, stderr };
 }
 
+const JoinReceipt = Machine.Enrollment.omit({ enrolledAt: true }).extend({
+  tokenPresented: z.boolean(),
+  hostPin: z.string().nullable(),
+});
+
 export async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
   const joined = await within(
     finished(
@@ -181,12 +186,14 @@ export async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
   check(joined.code === 0, `mclient join exited ${joined.code}: ${joined.stderr}`);
   const receiptLine = joined.stdout.split("\n")[0];
   check(receiptLine !== undefined, "mclient join omitted the enrollment receipt");
-  const { tokenPresented, ...receipt } = Machine.Enrollment.omit({ enrolledAt: true })
-    .extend({ tokenPresented: z.boolean() })
-    .parse(JSON.parse(receiptLine));
+  // The receipt is the enrollment plus what the join itself presented and
+  // recorded: the host pin is null over the unix carrier, which has no TLS
+  // peer to pin.
+  const { tokenPresented, hostPin, ...receipt } = JoinReceipt.parse(JSON.parse(receiptLine));
   check(!tokenPresented, "mclient join reported a token it was never given");
+  check(hostPin === null, `a unix join recorded a host pin: ${hostPin}`);
   record(
-    `join wrote ${setup.config} and receipt for ${receipt.machineId} [${receipt.allowedCapabilities.join(", ")}]`,
+    `join wrote ${setup.config} and receipt for ${receipt.machineId} [${receipt.allowedCapabilities.join(", ")}] with no host pin`,
   );
   return { ...receipt, enrolledAt: Date.now() };
 }
