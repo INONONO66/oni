@@ -8,6 +8,9 @@ export const contractVersion = 5 as const;
 /** Peer contract versions a host admits at `machine.attach`. */
 export const supportedContractVersions = [3, 4, 5] as const;
 
+/** First peer contract that decodes `AttachResult.consentRequired`. */
+export const consentContractVersion = 5 as const;
+
 /**
  * Git tag prefix of a client release: a release of `Release.version` is
  * published under `${releaseTagPrefix}${version}`, the tag `GET

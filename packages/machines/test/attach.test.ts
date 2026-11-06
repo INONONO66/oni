@@ -102,15 +102,50 @@ describe("machine attach handshake", () => {
     );
   });
 
-  test("a peer below contract 5 is attached without the consent field it cannot decode", async () => {
+  test("the host publishes machine.consent_required with the same delta it told the peer", async () => {
+    await withHost(
+      () => ({ ...enrollment, allowedExports: ["work"] }),
+      async ({ path, collector }) => {
+        const peer = await connectIpcClient(path);
+        try {
+          await peer.call(Machine.WireMethod.Attach, {
+            ...offer(), peer: { kind: "client", contractVersion: Machine.contractVersion },
+          });
+          expect(collector.events.map((event) => event.name)).toEqual([Machine.Events.Attached.name, Machine.Events.ConsentRequired.name]);
+          expect(collector.events[1]).toEqual({
+            name: Machine.Events.ConsentRequired.name,
+            payload: { machineId: "mac-studio", time: 5000, capabilities: ["shell.exec"], exports: ["work"] },
+          });
+        } finally { peer.close(); }
+      },
+    );
+  });
+
+  test("an offer that covers the enrollment publishes no machine.consent_required", async () => {
     await withHost(
       () => enrollment,
-      async ({ path }) => {
+      async ({ path, collector }) => {
+        const peer = await connectIpcClient(path);
+        try {
+          await peer.call(Machine.WireMethod.Attach, {
+            ...offer({ offeredCapabilities: ["fs.read", "shell.exec"] }), peer: { kind: "client", contractVersion: Machine.contractVersion },
+          });
+          expect(collector.events.map((event) => event.name)).toEqual([Machine.Events.Attached.name]);
+        } finally { peer.close(); }
+      },
+    );
+  });
+
+  test("a peer below contract 5 is attached without the consent field it cannot decode, and no consent receipt is published", async () => {
+    await withHost(
+      () => enrollment,
+      async ({ path, collector }) => {
         const peer = await connectIpcClient(path);
         try {
           expect(await peer.call(Machine.WireMethod.Attach, {
             ...offer(), peer: { kind: "daemon", contractVersion: 4 },
           })).toEqual({ status: "attached", generation: 1, effectiveCapabilities: ["fs.read"], effectiveExports: [] });
+          expect(collector.events.map((event) => event.name)).toEqual([Machine.Events.Attached.name]);
         } finally { peer.close(); }
       },
     );

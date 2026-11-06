@@ -62,6 +62,7 @@ export namespace Machine {
   export type WindowParkResult = App.WindowParkResult;
   export const contractVersion = Contract.contractVersion;
   export const supportedContractVersions = Contract.supportedContractVersions;
+  export const consentContractVersion = Contract.consentContractVersion;
   export const releaseTagPrefix = Contract.releaseTagPrefix;
   export const ReleaseArtifact = ReleaseContract.ReleaseArtifact;
   export type ReleaseArtifact = ReleaseContract.ReleaseArtifact;

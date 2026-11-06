@@ -214,6 +214,10 @@
       "name": "EventAttached"
     },
     {
+      "file": "EventConsentRequired.json",
+      "name": "EventConsentRequired"
+    },
+    {
       "file": "EventDetached.json",
       "name": "EventDetached"
     },

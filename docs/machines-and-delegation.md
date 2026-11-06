@@ -71,6 +71,10 @@ Linux text retains dynamic key mappings for the driver's lifetime, preflights th
   owned grammar: enrollment writer, client offer, and tool `requires` all
   parse the same shape.
 - Events: `machine.attached` (carries the effective set in force),
+  `machine.consent_required` (the enrollment's excess over the offer, the
+  same delta the host told a `consentContractVersion` peer in
+  `AttachResult.consentRequired`; published only when non-empty, so the
+  Owner sees why a granted capability is not in force),
   `machine.detached` (reason `connection_closed | host_closed |
   enrollment_removed | enrollment_replaced | superseded_by_reattach |
   superseded`); new host emissions use `superseded`.

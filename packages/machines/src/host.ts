@@ -314,11 +314,10 @@ function negotiate(offer: Machine.Offer, found: Machine.Enrollment | undefined, 
  * machine's operator consents (declares) and the next offer carries it.
  */
 function consentFor(offer: Machine.Offer, enrollment: Machine.Enrollment): ConsentRequired {
-  if (offer.peer.contractVersion < CONSENT_CONTRACT) return undefined;
+  if (offer.peer.contractVersion < Machine.consentContractVersion) return undefined;
   return Machine.consentRequired(enrollment, offer);
 }
 
-const CONSENT_CONTRACT = 5;
 type ConsentRequired = Extract<Machine.AttachResult, { status: "attached" }>["consentRequired"];
 
 function attachedResult(
@@ -498,6 +497,8 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       computerWindows.set(offer.machineId, new ComputerWindows());
       computerRelays.set(offer.machineId, new ComputerRelay());
       options.events.publish(Machine.Events.Attached, { machineId: offer.machineId, time: options.now(), effectiveCapabilities: [...negotiated.capabilities] });
+      if (negotiated.consent !== undefined)
+        options.events.publish(Machine.Events.ConsentRequired, { machineId: offer.machineId, time: options.now(), ...negotiated.consent });
     }
     function recordExcess(offer: Machine.Offer, enrollment: Machine.Enrollment): Effect.Effect<void, MachineError> {
       const excess = offer.offeredCapabilities.filter((capability) => !enrollment.allowedCapabilities.includes(capability));

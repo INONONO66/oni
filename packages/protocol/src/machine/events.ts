@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BusEvent } from "../bus/index.js";
-import { CapabilityId, Enrollment, LeaseRefusal, Load, MachineId, PeerLease, PeerLeaseOp, PtyCursor, PtySessionName, uniqueCapabilities } from "./schema.js";
+import { CapabilityId, ConsentDelta, Enrollment, LeaseRefusal, Load, MachineId, PeerLease, PeerLeaseOp, PtyCursor, PtySessionName, uniqueCapabilities } from "./schema.js";
 import { EpochMs } from "../time.js";
 import { HumanInputNotification } from "./facts.js";
 import { PrivateEvent, WindowTarget } from "./observe.js";
@@ -29,6 +29,14 @@ export const Events = {
   Detached: BusEvent.define("machine.detached", EventBase.extend({
     reason: z.enum(["connection_closed", "host_closed", "enrollment_removed", "enrollment_replaced", "superseded_by_reattach", "superseded", "ping_timeout"]),
   }), {
+    visibility: "llm_reason",
+  }),
+  /**
+   * The attachment settled narrower than the enrollment: the same delta the
+   * host told the peer, so the Owner can see why a granted capability is not
+   * in force. Published only when non-empty, after `machine.attached`.
+   */
+  ConsentRequired: BusEvent.define("machine.consent_required", EventBase.extend(ConsentDelta.shape), {
     visibility: "llm_reason",
   }),
   /**
