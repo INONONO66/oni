@@ -362,11 +362,66 @@ fn trust_is_the_supplied_base64_pin_alone_and_refuses_an_unpinned_join() {
         config::parse_pin("abcd"),
         Err(config::ConfigError::InvalidPin)
     ));
-    let former_hex_fingerprint = "ab".repeat(32);
+}
+
+#[tokio::test]
+async fn a_legacy_hex_host_pin_fails_typed_with_the_rejoin_command() {
+    for legacy in ["ab".repeat(32), "AB".repeat(32), format!("{}\n", "09".repeat(32))] {
+        assert!(matches!(
+            config::parse_pin(&legacy),
+            Err(config::ConfigError::LegacyHostPin)
+        ));
+    }
+    // 64 base64 characters that are not all hex are an ordinary invalid pin.
     assert!(matches!(
-        config::parse_pin(&former_hex_fingerprint),
+        config::parse_pin(&"a+".repeat(32)),
         Err(config::ConfigError::InvalidPin)
     ));
+    let error = AttachError::from(config::ConfigError::LegacyHostPin);
+    assert_eq!(error.reason(), "host_pin_legacy");
+    assert_eq!(error.exit_code(), 3);
+    assert_eq!(
+        oni_machine_client::transport::classes::classify(&error),
+        oni_machine_client::transport::classes::FailureClass::Configuration
+    );
+    assert!(
+        error.to_string().contains("predates the SPKI pin"),
+        "{error}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("mclient join <host> --host-pin <pin>"),
+        "{error}"
+    );
+    assert_eq!(error.next_step(), error.to_string());
+    assert_eq!(
+        AttachError::from(config::ConfigError::PinRequired).next_step(),
+        "correct client configuration and host pin"
+    );
+
+    // A recorded legacy pin is never compared with the host: the one-shot
+    // attach fails typed before dialing, and the file is left for the re-join.
+    let mut host = FakeHost::tls().await;
+    let (directory, settings) = tls_client(&host, [0; 32]).await;
+    std::fs::write(directory.path().join("host-pin"), "ab".repeat(32)).expect("legacy pin");
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let outcome = attachment.once().await;
+    assert!(matches!(
+        outcome,
+        Err(AttachError::Config(config::ConfigError::LegacyHostPin))
+    ));
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_millis(200), host.incoming.recv()).await,
+        Err(_)
+    ));
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("host-pin")).expect("pin"),
+        "ab".repeat(32)
+    );
 }
 
 #[test]
@@ -605,10 +660,11 @@ async fn pinned_join_records_the_verified_host_pin() {
         .await
         .expect("join");
     assert_eq!(enrollment.receipt["machineId"], "work-mac");
-    assert_eq!(
-        std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
-        expected
-    );
+    let recorded =
+        std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin");
+    assert_eq!(recorded, expected);
+    assert_eq!(enrollment.receipt["hostPin"], json!(recorded));
+    assert_eq!(recorded.len(), 44);
 }
 
 #[tokio::test]
@@ -628,6 +684,7 @@ async fn join_accepts_a_host_certificate_renewed_for_the_pinned_key() {
         std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
         pin
     );
+    assert_eq!(enrollment.receipt["hostPin"], json!(pin));
 }
 
 #[tokio::test]
@@ -663,7 +720,7 @@ async fn wss_join_records_the_pin_over_the_websocket_carrier() {
     std::fs::create_dir_all(&directory).expect("client directory");
     std::fs::write(directory.join("client-cert.pem"), &host.certificate).expect("cert");
     std::fs::write(directory.join("client-key.pem"), &host.private_key).expect("key");
-    attach::join(&options, home.path(), &[])
+    let enrollment = attach::join(&options, home.path(), &[])
         .await
         .expect("join over wss");
     let saved =
@@ -671,10 +728,10 @@ async fn wss_join_records_the_pin_over_the_websocket_carrier() {
     assert_eq!(saved.host, format!("wss://{}/machine", host.endpoint));
     assert_eq!(saved.host, host.ws_endpoint().url());
     assert_eq!(saved.unix, None);
-    assert_eq!(
-        std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
-        config::encode_pin(&pin_of(&host.certificate))
-    );
+    let recorded =
+        std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin");
+    assert_eq!(recorded, config::encode_pin(&pin_of(&host.certificate)));
+    assert_eq!(enrollment.receipt["hostPin"], json!(recorded));
 }
 
 #[tokio::test]
@@ -682,13 +739,14 @@ async fn unix_scheme_join_selects_the_unix_carrier_without_a_pin() {
     let host = FakeHost::unix().await;
     let home = tempfile::tempdir().expect("home");
     let options = join_options(&format!("unix:{}", host.endpoint));
-    attach::join(&options, home.path(), &[])
+    let enrollment = attach::join(&options, home.path(), &[])
         .await
         .expect("join over unix:");
     let saved =
         config::load(&home.path().join("machine-client/client.json")).expect("saved config");
     assert_eq!(saved.unix, Some(PathBuf::from(&host.endpoint)));
     assert!(!home.path().join("machine-client/host-pin").exists());
+    assert_eq!(enrollment.receipt["hostPin"], Value::Null);
 }
 
 #[tokio::test]

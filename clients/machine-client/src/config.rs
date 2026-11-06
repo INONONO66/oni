@@ -82,6 +82,8 @@ pub enum ConfigError {
     PinRequired,
     #[error("invalid host pin")]
     InvalidPin,
+    #[error("the recorded host-pin predates the SPKI pin and is not verified; re-join with: mclient join <host> --host-pin <pin>")]
+    LegacyHostPin,
     #[error("invalid export")]
     InvalidExport,
     #[error("invalid saved client identity (client-cert.pem/client-key.pem); restore the matching pair or delete both and re-enroll with Owner")]
@@ -202,8 +204,12 @@ pub fn encode_pin(pin: &[u8; 32]) -> String {
 }
 
 pub fn parse_pin(pin: &str) -> Result<[u8; 32], ConfigError> {
+    let pin = pin.trim();
+    if pin.len() == 64 && pin.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(ConfigError::LegacyHostPin);
+    }
     let bytes = STANDARD
-        .decode(pin.trim())
+        .decode(pin)
         .map_err(|_| ConfigError::InvalidPin)?;
     bytes.try_into().map_err(|_| ConfigError::InvalidPin)
 }

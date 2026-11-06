@@ -822,6 +822,7 @@ fn join_unix_persists_private_identity_and_enrollment() {
         .expect("machine id")
         .is_empty());
     assert_eq!(receipt["allowedExports"], serde_json::json!(["notes"]));
+    assert_eq!(receipt["hostPin"], serde_json::Value::Null);
     assert_eq!(
         receipt["allowedCapabilities"]
             .as_array()
@@ -948,6 +949,13 @@ fn json_join_reports_setup_without_human_join_output() {
     assert!(status["needs"].as_array().is_some());
     assert!(status["verdict"].as_str().is_some());
     assert!(home.path().join(".oni/machine-client/client.json").exists());
+    let receipt = &status["receipt"];
+    assert!(!receipt["machineId"]
+        .as_str()
+        .expect("machine id")
+        .is_empty());
+    assert_eq!(receipt["hostPin"], serde_json::Value::Null);
+    assert!(!home.path().join(".oni/machine-client/host-pin").exists());
 }
 
 #[test]
@@ -1484,6 +1492,79 @@ fn one_shot_without_recorded_host_pin_refuses_configuration() {
     assert_eq!(output.status.code(), Some(3));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
     assert_eq!(error["reason"], "configuration");
+}
+
+#[test]
+fn legacy_hex_host_pin_refuses_with_the_rejoin_command() {
+    let directory = tempfile::tempdir().expect("client directory");
+    let path = directory.path().join("client.json");
+    std::fs::write(
+        &path,
+        r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null}"#,
+    )
+    .expect("config");
+    std::fs::write(directory.path().join("host-pin"), "ab".repeat(32)).expect("legacy pin");
+    let output = mclient(&[
+        "run",
+        "--allow-unpinned",
+        "--once",
+        "--config",
+        path.to_str().expect("path"),
+    ]);
+    assert_eq!(output.status.code(), Some(3));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
+    assert_eq!(error["reason"], "host_pin_legacy");
+    assert_eq!(error["class"], "configuration");
+    let next_step = error["nextStep"].as_str().expect("next step");
+    assert!(next_step.contains("predates the SPKI pin"), "{next_step}");
+    assert!(
+        next_step.contains("mclient join <host> --host-pin <pin>"),
+        "{next_step}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("host-pin")).expect("pin kept"),
+        "ab".repeat(32)
+    );
+}
+
+#[tokio::test]
+async fn service_with_a_legacy_host_pin_reports_the_rejoin_command_and_waits() {
+    use tokio::io::AsyncBufReadExt;
+    let directory = tempfile::tempdir().expect("client directory");
+    let path = directory.path().join("client.json");
+    std::fs::write(
+        &path,
+        r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null}"#,
+    )
+    .expect("config");
+    std::fs::write(directory.path().join("host-pin"), "ab".repeat(32)).expect("legacy pin");
+    let mut service = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .args([
+            "run",
+            "--allow-unpinned",
+            "--config",
+            path.to_str().expect("path"),
+        ])
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("service starts");
+    let stderr = service.stderr.take().expect("service stderr");
+    let mut lines = tokio::io::BufReader::new(stderr).lines();
+    let first = tokio::time::timeout(std::time::Duration::from_secs(5), lines.next_line())
+        .await
+        .expect("first configuration observation")
+        .expect("stderr")
+        .expect("line");
+    let fact: serde_json::Value = serde_json::from_str(&first).expect("class fact");
+    assert_eq!(fact["class"], "configuration");
+    let next_step = fact["nextStep"].as_str().expect("next step");
+    assert!(next_step.contains("predates the SPKI pin"), "{next_step}");
+    assert!(
+        next_step.contains("mclient join <host> --host-pin <pin>"),
+        "{next_step}"
+    );
+    assert!(service.try_wait().expect("service status").is_none());
+    service.kill().await.expect("stop service");
 }
 
 const CLAUDE_INPUT: &str =

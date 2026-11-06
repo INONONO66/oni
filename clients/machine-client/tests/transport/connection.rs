@@ -212,11 +212,10 @@ async fn a_host_certificate_for_a_different_key_is_refused_before_any_frame() {
     )
     .await;
     assert!(matches!(error, Err(TransportError::HostKeyMismatch)));
-    assert_eq!(
-        host.incoming.recv().await,
-        None,
-        "the handshake was all the host saw"
-    );
+    let observed = tokio::time::timeout(Duration::from_secs(5), host.incoming.recv())
+        .await
+        .expect("the host's accept loop ends within the bound after the refused handshake");
+    assert_eq!(observed, None, "the handshake was all the host saw");
 }
 
 #[tokio::test]

@@ -13,6 +13,7 @@ use oni_machine_client::{
     handlers,
     release::{self, Identity, Layout, UpdateError, VERSION},
     service,
+    transport::classes,
 };
 
 #[derive(Parser)]
@@ -149,6 +150,9 @@ async fn main() -> ExitCode {
             let refusal = match &error {
                 AttachError::Update(update) => serde_json::json!({
                     "reason": error.reason(), "class": update.class(), "detail": update.to_string()
+                }),
+                AttachError::Config(config::ConfigError::LegacyHostPin) => serde_json::json!({
+                    "reason": error.reason(), "class": classes::classify(&error), "nextStep": error.next_step()
                 }),
                 _ => serde_json::json!({"reason": error.reason()}),
             };
@@ -355,7 +359,9 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
             )
         })?;
     if options.json {
-        print_status(true, options.service_dir.as_deref(), options.no_service);
+        let mut record = status_record(options.service_dir.as_deref(), options.no_service);
+        record["receipt"] = enrollment.receipt;
+        println!("{record}");
     } else {
         println!("service: {} ({})", state.name, state.state);
         println!("offered capabilities: {}", handlers::SUPPORTED.join(", "));
@@ -383,18 +389,22 @@ fn status(json: bool) {
     print_status(json, None, false);
 }
 
-fn print_status(json: bool, service_dir: Option<&Path>, no_service: bool) {
+fn status_record(service_dir: Option<&Path>, no_service: bool) -> serde_json::Value {
     let (screen, input) = oni_machine_client::computer::platform();
     let mut verdict = screen.capability(input.ready());
     service::setup_needs(&mut verdict, &config::home(), service_dir, no_service);
-    let record = serde_json::json!({
+    serde_json::json!({
         "ok": !verdict.needs.iter().any(|row| !row.on_screen),
         "version": VERSION,
         "os": OS,
         "verdict": verdict.verdict,
         "blockers": verdict.blockers,
         "needs": verdict.needs,
-    });
+    })
+}
+
+fn print_status(json: bool, service_dir: Option<&Path>, no_service: bool) {
+    let record = status_record(service_dir, no_service);
     if json {
         println!("{record}");
     } else {
