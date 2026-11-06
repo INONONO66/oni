@@ -163,6 +163,25 @@ record in #1702.
   `--force`); a tampered archive stops with `checksum_mismatch`. Later, `mclient upgrade` (the same path as `mclient
   update`) refreshes the binary, and a machine whose contract no longer
   matches the host's is listed with `upgradeRequired` in `machine_list`.
+- `mclient join` over a network carrier is interactive: once the host's
+  key is verified it prints `host:` and `host pin:` on stderr and asks
+  `trust this host? [y/N]`; only `y`/`yes` records the pin, and a declined
+  or unanswered prompt (closed stdin) exits `host_untrusted` with nothing
+  written. Scripts pass `--yes` to trust the verified pin without the
+  prompt. The offer is bounded by consent: `--capability <name>`
+  (repeatable) declares the capabilities the client may offer; without it
+  the first join declares every supported one and a later re-join keeps the
+  set the previous join saved. The host answers with `consent_required` when
+  its enrollment allows more than the offer declares; `mclient status`
+  prints each missing item as `consent required: capability <name> — mclient
+  grant <name>` (exports: re-join with `--export`), and the host publishes
+  the same delta as a `machine.consent_required` event. `mclient grant
+  <capability>` records the consent and asks the running service to
+  re-attach with the wider offer at once; nothing restarts. `mclient join
+  --rekey` replaces the client identity key: the new key is staged beside the
+  enrolled one and swapped in only after the host is verified and the join
+  recorded, so a declined prompt or a failed join keeps the key the host
+  knows. The rotated key attaches only once the Owner enrolls it again.
 - On macOS, `mclient join <host>` installs the LaunchAgent and opens Screen
   Recording settings. Grant the installed client binary access; the running
   service checks the grant every five seconds and restarts itself once it
