@@ -8,11 +8,35 @@ import { createMachineHost as nativeHost } from "../src/host";
 import { createMemoryGenerationStore } from "../src/generation-store";
 import { createMachineHost, refusingToolPort } from "./helpers/native";
 import { connectIpcTcpClient, connectIpcWsClient } from "./ipc/helpers/native";
-import { type AttachedMclient, attachMclient, mclientBinary, mclientEnrollment } from "./helpers/mclient";
+import { type AttachedMclient, type JoinedMclient, attachMclient, joinMclient, mclientBinary, mclientEnrollment, mclientRunOnce } from "./helpers/mclient";
 import { eventCollector } from "./helpers/events";
 import { exit as runExit } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
 import { daemonIdentity, daemonFingerprint, hostChainIdentity, hostIdentity, hostPin, hostRenewedIdentity, wrongIdentity } from "./ipc/helpers/tls-fixtures";
+
+/** A ws host whose enrollment of `machineId` is the one a real join reports: the client's own key, read after the join. */
+async function wsHostForJoin(options: {
+  readonly identity: { readonly certificate: string; readonly privateKey: string };
+  readonly port: number;
+  readonly machineId: string;
+  readonly joined: () => JoinedMclient | undefined;
+  readonly events: ReturnType<typeof eventCollector>;
+  readonly generations?: ReturnType<typeof createMemoryGenerationStore>;
+}) {
+  return createMachineHost({
+    listen: { ws: { host: "127.0.0.1", port: options.port } },
+    tls: options.identity,
+    enrollment: (id) => {
+      const joined = options.joined();
+      return id === options.machineId && joined !== undefined
+        ? mclientEnrollment(options.machineId, { publicKey: joined.receipt.publicKey })
+        : undefined;
+    },
+    events: options.events.sink,
+    ...(options.generations === undefined ? {} : { generations: options.generations }),
+    now: () => 4,
+  });
+}
 
 const silent = { publish: () => undefined };
 function sequentialIds(prefix: string): () => string {
@@ -148,23 +172,20 @@ describe("host listener set (#1270)", () => {
     }
   });
 
-  test("the real mclient attaches over wss, presents its client certificate and serves fs and exec (#1830)", async () => {
+  test("the real mclient joins a wss host, records its pin in the receipt, then attaches with its own certificate and serves fs and exec (#1830, #1831)", async () => {
     const root = mkdtempSync(join(tmpdir(), "om-listen-mclient-wss-"));
     writeFileSync(join(root, "note"), "wss-mclient");
     const events = eventCollector();
-    const host = await createMachineHost({
-      listen: { ws: { host: "127.0.0.1", port: 0 } },
-      tls: hostIdentity,
-      enrollment: (id) => (id === "desk-wss" ? mclientEnrollment("desk-wss", { publicKey: daemonFingerprint }) : undefined),
-      events: events.sink,
-      now: () => 4,
-    });
+    let joined: JoinedMclient | undefined;
+    const host = await wsHostForJoin({ identity: hostIdentity, port: 0, machineId: "desk-wss", joined: () => joined, events });
     let client: AttachedMclient | undefined;
     try {
-      client = await attachMclient({
-        host, events, machineId: "desk-wss", root,
-        wss: { port: host.endpoints.ws?.port ?? 0, hostPin, identity: daemonIdentity },
-      });
+      joined = await joinMclient({ host: `wss://127.0.0.1:${host.endpoints.ws?.port ?? 0}/machine`, hostPin, machineId: "desk-wss", root });
+      // The receipt names the pin the join recorded, in the host-pin file's exact bytes.
+      expect(joined.receipt.hostPin).toBe(hostPin);
+      expect(joined.recordedHostPin()).toBe(hostPin);
+      expect(joined.receipt).toMatchObject({ machineId: "desk-wss", allowedExports: ["workspace"] });
+      client = await attachMclient({ host, events, machineId: "desk-wss", root, joined });
       expect(host.list().map((machine) => machine.machineId)).toEqual(["desk-wss"]);
       const read = await host.get("desk-wss").fs.read(join(root, "note"));
       expect(Buffer.from(read.data).toString()).toBe("wss-mclient");
@@ -174,46 +195,54 @@ describe("host listener set (#1270)", () => {
     } finally {
       await client?.stop();
       await host.close();
+      joined?.remove();
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("host certificate rotation: successive hosts serve a renewed certificate and then an ACME-style chain for the same key, and the real mclient reattaches with the pin it recorded at join under the unchanged enrollment", async () => {
+  test("host certificate rotation: after ONE real join, hosts serving a renewed certificate and then an ACME-style chain for the same key admit the client on the pin it recorded, and a host with a different key is refused peer_key_mismatch (#1831)", async () => {
     const root = mkdtempSync(join(tmpdir(), "om-listen-rotate-"));
     writeFileSync(join(root, "note"), "rotated");
     const generations = createMemoryGenerationStore();
-    const enrolled = mclientEnrollment("desk-rotate", { publicKey: daemonFingerprint });
+    const events = eventCollector();
+    let joined: JoinedMclient | undefined;
+    const serve = (identity: typeof hostIdentity, port: number) =>
+      wsHostForJoin({ identity, port, machineId: "desk-rotate", joined: () => joined, events, generations });
     const attached: number[] = [];
+    // The one host still listening; every host below closes before the next binds the same port.
+    let listening: Awaited<ReturnType<typeof serve>> | undefined = await serve(hostIdentity, 0);
+    const port = listening.endpoints.ws?.port ?? 0;
     try {
+      joined = await joinMclient({ host: `wss://127.0.0.1:${port}/machine`, hostPin, machineId: "desk-rotate", root });
+      expect(joined.receipt.hostPin).toBe(hostPin);
+      const recorded = joined.recordedHostPin();
+      expect(recorded).toBe(hostPin);
+      // Same key, three certificates: the join's host-pin is never rewritten.
       for (const identity of [hostIdentity, hostRenewedIdentity, hostChainIdentity]) {
-        const events = eventCollector();
-        const host = await createMachineHost({
-          listen: { ws: { host: "127.0.0.1", port: 0 } },
-          tls: identity,
-          enrollment: (id) => (id === "desk-rotate" ? enrolled : undefined),
-          events: events.sink,
-          generations,
-          now: () => 4,
-        });
+        const host = listening ?? await serve(identity, port);
+        listening = host;
         let client: AttachedMclient | undefined;
         try {
-          // The pin file the client wrote at join never changes: it names the
-          // host KEY, which every rotated certificate still carries.
-          client = await attachMclient({
-            host, events, machineId: "desk-rotate", root,
-            wss: { port: host.endpoints.ws?.port ?? 0, hostPin, identity: daemonIdentity },
-          });
+          client = await attachMclient({ host, events, machineId: "desk-rotate", root, joined });
           attached.push(client.info.generation);
           const read = await host.get("desk-rotate").fs.read(join(root, "note"));
           expect(Buffer.from(read.data).toString()).toBe("rotated");
         } finally {
           await client?.stop();
           await host.close();
+          listening = undefined;
         }
       }
       // Three successive attachments of ONE enrolled machine, never a new enrollment.
       expect(attached).toEqual([1, 2, 3]);
+      expect(joined.recordedHostPin()).toBe(recorded);
+      // A different host key behind the same endpoint: refused by the recorded pin before any frame.
+      listening = await serve(wrongIdentity, port);
+      expect(await mclientRunOnce(joined.configPath)).toEqual({ exitCode: 3, refusal: { reason: "peer_key_mismatch" } });
+      expect(listening.list()).toEqual([]);
     } finally {
+      await listening?.close();
+      joined?.remove();
       rmSync(root, { recursive: true, force: true });
     }
   });

@@ -963,7 +963,8 @@ fn once_result(
         )),
         Err(
             error @ (AttachError::MemoryBudget
-            | AttachError::Config(config::ConfigError::LegacyHostPin)),
+            | AttachError::Config(config::ConfigError::LegacyHostPin)
+            | AttachError::Transport(TransportError::HostKeyMismatch)),
         ) => Err(error),
         Err(error) => Err(AttachError::Once(classes::classify(&error))),
     }
@@ -1416,6 +1417,24 @@ mod tests {
             once_result(Err(AttachError::ServiceUnavailable), None),
             Err(AttachError::Once(FailureClass::Configuration))
         ));
+    }
+
+    #[test]
+    fn a_host_key_mismatch_ends_the_one_shot_under_its_own_name() {
+        let mismatch = once_result(
+            Err(AttachError::Transport(TransportError::HostKeyMismatch)),
+            None,
+        )
+        .expect_err("refused");
+        assert!(matches!(
+            mismatch,
+            AttachError::Transport(TransportError::HostKeyMismatch)
+        ));
+        assert_eq!(
+            (mismatch.exit_code(), mismatch.reason().as_str()),
+            (3, "peer_key_mismatch")
+        );
+        assert!(service_reprobe(&mismatch));
     }
 
     #[test]
