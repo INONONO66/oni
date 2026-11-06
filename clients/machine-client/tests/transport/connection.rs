@@ -263,7 +263,10 @@ macro_rules! host_fixture {
 fn the_committed_host_fixture_pin_is_one_literal_shared_with_the_typescript_test() {
     let encode = |pem: &str| oni_machine_client::config::encode_pin(&pin_of(pem));
     assert_eq!(encode(host_fixture!("host-cert.pem")), HOST_FIXTURE_PIN);
-    assert_eq!(encode(host_fixture!("host-renewed-cert.pem")), HOST_FIXTURE_PIN);
+    assert_eq!(
+        encode(host_fixture!("host-renewed-cert.pem")),
+        HOST_FIXTURE_PIN
+    );
     assert_eq!(encode(host_fixture!("host-chain.pem")), HOST_FIXTURE_PIN);
     assert_ne!(encode(host_fixture!("wrong-cert.pem")), HOST_FIXTURE_PIN);
 }

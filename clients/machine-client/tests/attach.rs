@@ -366,7 +366,11 @@ fn trust_is_the_supplied_base64_pin_alone_and_refuses_an_unpinned_join() {
 
 #[tokio::test]
 async fn a_legacy_hex_host_pin_fails_typed_with_the_rejoin_command() {
-    for legacy in ["ab".repeat(32), "AB".repeat(32), format!("{}\n", "09".repeat(32))] {
+    for legacy in [
+        "ab".repeat(32),
+        "AB".repeat(32),
+        format!("{}\n", "09".repeat(32)),
+    ] {
         assert!(matches!(
             config::parse_pin(&legacy),
             Err(config::ConfigError::LegacyHostPin)

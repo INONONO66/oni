@@ -208,9 +208,7 @@ pub fn parse_pin(pin: &str) -> Result<[u8; 32], ConfigError> {
     if pin.len() == 64 && pin.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(ConfigError::LegacyHostPin);
     }
-    let bytes = STANDARD
-        .decode(pin)
-        .map_err(|_| ConfigError::InvalidPin)?;
+    let bytes = STANDARD.decode(pin).map_err(|_| ConfigError::InvalidPin)?;
     bytes.try_into().map_err(|_| ConfigError::InvalidPin)
 }
 

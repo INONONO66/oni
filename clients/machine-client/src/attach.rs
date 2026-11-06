@@ -1455,7 +1455,9 @@ mod tests {
         assert!(service_reprobe(&legacy()));
         assert_eq!(legacy().reason(), "host_pin_legacy");
         assert_eq!(legacy().exit_code(), 3);
-        assert!(legacy().next_step().contains("mclient join <host> --host-pin <pin>"));
+        assert!(legacy()
+            .next_step()
+            .contains("mclient join <host> --host-pin <pin>"));
     }
 
     #[test]
