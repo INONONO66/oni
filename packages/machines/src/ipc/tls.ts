@@ -1,5 +1,6 @@
 import { createHash, X509Certificate } from "node:crypto";
 import { Machine } from "@oni/protocol";
+import { IpcConfigurationError } from "./errors";
 
 /**
  * The PEM identity one peer presents during the mutual-TLS handshake (#1270).
@@ -34,4 +35,21 @@ export function certificateKeyFingerprint(certificateDer: Uint8Array): Machine.K
  */
 export function hostPinOf(certificateDer: Uint8Array): string {
   return createHash("sha256").update(subjectPublicKeyInfo(certificateDer)).digest("base64");
+}
+
+const HOST_PIN_LENGTH = 44;
+const HOST_PIN_BYTES = 32;
+
+/**
+ * Judges a configured host pin before any socket exists: the standard base64
+ * of one 32-byte digest, so a mistyped or pre-SPKI value fails as
+ * configuration and never as a peer mismatch at connect time.
+ */
+export function hostPinSetting(pin: string): IpcConfigurationError | undefined {
+  const decoded = Buffer.from(pin, "base64");
+  if (pin.length === HOST_PIN_LENGTH && decoded.length === HOST_PIN_BYTES && decoded.toString("base64") === pin) return undefined;
+  return new IpcConfigurationError({
+    message: `hostPin must be the standard base64 of a sha256 over the host key's SPKI DER (${HOST_PIN_LENGTH} characters), got ${JSON.stringify(pin)}`,
+    field: "hostPin",
+  });
 }

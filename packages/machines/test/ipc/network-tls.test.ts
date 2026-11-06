@@ -3,6 +3,7 @@ import { X509Certificate } from "node:crypto";
 import net from "node:net";
 import tls from "node:tls";
 import {
+  IpcConfigurationError,
   IpcConnectionError,
   IpcPeerKeyMismatchError,
   connectIpcClient,
@@ -14,7 +15,10 @@ import { hostPinOf } from "../../src";
 import { captureError, deferred, within } from "./helpers/signal";
 import { expectOversizeFailFast } from "./helpers/oversize";
 import { socketPath } from "./helpers/socket-path";
-import { daemonIdentity, daemonFingerprint, hostChainIdentity, hostIdentity, hostIssuedIdentity, hostIssuedPin, hostPin, hostRenewedIdentity, wrongIdentity, wrongFingerprint, wrongPin } from "./helpers/tls-fixtures";
+import { daemonIdentity, daemonFingerprint, hostChainIdentity, hostIdentity, hostIssuedIdentity, hostIssuedPin, hostPin, hostRenewedIdentity, unverifiedTlsOptions, wrongIdentity, wrongFingerprint, wrongPin } from "./helpers/tls-fixtures";
+
+/** The pin of host-cert.pem, computed once by `openssl` and asserted by the Rust client over the same fixture. */
+const HOST_FIXTURE_PIN = "r9E1hURv+fC1akcg+pV4WrFyDYMF+bylOUOXJ0MOBs4=";
 
 describe("TLS-over-TCP IPC transport", () => {
   const cleanups: (() => Promise<void> | void)[] = [];
@@ -113,7 +117,7 @@ describe("TLS-over-TCP IPC transport", () => {
     expect(await client.call("machine.attach")).toEqual({ status: "attached" });
 
     // The pin judges the leaf; the issuer behind it reaches the peer too.
-    const probe = tls.connect({ host: "127.0.0.1", port: server.port, cert: daemonIdentity.certificate, key: daemonIdentity.privateKey, rejectUnauthorized: false });
+    const probe = tls.connect({ host: "127.0.0.1", port: server.port, ...unverifiedTlsOptions(daemonIdentity) });
     cleanups.push(() => probe.destroy());
     const chain = await within(new Promise<tls.DetailedPeerCertificate>((resolve) => probe.once("secureConnect", () => resolve(probe.getPeerCertificate(true)))), "chain probe");
     expect(hostPinOf(chain.raw)).toBe(hostPin);
@@ -125,7 +129,7 @@ describe("TLS-over-TCP IPC transport", () => {
     let tcpConnections = 0;
     const secured = deferred<void>();
     const impostorHost = tls.createServer(
-      { cert: wrongIdentity.certificate, key: wrongIdentity.privateKey, requestCert: true, rejectUnauthorized: false },
+      { ...unverifiedTlsOptions(wrongIdentity), requestCert: true },
       (socket) => {
         socket.on("data", (chunk) => framesReceived.push(chunk));
         socket.on("error", () => undefined);
@@ -189,7 +193,7 @@ describe("TLS-over-TCP IPC transport", () => {
   test("a client that presents no certificate never becomes a connection", async () => {
     const { server, fingerprintsSeen } = await pinnedServer();
     const closed = deferred<void>();
-    const certless = tls.connect({ host: "127.0.0.1", port: server.port, rejectUnauthorized: false }, () => {
+    const certless = tls.connect({ host: "127.0.0.1", port: server.port, ...unverifiedTlsOptions() }, () => {
       // The probe judges the host exactly as production does: by the key pin.
       expect(hostPinOf(certless.getPeerCertificate(true).raw)).toBe(hostPin);
       // Mutual TLS was not satisfied; this frame must fall on the floor.
@@ -252,6 +256,28 @@ describe("TLS-over-TCP IPC transport", () => {
     cleanups.push(client.close);
 
     await expectOversizeFailFast(client, disconnected.promise);
+  });
+
+  test("a host pin that is not 44 characters of standard base64 over 32 bytes is refused as configuration before any socket (#1831)", async () => {
+    let tcpConnections = 0;
+    const listener = net.createServer(() => { tcpConnections += 1; });
+    await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
+    cleanups.push(() => new Promise<void>((resolve) => listener.close(() => resolve())));
+    const port = (listener.address() as net.AddressInfo).port;
+    const legacyHex = "0".repeat(64);
+    for (const pin of [legacyHex, hostPin.slice(1), `${hostPin.slice(0, 43)}!`, ""]) {
+      const failure = await captureError(connectIpcTcpClient({ tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostPin: pin }));
+      expect(failure).toBeInstanceOf(IpcConfigurationError);
+      expect((failure as InstanceType<typeof IpcConfigurationError>).field).toBe("hostPin");
+      expect((failure as InstanceType<typeof IpcConfigurationError>).message).toContain("44 characters");
+    }
+    expect(tcpConnections).toBe(0);
+  });
+
+  test("the committed host fixture's pin is one literal, equal in the TypeScript and Rust hashes and unchanged by its renewed certificate (#1831)", () => {
+    expect(hostPin).toBe(HOST_FIXTURE_PIN);
+    expect(hostPinOf(new X509Certificate(hostRenewedIdentity.certificate).raw)).toBe(HOST_FIXTURE_PIN);
+    expect(hostPinOf(new X509Certificate(hostChainIdentity.certificate).raw)).toBe(HOST_FIXTURE_PIN);
   });
 
   test("unix connections expose no peer fingerprint — the pin is a TLS-only fact", async () => {

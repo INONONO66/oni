@@ -1,6 +1,7 @@
 import { X509Certificate } from "node:crypto";
 import fs from "node:fs";
-import { certificateKeyFingerprint, hostPinOf } from "../../../src";
+import type tls from "node:tls";
+import { certificateKeyFingerprint, hostPinOf, type IpcTlsIdentity } from "../../../src";
 import type { Machine } from "@oni/protocol";
 
 function fixture(name: string): string {
@@ -29,3 +30,15 @@ export const wrongPin = hostPinOfPem(wrongIdentity.certificate);
 export const hostIssuedPin = hostPinOfPem(hostIssuedIdentity.certificate);
 export const daemonFingerprint = fingerprintOfPem(daemonIdentity.certificate);
 export const wrongFingerprint = fingerprintOfPem(wrongIdentity.certificate);
+
+/**
+ * The one place test code opens TLS without CA validation: a raw probe that
+ * judges the peer by its pin, or deliberately not at all, to observe exactly
+ * what the host presents or how it refuses.
+ */
+export function unverifiedTlsOptions(identity?: IpcTlsIdentity): tls.ConnectionOptions & tls.TlsOptions {
+  return {
+    ...(identity === undefined ? {} : { cert: identity.certificate, key: identity.privateKey }),
+    rejectUnauthorized: false,
+  };
+}

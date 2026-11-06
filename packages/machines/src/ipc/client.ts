@@ -8,7 +8,7 @@ import { decodeIpcFailure } from "../failure";
 import { makeDispatcher, type Dispatch } from "./callbacks";
 import { LineDecoder, encode } from "./framing";
 import { classifyIpcMessage, PeerRequestTable } from "./peer-request-table";
-import { hostPinOf, type IpcTlsIdentity } from "./tls";
+import { hostPinOf, hostPinSetting, type IpcTlsIdentity } from "./tls";
 
 export interface IpcClient {
   call(method: string, params?: Ipc.Request["params"], timeoutMs?: number): Effect.Effect<Ipc.Response["result"], IpcError>;
@@ -112,6 +112,7 @@ export function pinnedTlsDial(target: PinnedTlsTarget): () => PinnedTlsSocket {
       port: target.port,
       cert: target.tls.certificate,
       key: target.tls.privateKey,
+      // CA validation is replaced by the SPKI pin judged on `secureConnect`, before the first byte.
       rejectUnauthorized: false,
     });
     socket.once("secureConnect", () => {
@@ -124,8 +125,12 @@ export function pinnedTlsDial(target: PinnedTlsTarget): () => PinnedTlsSocket {
 }
 
 export function connectIpcTcpClient(spec: IpcTcpConnectSpec, opts: ConnectIpcClientOptions): Effect.Effect<IpcClient, IpcError, Scope.Scope> {
-  const dial = pinnedTlsDial({ ...spec.tcp, tls: spec.tls, hostPin: spec.hostPin });
-  return connectOverTransport({ endpoint: `${spec.tcp.host}:${spec.tcp.port}`, readyEvent: HOST_PINNED, start: dial }, opts);
+  return Effect.suspend(() => {
+    const refusal = hostPinSetting(spec.hostPin);
+    if (refusal !== undefined) return refusal;
+    const dial = pinnedTlsDial({ ...spec.tcp, tls: spec.tls, hostPin: spec.hostPin });
+    return connectOverTransport({ endpoint: `${spec.tcp.host}:${spec.tcp.port}`, readyEvent: HOST_PINNED, start: dial }, opts);
+  });
 }
 
 function hostPinMismatch(presentedDer: Uint8Array, expected: string): IpcPeerKeyMismatchError | undefined {

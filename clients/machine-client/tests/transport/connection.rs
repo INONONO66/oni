@@ -244,6 +244,30 @@ async fn a_certificate_renewed_for_the_pinned_key_passes_the_pin() {
     assert_eq!(call.expect("result"), Some(json!("renewed")));
 }
 
+/// The pin of the committed `host-cert.pem` fixture, computed once by
+/// `openssl` and asserted by `packages/machines/test/ipc/network-tls.test.ts`
+/// over the same file, so the two hashes are proven equal without a binary.
+const HOST_FIXTURE_PIN: &str = "r9E1hURv+fC1akcg+pV4WrFyDYMF+bylOUOXJ0MOBs4=";
+
+macro_rules! host_fixture {
+    ($name:literal) => {
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../packages/machines/test/ipc/fixtures/",
+            $name
+        ))
+    };
+}
+
+#[test]
+fn the_committed_host_fixture_pin_is_one_literal_shared_with_the_typescript_test() {
+    let encode = |pem: &str| oni_machine_client::config::encode_pin(&pin_of(pem));
+    assert_eq!(encode(host_fixture!("host-cert.pem")), HOST_FIXTURE_PIN);
+    assert_eq!(encode(host_fixture!("host-renewed-cert.pem")), HOST_FIXTURE_PIN);
+    assert_eq!(encode(host_fixture!("host-chain.pem")), HOST_FIXTURE_PIN);
+    assert_ne!(encode(host_fixture!("wrong-cert.pem")), HOST_FIXTURE_PIN);
+}
+
 #[tokio::test]
 async fn an_issued_chain_for_the_pinned_key_passes_the_pin() {
     let (mut host, replaced) = FakeHost::tls_chain().await;

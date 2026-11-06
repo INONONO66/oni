@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Duplex } from "node:stream";
 import type tls from "node:tls";
-import type { Effect, Scope } from "effect";
+import { Effect, type Scope } from "effect";
 import { connectOverTransport, HOST_PINNED, pinnedTlsDial, type ConnectIpcClientOptions, type IpcClient } from "../../../src/ipc/client";
 import { IpcConnectionError, IpcProtocolError, type IpcError } from "../../../src/ipc/errors";
-import type { IpcTlsIdentity } from "../../../src/ipc/tls";
+import { hostPinSetting, type IpcTlsIdentity } from "../../../src/ipc/tls";
 import { IPC_WS_PATH } from "../../../src/ipc/ws-server";
 
 /** WebSocket-over-TLS connection spec (#1830): the TCP trust model over an upgraded `/machine`. */
@@ -145,13 +145,17 @@ class WsFrameStream extends Duplex {
 }
 
 export function connectIpcWsClient(spec: IpcWsConnectSpec, opts: ConnectIpcClientOptions): Effect.Effect<IpcClient, IpcError, Scope.Scope> {
-  const dial = pinnedTlsDial({ ...spec.ws, tls: spec.tls, hostPin: spec.hostPin });
-  return connectOverTransport({
-    endpoint: `wss://${spec.ws.host}:${spec.ws.port}${IPC_WS_PATH}`,
-    readyEvent: "open",
-    start: () => {
-      const pinned = dial();
-      return { socket: new WsFrameStream(pinned.socket, `${spec.ws.host}:${spec.ws.port}`), classifyError: pinned.classifyError };
-    },
-  }, opts);
+  return Effect.suspend(() => {
+    const refusal = hostPinSetting(spec.hostPin);
+    if (refusal !== undefined) return refusal;
+    const dial = pinnedTlsDial({ ...spec.ws, tls: spec.tls, hostPin: spec.hostPin });
+    return connectOverTransport({
+      endpoint: `wss://${spec.ws.host}:${spec.ws.port}${IPC_WS_PATH}`,
+      readyEvent: "open",
+      start: () => {
+        const pinned = dial();
+        return { socket: new WsFrameStream(pinned.socket, `${spec.ws.host}:${spec.ws.port}`), classifyError: pinned.classifyError };
+      },
+    }, opts);
+  });
 }

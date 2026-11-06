@@ -25,6 +25,14 @@ export class IpcPeerKeyMismatchError extends Data.TaggedError("IpcPeerKeyMismatc
   readonly expected: string;
   readonly presented: string;
 }> {}
+/**
+ * A connect spec that cannot be dialed as written (`field` names the
+ * setting): judged before any socket exists, never as a peer mismatch.
+ */
+export class IpcConfigurationError extends Data.TaggedError("IpcConfigurationError")<{
+  readonly message: string;
+  readonly field: string;
+}> {}
 export class IpcRemoteError extends Data.TaggedError("IpcRemoteError")<{
   readonly message: string;
   readonly cause?: string;
@@ -42,4 +50,4 @@ export class IpcQueueFullError extends Data.TaggedError("IpcQueueFullError")<{
   readonly bound: number;
 }> {}
 
-export type IpcError = MachinesFailure | IpcConnectionError | IpcTimeoutError | IpcProtocolError | IpcRemoteError | IpcPeerKeyMismatchError | IpcQueueFullError;
+export type IpcError = MachinesFailure | IpcConnectionError | IpcTimeoutError | IpcProtocolError | IpcRemoteError | IpcPeerKeyMismatchError | IpcConfigurationError | IpcQueueFullError;

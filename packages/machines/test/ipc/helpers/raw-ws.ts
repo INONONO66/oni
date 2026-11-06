@@ -4,6 +4,7 @@ import { HOST_PINNED, pinnedTlsDial, type PinnedTlsTarget } from "../../../src/i
 import { encodeFrame, FrameDecoder, OPCODE_BINARY, OPCODE_CLOSE } from "../../../src/ipc/ws-frames";
 import { IPC_WS_PATH } from "../../../src/ipc/ws-server";
 import { deferred } from "./signal";
+import { unverifiedTlsOptions } from "./tls-fixtures";
 
 const HEAD_END = "\r\n\r\n";
 export const OPCODE_TEXT = 0x1;
@@ -23,7 +24,7 @@ export function rawWs(target: Omit<PinnedTlsTarget, "tls"> & { tls?: PinnedTlsTa
   const ready = target.tls ? HOST_PINNED : "secureConnect";
   const socket = target.tls
     ? pinnedTlsDial({ ...target, tls: target.tls })().socket
-    : tls.connect({ host: target.host, port: target.port, rejectUnauthorized: false });
+    : tls.connect({ host: target.host, port: target.port, ...unverifiedTlsOptions() });
   const opened = deferred<string>();
   const closed = deferred<{ code: number; reason: string }>();
   const ended = deferred<{ received: number }>();
