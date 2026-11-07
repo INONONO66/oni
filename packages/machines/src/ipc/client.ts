@@ -8,11 +8,14 @@ import { decodeIpcFailure } from "../failure";
 import { makeDispatcher, type Dispatch } from "./callbacks";
 import { LineDecoder, encode } from "./framing";
 import { classifyIpcMessage, PeerRequestTable } from "./peer-request-table";
+import { type FrameSeal, SealedDecoder } from "./seal";
 import { hostPinOf, hostPinSetting, type IpcTlsIdentity } from "./tls";
 
 export interface IpcClient {
   call(method: string, params?: Ipc.Request["params"], timeoutMs?: number): Effect.Effect<Ipc.Response["result"], IpcError>;
   notify(method: string, params?: Ipc.Notification["params"]): Effect.Effect<void, IpcError>;
+  /** Seals every later frame both ways (#1832); the initiator arms it once the handshake acceptance verified. */
+  seal(seal: FrameSeal): void;
   close(): Effect.Effect<void, IpcError>;
   readonly connected: boolean;
 }
@@ -145,6 +148,8 @@ function hostPinMismatch(presentedDer: Uint8Array, expected: string): IpcPeerKey
 
 type ClientFrameSink = {
   readonly decoder: LineDecoder;
+  /** Opens sealed lines once the session is sealed; plaintext chunks pass through before that. */
+  readonly open: (chunk: Buffer) => Uint8Array[];
   readonly peer: PeerRequestTable<undefined>;
   readonly dispatch: Dispatch;
   /** Frame-level failure: fail pendings and tear the stream down. */
@@ -166,9 +171,12 @@ function dispatchClientFrame(raw: PlainValue, sink: ClientFrameSink): Effect.Eff
 function makeClientDataHandler(sink: ClientFrameSink): (chunk: Buffer) => void {
   return (chunk) => {
     const full = sink.dispatch(Effect.gen(function* () {
-      const { frames, malformed } = yield* Effect.try({ try: () => sink.decoder.push(chunk), catch: decodeIpcFailure("frame.decode") });
-      for (const raw of frames) yield* dispatchClientFrame(raw, sink);
-      if (malformed.length > 0) return yield* new IpcProtocolError({ message: `received invalid IPC frame: ${malformed[0]}` });
+      const opened = yield* Effect.try({ try: () => sink.open(chunk), catch: decodeIpcFailure("frame.open") });
+      for (const bytes of opened) {
+        const { frames, malformed } = yield* Effect.try({ try: () => sink.decoder.push(bytes), catch: decodeIpcFailure("frame.decode") });
+        for (const raw of frames) yield* dispatchClientFrame(raw, sink);
+        if (malformed.length > 0) return yield* new IpcProtocolError({ message: `received invalid IPC frame: ${malformed[0]}` });
+      }
     }).pipe(Effect.catch((error) => Effect.sync(() => sink.fail(error)))));
     // A full dispatcher is typed backpressure: fail the stream, never drop bytes.
     if (full !== undefined) sink.fail(full);
@@ -182,9 +190,15 @@ export function connectOverTransport(transport: ClientTransport, opts: ConnectIp
     let socket: Duplex | undefined;
     let connected = false;
     let closed = false;
+    let seal: FrameSeal | undefined;
+    let sealed: SealedDecoder | undefined;
+    const write = (frame: Ipc.Request | Ipc.Response | Ipc.Notification): void => {
+      const bytes = encode(frame);
+      socket?.write(seal === undefined ? bytes : seal.seal(bytes));
+    };
     const peer = new PeerRequestTable({
       idSource: opts.idSource,
-      send: (_peer, frame) => { if (connected && !closed) socket?.write(encode(frame)); },
+      send: (_peer, frame) => { if (connected && !closed) write(frame); },
       onRequest: opts.onRequest ? (_peer, method, params, respond) => opts.onRequest?.(method, params, respond) ?? Effect.void : undefined,
       onNotification: (_peer, method, params) => opts.onNotification?.(method, params) ?? Effect.void,
       missingRequestHandlerMessage: (method) => `client has no request handler for ${method}`,
@@ -204,13 +218,18 @@ export function connectOverTransport(transport: ClientTransport, opts: ConnectIp
       },
       notify(method, params) {
         return Effect.suspend(() => connected
-          ? Effect.sync(() => { socket?.write(encode(Ipc.createNotification(method, params))); })
+          ? Effect.sync(() => { write(Ipc.createNotification(method, params)); })
           : new IpcConnectionError({ message: "not connected" }));
+      },
+      seal(next) {
+        seal = next;
+        sealed = new SealedDecoder(next);
       },
       close: () => close,
     };
     const onData = makeClientDataHandler({
       decoder,
+      open: (chunk) => (sealed === undefined ? [chunk] : sealed.push(chunk)),
       peer,
       dispatch,
       fail: (error) => {

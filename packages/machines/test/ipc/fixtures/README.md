@@ -11,6 +11,9 @@ a renewal that keeps the key and therefore the pin. `host-chain.pem` is an
 ACME-style chain for the same key: a leaf for `host-key.pem` signed by a
 throwaway `CN=oni-test-issuer` CA (`openssl x509 -req -CA issuer-cert.pem
 -CAkey issuer-key.pem`), followed by that issuer certificate; the issuer key
-was discarded after signing. This is TEST-ONLY material — committed on purpose
+was discarded after signing. `other-*` is a self-signed Ed25519 identity
+(`openssl req -x509 -newkey ed25519`, 36500 days): a key that is not P-256,
+so the signed machine handshake (#1832) can refuse to sign with it or to
+verify it. This is TEST-ONLY material — committed on purpose
 so tests never depend on a key generator in the environment; nothing outside
 these tests trusts or is trusted by these keys.

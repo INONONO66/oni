@@ -145,3 +145,11 @@ export function acceptTranscript(
     field(accept.nonce),
   ]);
 }
+
+/**
+ * The bytes whose sha256 salts the frame keys: the accept transcript, then
+ * both signatures, so the session key binds every byte either peer sent.
+ */
+export function sessionTranscript(hello: HandshakeHello, accept: Omit<HandshakeAccepted, "status">): Uint8Array {
+  return concat([acceptTranscript(hello, accept), field(hello.signature), field(accept.signature)]);
+}

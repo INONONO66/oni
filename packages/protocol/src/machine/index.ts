@@ -76,6 +76,7 @@ export namespace Machine {
   export const frameAadToMachine = Handshake.frameAadToMachine;
   export const helloTranscript = Handshake.helloTranscript;
   export const acceptTranscript = Handshake.acceptTranscript;
+  export const sessionTranscript = Handshake.sessionTranscript;
   export const releaseTagPrefix = Contract.releaseTagPrefix;
   export const ReleaseArtifact = ReleaseContract.ReleaseArtifact;
   export type ReleaseArtifact = ReleaseContract.ReleaseArtifact;
