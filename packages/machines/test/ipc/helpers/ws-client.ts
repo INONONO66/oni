@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
+import net from "node:net";
 import { Duplex } from "node:stream";
-import type tls from "node:tls";
 import { Effect, type Scope } from "effect";
 import { connectOverTransport, HOST_PINNED, pinnedTlsDial, type ConnectIpcClientOptions, type IpcClient } from "../../../src/ipc/client";
 import { IpcConnectionError, IpcProtocolError, type IpcError } from "../../../src/ipc/errors";
@@ -15,6 +15,9 @@ export type IpcWsConnectSpec = {
   /** The host key's pin, exactly as for TLS-TCP. */
   readonly hostPin: string;
 };
+
+/** Observes every NDJSON payload exactly as it crosses the wire, before sealing is undone or after it is applied. */
+export type WireTap = (direction: "sent" | "received", bytes: Buffer) => void;
 
 const ACCEPT_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const FIN = 0x80;
@@ -61,9 +64,14 @@ class WsFrameStream extends Duplex {
   private upgraded = false;
   private readonly key = randomBytes(16).toString("base64");
 
-  constructor(private readonly transport: tls.TLSSocket, host: string) {
+  constructor(
+    private readonly transport: net.Socket,
+    host: string,
+    upgradeOn: typeof HOST_PINNED | "connect",
+    private readonly tap: WireTap = () => undefined,
+  ) {
     super();
-    transport.once(HOST_PINNED, () => {
+    transport.once(upgradeOn, () => {
       transport.write(`GET ${IPC_WS_PATH} HTTP/1.1\r\nHost: ${host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${this.key}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
     });
     transport.on("data", (chunk: Buffer) => this.receive(chunk));
@@ -76,6 +84,7 @@ class WsFrameStream extends Duplex {
   }
 
   override _write(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    this.tap("sent", Buffer.from(chunk));
     this.transport.write(clientFrame(OPCODE_BINARY, chunk), callback);
   }
 
@@ -134,7 +143,10 @@ class WsFrameStream extends Duplex {
       this.destroy(new IpcProtocolError({ message: `unsupported WebSocket frame from the host (first byte 0x${first.toString(16)})` }));
       return false;
     }
-    if (opcode === OPCODE_BINARY) this.push(payload);
+    if (opcode === OPCODE_BINARY) {
+      this.tap("received", Buffer.from(payload));
+      this.push(payload);
+    }
     if (opcode === OPCODE_PING) this.transport.write(clientFrame(OPCODE_PONG, payload));
     if (opcode === OPCODE_CLOSE) {
       this.transport.end(clientFrame(OPCODE_CLOSE, payload.subarray(0, 2)));
@@ -154,8 +166,21 @@ export function connectIpcWsClient(spec: IpcWsConnectSpec, opts: ConnectIpcClien
       readyEvent: "open",
       start: () => {
         const pinned = dial();
-        return { socket: new WsFrameStream(pinned.socket, `${spec.ws.host}:${spec.ws.port}`), classifyError: pinned.classifyError };
+        return { socket: new WsFrameStream(pinned.socket, `${spec.ws.host}:${spec.ws.port}`, HOST_PINNED), classifyError: pinned.classifyError };
       },
     }, opts);
   });
+}
+
+/**
+ * The TEST-ONLY plaintext `ws://` carrier (#1832): no TLS, no host pin, so
+ * every refusal it observes comes from the signed handshake alone, and every
+ * byte it carries is exactly what a TLS-terminating relay would see.
+ */
+export function connectIpcPlainWsClient(ws: IpcWsConnectSpec["ws"], opts: ConnectIpcClientOptions, tap?: WireTap): Effect.Effect<IpcClient, IpcError, Scope.Scope> {
+  return connectOverTransport({
+    endpoint: `ws://${ws.host}:${ws.port}${IPC_WS_PATH}`,
+    readyEvent: "open",
+    start: () => ({ socket: new WsFrameStream(net.connect({ host: ws.host, port: ws.port }), `${ws.host}:${ws.port}`, "connect", tap) }),
+  }, opts);
 }

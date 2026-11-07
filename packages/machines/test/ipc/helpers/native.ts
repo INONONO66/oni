@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import type { IdSource, Ipc } from "@oni/protocol";
 import { connectIpcClient as connect, connectIpcTcpClient as connectTcp, createIpcServer as listen, createIpcTcpServer as listenTcp, createIpcWsServer as listenWs, typedCall as nativeCall } from "../../../src";
 import type { IpcTcpConnectSpec, IpcTcpListenSpec, IpcWsListenSpec } from "../../../src";
-import { connectIpcWsClient as connectWs, type IpcWsConnectSpec } from "./ws-client";
+import { connectIpcPlainWsClient as connectPlainWs, connectIpcWsClient as connectWs, type IpcWsConnectSpec, type WireTap } from "./ws-client";
 import { PeerRequestTable as NativeTable } from "../../../src/ipc/peer-request-table";
 import { decodeIpcFailure } from "../../../src/failure";
 import { acquire, run, sync } from "./effects";
@@ -49,6 +49,10 @@ export async function connectIpcTcpClient(spec: IpcTcpConnectSpec, options: Clie
 }
 export async function connectIpcWsClient(spec: IpcWsConnectSpec, options: ClientTestOptions = {}) {
   const { value: native, close } = await acquire(connectWs(spec, nativeClientOptions(options)));
+  return wrapClient(native, close);
+}
+export async function connectIpcPlainWsClient(ws: IpcWsConnectSpec["ws"], options: ClientTestOptions = {}, tap?: WireTap) {
+  const { value: native, close } = await acquire(connectPlainWs(ws, nativeClientOptions(options), tap));
   return wrapClient(native, close);
 }
 export type IpcClient = Awaited<ReturnType<typeof connectIpcClient>>;
