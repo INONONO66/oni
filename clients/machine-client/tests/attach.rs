@@ -1796,6 +1796,10 @@ async fn memory_budget_exit_passes_through_default_runner() {
     let mut settings = unix_settings(&host, directory.path()).await;
     settings.memory_budget_mb = 0;
     settings.exports.clear();
+    // The fake host grants the offer in full; keep this run on `fs.read` so
+    // the budget exit is measured without the platform input watch and
+    // screen probe that `computer.use` would keep live.
+    settings.declared = Some(vec!["fs.read".into()]);
     config::save(&settings, directory.path()).expect("zero budget config");
     let path = directory.path().join("client.json");
     let exchange = async {
