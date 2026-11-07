@@ -32,7 +32,7 @@ use crate::{
     transport::{
         classes::{self, FailureClass},
         client::{handler, Caller, Client, Handler, TransportError},
-        connection::HostTrust,
+        connection::HostPin,
         events,
         request_table::CallError,
         retry::{Event, Next, Random, Retry},
@@ -92,6 +92,7 @@ impl AttachError {
             | Self::ConsentRequired
             | Self::Config(config::ConfigError::HostUntrusted)
             | Self::Transport(TransportError::HostKeyMismatch)
+            | Self::Config(config::ConfigError::LegacyHostPin)
             | Self::Once(
                 FailureClass::Authentication
                 | FailureClass::Configuration
@@ -106,12 +107,22 @@ impl AttachError {
     pub fn reason(&self) -> String {
         match self {
             Self::Transport(TransportError::HostKeyMismatch) => "peer_key_mismatch".to_owned(),
+            Self::Config(config::ConfigError::LegacyHostPin) => "host_pin_legacy".to_owned(),
             Self::Update(crate::release::UpdateError::Unpinned { .. }) => {
                 "unpinned_binary".to_owned()
             }
             Self::Update(_) => "update_failed".to_owned(),
             Self::Once(class) => class.as_str().to_owned(),
             _ => self.to_string(),
+        }
+    }
+
+    /// What corrects this failure: the class's step, except for a legacy
+    /// host-pin, which names the one re-join that records an SPKI pin.
+    pub fn next_step(&self) -> String {
+        match self {
+            Self::Config(config::ConfigError::LegacyHostPin) => self.to_string(),
+            _ => classes::classify(self).next_step().to_owned(),
         }
     }
 }
@@ -350,7 +361,7 @@ fn refuse_inbound() -> Handler {
 async fn connect_tls(
     host: &str,
     directory: &Path,
-    trust: HostTrust,
+    trust: HostPin,
     service: Handler,
 ) -> Result<Result<(Client, [u8; 32]), TransportError>, AttachError> {
     let cert = fs::read(directory.join("client-cert.pem"))?;
@@ -369,12 +380,12 @@ async fn connect_tls(
     })
 }
 
-/// Connects once with the configured trust and returns the host key it
-/// verified; nothing is recorded until the operator approves that key.
+/// Connects once with the given pin and returns the host key it verified;
+/// nothing is recorded until the operator approves that key.
 async fn verify_host(
     host: &str,
     directory: &Path,
-    trust: HostTrust,
+    trust: HostPin,
 ) -> Result<[u8; 32], AttachError> {
     let (connection, pin) = connect_tls(host, directory, trust, refuse_inbound()).await??;
     drop(connection);
@@ -383,14 +394,12 @@ async fn verify_host(
 
 /// The host pin `join` recorded once the operator approved it: the only
 /// trust a network host gets afterwards, so a missing pin is a typed refusal.
-fn pinned_trust(directory: &Path) -> Result<HostTrust, AttachError> {
+fn pinned_trust(directory: &Path) -> Result<HostPin, AttachError> {
     let path = directory.join("host-pin");
     if !path.exists() {
         return Err(config::ConfigError::HostUntrusted.into());
     }
-    Ok(HostTrust::Pin(config::parse_pin(&fs::read_to_string(
-        path,
-    )?)?))
+    Ok(HostPin(config::parse_pin(&fs::read_to_string(path)?)?))
 }
 
 /// Asks the host for the client release it pins; `machine.release` is answered
@@ -435,7 +444,7 @@ pub async fn join(
         .or_else(|| config::unix_path(&options.host));
     let trust = match unix {
         Some(_) => None,
-        None => Some(config::trust(options, home)?),
+        None => Some(config::trust(options)?),
     };
     let host = match (&unix, config::carrier(&options.host)?) {
         (None, Carrier::Tcp { .. }) => config::resolve_address(&options.host)?,
@@ -468,13 +477,17 @@ pub async fn join(
         config::Identity::saved(&directory, &config.machine_id)?
     };
     let public_key = identity.pin().to_owned();
-    if let Some(trust) = trust {
-        let pin = hex::encode(verify_host(&config.host, &directory, trust).await?);
-        if !options.yes && !approve(&config.host, &pin) {
-            return Err(config::ConfigError::HostUntrusted.into());
+    let host_pin = match trust {
+        Some(trust) => {
+            let pin = config::encode_pin(&verify_host(&config.host, &directory, trust).await?);
+            if !options.yes && !approve(&config.host, &pin) {
+                return Err(config::ConfigError::HostUntrusted.into());
+            }
+            config::write_private(&directory.join("host-pin"), pin.as_bytes())?;
+            Some(pin)
         }
-        config::write_private(&directory.join("host-pin"), pin.as_bytes())?;
-    }
+        None => None,
+    };
     config::save(&config, &directory)?;
     clear_generation(&directory)?;
     record_consent(&directory, None)?;
@@ -483,6 +496,7 @@ pub async fn join(
     Ok(Enrollment {
         receipt: json!({
             "machineId": config.machine_id, "name": config.name, "publicKey": public_key,
+            "hostPin": host_pin,
             "allowedCapabilities": declared,
             "allowedExports": allowed_exports.collect::<Vec<_>>(),
             "tokenPresented": token.is_some()
@@ -594,7 +608,9 @@ pub fn within_offer(
 
 fn classify_attach_error(error: AttachError) -> Result<FailureClass, AttachError> {
     match error {
-        AttachError::MemoryBudget | AttachError::GrantRestart => Err(error),
+        AttachError::MemoryBudget
+        | AttachError::GrantRestart
+        | AttachError::Config(config::ConfigError::LegacyHostPin) => Err(error),
         error => Ok(classes::classify(&error)),
     }
 }
@@ -1078,7 +1094,7 @@ pub async fn run_service(config_path: &Path) -> Result<(), AttachError> {
         match run_default_with_screen(config_path, true, false).await {
             Err(error) if service_reprobe(&error) => {
                 let class = classes::classify(&error);
-                eprintln!("{}", json!({"class": class, "nextStep": class.next_step()}));
+                eprintln!("{}", json!({"class": class, "nextStep": error.next_step()}));
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_secs(300)) => {}
                     _ = retry_signal.recv() => {}
@@ -1109,7 +1125,11 @@ fn once_result(
         Ok(_) => Err(AttachError::Once(
             last_failure.unwrap_or(FailureClass::RemoteUnavailable),
         )),
-        Err(error @ AttachError::MemoryBudget) => Err(error),
+        Err(
+            error @ (AttachError::MemoryBudget
+            | AttachError::Config(config::ConfigError::LegacyHostPin)
+            | AttachError::Transport(TransportError::HostKeyMismatch)),
+        ) => Err(error),
         Err(error) => Err(AttachError::Once(classes::classify(&error))),
     }
 }
@@ -1562,6 +1582,47 @@ mod tests {
             once_result(Err(AttachError::ServiceUnavailable), None),
             Err(AttachError::Once(FailureClass::Configuration))
         ));
+    }
+
+    #[test]
+    fn a_host_key_mismatch_ends_the_one_shot_under_its_own_name() {
+        let mismatch = once_result(
+            Err(AttachError::Transport(TransportError::HostKeyMismatch)),
+            None,
+        )
+        .expect_err("refused");
+        assert!(matches!(
+            mismatch,
+            AttachError::Transport(TransportError::HostKeyMismatch)
+        ));
+        assert_eq!(
+            (mismatch.exit_code(), mismatch.reason().as_str()),
+            (3, "peer_key_mismatch")
+        );
+        assert!(service_reprobe(&mismatch));
+    }
+
+    #[test]
+    fn legacy_host_pin_ends_the_one_shot_and_the_retry_loop_typed() {
+        let legacy = || AttachError::Config(config::ConfigError::LegacyHostPin);
+        assert!(matches!(
+            once_result(Err(legacy()), None),
+            Err(AttachError::Config(config::ConfigError::LegacyHostPin))
+        ));
+        assert!(matches!(
+            classify_attach_error(legacy()),
+            Err(AttachError::Config(config::ConfigError::LegacyHostPin))
+        ));
+        assert!(matches!(
+            classify_attach_error(AttachError::Config(config::ConfigError::PinRequired)),
+            Ok(FailureClass::Configuration)
+        ));
+        assert!(service_reprobe(&legacy()));
+        assert_eq!(legacy().reason(), "host_pin_legacy");
+        assert_eq!(legacy().exit_code(), 3);
+        assert!(legacy()
+            .next_step()
+            .contains("mclient join <host> --host-pin <pin>"));
     }
 
     #[test]

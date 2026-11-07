@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
 import tls from "node:tls";
-import { pinnedTlsDial, type PinnedTlsTarget } from "../../../src/ipc/client";
+import { HOST_PINNED, pinnedTlsDial, type PinnedTlsTarget } from "../../../src/ipc/client";
 import { encodeFrame, FrameDecoder, OPCODE_BINARY, OPCODE_CLOSE } from "../../../src/ipc/ws-frames";
 import { IPC_WS_PATH } from "../../../src/ipc/ws-server";
 import { deferred } from "./signal";
+import { unverifiedTlsOptions } from "./tls-fixtures";
 
 const HEAD_END = "\r\n\r\n";
 export const OPCODE_TEXT = 0x1;
@@ -18,11 +19,12 @@ export interface RawWs {
   destroy(): void;
 }
 
-/** A raw RFC 6455 client over the pinned mutual-TLS dial, or over a bare TLS dial when `identity` is omitted. */
+/** A raw RFC 6455 client over the pinned mutual-TLS dial, or over a bare unverified TLS dial (no client identity, no pin) when `tls` is omitted. */
 export function rawWs(target: Omit<PinnedTlsTarget, "tls"> & { tls?: PinnedTlsTarget["tls"] }, path = IPC_WS_PATH, upgrade = true): RawWs {
+  const ready = target.tls ? HOST_PINNED : "secureConnect";
   const socket = target.tls
     ? pinnedTlsDial({ ...target, tls: target.tls })().socket
-    : tls.connect({ host: target.host, port: target.port, ca: [target.hostCertificate], checkServerIdentity: () => undefined });
+    : tls.connect({ host: target.host, port: target.port, ...unverifiedTlsOptions() });
   const opened = deferred<string>();
   const closed = deferred<{ code: number; reason: string }>();
   const ended = deferred<{ received: number }>();
@@ -32,7 +34,7 @@ export function rawWs(target: Omit<PinnedTlsTarget, "tls"> & { tls?: PinnedTlsTa
   let head = "";
   let upgraded = false;
   let received = 0;
-  socket.once("secureConnect", () => {
+  socket.once(ready, () => {
     const upgradeHeaders = upgrade
       ? `Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${randomBytes(16).toString("base64")}\r\nSec-WebSocket-Version: 13\r\n`
       : "";

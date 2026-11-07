@@ -1,8 +1,12 @@
-use std::{path::PathBuf, time::Duration};
+use std::{io::Cursor, path::PathBuf, time::Duration};
 
 use oni_machine_client::transport::{
+    connection::{public_key_pin, HostPin},
     framing::{write_frame, Framed},
     ws::{self, WsEndpoint},
+};
+use rcgen::{
+    BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, PKCS_ECDSA_P256_SHA256,
 };
 use serde_json::Value;
 use tokio::{
@@ -30,6 +34,50 @@ enum Listener {
     Tls13,
     Tls12,
     WebSocket,
+}
+
+/// The pin of the key a PEM certificate (the first of a chain) carries.
+pub fn pin_of(certificate: &str) -> [u8; 32] {
+    let der = rustls_pemfile::certs(&mut Cursor::new(certificate.as_bytes()))
+        .next()
+        .expect("certificate")
+        .expect("DER");
+    public_key_pin(der.as_ref()).expect("pin")
+}
+
+fn host_key() -> KeyPair {
+    KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).expect("generate test key")
+}
+
+/// A fresh self-signed `localhost` certificate for `key`; each call carries a
+/// new serial, so two of them are different certificates for one key.
+fn self_signed(key: &KeyPair) -> String {
+    CertificateParams::new(vec!["localhost".to_owned()])
+        .expect("certificate params")
+        .self_signed(key)
+        .expect("self-signed test certificate")
+        .pem()
+}
+
+/// An ACME-style chain for `key`: a `localhost` leaf signed by a fresh test
+/// issuer, the issuer certificate appended.
+fn issued_chain(key: &KeyPair) -> String {
+    let issuer_key = host_key();
+    let mut params = CertificateParams::new(Vec::<String>::new()).expect("issuer params");
+    params
+        .distinguished_name
+        .push(DnType::CommonName, "oni-test-issuer");
+    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    let issuer_pem = params
+        .self_signed(&issuer_key)
+        .expect("issuer certificate")
+        .pem();
+    let issuer = Issuer::new(params, issuer_key);
+    let leaf = CertificateParams::new(vec!["localhost".to_owned()])
+        .expect("leaf params")
+        .signed_by(key, &issuer)
+        .expect("issued test certificate");
+    format!("{}{issuer_pem}", leaf.pem())
 }
 
 pub struct FakeHost {
@@ -75,15 +123,41 @@ impl FakeHost {
     }
 
     pub async fn tls() -> Self {
-        Self::listen(Listener::Tls13).await
+        let key = host_key();
+        Self::listen(Listener::Tls13, self_signed(&key), key.serialize_pem()).await
     }
 
     pub async fn tls12() -> Self {
-        Self::listen(Listener::Tls12).await
+        let key = host_key();
+        Self::listen(Listener::Tls12, self_signed(&key), key.serialize_pem()).await
     }
 
     pub async fn ws() -> Self {
-        Self::listen(Listener::WebSocket).await
+        let key = host_key();
+        Self::listen(Listener::WebSocket, self_signed(&key), key.serialize_pem()).await
+    }
+
+    /// A host that reissued its certificate for the key a client pinned
+    /// earlier: the host serving the new certificate, and the one it replaced.
+    pub async fn tls_renewed() -> (Self, String) {
+        let key = host_key();
+        let replaced = self_signed(&key);
+        let host = Self::listen(Listener::Tls13, self_signed(&key), key.serialize_pem()).await;
+        (host, replaced)
+    }
+
+    /// A host that moved from a self-signed certificate to an issued chain for
+    /// the same key: the host serving the chain, and the certificate it replaced.
+    pub async fn tls_chain() -> (Self, String) {
+        let key = host_key();
+        let replaced = self_signed(&key);
+        let host = Self::listen(Listener::Tls13, issued_chain(&key), key.serialize_pem()).await;
+        (host, replaced)
+    }
+
+    /// The pin of the key this host presents.
+    pub fn pin(&self) -> HostPin {
+        HostPin(pin_of(&self.certificate))
     }
 
     pub fn ws_endpoint(&self) -> WsEndpoint {
@@ -94,8 +168,10 @@ impl FakeHost {
         }
     }
 
-    async fn listen(listener_kind: Listener) -> Self {
-        let (certificate, private_key) = super::tls::identity();
+    /// Serves `certificate` (a leaf, or a chain leaf first) for `private_key`;
+    /// the one client it accepts must present an identity those certificates
+    /// anchor, which is why tests hand the host's own identity to the client.
+    async fn listen(listener_kind: Listener, certificate: String, private_key: String) -> Self {
         let versions = match listener_kind {
             Listener::Tls12 => &[&rustls::version::TLS12][..],
             Listener::Tls13 | Listener::WebSocket => &[&rustls::version::TLS13][..],

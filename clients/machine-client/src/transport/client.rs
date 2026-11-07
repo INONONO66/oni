@@ -53,7 +53,7 @@ pub enum TransportError {
     Connect(#[from] std::io::Error),
     #[error("IPC TLS configuration failed: {0}")]
     Tls(#[from] rustls::Error),
-    #[error("IPC host certificate is missing or malformed")]
+    #[error("IPC host presented no certificate")]
     HostCertificate,
     #[error("IPC host public key does not match the configured pin")]
     HostKeyMismatch,

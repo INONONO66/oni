@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Duplex } from "node:stream";
 import type tls from "node:tls";
-import type { Effect, Scope } from "effect";
-import { connectOverTransport, pinnedTlsDial, type ConnectIpcClientOptions, type IpcClient } from "../../../src/ipc/client";
+import { Effect, type Scope } from "effect";
+import { connectOverTransport, HOST_PINNED, pinnedTlsDial, type ConnectIpcClientOptions, type IpcClient } from "../../../src/ipc/client";
 import { IpcConnectionError, IpcProtocolError, type IpcError } from "../../../src/ipc/errors";
-import type { IpcTlsIdentity } from "../../../src/ipc/tls";
+import { hostPinSetting, type IpcTlsIdentity } from "../../../src/ipc/tls";
 import { IPC_WS_PATH } from "../../../src/ipc/ws-server";
 
 /** WebSocket-over-TLS connection spec (#1830): the TCP trust model over an upgraded `/machine`. */
@@ -12,8 +12,8 @@ export type IpcWsConnectSpec = {
   readonly ws: { readonly host: string; readonly port: number };
   /** The client identity presented to the host, as for TLS-TCP. */
   readonly tls: IpcTlsIdentity;
-  /** PEM of the HOST's certificate: trust anchor and pin, exactly as for TLS-TCP. */
-  readonly hostCertificate: string;
+  /** The host key's pin, exactly as for TLS-TCP. */
+  readonly hostPin: string;
 };
 
 const ACCEPT_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -53,7 +53,8 @@ function clientFrame(opcode: number, payload: Uint8Array): Buffer {
  * the frame bytes the TCP carrier would deliver. Pings are answered, a close
  * is echoed, anything else (text, fragments, masked host frames) is a typed
  * protocol failure. `open` fires once the 101 response carried the expected
- * accept key; the TLS socket's own events (pin failures included) propagate.
+ * accept key; the upgrade is written only once the host key matched the
+ * pin, and the TLS socket's own events (pin failures included) propagate.
  */
 class WsFrameStream extends Duplex {
   private buffer: Buffer = Buffer.alloc(0);
@@ -62,7 +63,7 @@ class WsFrameStream extends Duplex {
 
   constructor(private readonly transport: tls.TLSSocket, host: string) {
     super();
-    transport.once("secureConnect", () => {
+    transport.once(HOST_PINNED, () => {
       transport.write(`GET ${IPC_WS_PATH} HTTP/1.1\r\nHost: ${host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${this.key}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
     });
     transport.on("data", (chunk: Buffer) => this.receive(chunk));
@@ -144,13 +145,17 @@ class WsFrameStream extends Duplex {
 }
 
 export function connectIpcWsClient(spec: IpcWsConnectSpec, opts: ConnectIpcClientOptions): Effect.Effect<IpcClient, IpcError, Scope.Scope> {
-  const dial = pinnedTlsDial({ ...spec.ws, tls: spec.tls, hostCertificate: spec.hostCertificate });
-  return connectOverTransport({
-    endpoint: `wss://${spec.ws.host}:${spec.ws.port}${IPC_WS_PATH}`,
-    readyEvent: "open",
-    start: () => {
-      const pinned = dial();
-      return { socket: new WsFrameStream(pinned.socket, `${spec.ws.host}:${spec.ws.port}`), classifyError: pinned.classifyError };
-    },
-  }, opts);
+  return Effect.suspend(() => {
+    const refusal = hostPinSetting(spec.hostPin);
+    if (refusal !== undefined) return refusal;
+    const dial = pinnedTlsDial({ ...spec.ws, tls: spec.tls, hostPin: spec.hostPin });
+    return connectOverTransport({
+      endpoint: `wss://${spec.ws.host}:${spec.ws.port}${IPC_WS_PATH}`,
+      readyEvent: "open",
+      start: () => {
+        const pinned = dial();
+        return { socket: new WsFrameStream(pinned.socket, `${spec.ws.host}:${spec.ws.port}`), classifyError: pinned.classifyError };
+      },
+    }, opts);
+  });
 }

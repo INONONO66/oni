@@ -1,18 +1,11 @@
-//! The TLS side of a test host: a fresh self-signed identity and an acceptor
-//! that asks for a client certificate as the real host does. `fake_host.rs`
-//! serves frames over it; `cli.rs` only needs a `mclient join` child to reach
-//! a verified host, so it binds this directly.
+//! The TLS side of a test host: an acceptor that asks for a client
+//! certificate as the real host does. `fake_host.rs` serves frames over it;
+//! `cli.rs` only needs a `mclient join` child to reach a verified host, so it
+//! binds this directly.
 use std::{io::Cursor, sync::Arc};
 
 use rustls::{server::WebPkiClientVerifier, RootCertStore, ServerConfig, SupportedProtocolVersion};
 use tokio_rustls::TlsAcceptor;
-
-/// A self-signed `localhost` identity as PEM: `(certificate, private_key)`.
-pub fn identity() -> (String, String) {
-    let identity = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
-        .expect("generate test identity");
-    (identity.cert.pem(), identity.signing_key.serialize_pem())
-}
 
 /// An acceptor serving `certificate` with `private_key` on `versions`; it
 /// trusts only that certificate's signer for client certificates, so a

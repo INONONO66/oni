@@ -715,13 +715,15 @@ and a 5 s connect timeout. Inbound host requests run 16 at a time with 64
 waiting; the 81st blocked request is answered with error code 4001 and the
 connection is closed. A unix socket (`join --unix <path>`) carries no peer
 key; TLS connections present the client's own certificate and verify the
-host by the SHA-256 of its SPKI DER against the persisted pin (next
-paragraph and `docs/key-generation.md`). A pin mismatch at connect time is
-`peer_key_mismatch` and terminal.
+host by the SHA-256 of its SPKI DER against the persisted pin (base64; next
+paragraph and `docs/key-generation.md`). The pin names the host key, so a
+certificate renewed or re-chained for the same key keeps attaching without
+a new join. A pin mismatch at connect time is `peer_key_mismatch` and
+terminal, refused before any frame is sent.
 
 **Join and run.** `mclient join <host> [--name] [--tag]* [--export
-name=/abs/path]* [--host-pin hex | --host-cert pem]
-[--unix path] [--memory-budget-mb N] [--token <join token>]` writes `~/.oni/machine-client/`
+name=/abs/path]* [--host-pin base64 | --unix path] [--memory-budget-mb N]
+[--token <join token>]` writes `~/.oni/machine-client/`
 (directory 0700; `client.json`, `client-key.pem`, `client-cert.pem`,
 `host-pin`, `state.json` and `metrics.jsonl` all 0600), prints the
 enrollment receipt `{machineId, name, publicKey, allowedCapabilities,

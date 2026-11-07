@@ -14,6 +14,7 @@ use oni_machine_client::{
     handlers,
     release::{self, Identity, Layout, UpdateError, VERSION},
     service,
+    transport::classes,
 };
 
 #[derive(Parser)]
@@ -155,6 +156,9 @@ async fn main() -> ExitCode {
             let refusal = match &error {
                 AttachError::Update(update) => serde_json::json!({
                     "reason": error.reason(), "class": update.class(), "detail": update.to_string()
+                }),
+                AttachError::Config(config::ConfigError::LegacyHostPin) => serde_json::json!({
+                    "reason": error.reason(), "class": classes::classify(&error), "nextStep": error.next_step()
                 }),
                 _ => serde_json::json!({"reason": error.reason()}),
             };
@@ -397,7 +401,10 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
             )
         })?;
     if options.json {
-        print_status(true, options.service_dir.as_deref(), options.no_service)
+        let mut record = status_record(options.service_dir.as_deref(), options.no_service)?;
+        record["receipt"] = enrollment.receipt;
+        println!("{record}");
+        Ok(())
     } else {
         println!("service: {} ({})", state.name, state.state);
         println!("offered capabilities: {}", enrollment.declared.join(", "));
@@ -426,18 +433,17 @@ fn status(json: bool) -> Result<(), AttachError> {
 
 /// A consent record or identity that no longer parses is a refusal, not a
 /// blank line: the operator sees the typed reason instead of a healthy report.
-fn print_status(
-    json: bool,
+fn status_record(
     service_dir: Option<&Path>,
     no_service: bool,
-) -> Result<(), AttachError> {
+) -> Result<serde_json::Value, AttachError> {
     let (screen, input) = oni_machine_client::computer::platform();
     let mut verdict = screen.capability(input.ready());
     service::setup_needs(&mut verdict, &config::home(), service_dir, no_service);
     let directory = config::agent_registry_directory();
     let consent = attach::pending_consent(&directory)?;
     let identity = config::identity_pin(&directory)?;
-    let record = serde_json::json!({
+    Ok(serde_json::json!({
         "ok": !verdict.needs.iter().any(|row| !row.on_screen),
         "version": VERSION,
         "os": OS,
@@ -446,7 +452,15 @@ fn print_status(
         "needs": verdict.needs,
         "identity": identity,
         "consentRequired": consent,
-    });
+    }))
+}
+
+fn print_status(
+    json: bool,
+    service_dir: Option<&Path>,
+    no_service: bool,
+) -> Result<(), AttachError> {
+    let record = status_record(service_dir, no_service)?;
     if json {
         println!("{record}");
     } else {
@@ -460,18 +474,22 @@ fn print_status(
         if let Some(pin) = record["identity"].as_str() {
             println!("identity: {pin}");
         }
-        if let Some(consent) = &consent {
-            for capability in &consent.capabilities {
-                println!("consent required: capability {capability} — mclient grant {capability}");
-            }
-            for export in &consent.exports {
-                println!(
-                    "consent required: export {export} — re-join with --export {export}=<path>"
-                );
-            }
+        for capability in consent_rows(&record["consentRequired"]["capabilities"]) {
+            println!("consent required: capability {capability} — mclient grant {capability}");
+        }
+        for export in consent_rows(&record["consentRequired"]["exports"]) {
+            println!("consent required: export {export} — re-join with --export {export}=<path>");
         }
     }
     Ok(())
+}
+
+/// The names in one consent list, or nothing when no consent is pending.
+fn consent_rows(list: &serde_json::Value) -> impl Iterator<Item = &str> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
 }
 
 fn selected_binary(
@@ -784,8 +802,7 @@ mod tests {
             name: None,
             tags: vec![],
             exports: vec![],
-            host_cert: None,
-            host_pin: Some("00".repeat(32)),
+            host_pin: Some(config::encode_pin(&[0; 32])),
             unix: None,
             memory_budget_mb: 96,
             no_service: true,

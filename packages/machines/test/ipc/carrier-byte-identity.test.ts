@@ -6,14 +6,14 @@ import { OPCODE_BINARY } from "../../src/ipc/ws-frames";
 import { connectIpcTcpClient, connectIpcWsClient, createIpcTcpServer, createIpcWsServer } from "./helpers/native";
 import { rawWs } from "./helpers/raw-ws";
 import { deferred, within } from "./helpers/signal";
-import { daemonIdentity, hostIdentity } from "./helpers/tls-fixtures";
+import { daemonIdentity, hostIdentity, hostPin } from "./helpers/tls-fixtures";
 
 const LOOPBACK = "127.0.0.1";
 const REQUEST = Ipc.createRequest("byte-identity-1", "echo", { carrier: "same" });
 const REQUEST_BYTES = Buffer.from(`${JSON.stringify(REQUEST)}\n`);
 const RESPONSE_BYTES = Buffer.from(`${JSON.stringify({ v: 2, type: "response", id: REQUEST.id, result: { ok: true } })}\n`);
 const serverTls = { cert: hostIdentity.certificate, key: hostIdentity.privateKey };
-const clientSpec = (port: number) => ({ host: LOOPBACK, port, tls: daemonIdentity, hostCertificate: hostIdentity.certificate });
+const clientSpec = (port: number) => ({ host: LOOPBACK, port, tls: daemonIdentity, hostPin });
 
 describe("carrier byte identity (#1830)", () => {
   const cleanups: Array<() => void> = [];
@@ -43,8 +43,8 @@ describe("carrier byte identity (#1830)", () => {
     const tcp = recordingTcp();
     const ws = recordingWs();
     const idSource = () => REQUEST.id;
-    const tcpClient = await connectIpcTcpClient({ tcp: { host: LOOPBACK, port: await tcp.listening }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate }, { idSource });
-    const wsClient = await connectIpcWsClient({ ws: { host: LOOPBACK, port: ws.port }, tls: daemonIdentity, hostCertificate: hostIdentity.certificate }, { idSource });
+    const tcpClient = await connectIpcTcpClient({ tcp: { host: LOOPBACK, port: await tcp.listening }, tls: daemonIdentity, hostPin }, { idSource });
+    const wsClient = await connectIpcWsClient({ ws: { host: LOOPBACK, port: ws.port }, tls: daemonIdentity, hostPin }, { idSource });
     cleanups.push(() => { void tcpClient.close(); void wsClient.close(); });
 
     expect(await tcpClient.call("echo", { carrier: "same" })).toEqual({ ok: true });

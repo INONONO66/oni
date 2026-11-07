@@ -653,14 +653,21 @@ fn run_admits_a_saved_offline_pin_before_loading_config() {
 async fn join_prompts_for_the_host_pin_unless_yes() {
     struct TlsHost {
         endpoint: String,
-        certificate: String,
+        pin: String,
     }
     /// A host for one `join` to verify: it answers one TLS handshake with a
     /// fresh identity and serves nothing after it. The client's own key is
     /// not enrolled here, so the acceptor refuses it once the server
     /// certificate (all the join reads) has gone out.
     async fn tls_host() -> TlsHost {
-        let (certificate, private_key) = tls::identity();
+        let identity = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate test identity");
+        let certificate = identity.cert.pem();
+        let private_key = identity.signing_key.serialize_pem();
+        let pin = oni_machine_client::config::encode_pin(
+            &oni_machine_client::transport::connection::public_key_pin(identity.cert.der())
+                .expect("host pin"),
+        );
         let acceptor = tls::acceptor(&certificate, &private_key, &[&rustls::version::TLS13]);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -670,28 +677,23 @@ async fn join_prompts_for_the_host_pin_unless_yes() {
             let (tcp, _) = listener.accept().await.expect("accept TCP peer");
             let _ = acceptor.accept(tcp).await;
         });
-        TlsHost {
-            endpoint,
-            certificate,
-        }
+        TlsHost { endpoint, pin }
     }
-    /// Joins `host` over `--host-cert` with stdin closed, or answering `answer`.
+    /// Joins `host` over `--host-pin` with stdin closed, or answering `answer`.
     async fn join(
         home: &std::path::Path,
-        cert: &str,
         host: &TlsHost,
         yes: bool,
         answer: Option<&[u8]>,
     ) -> Output {
-        std::fs::write(cert, &host.certificate).expect("certificate");
         let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"));
         command
             .env("HOME", home)
             .args([
                 "join",
                 &host.endpoint,
-                "--host-cert",
-                cert,
+                "--host-pin",
+                &host.pin,
                 "--no-service",
                 "--no-open",
             ])
@@ -713,11 +715,9 @@ async fn join_prompts_for_the_host_pin_unless_yes() {
         child.wait_with_output().await.expect("mclient runs")
     }
     let home = tempfile::tempdir().expect("home");
-    let certificate = home.path().join("host-cert.pem");
-    let cert = certificate.to_str().expect("certificate path");
     let client = home.path().join(".oni/machine-client");
     let host = tls_host().await;
-    let declined = join(home.path(), cert, &host, false, None).await;
+    let declined = join(home.path(), &host, false, None).await;
     assert_eq!(declined.status.code(), Some(3));
     assert!(declined.stdout.is_empty());
     let stderr = String::from_utf8(declined.stderr).expect("stderr");
@@ -730,7 +730,7 @@ async fn join_prompts_for_the_host_pin_unless_yes() {
         .next()
         .and_then(|line| line.strip_prefix("host pin: "))
         .expect("pin line");
-    assert_eq!(shown.len(), 64);
+    assert_eq!(shown, host.pin);
     assert_eq!(lines.next(), Some("trust this host? [y/N] "));
     let refusal: serde_json::Value =
         serde_json::from_str(lines.next().expect("refusal")).expect("JSON refusal");
@@ -739,7 +739,7 @@ async fn join_prompts_for_the_host_pin_unless_yes() {
     assert!(!client.join("client.json").exists());
 
     let host = tls_host().await;
-    let approved = join(home.path(), cert, &host, false, Some(b"y\n")).await;
+    let approved = join(home.path(), &host, false, Some(b"y\n")).await;
     let stderr = String::from_utf8(approved.stderr).expect("stderr");
     assert_eq!(approved.status.code(), Some(0), "{stderr}");
     let shown = stderr
@@ -754,7 +754,7 @@ async fn join_prompts_for_the_host_pin_unless_yes() {
     assert!(client.join("client.json").exists());
 
     let host = tls_host().await;
-    let scripted = join(home.path(), cert, &host, true, None).await;
+    let scripted = join(home.path(), &host, true, None).await;
     let stderr = String::from_utf8(scripted.stderr).expect("stderr");
     assert_eq!(scripted.status.code(), Some(0), "{stderr}");
     assert!(!stderr.contains("trust this host?"));
@@ -940,6 +940,7 @@ fn join_unix_persists_private_identity_and_enrollment() {
         .expect("machine id")
         .is_empty());
     assert_eq!(receipt["allowedExports"], serde_json::json!(["notes"]));
+    assert_eq!(receipt["hostPin"], serde_json::Value::Null);
     assert_eq!(
         receipt["allowedCapabilities"]
             .as_array()
@@ -1484,6 +1485,13 @@ fn json_join_reports_setup_without_human_join_output() {
     assert!(status["needs"].as_array().is_some());
     assert!(status["verdict"].as_str().is_some());
     assert!(home.path().join(".oni/machine-client/client.json").exists());
+    let receipt = &status["receipt"];
+    assert!(!receipt["machineId"]
+        .as_str()
+        .expect("machine id")
+        .is_empty());
+    assert_eq!(receipt["hostPin"], serde_json::Value::Null);
+    assert!(!home.path().join(".oni/machine-client/host-pin").exists());
 }
 
 #[test]
@@ -2020,6 +2028,79 @@ fn one_shot_without_recorded_host_pin_refuses_configuration() {
     assert_eq!(output.status.code(), Some(3));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
     assert_eq!(error["reason"], "configuration");
+}
+
+#[test]
+fn legacy_hex_host_pin_refuses_with_the_rejoin_command() {
+    let directory = tempfile::tempdir().expect("client directory");
+    let path = directory.path().join("client.json");
+    std::fs::write(
+        &path,
+        r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null}"#,
+    )
+    .expect("config");
+    std::fs::write(directory.path().join("host-pin"), "ab".repeat(32)).expect("legacy pin");
+    let output = mclient(&[
+        "run",
+        "--allow-unpinned",
+        "--once",
+        "--config",
+        path.to_str().expect("path"),
+    ]);
+    assert_eq!(output.status.code(), Some(3));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
+    assert_eq!(error["reason"], "host_pin_legacy");
+    assert_eq!(error["class"], "configuration");
+    let next_step = error["nextStep"].as_str().expect("next step");
+    assert!(next_step.contains("predates the SPKI pin"), "{next_step}");
+    assert!(
+        next_step.contains("mclient join <host> --host-pin <pin>"),
+        "{next_step}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("host-pin")).expect("pin kept"),
+        "ab".repeat(32)
+    );
+}
+
+#[tokio::test]
+async fn service_with_a_legacy_host_pin_reports_the_rejoin_command_and_waits() {
+    use tokio::io::AsyncBufReadExt;
+    let directory = tempfile::tempdir().expect("client directory");
+    let path = directory.path().join("client.json");
+    std::fs::write(
+        &path,
+        r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null}"#,
+    )
+    .expect("config");
+    std::fs::write(directory.path().join("host-pin"), "ab".repeat(32)).expect("legacy pin");
+    let mut service = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .args([
+            "run",
+            "--allow-unpinned",
+            "--config",
+            path.to_str().expect("path"),
+        ])
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("service starts");
+    let stderr = service.stderr.take().expect("service stderr");
+    let mut lines = tokio::io::BufReader::new(stderr).lines();
+    let first = tokio::time::timeout(std::time::Duration::from_secs(5), lines.next_line())
+        .await
+        .expect("first configuration observation")
+        .expect("stderr")
+        .expect("line");
+    let fact: serde_json::Value = serde_json::from_str(&first).expect("class fact");
+    assert_eq!(fact["class"], "configuration");
+    let next_step = fact["nextStep"].as_str().expect("next step");
+    assert!(next_step.contains("predates the SPKI pin"), "{next_step}");
+    assert!(
+        next_step.contains("mclient join <host> --host-pin <pin>"),
+        "{next_step}"
+    );
+    assert!(service.try_wait().expect("service status").is_none());
+    service.kill().await.expect("stop service");
 }
 
 const CLAUDE_INPUT: &str =

@@ -522,7 +522,6 @@ mod tests {
                     no_service: false,
                     service_dir: None,
                     no_open: true,
-                    host_cert: None,
                     host_pin: None,
                     unix: None,
                     memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,

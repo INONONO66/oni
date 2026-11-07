@@ -9,12 +9,13 @@ use std::{
     process::Command,
 };
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use rcgen::PublicKeyData;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::transport::{
-    connection::{public_key_pin, HostTrust},
+    connection::{public_key_pin, HostPin},
     ws::{self, WsEndpoint},
 };
 
@@ -85,6 +86,8 @@ pub enum ConfigError {
     HostUntrusted,
     #[error("invalid host pin")]
     InvalidPin,
+    #[error("the recorded host-pin predates the SPKI pin and is not verified; re-join with: mclient join <host> --host-pin <pin>")]
+    LegacyHostPin,
     #[error("invalid export")]
     InvalidExport,
     /// A capability this client cannot serve was declared.
@@ -153,8 +156,7 @@ pub struct JoinOptions {
     pub service_dir: Option<PathBuf>,
     #[arg(long)]
     pub no_open: bool,
-    #[arg(long)]
-    pub host_cert: Option<PathBuf>,
+    /// The host key's pin: base64 of the sha256 over its SPKI DER; the only trust a join takes.
     #[arg(long)]
     pub host_pin: Option<String>,
     /// Trust the verified host pin without the operator prompt (scripts).
@@ -220,22 +222,29 @@ pub fn agent_hook_socket() -> PathBuf {
     )
 }
 
+/// The text form of a host pin, as `--host-pin` takes it and `host-pin`
+/// records it: standard base64 of the 32 SPKI sha256 bytes.
+pub fn encode_pin(pin: &[u8; 32]) -> String {
+    STANDARD.encode(pin)
+}
+
 pub fn parse_pin(pin: &str) -> Result<[u8; 32], ConfigError> {
-    let bytes = hex::decode(pin.trim()).map_err(|_| ConfigError::InvalidPin)?;
+    let pin = pin.trim();
+    if pin.len() == 64 && pin.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(ConfigError::LegacyHostPin);
+    }
+    let bytes = STANDARD.decode(pin).map_err(|_| ConfigError::InvalidPin)?;
     bytes.try_into().map_err(|_| ConfigError::InvalidPin)
 }
 
-pub fn trust(options: &JoinOptions, home: &Path) -> Result<HostTrust, ConfigError> {
-    if let Some(pin) = &options.host_pin {
-        return Ok(HostTrust::Pin(parse_pin(pin)?));
-    }
-    if let Some(path) = &options.host_cert {
-        return Ok(HostTrust::CertPem(fs::read(path)?));
-    }
-    if let Ok(pem) = fs::read(home.join("tls/host-cert.pem")) {
-        return Ok(HostTrust::CertPem(pem));
-    }
-    Err(ConfigError::PinRequired)
+/// A TLS join trusts exactly the pin it was given; no certificate file
+/// stands in for it, and nothing is ever trusted unpinned.
+pub fn trust(options: &JoinOptions) -> Result<HostPin, ConfigError> {
+    let pin = options
+        .host_pin
+        .as_deref()
+        .ok_or(ConfigError::PinRequired)?;
+    Ok(HostPin(parse_pin(pin)?))
 }
 
 pub fn split_port(value: &str) -> (&str, Option<&str>) {
