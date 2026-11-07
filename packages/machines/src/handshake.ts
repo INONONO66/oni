@@ -77,7 +77,7 @@ export function respondHandshake(
   enrollment: Machine.Enrollment | undefined,
   nonces: NonceLedger,
 ): HandshakeOutcome {
-  if (!Machine.supportedContractVersions.some((version) => version === hello.peer.contractVersion)) return refused("unsupported_contract");
+  if (hello.peer.contractVersion < Machine.handshakeContractVersion) return refused("unsupported_contract");
   if (nonces.has(hello.nonce)) return refused("replay");
   const staticKey = Buffer.from(hello.staticKey, "base64");
   const publicKey = Machine.fingerprintOf(staticKey);

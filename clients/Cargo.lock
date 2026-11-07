@@ -2491,6 +2491,7 @@ dependencies = [
  "oni-protocol",
  "openh264",
  "rcgen",
+ "ring",
  "rustix 1.1.5",
  "rustls",
  "rustls-pemfile",

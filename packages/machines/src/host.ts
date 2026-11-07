@@ -627,15 +627,15 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     }
     /**
      * Every network-door request after the first needs the accepted
-     * handshake (#1832). A peer below the handshake contract never sends one,
-     * so its `machine.attach` still gets the typed `unsupported_contract`.
+     * handshake (#1832). A peer below `handshakeContractVersion` never sends
+     * one, so its `machine.attach` gets the typed `unsupported_contract`.
      */
     function handshakeGate(method: string, params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, source: RequestSource): Effect.Effect<boolean, MachineError> {
       return Effect.gen(function* () {
         if (source.handshake === undefined || method === Machine.WireMethod.Handshake || sessions.has(source.key)) return false;
         if (method === Machine.WireMethod.Attach) {
           const offer = yield* Effect.try({ try: () => Machine.Offer.parse(params), catch: decodeMachineFailure("attach.decode") });
-          if (!Machine.supportedContractVersions.some((version) => version === offer.peer.contractVersion)) {
+          if (offer.peer.contractVersion < Machine.handshakeContractVersion) {
             respond({ status: "refused", reason: "unsupported_contract" } satisfies Machine.AttachResult);
             return true;
           }
