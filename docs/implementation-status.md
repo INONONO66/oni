@@ -1,5 +1,42 @@
 # Implementation Status
 
+## #1831 host identity by SPKI pin
+
+PR #1859 on `feat/1831-spki-pin` (epic #1829 Phase 2). A joined client
+trusts the host's key, not its certificate, so certificates may be
+renewed or issued by a CA without touching any client.
+
+- Pin: the standard-base64 sha256 over the host key's SPKI DER
+  (`hostPinOf` in `packages/machines/src/ipc/tls.ts`; the Rust
+  `HostPin([u8; 32])` in `clients/machine-client/src/config.rs`). `--host-cert`
+  and the TS `hostCertificate` dial option are gone; the host trust path is
+  the pin alone, and the join receipt carries the pin it recorded.
+- Verification point: the TS dial (`packages/machines/src/ipc/client.ts`)
+  and the Rust connector (`clients/machine-client/src/transport/connection.rs`)
+  compare the presented key once the handshake completes and before any
+  frame; a different key is the typed `IpcPeerKeyMismatchError` /
+  `peer_key_mismatch` with zero requests served. CA validation is replaced
+  by the pin, so each layer keeps exactly one unverified-TLS site (the
+  CodeQL findings on those two sites are dismissed as won't-fix).
+- Chains: `ONI_MACHINES_TLS_CERT` may be a leaf or a leaf-first chain and
+  is served as presented, so a renewal or an ACME-issued chain for the
+  same key keeps every joined client; a 64-hex pin file from before this
+  change is refused `host_pin_legacy` naming the re-join command, and a
+  pin that is not 44 characters of standard base64 over 32 bytes is
+  refused as configuration before any socket.
+- Verification: `packages/machines/test/ipc/network-tls.test.ts` (same-key
+  reissue and chain pass, different key and familiar-issuer refused before
+  any byte), `packages/machines/test/host-listen.test.ts` (the real
+  `mclient` joins a wss host, records the pin, then certificate rotation
+  through a renewed certificate and an ACME-style chain for the same key),
+  `clients/machine-client/tests/{attach,cli,transport/connection}.rs`
+  (renewed certificate and issued chain pass the pin, different key refused
+  before any frame, legacy hex pin typed, the committed fixture pin is one
+  literal shared with the TypeScript test), `script/check-clients-conformance.ts`
+  (reads the join receipt with the recorded host pin), `docs/key-generation.md`.
+  Not established: a live join against the oni host over the [ino] 443/ACME
+  path (#1836).
+
 ## #1838 one-command machine install
 
 PR #1857 on `feat/1838-install-cli` (epic #1829 Phase 2). A fresh machine
