@@ -50,8 +50,9 @@ host admits nothing and reads nothing. `docs/machines-and-delegation.md`
   `replay` and a host that closes on the hello reprobe with the ordinary
   backoff. The attach receipt (`state.json`) carries `handshake:
   { contractVersion, hostKey }`; `mclient join` is unchanged (TLS-verified
-  pin, no handshake until the first `run`). New pinned crates: `x25519-dalek`,
-  `hkdf`, `aes-gcm`, `ring` (P-256 signatures), `rand_core`.
+  pin, no handshake until the first `run`). The one crate added is `ring`
+  (`=0.17.14`, the crypto crate rustls already builds): X25519, HKDF-SHA256,
+  AES-256-GCM and P-256 ECDSA.
 - Verification: `packages/machines/test/handshake.test.ts` over a plaintext
   `ws://` door (an unenrolled key is refused by the handshake alone; the
   unenrolled, key-mismatch and bad-signature refusals are byte-identical;

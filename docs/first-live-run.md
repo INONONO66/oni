@@ -217,6 +217,16 @@ record in #1702.
   enrolled one and swapped in only after the host is verified and the join
   recorded, so a declined prompt or a failed join keeps the key the host
   knows. The rotated key attaches only once the Owner enrolls it again.
+- Every network connection the service makes after the join opens with the
+  signed `machine.handshake` (machine contract v6, #1832) before it attaches:
+  the client proves its enrollment key and the host proves the pinned key
+  inside the message, and every later frame is sealed under a per-attach
+  session key, so a proxy or CDN in front of the host sees ciphertext only.
+  Nothing changes in the commands; the attach receipt (`state.json`) records
+  the `handshake` the admission followed. A `not_admitted`
+  refusal at the handshake means the host has no enrollment for this machine
+  under this key (enroll it, or re-join after a `--rekey`), and a service
+  that is refused `unsupported_contract` needs `mclient update`.
 - On macOS, `mclient join <host>` installs the LaunchAgent and opens Screen
   Recording settings. Grant the installed client binary access; the running
   service checks the grant every five seconds and restarts itself once it
