@@ -204,6 +204,9 @@ impl<S: AsyncRead + Unpin> AsyncRead for Sealed<S> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
+        // Lines carried past the acceptance are opened before the carrier is
+        // polled again: the host may have sent them in the same segment.
+        this.open_lines()?;
         while this.opened.is_empty() {
             if this.ended {
                 return Poll::Ready(Ok(()));
