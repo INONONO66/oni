@@ -12,9 +12,11 @@ use serde_json::Value;
 use tokio::{
     io::{split, AsyncRead, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, UnixListener},
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, watch},
     task::JoinHandle,
 };
+
+use super::responder::{self, Answer, Seen};
 use tokio_tungstenite::{
     tungstenite::{protocol::WebSocketConfig, Error as WsError},
     WebSocketStream,
@@ -47,6 +49,12 @@ pub fn pin_of(certificate: &str) -> [u8; 32] {
 
 fn host_key() -> KeyPair {
     KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).expect("generate test key")
+}
+
+/// A certificate and key no client pinned: what an impostor signs with.
+pub fn foreign_identity() -> (String, String) {
+    let key = host_key();
+    (self_signed(&key), key.serialize_pem())
 }
 
 /// A fresh self-signed `localhost` certificate for `key`; each call carries a
@@ -86,6 +94,7 @@ pub struct FakeHost {
     pub private_key: String,
     pub incoming: mpsc::Receiver<Value>,
     outgoing: mpsc::Sender<(Value, oneshot::Sender<()>)>,
+    seen: watch::Receiver<Option<Seen>>,
     task: JoinHandle<()>,
     _directory: Option<tempfile::TempDir>,
 }
@@ -107,6 +116,7 @@ impl FakeHost {
         let listener = UnixListener::bind(&path).expect("bind Unix socket");
         let (events, incoming) = mpsc::channel(256);
         let (outgoing, frames) = mpsc::channel(256);
+        let (_, seen) = watch::channel(None);
         let task = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.expect("accept Unix peer");
             serve(stream, events, frames).await;
@@ -117,24 +127,58 @@ impl FakeHost {
             private_key: String::new(),
             incoming,
             outgoing,
+            seen,
             task,
             _directory: Some(directory),
         }
     }
 
     pub async fn tls() -> Self {
+        Self::tls_answering(Answer::Accept).await
+    }
+
+    /// A TLS host answering the handshake as `answer` says.
+    pub async fn tls_answering(answer: Answer) -> Self {
         let key = host_key();
-        Self::listen(Listener::Tls13, self_signed(&key), key.serialize_pem()).await
+        Self::listen(
+            Listener::Tls13,
+            self_signed(&key),
+            key.serialize_pem(),
+            answer,
+        )
+        .await
     }
 
     pub async fn tls12() -> Self {
         let key = host_key();
-        Self::listen(Listener::Tls12, self_signed(&key), key.serialize_pem()).await
+        Self::listen(
+            Listener::Tls12,
+            self_signed(&key),
+            key.serialize_pem(),
+            Answer::Accept,
+        )
+        .await
     }
 
     pub async fn ws() -> Self {
+        Self::ws_answering(Answer::Accept).await
+    }
+
+    /// A WebSocket host answering the handshake as `answer` says.
+    pub async fn ws_answering(answer: Answer) -> Self {
         let key = host_key();
-        Self::listen(Listener::WebSocket, self_signed(&key), key.serialize_pem()).await
+        Self::listen(
+            Listener::WebSocket,
+            self_signed(&key),
+            key.serialize_pem(),
+            answer,
+        )
+        .await
+    }
+
+    /// The hello this host read, once the client sent one.
+    pub fn handshake_seen(&self) -> Option<Seen> {
+        self.seen.borrow().clone()
     }
 
     /// A host that reissued its certificate for the key a client pinned
@@ -142,7 +186,13 @@ impl FakeHost {
     pub async fn tls_renewed() -> (Self, String) {
         let key = host_key();
         let replaced = self_signed(&key);
-        let host = Self::listen(Listener::Tls13, self_signed(&key), key.serialize_pem()).await;
+        let host = Self::listen(
+            Listener::Tls13,
+            self_signed(&key),
+            key.serialize_pem(),
+            Answer::Accept,
+        )
+        .await;
         (host, replaced)
     }
 
@@ -151,7 +201,13 @@ impl FakeHost {
     pub async fn tls_chain() -> (Self, String) {
         let key = host_key();
         let replaced = self_signed(&key);
-        let host = Self::listen(Listener::Tls13, issued_chain(&key), key.serialize_pem()).await;
+        let host = Self::listen(
+            Listener::Tls13,
+            issued_chain(&key),
+            key.serialize_pem(),
+            Answer::Accept,
+        )
+        .await;
         (host, replaced)
     }
 
@@ -171,7 +227,12 @@ impl FakeHost {
     /// Serves `certificate` (a leaf, or a chain leaf first) for `private_key`;
     /// the one client it accepts must present an identity those certificates
     /// anchor, which is why tests hand the host's own identity to the client.
-    async fn listen(listener_kind: Listener, certificate: String, private_key: String) -> Self {
+    async fn listen(
+        listener_kind: Listener,
+        certificate: String,
+        private_key: String,
+        answer: Answer,
+    ) -> Self {
         let versions = match listener_kind {
             Listener::Tls12 => &[&rustls::version::TLS12][..],
             Listener::Tls13 | Listener::WebSocket => &[&rustls::version::TLS13][..],
@@ -183,18 +244,38 @@ impl FakeHost {
         let endpoint = listener.local_addr().expect("listener address").to_string();
         let (events, incoming) = mpsc::channel(256);
         let (outgoing, frames) = mpsc::channel(256);
+        let (seen_sender, seen) = watch::channel(None);
+        let identity = (certificate.clone(), private_key.clone());
         let task = tokio::spawn(async move {
             let (tcp, _) = listener.accept().await.expect("accept TCP peer");
             let Ok(stream) = acceptor.accept(tcp).await else {
                 return;
             };
+            let (certificate, private_key) = identity;
             if listener_kind == Listener::WebSocket {
                 let Ok(socket) = accept(stream).await else {
                     return;
                 };
-                serve(ws::Frames::new(socket), events, frames).await;
+                let Some(sealed) = responder::respond(
+                    ws::Frames::new(socket),
+                    &certificate,
+                    &private_key,
+                    answer,
+                    &seen_sender,
+                )
+                .await
+                else {
+                    return;
+                };
+                serve(sealed, events, frames).await;
             } else {
-                serve(stream, events, frames).await;
+                let Some(sealed) =
+                    responder::respond(stream, &certificate, &private_key, answer, &seen_sender)
+                        .await
+                else {
+                    return;
+                };
+                serve(sealed, events, frames).await;
             }
         });
         Self {
@@ -203,6 +284,7 @@ impl FakeHost {
             private_key,
             incoming,
             outgoing,
+            seen,
             task,
             _directory: None,
         }

@@ -1,5 +1,5 @@
 {
-  "contractVersion": 5,
+  "contractVersion": 6,
   "schemas": [
     {
       "file": "AbsolutePath.json",
@@ -292,6 +292,14 @@
     {
       "file": "FsStreamResult.json",
       "name": "FsStreamResult"
+    },
+    {
+      "file": "HandshakeHello.json",
+      "name": "HandshakeHello"
+    },
+    {
+      "file": "HandshakeResult.json",
+      "name": "HandshakeResult"
     },
     {
       "file": "HumanInput.json",

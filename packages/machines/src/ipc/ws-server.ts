@@ -28,11 +28,15 @@ import {
 /** The one upgrade path of the machine wire, beside the gateway's `/ws`. */
 export const IPC_WS_PATH = "/machine";
 
-/** WebSocket-over-TLS listener spec (#1830): the same host identity as the TCP listener. */
+/**
+ * WebSocket listener spec (#1830): over TLS with the same host identity as
+ * the TCP listener, or, with no `tls`, plaintext `ws://` with no peer
+ * certificate (#1832), where the signed handshake alone admits.
+ */
 export type IpcWsListenSpec = {
   readonly host: string;
   readonly port: number;
-  readonly tls: IpcTlsIdentity;
+  readonly tls?: IpcTlsIdentity;
 };
 
 export interface IpcWsServer extends IpcServerApi {
@@ -72,7 +76,7 @@ class WsDoor implements BunSocket {
 
   constructor(
     private readonly transport: Transport,
-    readonly fingerprint: string,
+    readonly fingerprint: string | undefined,
   ) {}
 
   write(bytes: Buffer | Uint8Array | string): number {
@@ -190,16 +194,22 @@ export function createIpcWsServer(
   return Effect.gen(function* () {
     const dispatch = yield* makeDispatcher({ bound: options.dispatcherBound });
     const core = makeServerCore(handler, options, dispatch);
+    const tls = spec.tls;
     const door = yield* bindDoor(core, () => Bun.listen<WsDoor | undefined>({
       hostname: spec.host,
       port: spec.port,
-      tls: {
-        cert: spec.tls.certificate,
-        key: spec.tls.privateKey,
-        requestCert: true,
-        rejectUnauthorized: false,
-      },
+      ...(tls === undefined ? {} : {
+        tls: {
+          cert: tls.certificate,
+          key: tls.privateKey,
+          requestCert: true,
+          rejectUnauthorized: false,
+        },
+      }),
       socket: {
+        open(socket: Transport) {
+          if (tls === undefined) socket.data = new WsDoor(socket, undefined);
+        },
         handshake(socket: TlsTransport) {
           const raw = socket.getPeerCertificate()?.raw;
           if (raw === undefined) {

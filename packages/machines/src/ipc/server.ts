@@ -8,6 +8,7 @@ import { decodeIpcFailure } from "../failure";
 import { makeDispatcher, type Dispatch } from "./callbacks";
 import { LineDecoder, encode } from "./framing";
 import { classifyIpcMessage, PeerRequestTable } from "./peer-request-table";
+import { type FrameSeal, SealedDecoder } from "./seal";
 import { certificateKeyFingerprint, type IpcTlsIdentity } from "./tls";
 
 /** Remove the socket file, tolerating a concurrent removal (ENOENT). */
@@ -61,6 +62,12 @@ export interface IpcServerApi {
    * transport only extracts and exposes it.
    */
   peerFingerprintOf(connectionId: string): string | undefined;
+  /**
+   * Seals every later frame of one connection both ways (#1832); the
+   * handler calls it right after writing the handshake acceptance, which is
+   * the last plaintext frame. False when the connection is gone or sealed.
+   */
+  seal(connectionId: string, seal: FrameSeal): boolean;
   close(): Effect.Effect<void, IpcError>;
 }
 
@@ -125,6 +132,9 @@ type ConnectionState = {
   decoder: LineDecoder;
   /** sha256(SPKI DER) of the mutual-TLS client certificate; Unix has none. */
   peerFingerprint: string | undefined;
+  /** Armed by `seal`: outbound frames are sealed and inbound lines opened before the NDJSON decoder sees them. */
+  seal: FrameSeal | undefined;
+  sealed: SealedDecoder | undefined;
   /**
    * Bytes the kernel did not accept yet. Bun sockets do NOT buffer partial
    * writes (unlike node:net) — whatever `socket.write` returns short must
@@ -166,8 +176,9 @@ export function makeServerCore(handler: RequestHandler, options: IpcServerOption
   let connCounter = 0;
   let activeConnectionId: string | undefined;
 
-  function send(state: ConnectionState, bytes: Uint8Array): void {
+  function send(state: ConnectionState, frame: Uint8Array): void {
     if (state.closed) return;
+    const bytes = state.seal === undefined ? frame : state.seal.seal(frame);
     if (state.writeQueue.length > 0) {
       // Earlier bytes are still waiting for drain — writing now would
       // interleave into the middle of a queued frame.
@@ -286,6 +297,8 @@ export function makeServerCore(handler: RequestHandler, options: IpcServerOption
         socket,
         decoder: new LineDecoder(),
         peerFingerprint,
+        seal: undefined,
+        sealed: undefined,
         writeQueue: [],
         endAfterFlush: false,
         closed: false,
@@ -302,9 +315,12 @@ export function makeServerCore(handler: RequestHandler, options: IpcServerOption
 
         const full = dispatch(Effect.gen(function* () {
           if (state.endAfterFlush || state.closed) return;
-          const { frames: messages, malformed } = yield* Effect.try({ try: () => state.decoder.push(raw), catch: decodeIpcFailure("frame.decode") });
-          for (const msg of messages) yield* dispatchFrame(msg, state);
-          for (const line of malformed) sendFrame(state, Ipc.createErrorResponse("unknown", 4001, `IPC frame is not valid JSON: ${line}`));
+          const chunks = yield* Effect.try({ try: () => (state.sealed === undefined ? [raw] : state.sealed.push(raw)), catch: decodeIpcFailure("frame.open") });
+          for (const chunk of chunks) {
+            const { frames: messages, malformed } = yield* Effect.try({ try: () => state.decoder.push(chunk), catch: decodeIpcFailure("frame.decode") });
+            for (const msg of messages) yield* dispatchFrame(msg, state);
+            for (const line of malformed) sendFrame(state, Ipc.createErrorResponse("unknown", 4001, `IPC frame is not valid JSON: ${line}`));
+          }
         }).pipe(Effect.catch((error) => Effect.sync(() => {
           sendFrame(state, Ipc.createErrorResponse("unknown", 4001, error.message || String(error)));
           closeAfterFlush(state);
@@ -362,6 +378,13 @@ export function makeServerCore(handler: RequestHandler, options: IpcServerOption
       },
       peerFingerprintOf(connectionId) {
         return connections.get(connectionId)?.peerFingerprint;
+      },
+      seal(connectionId, seal) {
+        const state = connections.get(connectionId);
+        if (state === undefined || state.closed || state.seal !== undefined) return false;
+        state.seal = seal;
+        state.sealed = new SealedDecoder(seal);
+        return true;
       },
     },
   };

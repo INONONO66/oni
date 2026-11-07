@@ -93,6 +93,8 @@ export function fingerprintOf(spkiDer: Uint8Array): KeyFingerprint {
 
 /** One owner for the frozen machine wire method names used by both peers. */
 export const WireMethod = {
+  /** Machine → host, the first call on every connection (#1832); answered with `HandshakeResult`. */
+  Handshake: "machine.handshake",
   Attach: "machine.attach",
   /** Daemon → host heartbeat (#1555); answered with `ReportResult`. */
   Report: "machine.report",

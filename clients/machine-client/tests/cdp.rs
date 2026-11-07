@@ -258,6 +258,7 @@ impl Machine {
             generation: NonZeroU64::MIN,
             capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
             exports: vec![],
+            handshake: None,
         });
     }
 

@@ -33,8 +33,9 @@ use crate::{
     transport::{
         classes::{self, FailureClass},
         client::{handler, Caller, Client, Handler, TransportError},
-        connection::HostPin,
+        connection::{self, Door, HostPin, Identity},
         events,
+        handshake::{HandshakeError, Handshaken, Refusal},
         request_table::CallError,
         retry::{Event, Next, Random, Retry},
         ws,
@@ -95,6 +96,11 @@ impl AttachError {
             | Self::ConsentRequired
             | Self::Config(config::ConfigError::HostUntrusted)
             | Self::Transport(TransportError::HostKeyMismatch)
+            | Self::Transport(TransportError::Handshake(
+                HandshakeError::Refused(Refusal::NotAdmitted | Refusal::UnsupportedContract)
+                | HandshakeError::HostKey
+                | HandshakeError::HostSignature,
+            ))
             | Self::Config(
                 config::ConfigError::LegacyHostPin
                 | config::ConfigError::ModeRequired
@@ -114,7 +120,13 @@ impl AttachError {
 
     pub fn reason(&self) -> String {
         match self {
-            Self::Transport(TransportError::HostKeyMismatch) => "peer_key_mismatch".to_owned(),
+            Self::Transport(
+                TransportError::HostKeyMismatch
+                | TransportError::Handshake(HandshakeError::HostKey | HandshakeError::HostSignature),
+            ) => "peer_key_mismatch".to_owned(),
+            Self::Transport(TransportError::Handshake(HandshakeError::Refused(refusal))) => {
+                refusal.as_str().to_owned()
+            }
             Self::Config(config::ConfigError::LegacyHostPin) => "host_pin_legacy".to_owned(),
             Self::Update(crate::release::UpdateError::Unpinned { .. }) => {
                 "unpinned_binary".to_owned()
@@ -149,6 +161,9 @@ pub struct Negotiated {
     pub generation: NonZeroU64,
     pub capabilities: Vec<String>,
     pub exports: Vec<String>,
+    /// The signed handshake this attach followed (#1832); `None` on the Unix
+    /// door, which serves none.
+    pub handshake: Option<Handshaken>,
 }
 
 /// One admitted attach: the grant the handlers serve, and what the host's
@@ -250,6 +265,16 @@ pub struct Enrollment {
 struct SavedGeneration {
     generation: Option<NonZeroU64>,
     pid: Option<u32>,
+    #[serde(default)]
+    handshake: Option<Handshaken>,
+}
+
+fn read_state(directory: &Path) -> Result<Option<SavedGeneration>, AttachError> {
+    match fs::read(directory.join("state.json")) {
+        Ok(data) => Ok(Some(serde_json::from_slice(&data)?)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub fn now_ms() -> u64 {
@@ -305,6 +330,7 @@ pub fn result(value: Value) -> Result<Admission, AttachError> {
                     .map(String::from)
                     .collect(),
                 exports: effective_exports.into_iter().map(String::from).collect(),
+                handshake: None,
             },
             consent_required: consent_required.map(|consent| Consent {
                 capabilities: consent.capabilities.into_iter().map(String::from).collect(),
@@ -326,32 +352,39 @@ pub fn result(value: Value) -> Result<Admission, AttachError> {
 }
 
 fn read_generation(directory: &Path) -> Result<Option<NonZeroU64>, AttachError> {
-    match fs::read(directory.join("state.json")) {
-        Ok(data) => Ok(serde_json::from_slice::<SavedGeneration>(&data)?.generation),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-    }
+    Ok(read_state(directory)?.and_then(|state| state.generation))
 }
 
-fn save_generation(directory: &Path, generation: NonZeroU64) -> io::Result<()> {
-    let state =
-        json!({ "generation": generation, "pid": service_pid(directory).map_err(io::Error::other)? })
-            .to_string();
+/// The attach receipt on disk: the admitted generation, the service pid, and
+/// the handshake the admission followed (#1832).
+fn save_generation(
+    directory: &Path,
+    generation: NonZeroU64,
+    handshake: Option<&Handshaken>,
+) -> io::Result<()> {
+    let state = json!({
+        "generation": generation,
+        "pid": service_pid(directory).map_err(io::Error::other)?,
+        "handshake": handshake,
+    })
+    .to_string();
     config::write_private(&directory.join("state.json"), state.as_bytes())
 }
 
 pub fn service_pid(directory: &Path) -> Result<Option<u32>, AttachError> {
-    match fs::read(directory.join("state.json")) {
-        Ok(data) => Ok(serde_json::from_slice::<SavedGeneration>(&data)?.pid),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-    }
+    Ok(read_state(directory)?.and_then(|state| state.pid))
 }
 
 fn save_service_pid(directory: &Path, pid: Option<u32>) -> Result<(), AttachError> {
     fs::create_dir_all(directory)?;
     fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
-    let state = json!({ "generation": read_generation(directory)?, "pid": pid }).to_string();
+    let saved = read_state(directory)?;
+    let state = json!({
+        "generation": saved.as_ref().and_then(|state| state.generation),
+        "pid": pid,
+        "handshake": saved.and_then(|state| state.handshake),
+    })
+    .to_string();
     config::write_private(&directory.join("state.json"), state.as_bytes())?;
     Ok(())
 }
@@ -378,38 +411,72 @@ fn refuse_inbound() -> Handler {
     handler(|_, _| async { Err("machine_not_attached".to_owned()) })
 }
 
-async fn connect_tls(
-    host: &str,
-    directory: &Path,
-    trust: HostPin,
-    service: Handler,
-) -> Result<Result<(Client, [u8; 32]), TransportError>, AttachError> {
-    let cert = fs::read(directory.join("client-cert.pem"))?;
-    let key = fs::read(directory.join("client-key.pem"))?;
+/// The enrollment identity on disk, lent to one network connection.
+struct SavedIdentity {
+    certificate_pem: Vec<u8>,
+    private_key_pem: Vec<u8>,
+}
+
+impl SavedIdentity {
+    fn read(directory: &Path) -> io::Result<Self> {
+        Ok(Self {
+            certificate_pem: fs::read(directory.join("client-cert.pem"))?,
+            private_key_pem: fs::read(directory.join("client-key.pem"))?,
+        })
+    }
+
+    fn lend<'a>(&'a self, machine_id: &'a str) -> Identity<'a> {
+        Identity {
+            machine_id,
+            certificate_pem: &self.certificate_pem,
+            private_key_pem: &self.private_key_pem,
+        }
+    }
+}
+
+/// The host's network door, the proxy of the environment applied to a
+/// `wss` carrier.
+fn door_of(host: &str) -> Result<Result<Door, TransportError>, AttachError> {
     Ok(match config::carrier(host)? {
         Carrier::Tcp {
             address,
             server_name,
-        } => Client::connect_tls(&address, &server_name, trust, &cert, &key, service).await,
-        Carrier::Wss(endpoint) => match ws::proxy_from_env(|name| std::env::var(name).ok()) {
-            Ok(proxy) => {
-                Client::connect_wss(&endpoint, proxy.as_deref(), trust, &cert, &key, service).await
-            }
-            Err(failure) => Err(TransportError::Proxy(failure)),
-        },
+        } => Ok(Door::Tcp {
+            address,
+            server_name,
+        }),
+        Carrier::Wss(endpoint) => ws::proxy_from_env(|name| std::env::var(name).ok())
+            .map(|proxy| Door::Wss { endpoint, proxy })
+            .map_err(TransportError::Proxy),
+    })
+}
+
+/// Connects through the network door with the signed handshake (#1832).
+async fn connect_network(
+    config: &ClientConfig,
+    directory: &Path,
+    trust: HostPin,
+    service: Handler,
+) -> Result<Result<(Client, Handshaken), TransportError>, AttachError> {
+    let identity = SavedIdentity::read(directory)?;
+    Ok(match door_of(&config.host)? {
+        Ok(door) => Client::connect(&door, trust, identity.lend(&config.machine_id), service).await,
+        Err(error) => Err(error),
     })
 }
 
 /// Connects once with the given pin and returns the host key it verified;
-/// nothing is recorded until the operator approves that key.
+/// nothing is recorded until the operator approves that key. No handshake
+/// runs: the machine is not enrolled yet, so none could be accepted.
 async fn verify_host(
     host: &str,
+    machine_id: &str,
     directory: &Path,
     trust: HostPin,
 ) -> Result<[u8; 32], AttachError> {
-    let (connection, pin) = connect_tls(host, directory, trust, refuse_inbound()).await??;
-    drop(connection);
-    Ok(pin)
+    let identity = SavedIdentity::read(directory)?;
+    let door = door_of(host)??;
+    Ok(connection::verify_host_key(&door, trust, identity.lend(machine_id)).await?)
 }
 
 /// The host pin `join` recorded once the operator approved it: the only
@@ -431,8 +498,8 @@ pub async fn release(
     let client = match &config.unix {
         Some(path) => Client::connect_unix(path, refuse_inbound()).await?,
         None => {
-            connect_tls(
-                &config.host,
+            connect_network(
+                config,
                 directory,
                 pinned_trust(directory)?,
                 refuse_inbound(),
@@ -512,7 +579,9 @@ pub async fn join(
     let public_key = identity.pin().to_owned();
     let host_pin = match trust {
         Some(trust) => {
-            let pin = config::encode_pin(&verify_host(&config.host, &directory, trust).await?);
+            let pin = config::encode_pin(
+                &verify_host(&config.host, &config.machine_id, &directory, trust).await?,
+            );
             if !options.yes && !approve(&config.host, &pin) {
                 return Err(config::ConfigError::HostUntrusted.into());
             }
@@ -721,12 +790,12 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         self.reload_declared()?;
         self.human.discard_edges();
         let (ready, attached) = watch::channel(false);
-        let Some(mut client) = self.connect(attached).await? else {
+        let Some((mut client, handshaken)) = self.connect(attached).await? else {
             return Ok(Outcome::Unreachable);
         };
         let (uplink, mut calls) = Uplink::channel();
         self.hooks.session.uplink(uplink);
-        if !self.negotiate(&client).await? {
+        if !self.negotiate(&client, handshaken).await? {
             return Ok(Outcome::Refused);
         }
         ready.send_replace(true);
@@ -739,7 +808,7 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
     async fn connect(
         &mut self,
         attached: watch::Receiver<bool>,
-    ) -> Result<Option<Client>, AttachError> {
+    ) -> Result<Option<(Client, Option<Handshaken>)>, AttachError> {
         let service = gated(
             self.hooks.service.clone(),
             self.in_flight.clone(),
@@ -747,19 +816,28 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
             attached,
         );
         let connected = match &self.config.unix {
-            Some(path) => Client::connect_unix(path, service).await,
-            None => connect_tls(
-                &self.config.host,
+            Some(path) => Client::connect_unix(path, service)
+                .await
+                .map(|client| (client, None)),
+            None => connect_network(
+                self.config,
                 self.directory,
                 pinned_trust(self.directory)?,
                 service,
             )
             .await?
-            .map(|(client, _)| client),
+            .map(|(client, handshaken)| (client, Some(handshaken))),
         };
         match connected {
-            Ok(client) => Ok(Some(client)),
-            Err(error @ TransportError::HostKeyMismatch) => Err(error.into()),
+            Ok(connected) => Ok(Some(connected)),
+            Err(
+                error @ (TransportError::HostKeyMismatch
+                | TransportError::Handshake(
+                    HandshakeError::Refused(Refusal::NotAdmitted | Refusal::UnsupportedContract)
+                    | HandshakeError::HostKey
+                    | HandshakeError::HostSignature,
+                )),
+            ) => Err(error.into()),
             Err(error) => {
                 self.last_failure = Some(classes::classify(&AttachError::Transport(error)));
                 Ok(None)
@@ -767,7 +845,11 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
         }
     }
 
-    async fn negotiate(&mut self, client: &Client) -> Result<bool, AttachError> {
+    async fn negotiate(
+        &mut self,
+        client: &Client,
+        handshaken: Option<Handshaken>,
+    ) -> Result<bool, AttachError> {
         let cpus = std::thread::available_parallelism().map_or(1, NonZeroUsize::get);
         let capabilities = offered(self.capabilities, self.declared.as_deref());
         let offered = offer(
@@ -793,11 +875,16 @@ impl<'a, P: Probe + ?Sized> Attachment<'a, P> {
             .and_then(|admission| within_offer(admission, &capabilities, &self.config.exports))
         {
             Ok(Admission {
-                negotiated,
+                mut negotiated,
                 consent_required,
             }) => {
+                negotiated.handshake = handshaken;
                 self.generation = Some(negotiated.generation);
-                save_generation(self.directory, negotiated.generation)?;
+                save_generation(
+                    self.directory,
+                    negotiated.generation,
+                    negotiated.handshake.as_ref(),
+                )?;
                 record_consent(self.directory, consent_required.as_ref())?;
                 self.hooks.session.connected(client.caller());
                 self.hooks.session.attached(&negotiated);
@@ -1396,6 +1483,7 @@ mod tests {
                 generation: std::num::NonZeroU64::MIN,
                 capabilities: vec!["fs.read".into()],
                 exports: vec!["notes".into()],
+                handshake: None,
             });
             ready.send_replace(true);
             let response = frames.next().await.expect("read response").expect("frame");

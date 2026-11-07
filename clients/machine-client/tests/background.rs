@@ -1008,6 +1008,7 @@ async fn lifecycle_wire_methods_require_the_grant_and_return_exact_receipts() {
                 vec![]
             },
             exports: vec![],
+            handshake: None,
         });
         for (method, request, expected) in &operations {
             let expected = if permitted {
@@ -1118,6 +1119,7 @@ async fn a_ref_action_reports_completed_dispatch_after_the_native_fixture_record
         generation: std::num::NonZeroU64::MIN,
         capabilities: vec!["computer.use".into()],
         exports: vec![],
+        handshake: None,
     });
     let hooks = service.hooks(std::time::Duration::from_secs(60));
     let call = |method: &str, params: Value| (hooks.service)(method.into(), Some(params));

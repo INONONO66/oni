@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import { isContained, normalizeExportRoot } from "./contained";
 import { createIpcServer, createIpcTcpServer, createIpcWsServer, type IpcServer, type IpcTcpListenSpec, type IpcTlsIdentity, type IpcWsListenSpec } from "./ipc";
+import { handshakeIdentity, NonceLedger, respondHandshake, type HandshakeIdentity } from "./handshake";
 import { typedCall } from "./typed-call";
 import { type BusEvent, type Ipc, Machine } from "@oni/protocol";
 import { Deferred, Effect, Exit, Fiber, FiberSet, Semaphore, type Scope } from "effect";
@@ -32,9 +33,24 @@ interface MachineHostOptions {
   readonly listen: {
     readonly unix?: string;
     readonly tcp?: { readonly host: string; readonly port: number };
-    readonly ws?: { readonly host: string; readonly port: number };
+    readonly ws?: {
+      readonly host: string;
+      readonly port: number;
+      /**
+       * Serve `ws://` with no TLS and no peer certificate (#1832): the
+       * signed handshake and the sealed frames are then all that admit and
+       * protect the door, which is what a TLS-terminating relay hands the
+       * host. The product listener set never opens one; the acceptance
+       * tests prove the handshake alone over it.
+       */
+      readonly plaintext?: boolean;
+    };
   };
-  /** Host TLS identity presented on the TCP and WS listeners; required when either is set. */
+  /**
+   * Host identity: presented on the TLS listeners and signing the machine
+   * handshake on every network door; required when `tcp` or `ws` is set.
+   * The Unix door is the kernel's own socket and has no handshake.
+   */
   readonly tls?: IpcTlsIdentity;
   /** Injected request-id entropy (#1245): required, no ambient crypto fallback. */
   readonly id: () => string;
@@ -272,7 +288,9 @@ export interface MachineHost {
   close(): Effect.Effect<void, MachineError>;
 }
 /** The per-connection transport surface every machine operation routes through. */
-type HostListener = Pick<IpcServer, "call" | "callConnection" | "useConnection" | "isConnected" | "peerFingerprintOf" | "disconnect">;
+type HostListener = Pick<IpcServer, "call" | "callConnection" | "useConnection" | "isConnected" | "peerFingerprintOf" | "disconnect" | "seal">;
+/** Accepted handshake nonces the host remembers; a replay inside this window is refused `replay`. */
+const NONCE_LEDGER_CAPACITY = 4096;
 interface Attachment {
   readonly enrollment: Machine.Enrollment;
   readonly offer: Machine.Offer;
@@ -289,15 +307,19 @@ interface RequestSource {
   readonly key: string;
   readonly rawId: string;
   readonly server: HostListener;
+  /** The identity signing `machine.handshake` on this door; undefined on the Unix door, which has none. */
+  readonly handshake: HandshakeIdentity | undefined;
 }
 
-function negotiate(offer: Machine.Offer, found: Machine.Enrollment | undefined, source: RequestSource) {
+function negotiate(offer: Machine.Offer, found: Machine.Enrollment | undefined, source: RequestSource, proven: Machine.KeyFingerprint | undefined) {
   return Effect.gen(function* () {
     if (found === undefined) return { status: "refused", reason: "machine_not_enrolled" } as const;
     const enrollment = yield* Effect.try({ try: () => Machine.Enrollment.parse(found), catch: decodeMachineFailure("enrollment.decode") });
     // Key pinning precedes contract negotiation so an intruder cannot displace a peer.
     const presented = source.server.peerFingerprintOf(source.rawId);
     if (presented !== undefined && presented !== enrollment.publicKey) return { status: "refused", reason: "peer_key_mismatch" } as const;
+    // The key the signed handshake proved must be this machine's enrolled key, TLS or not (#1832).
+    if (proven !== undefined && proven !== enrollment.publicKey) return { status: "refused", reason: "peer_key_mismatch" } as const;
     if (!Machine.supportedContractVersions.some((version) => version === offer.peer.contractVersion))
       return { status: "refused", reason: "unsupported_contract" } as const;
     const capabilities = Machine.effectiveCapabilities(enrollment, offer);
@@ -374,10 +396,10 @@ function mintGeneration(store: AttachGenerationStore, issued: Set<string>, offer
   });
 }
 
-/** The network listener specs: tcp and ws each need the host TLS identity, and an empty set is refused (#1270, #1830). */
+/** The network listener specs: tcp and ws each need the host identity, which also signs the handshake; an empty set is refused (#1270, #1830, #1832). */
 function networkListenerSpecs(
   options: MachineHostOptions,
-): Effect.Effect<{ readonly tcp?: IpcTcpListenSpec; readonly ws?: IpcWsListenSpec }, MachinesFailure> {
+): Effect.Effect<{ readonly tcp?: IpcTcpListenSpec; readonly ws?: IpcWsListenSpec; readonly handshake?: HandshakeIdentity }, MachinesFailure> {
   const { listen, tls } = options;
   const refuse = (cause: string) => Effect.fail(new MachinesFailure({ operation: "host.listen", cause }));
   if (listen.unix === undefined && listen.tcp === undefined && listen.ws === undefined)
@@ -387,9 +409,12 @@ function networkListenerSpecs(
     if (listen.ws !== undefined) return refuse("a ws listener requires the host tls identity (certificate and privateKey)");
     return Effect.succeed({});
   }
+  const handshake = handshakeIdentity(tls);
+  if (handshake === undefined) return refuse("the host tls identity must carry a P-256 key to sign the machine handshake");
   return Effect.succeed({
+    handshake,
     ...(listen.tcp === undefined ? {} : { tcp: { ...listen.tcp, tls } }),
-    ...(listen.ws === undefined ? {} : { ws: { ...listen.ws, tls } }),
+    ...(listen.ws === undefined ? {} : { ws: { host: listen.ws.host, port: listen.ws.port, ...(listen.ws.plaintext === true ? {} : { tls }) } }),
   });
 }
 
@@ -399,6 +424,9 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     const admission = yield* Semaphore.make(1);
     const attachments = new Map<string, Attachment>();
     const connectionByMachine = new Map<string, string>();
+    const nonces = new NonceLedger(NONCE_LEDGER_CAPACITY);
+    /** Connections whose signed handshake was accepted, by the key they proved (#1832). */
+    const sessions = new Map<string, Machine.KeyFingerprint>();
     /** Machines that attached at least once: their detached window reads `disconnected`. */
     const known = new Set<string>();
     const issued = new Set<string>();
@@ -518,7 +546,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     function attach(offer: Machine.Offer, respond: (result: Machine.AttachResult) => void, source: RequestSource): Effect.Effect<void, MachineError> {
       return Effect.gen(function* () {
         const revision = revoked.get(offer.machineId);
-        const negotiated = yield* negotiate(offer, options.enrollment(offer.machineId), source);
+        const negotiated = yield* negotiate(offer, options.enrollment(offer.machineId), source, sessions.get(source.key));
         if (negotiated.status === "refused") { respond(negotiated); return; }
         const incumbent = connectionByMachine.get(offer.machineId);
         if (offer.generation === undefined && incumbent !== undefined && options.neverSupersede?.includes(offer.machineId) === true) {
@@ -591,7 +619,38 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           ? { status: "refused", reason: "release_unavailable" }
           : { status: "available", release });
       })],
+      [Machine.WireMethod.Handshake, (params, respond, source) => handshake(params, respond, source)],
     ]);
+    function handshake(params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, source: RequestSource): Effect.Effect<void, MachineError> {
+      return Effect.gen(function* () {
+        const hello = yield* Effect.try({ try: () => Machine.HandshakeHello.parse(params), catch: decodeMachineFailure("handshake.decode") });
+        if (source.handshake === undefined) return yield* new MachineRefusalError({ reason: "invalid_method", message: "machine.handshake is not served on the unix door" });
+        if (sessions.has(source.key)) return yield* new MachineRefusalError({ reason: "invalid_method", message: "machine.handshake already completed on this connection" });
+        const outcome = respondHandshake(hello, source.handshake, options.enrollment(hello.machineId), nonces);
+        respond(outcome.result);
+        if (outcome.status !== "accepted") return;
+        // The acceptance is the last plaintext frame either way: sealing is armed before this task yields.
+        if (source.server.seal(source.rawId, outcome.seal)) sessions.set(source.key, outcome.publicKey);
+      });
+    }
+    /**
+     * Every network-door request after the first needs the accepted
+     * handshake (#1832). A peer below `handshakeContractVersion` never sends
+     * one, so its `machine.attach` gets the typed `unsupported_contract`.
+     */
+    function handshakeGate(method: string, params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, source: RequestSource): Effect.Effect<boolean, MachineError> {
+      return Effect.gen(function* () {
+        if (source.handshake === undefined || method === Machine.WireMethod.Handshake || sessions.has(source.key)) return false;
+        if (method === Machine.WireMethod.Attach) {
+          const offer = yield* Effect.try({ try: () => Machine.Offer.parse(params), catch: decodeMachineFailure("attach.decode") });
+          if (offer.peer.contractVersion < Machine.handshakeContractVersion) {
+            respond({ status: "refused", reason: "unsupported_contract" } satisfies Machine.AttachResult);
+            return true;
+          }
+        }
+        return yield* new MachineRefusalError({ reason: "handshake_required", message: `${method} requires a completed machine.handshake on this connection` });
+      });
+    }
     function ping(peer: Attachment): Effect.Effect<void> {
       return Effect.gen(function* () {
         if (attachments.get(peer.key) !== peer) return;
@@ -623,6 +682,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     }
     function dispatchRequest(method: string, params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, source: RequestSource): Effect.Effect<void, MachinesFailure> {
       return Effect.gen(function* () {
+        if (yield* handshakeGate(method, params, respond, source)) return;
         const direct = directRequests.get(method);
         if (direct !== undefined) {
           yield* direct(params, respond, source);
@@ -644,17 +704,21 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
      * listener-local connection ids so two listeners can never collide in the
      * shared registry; `bind` runs before the listener accepts a connection.
      */
-    function makeListener(label: string) {
+    function makeListener(label: string, handshake: HandshakeIdentity | undefined) {
       let api: HostListener;
+      const sourceOf = (rawId: string): RequestSource => ({ key: `${label}:${rawId}`, rawId, server: api, handshake });
       return {
         handler: (method: string, params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, _notify: (method: string, params?: Ipc.Notification["params"]) => void, rawId: string) =>
           method === Machine.WireMethod.EventHumanInput
             ? Effect.try({
-              try: () => humanInput(Machine.HumanInputNotification.parse(params), { key: `${label}:${rawId}`, rawId, server: api }),
+              try: () => humanInput(Machine.HumanInputNotification.parse(params), sourceOf(rawId)),
               catch: decodeMachineFailure("human_input.decode"),
             }).pipe(Effect.mapError((error) => new MachinesFailure({ operation: "machine.request", cause: error.message })))
-            : dispatchRequest(method, params, respond, { key: `${label}:${rawId}`, rawId, server: api }),
-        onDisconnect: (rawId: string) => Effect.sync(() => detach(`${label}:${rawId}`, "connection_closed")),
+            : dispatchRequest(method, params, respond, sourceOf(rawId)),
+        onDisconnect: (rawId: string) => Effect.sync(() => {
+          sessions.delete(`${label}:${rawId}`);
+          detach(`${label}:${rawId}`, "connection_closed");
+        }),
         bind<S extends HostListener>(server: S): S { api = server; return server; },
       };
     }
@@ -663,20 +727,20 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     const servers: Array<Pick<IpcServer, "close">> = [];
     const unixPath = options.listen.unix;
     if (unixPath !== undefined) {
-      const listener = makeListener("unix");
+      const listener = makeListener("unix", undefined);
       servers.push(listener.bind(yield* createIpcServer(unixPath, listener.handler, { idSource: options.id, dispatcherBound: options.dispatcherBound, onDisconnect: listener.onDisconnect }).pipe(Effect.mapError(bindFailure))));
       yield* Effect.try({ try: () => chmodSync(unixPath, 0o600), catch: decodeMachineFailure("host.chmod") });
     }
     let tcpBound: { readonly host: string; readonly port: number } | undefined;
     if (specs.tcp !== undefined) {
-      const listener = makeListener("tcp");
+      const listener = makeListener("tcp", specs.handshake);
       const server = listener.bind(yield* createIpcTcpServer(specs.tcp, listener.handler, { idSource: options.id, dispatcherBound: options.dispatcherBound, onDisconnect: listener.onDisconnect }).pipe(Effect.mapError(bindFailure)));
       servers.push(server);
       tcpBound = { host: server.host, port: server.port };
     }
     let wsBound: { readonly host: string; readonly port: number } | undefined;
     if (specs.ws !== undefined) {
-      const listener = makeListener("ws");
+      const listener = makeListener("ws", specs.handshake);
       const server = listener.bind(yield* createIpcWsServer(specs.ws, listener.handler, { idSource: options.id, dispatcherBound: options.dispatcherBound, onDisconnect: listener.onDisconnect }).pipe(Effect.mapError(bindFailure)));
       servers.push(server);
       wsBound = { host: server.host, port: server.port };

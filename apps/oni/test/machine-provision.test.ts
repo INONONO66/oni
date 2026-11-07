@@ -12,6 +12,7 @@ import { testPlane } from "./helpers/ledger";
 import { bounded, protectedDispatch } from "./helpers/protected-dispatch";
 import { createMachineHost } from "../../../packages/machines/test/helpers/native";
 import { attachMclient, mclientBinary } from "../../../packages/machines/test/helpers/mclient";
+import { handshakeAs } from "../../../packages/machines/test/ipc/helpers/handshake";
 import { connectIpcTcpClient } from "../../../packages/machines/test/ipc/helpers/native";
 import { eventCollector } from "../../../packages/machines/test/helpers/events";
 import { captureError } from "../../../packages/machines/test/ipc/helpers/signal";
@@ -155,6 +156,9 @@ test("replacing an active TLS enrollment revokes its old peer and admits only th
       respond({ status: "completed", cellId: request.cellId, output: { stdout: "", stderr: "" } });
     } });
     peers.push(peer);
+    // The signed handshake judges the enrolled key before any attach (#1832).
+    const handshake = await handshakeAs(peer, { machineId, identity, hostPin });
+    if (handshake.status === "refused") return handshake;
     const attachment = await peer.call(Machine.WireMethod.Attach, {
       machineId, offeredCapabilities: original.allowedCapabilities, daemonVersion: "test",
       platform: "darwin-arm64", offeredAt: 2,
@@ -178,7 +182,7 @@ test("replacing an active TLS enrollment revokes its old peer and admits only th
     expect((await bounded(detached)).payload).toEqual({ machineId: args.machineId, time: 5, reason: "enrollment_replaced" });
     expect(await bounded(pending)).toMatchObject({ _tag: "MachineRefusalError", reason: "disconnected" });
     expect(host.list().map((row) => row.machineId)).toEqual(["other"]);
-    expect(await attach(args.machineId, daemonIdentity)).toEqual({ status: "refused", reason: "peer_key_mismatch" });
+    expect(await attach(args.machineId, daemonIdentity)).toEqual({ status: "refused", reason: "not_admitted" });
     expect(await attach(args.machineId, wrongIdentity)).toMatchObject({ status: "attached", effectiveCapabilities: ["fs.read"] });
     expect(host.list().find((row) => row.machineId === args.machineId)).toMatchObject({
       publicKey: wrongFingerprint, allowedCapabilities: ["fs.read"], capabilities: ["fs.read"],

@@ -58,6 +58,7 @@ impl Fixture {
             generation: NonZeroU64::MIN,
             capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
             exports: exports.iter().map(|&name| name.to_owned()).collect(),
+            handshake: None,
         });
     }
 
@@ -164,6 +165,7 @@ async fn connected_ungranted_computer_requests_never_query_accessibility() {
         generation: NonZeroU64::MIN,
         capabilities: vec!["shell.exec".into()],
         exports: Vec::new(),
+        handshake: None,
     });
     let hooks = service.hooks(Duration::from_secs(60));
     let refused = (hooks.service)(
@@ -618,6 +620,7 @@ async fn screen_methods_gate_attachment_then_capability_and_free_frames_on_teard
             generation: NonZeroU64::MIN,
             capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
             exports: vec![],
+            handshake: None,
         });
     };
     grant(&["shell.exec"]);
@@ -669,6 +672,7 @@ async fn unpermitted_native_source_is_offered_but_refuses_capture() {
             .map(str::to_owned)
             .to_vec(),
         exports: vec![],
+        handshake: None,
     });
     let hooks = service.hooks(Duration::from_secs(60));
     let reported = hooks.screen.capability(hooks.input.ready());
@@ -746,6 +750,7 @@ async fn a_panicking_capture_backend_becomes_an_error_frame_and_frees_its_slot()
         generation: NonZeroU64::MIN,
         capabilities: vec!["screen.read".into()],
         exports: vec![],
+        handshake: None,
     });
     let hooks = service.hooks(Duration::from_secs(60));
     for _ in 0..2 {
@@ -777,6 +782,7 @@ async fn input_methods_gate_attachment_grant_and_anchor_before_injecting() {
             generation: NonZeroU64::MIN,
             capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
             exports: vec![],
+            handshake: None,
         });
     };
     let requests = |capture: &str| {
@@ -912,6 +918,7 @@ async fn input_write_is_not_offered_without_an_input_driver() {
         generation: NonZeroU64::MIN,
         capabilities: vec!["computer.use".into(), "input.write".into()],
         exports: vec![],
+        handshake: None,
     });
     let hooks = service.hooks(Duration::from_secs(60));
     let text = json!({"requestId":"1-1","delivery":"foreground","captureId":"cap-1","text":"x"});
@@ -955,6 +962,7 @@ async fn a_panicking_input_driver_fails_the_call_without_taking_the_client_down(
         generation: NonZeroU64::MIN,
         capabilities: vec!["screen.read".into(), "computer.use".into()],
         exports: vec![],
+        handshake: None,
     });
     let capture = json!({"target":{"kind":"display","display":1},"encoding":{"format":"png"}});
     let shot = (hooks.service)("machine.screen.capture".to_owned(), Some(capture))
@@ -1000,6 +1008,7 @@ async fn held_input_is_released_on_detach_and_on_a_withdrawn_grant() {
             generation: NonZeroU64::MIN,
             capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
             exports: vec![],
+            handshake: None,
         });
     };
     let shift = |down| Event::Key {
@@ -1086,6 +1095,7 @@ async fn observation_methods_gate_like_screen_and_settle_uses_capture_without_an
             generation: NonZeroU64::MIN,
             capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
             exports: vec![],
+            handshake: None,
         });
         for (method, params, reason) in &methods {
             let answer = call(method, params.clone()).await.expect(method);
@@ -1109,6 +1119,7 @@ async fn observation_methods_gate_like_screen_and_settle_uses_capture_without_an
         generation: NonZeroU64::MIN,
         capabilities: vec!["screen.read".into()],
         exports: vec![],
+        handshake: None,
     });
     assert_eq!(
         call("machine.input.status", json!({"requestId":"1-1"}))
@@ -1120,6 +1131,7 @@ async fn observation_methods_gate_like_screen_and_settle_uses_capture_without_an
         generation: NonZeroU64::new(2).expect("generation"),
         capabilities: vec!["computer.use".into()],
         exports: vec![],
+        handshake: None,
     });
     let stale = json!({"requestId":"1-3","observationId":"o1","target":{"pid":1,"windowId":2,"epoch":0},"ref":"AXButton[0]","action":"press"});
     assert_eq!(
@@ -1158,6 +1170,7 @@ fn grant_computer_use(service: &Service) {
         generation: NonZeroU64::MIN,
         capabilities: vec!["computer.use".into()],
         exports: vec![],
+        handshake: None,
     });
 }
 

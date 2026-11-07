@@ -7,6 +7,7 @@ import { Machine } from "@oni/protocol";
 import { createMachineHost as nativeHost } from "../src/host";
 import { createMemoryGenerationStore } from "../src/generation-store";
 import { createMachineHost, refusingToolPort } from "./helpers/native";
+import { handshakeAs } from "./ipc/helpers/handshake";
 import { connectIpcTcpClient, connectIpcWsClient } from "./ipc/helpers/native";
 import { type AttachedMclient, type JoinedMclient, attachMclient, joinMclient, mclientBinary, mclientEnrollment, mclientRunOnce } from "./helpers/mclient";
 import { eventCollector } from "./helpers/events";
@@ -102,6 +103,7 @@ describe("host listener set (#1270)", () => {
         respond({ status: "completed", value: { op: "read", data: Buffer.from("dual").toString("base64"), bytesRead: 4, size: 4, truncated: false } });
       } });
       try {
+        expect(await handshakeAs(overTcp, { machineId: "via-tcp", identity: daemonIdentity, hostPin })).toMatchObject({ status: "accepted" });
         expect(await overTcp.call(Machine.WireMethod.Attach, {
           ...offer("via-tcp", root), peer: { kind: "client", contractVersion: Machine.contractVersion },
         })).toMatchObject({ status: "attached" });
@@ -142,9 +144,10 @@ describe("host listener set (#1270)", () => {
         ws: { host: "127.0.0.1", port }, tls: wrongIdentity, hostPin,
       });
       try {
-        expect(await intruder.call(Machine.WireMethod.Attach, {
+        expect(await handshakeAs(intruder, { machineId: "via-ws", identity: wrongIdentity, hostPin })).toEqual({ status: "refused", reason: "not_admitted" });
+        await expect(intruder.call(Machine.WireMethod.Attach, {
           ...offer("via-ws", root), peer: { kind: "client", contractVersion: Machine.contractVersion },
-        })).toEqual({ status: "refused", reason: "peer_key_mismatch" });
+        })).rejects.toMatchObject({ _tag: "IpcRemoteError", code: 1000 });
         expect(host.list()).toEqual([]);
       } finally {
         await intruder.close();
@@ -157,6 +160,7 @@ describe("host listener set (#1270)", () => {
         respond({ status: "completed", value: { op: "read", data: Buffer.from("over-ws").toString("base64"), bytesRead: 7, size: 7, truncated: false } });
       } });
       try {
+        expect(await handshakeAs(overWs, { machineId: "via-ws", identity: daemonIdentity, hostPin })).toMatchObject({ status: "accepted" });
         expect(await overWs.call(Machine.WireMethod.Attach, {
           ...offer("via-ws", root), peer: { kind: "client", contractVersion: Machine.contractVersion },
         })).toMatchObject({ status: "attached" });
@@ -385,7 +389,7 @@ describe("host listener set (#1270)", () => {
     }
   }, 30_000);
 
-  test("a TCP peer whose key is not the enrollment pin is refused peer_key_mismatch before admission", async () => {
+  test("a TCP peer whose key is not the enrollment pin is refused by the handshake before admission", async () => {
     const host = await createMachineHost({
       listen: { tcp: { host: "127.0.0.1", port: 0 } },
       tls: hostIdentity,
@@ -402,10 +406,11 @@ describe("host listener set (#1270)", () => {
         tcp: { host: "127.0.0.1", port }, tls: wrongIdentity, hostPin,
       });
       try {
-        expect(await intruder.call(Machine.WireMethod.Attach, {
+        expect(await handshakeAs(intruder, { machineId: "pinned", identity: wrongIdentity, hostPin })).toEqual({ status: "refused", reason: "not_admitted" });
+        await expect(intruder.call(Machine.WireMethod.Attach, {
           ...offer("pinned", "/tmp"), exports: undefined,
           peer: { kind: "client", contractVersion: Machine.contractVersion },
-        })).toEqual({ status: "refused", reason: "peer_key_mismatch" });
+        })).rejects.toMatchObject({ _tag: "IpcRemoteError", code: 1000 });
         expect(host.list()).toEqual([]);
       } finally {
         await intruder.close();
@@ -414,6 +419,7 @@ describe("host listener set (#1270)", () => {
         tcp: { host: "127.0.0.1", port }, tls: daemonIdentity, hostPin,
       });
       try {
+        expect(await handshakeAs(rejoined, { machineId: "pinned", identity: daemonIdentity, hostPin })).toMatchObject({ status: "accepted" });
         expect(await rejoined.call(Machine.WireMethod.Attach, {
           ...offer("pinned", "/tmp"), exports: undefined,
           peer: { kind: "client", contractVersion: Machine.contractVersion },
@@ -452,12 +458,14 @@ describe("host listener set (#1270)", () => {
         hostPin,
       });
       try {
+        expect(await handshakeAs(legitimate, { machineId: "pinned", identity: daemonIdentity, hostPin })).toMatchObject({ status: "accepted" });
         expect(await legitimate.call(Machine.WireMethod.Attach, {
           ...offer("pinned", root), peer: { kind: "client", contractVersion: Machine.contractVersion },
         })).toMatchObject({ status: "attached" });
-        expect(await intruder.call("machine.attach", { ...offer("pinned", root), peer: { kind: "client", contractVersion: Machine.contractVersion } })).toEqual({
-          status: "refused",
-          reason: "peer_key_mismatch",
+        expect(await handshakeAs(intruder, { machineId: "pinned", identity: wrongIdentity, hostPin })).toEqual({ status: "refused", reason: "not_admitted" });
+        await expect(intruder.call("machine.attach", { ...offer("pinned", root), peer: { kind: "client", contractVersion: Machine.contractVersion } })).rejects.toMatchObject({
+          _tag: "IpcRemoteError",
+          code: 1000,
         });
         // The current valid attachment was not superseded or detached.
         expect(host.list().map((machine) => machine.machineId)).toEqual(["pinned"]);

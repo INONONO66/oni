@@ -92,6 +92,7 @@ describe("Ipc.Methods param schemas", () => {
   test("registers exactly the machine wire methods", () => {
     expect(Object.keys(Ipc.Methods).sort()).toEqual(
       [
+        Machine.WireMethod.Handshake,
         Machine.WireMethod.Attach,
         Machine.WireMethod.Report,
         Machine.WireMethod.Ping,

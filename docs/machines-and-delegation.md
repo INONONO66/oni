@@ -617,13 +617,15 @@ presented through it unchanged) and pin the host key exactly as for TLS-TCP;
 see `docs/first-live-run.md` for the client-side scheme rules.
 
 Trust is key-pinned, not public PKI: `mclient join` records the host key pin,
-and `run` verifies that key on every TLS connection. The host pins the
-client's key through the REQUIRED `Enrollment.publicKey` (sha256
-over SPKI DER, 64 lowercase hex). On TCP and WebSocket, an
-offered machineId whose presented key differs from the enrollment pin is
-refused `peer_key_mismatch` before admission, and a pin-mismatched intruder
-never displaces a valid attachment. Unix connections carry no peer key; the
-enrollment pin is simply not consulted there. See `docs/key-generation.md`
+and `run` verifies that key on every TLS connection and again inside the
+signed handshake every network connection opens with (§2.3.0). The host pins
+the client's key through the REQUIRED `Enrollment.publicKey` (sha256
+over SPKI DER, 64 lowercase hex). On TCP and WebSocket, a machine whose
+proven key differs from the enrollment pin is refused at the handshake
+(`not_admitted`, byte-identical to the unenrolled refusal) before any attach,
+and a pin-mismatched intruder never displaces a valid attachment. Unix
+connections carry no peer key and no handshake; the enrollment pin is simply
+not consulted there. See `docs/key-generation.md`
 for openssl one-liners, rotation, and addressing. `Enrollment.publicKey`
 is REQUIRED — existing `ONI_MACHINES_ENROLLED` values without it fail
 closed at boot until each enrollment carries the client's key fingerprint.
@@ -646,21 +648,88 @@ transport dropped — fail once with typed `MachineRefusalError`
 backoff (base 250ms, cap 30s); a successful reattach
 resets the backoff and the host's existing handles serve the replacement
 connection. A reconnect presents the generation the host minted for the
-previous attachment (next section). Only `stale_generation`,
-`unsupported_contract` and `peer_key_mismatch` refusals terminate the client;
-other attach refusals retry with the same backoff.
+previous attachment (§2.3.1) after a fresh handshake (§2.3.0). Only
+`stale_generation`, `unsupported_contract` and `peer_key_mismatch` attach
+refusals and the `not_admitted`, `unsupported_contract`, host-key and
+host-signature handshake refusals terminate the client; a `replay` refusal
+and every other attach refusal retry with the same backoff.
+
+### 2.3.0 Signed handshake and sealed frames (#1832)
+
+Contract v6 (`Machine.handshakeContractVersion`). Every connection to a
+network door (TLS-TCP and WebSocket) opens with one call, `machine.handshake`,
+before `machine.attach` or anything else; the Unix door, the kernel's own
+socket, serves no handshake and refuses the call `invalid_method`. The shape
+is Noise IK: the host's static key is the pin the machine recorded at join,
+the machine's static key is its enrollment key, and both are proven INSIDE
+the signed message rather than at TLS, so a relay, CDN or proxy that
+terminates TLS in front of the host admits nothing and learns nothing.
+
+1. Hello (`Machine.HandshakeHello`, machine → host): `machineId`, `peer`
+   (`{ kind, contractVersion }`), `staticKey` (the machine's P-256 SPKI,
+   standard base64), a fresh X25519 `ephemeralKey`, a fresh 32-byte `nonce`,
+   and an ECDSA P-256/SHA-256 `signature` (fixed 64-byte `r || s`) over
+   `helloTranscript`: the label `oni-machine-handshake/6`, then every field
+   in wire spelling, each length-prefixed (`packages/protocol/src/machine/
+   handshake.ts`, the one fold both languages sign).
+2. Judgement (`packages/machines/src/handshake.ts`, `respondHandshake`),
+   first failing step answers: `unsupported_contract` for a peer below v6
+   (a peer that sends `machine.attach` without a handshake gets the same
+   typed attach refusal); `replay` for a nonce the host already accepted
+   (a bounded in-process ledger, `NonceLedger`); `not_admitted` as the ONE
+   reply for an unenrolled id, a `staticKey` whose fingerprint is not the
+   enrolled `publicKey`, and a signature that does not verify — the bytes
+   are identical, so the refusal enumerates nothing.
+3. Acceptance (`Machine.HandshakeResult`): the host's `staticKey`,
+   `ephemeralKey`, `nonce` and a signature over `acceptTranscript` (the
+   whole hello transcript, then the host fields). The client refuses an
+   acceptance whose key is not the pinned one (`HostKey`) or whose signature
+   does not verify (`HostSignature`) before any frame; there is no
+   trust-on-first-use anywhere in the exchange.
+4. Session keys: X25519 over the two ephemerals, then HKDF-SHA256 with
+   salt = sha256 of `sessionTranscript` (accept transcript plus both
+   signatures) and info = `oni-machine-frames/6`; the 64 bytes of output
+   are the machine → host key (first half) and the host → machine key
+   (second half).
+5. Sealed frames (`packages/machines/src/ipc/seal.ts`, `clients/machine-
+   client/src/transport/seal.rs`, byte for byte): every frame after the
+   acceptance, in both directions, is one line of standard base64 over
+   `nonce || ciphertext || tag` under AES-256-GCM with associated data
+   `c2h` (machine → host) or `h2c` (host → machine). The 12-byte nonce is
+   four zero bytes then the per-direction frame counter (big-endian u64,
+   starting at 0), and the receiver insists on exactly the next counter, so
+   a dropped, reordered or replayed frame ends the connection. The newline
+   framing is unchanged, so the carrier (TCP or one binary WebSocket
+   message per line) does not know the frames are sealed; a relay sees
+   ciphertext and line breaks, nothing else.
+6. Attach: `machine.attach` then rides the sealed channel. Admission binds
+   the attach to the proven key: an offer whose `machineId` is enrolled
+   under a different key than the handshake proved is `peer_key_mismatch`
+   even when the enrollment changed between the two calls, and any request
+   before an accepted handshake on a network door is the typed error
+   `handshake_required`.
+
+The host signs with the key of its TLS identity (`ONI_MACHINES_TLS_KEY`,
+which must therefore be P-256; a listener set whose identity carries another
+key type is refused at `host.listen` before any door binds), and the machine
+with the enrollment key `mclient join` minted. On a plaintext `ws://` door (`tls: undefined`, tests only) the
+handshake alone admits and seals, which is how `packages/machines/test/
+handshake.test.ts` proves it without TLS.
 
 ### 2.3.1 Contract admission and the attach generation (#1624)
 
-`Machine.contractVersion` is 2 and `Machine.supportedContractVersions` is
-`[2]`. Every offer names its peer: `mclient` composes
+`Machine.contractVersion` is 6 and `Machine.supportedContractVersions` is
+`[3, 4, 5, 6]`; `consentContractVersion` is 5 (#1842) and
+`handshakeContractVersion` is 6 (§2.3.0, network doors only). Every offer
+names its peer: `mclient` composes
 `{ kind: "client", contractVersion: Machine.contractVersion }` itself.
 The host judges one offer at a time (a
 `Semaphore(1)` wraps `attach`) in this fixed order, and the first failing
 step answers:
 
 1. `machine_not_enrolled` when no enrollment exists for the offered id.
-2. `peer_key_mismatch` when a TCP peer's presented key differs from
+2. `peer_key_mismatch` when a TCP peer's presented key, or the key the
+   signed handshake proved on any network door (#1832), differs from
    `Enrollment.publicKey` (key pinning precedes contract negotiation so an
    intruder cannot displace a peer).
 3. `unsupported_contract` when `peer.contractVersion` is not in
@@ -719,7 +788,18 @@ host by the SHA-256 of its SPKI DER against the persisted pin (base64; next
 paragraph and `docs/key-generation.md`). The pin names the host key, so a
 certificate renewed or re-chained for the same key keeps attaching without
 a new join. A pin mismatch at connect time is `peer_key_mismatch` and
-terminal, refused before any frame is sent.
+terminal, refused before any frame is sent. Every network connection then
+opens with the signed `machine.handshake` of §2.3.0 (`src/transport/
+handshake.rs`: the hello signed with the enrollment key, the acceptance
+verified against the same pin, never a key learned on the wire) and seals
+every later frame with `src/transport/seal.rs`; `machine.attach` rides the
+sealed channel. A `not_admitted` or `unsupported_contract` refusal, a host
+key that is not the pin or a host signature that does not verify is
+terminal (`peer_key_mismatch` for the last two); `replay` and a connection
+the host closes on the hello reprobe with the ordinary backoff. The attach
+receipt (`state.json`) carries `handshake: { contractVersion, hostKey }`
+next to the generation, and `mclient join` itself needs no handshake: it
+verifies the host key through TLS, enrolls, and the first `run` handshakes.
 
 **Join and run.** `mclient join <host> --mode <tailnet|domain> [--name]
 [--tag]* [--export name=/abs/path]* [--host-pin base64 | --unix path]

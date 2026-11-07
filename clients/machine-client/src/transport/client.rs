@@ -17,6 +17,7 @@ use tokio::{
 use super::{
     envelope::{self, Message},
     framing::{self, Framed},
+    handshake,
     request_table::{CallError, Pending, RequestTable, CALL_TIMEOUT},
     ws,
 };
@@ -65,6 +66,8 @@ pub enum TransportError {
     Upgrade(tokio_tungstenite::tungstenite::Error),
     #[error("IPC proxy tunnel failed: {0}")]
     Proxy(#[from] ws::ProxyFailure),
+    #[error("IPC handshake failed: {0}")]
+    Handshake(#[from] handshake::HandshakeError),
 }
 
 /// A clonable handle that issues calls over a live connection; once the

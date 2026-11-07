@@ -1,10 +1,22 @@
 use super::*;
-use oni_machine_client::transport::{
-    connection::{public_key_pin, HostPin},
-    ws,
+use oni_machine_client::{
+    config::encode_pin,
+    transport::{
+        connection::{public_key_pin, HostPin, Identity},
+        handshake::HandshakeError,
+        ws,
+    },
 };
 use support::fake_host::pin_of;
 use tokio_tungstenite::tungstenite::{Bytes, Message};
+
+fn identity<'a>(certificate: &'a str, private_key: &'a str) -> Identity<'a> {
+    Identity {
+        machine_id: "machine-test",
+        certificate_pem: certificate.as_bytes(),
+        private_key_pem: private_key.as_bytes(),
+    }
+}
 
 #[tokio::test]
 async fn request_timeout_releases_pending_entry() {
@@ -160,8 +172,7 @@ async fn tls_fake_host_authenticates_and_exchanges_frames() {
         &host.endpoint,
         "localhost",
         host.pin(),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         handler(|_, _| async { Ok(json!(null)) }),
     )
     .await
@@ -182,8 +193,7 @@ async fn tls_host_key_pin_does_not_depend_on_hostname() {
         &host.endpoint,
         "different.example",
         host.pin(),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         handler(|_, _| async { Ok(json!(null)) }),
     )
     .await
@@ -206,8 +216,7 @@ async fn a_host_certificate_for_a_different_key_is_refused_before_any_frame() {
         &host.endpoint,
         "localhost",
         HostPin(pin_of(&different.cert.pem())),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         handler(|_, _| async { Ok(json!(null)) }),
     )
     .await;
@@ -228,13 +237,12 @@ async fn a_certificate_renewed_for_the_pinned_key_passes_the_pin() {
         &host.endpoint,
         "localhost",
         pin,
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         handler(|_, _| async { Ok(json!(null)) }),
     )
     .await
     .expect("the renewed certificate carries the pinned key");
-    assert_eq!(observed, pin.0);
+    assert_eq!(observed.host_key, encode_pin(&pin.0));
     let exchange = async {
         let request = host.incoming.recv().await.expect("TLS request");
         host.send(json!({"v":2,"type":"response","id":request["id"],"result":"renewed"}))
@@ -280,13 +288,12 @@ async fn an_issued_chain_for_the_pinned_key_passes_the_pin() {
         &host.endpoint,
         "localhost",
         pin,
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         handler(|_, _| async { Ok(json!(null)) }),
     )
     .await
     .expect("the chain's leaf carries the pinned key");
-    assert_eq!(observed, pin.0);
+    assert_eq!(observed.host_key, encode_pin(&pin.0));
     let exchange = async {
         let request = host.incoming.recv().await.expect("TLS request");
         host.send(json!({"v":2,"type":"response","id":request["id"],"result":"chain"}))
@@ -303,8 +310,7 @@ async fn tls12_host_key_pin_verifies_handshake_signature() {
         &host.endpoint,
         "localhost",
         host.pin(),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         handler(|_, _| async { Ok(json!(null)) }),
     )
     .await
@@ -329,8 +335,7 @@ async fn tls_transport_error_is_distinct_from_a_host_key_mismatch() {
         &address,
         "localhost",
         host.pin(),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         handler(|_, _| async { Ok(json!(null)) }),
     );
     let disconnect = async {
@@ -348,8 +353,7 @@ async fn explicit_pin_refuses_a_different_host_key() {
         &host.endpoint,
         "localhost",
         HostPin([0; 32]),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         handler(|_, _| async { Ok(json!(null)) }),
     )
     .await;
@@ -370,13 +374,12 @@ async fn explicit_pin_accepts_matching_host_key() {
         &host.endpoint,
         "localhost",
         HostPin(pin),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         handler(|_, _| async { Ok(json!(null)) }),
     )
     .await
     .expect("pinned connection");
-    assert_eq!(observed, pin);
+    assert_eq!(observed.host_key, encode_pin(&pin));
 }
 
 #[tokio::test]
@@ -421,8 +424,7 @@ async fn wss_fake_host_authenticates_and_pins_the_same_host_key() {
         &host.ws_endpoint(),
         None,
         host.pin(),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         service(),
     )
     .await
@@ -432,8 +434,8 @@ async fn wss_fake_host_authenticates_and_pins_the_same_host_key() {
         .expect("host certificate")
         .expect("valid PEM");
     assert_eq!(
-        pin,
-        public_key_pin(certificate.as_ref()).expect("host public key pin")
+        pin.host_key,
+        encode_pin(&public_key_pin(certificate.as_ref()).expect("host public key pin"))
     );
     exchange_over(&client, &mut host, json!({"carrier":"wss"})).await;
 }
@@ -446,8 +448,7 @@ async fn wss_dial_tunnels_through_the_connect_proxy() {
         &host.ws_endpoint(),
         Some(&proxy.address),
         host.pin(),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         service(),
     )
     .await
@@ -463,8 +464,7 @@ async fn proxy_failure(answer: proxy::ProxyAnswer) -> (String, TransportError) {
         &host.ws_endpoint(),
         Some(&proxy.address),
         host.pin(),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         service(),
     )
     .await
@@ -517,20 +517,19 @@ async fn wss_text_message_is_refused_as_invalid_data() {
         Message::Text("{}".into()),
     ])
     .await;
-    let (mut client, _) = Client::connect_wss(
-        &host.endpoint(),
+    let endpoint = host.endpoint();
+    let connect = Client::connect_wss(
+        &endpoint,
         None,
         HostPin(pin_of(&host.certificate)),
-        host.certificate.as_bytes(),
-        host.private_key.as_bytes(),
+        identity(&host.certificate, &host.private_key),
         service(),
-    )
-    .await
-    .expect("upgrade");
-    host.delivered.await.expect("messages sent");
+    );
+    let (result, delivered) = tokio::join!(connect, host.delivered);
+    delivered.expect("messages sent");
     assert!(matches!(
-        client.closed().await,
-        Err(TransportError::Frame(FrameError::Io(error)))
+        result.err(),
+        Some(TransportError::Handshake(HandshakeError::Io(error)))
             if error.kind() == io::ErrorKind::InvalidData
                 && error.to_string() == "the machine wire carries binary frames only"
     ));
@@ -563,5 +562,135 @@ fn proxy_address_normalizes_the_environment_value() {
             ws::proxy_address(Some(unsupported)),
             Err(ws::ProxyFailure::Unsupported)
         ));
+    }
+}
+
+/// The handshake at the connection level (#1832): what the host saw in the
+/// hello, and the typed outcome of every answer it can give, on both carriers.
+mod signed_handshake {
+    use super::*;
+    use oni_machine_client::transport::handshake::{Handshaken, Refusal};
+    use support::fake_host::FakeHost;
+    use support::responder::Answer;
+
+    async fn dial(host: &FakeHost, wss: bool) -> Result<(Client, Handshaken), TransportError> {
+        let identity = identity(&host.certificate, &host.private_key);
+        if wss {
+            Client::connect_wss(&host.ws_endpoint(), None, host.pin(), identity, service()).await
+        } else {
+            Client::connect_tls(&host.endpoint, "localhost", host.pin(), identity, service()).await
+        }
+    }
+
+    /// The handshake error a dial ended with; an accepted dial is the failure.
+    fn handshake_error(dialed: Result<(Client, Handshaken), TransportError>) -> HandshakeError {
+        match dialed {
+            Err(TransportError::Handshake(error)) => error,
+            Err(other) => panic!("expected a handshake error, got {other:?}"),
+            Ok(_) => panic!("the host accepted a handshake it should have refused"),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_hello_names_the_machine_the_contract_and_fresh_material_under_a_valid_signature() {
+        for wss in [false, true] {
+            let mut host = if wss {
+                FakeHost::ws().await
+            } else {
+                FakeHost::tls().await
+            };
+            let (client, _) = dial(&host, wss).await.expect("accepted");
+            let seen = host.handshake_seen().expect("the host saw the hello");
+            assert!(seen.signature_verified);
+            assert_eq!(seen.hello.machine_id, "machine-test");
+            assert_eq!(seen.hello.contract_version, oni_protocol::CONTRACT_VERSION);
+            assert_eq!(seen.hello.ephemeral_key.len(), 44);
+            assert_eq!(seen.hello.nonce.len(), 44);
+            assert_ne!(seen.hello.ephemeral_key, seen.hello.nonce);
+            assert!(!seen.hello.static_key.is_empty());
+            exchange_over(&client, &mut host, json!({"sealed": wss})).await;
+            drop(client);
+            let again = if wss {
+                FakeHost::ws().await
+            } else {
+                FakeHost::tls().await
+            };
+            let (_client, _) = dial(&again, wss).await.expect("accepted again");
+            let fresh = again.handshake_seen().expect("the second hello");
+            assert_ne!(
+                fresh.hello.nonce, seen.hello.nonce,
+                "every hello carries a fresh nonce"
+            );
+            assert_ne!(
+                fresh.hello.ephemeral_key, seen.hello.ephemeral_key,
+                "and a fresh ephemeral"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn every_refusal_reason_is_typed_and_ends_the_connection_before_any_frame() {
+        for (reason, expected) in [
+            ("not_admitted", Refusal::NotAdmitted),
+            ("replay", Refusal::Replay),
+            ("unsupported_contract", Refusal::UnsupportedContract),
+        ] {
+            for wss in [false, true] {
+                let host = if wss {
+                    FakeHost::ws_answering(Answer::Refuse(reason)).await
+                } else {
+                    FakeHost::tls_answering(Answer::Refuse(reason)).await
+                };
+                let error = handshake_error(dial(&host, wss).await);
+                assert!(
+                    matches!(&error, HandshakeError::Refused(refusal) if *refusal == expected),
+                    "{reason} over {}: {error:?}",
+                    if wss { "wss" } else { "tcp" }
+                );
+                assert_eq!(
+                    error.to_string(),
+                    format!("the host refused the handshake: {reason}")
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_acceptance_under_a_key_the_client_never_pinned_is_refused() {
+        for wss in [false, true] {
+            let host = if wss {
+                FakeHost::ws_answering(Answer::ForeignKey).await
+            } else {
+                FakeHost::tls_answering(Answer::ForeignKey).await
+            };
+            let error = handshake_error(dial(&host, wss).await);
+            assert!(matches!(error, HandshakeError::HostKey), "{error:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_acceptance_whose_signature_does_not_verify_is_refused() {
+        for wss in [false, true] {
+            let host = if wss {
+                FakeHost::ws_answering(Answer::BadSignature).await
+            } else {
+                FakeHost::tls_answering(Answer::BadSignature).await
+            };
+            let error = handshake_error(dial(&host, wss).await);
+            assert!(matches!(error, HandshakeError::HostSignature), "{error:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_host_that_hangs_up_on_the_hello_is_a_closed_handshake() {
+        for wss in [false, true] {
+            let host = if wss {
+                FakeHost::ws_answering(Answer::Close).await
+            } else {
+                FakeHost::tls_answering(Answer::Close).await
+            };
+            let error = handshake_error(dial(&host, wss).await);
+            assert!(matches!(error, HandshakeError::Closed), "{error:?}");
+        }
     }
 }

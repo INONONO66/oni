@@ -12,6 +12,7 @@ import * as Settle from "./settle.js";
 import * as Probe from "./probe.js";
 import { decodeReport } from "./report-v3.js";
 import * as Lease from "./lease.js";
+import * as Handshake from "./handshake.js";
 
 /**
  * Machine domain (docs/machines-and-delegation.md): attached devices as the
@@ -63,6 +64,19 @@ export namespace Machine {
   export const contractVersion = Contract.contractVersion;
   export const supportedContractVersions = Contract.supportedContractVersions;
   export const consentContractVersion = Contract.consentContractVersion;
+  export const handshakeContractVersion = Contract.handshakeContractVersion;
+  export const HandshakeHello = Handshake.HandshakeHello;
+  export type HandshakeHello = Handshake.HandshakeHello;
+  export const HandshakeResult = Handshake.HandshakeResult;
+  export type HandshakeResult = Handshake.HandshakeResult;
+  export type HandshakeAccepted = Handshake.HandshakeAccepted;
+  export const handshakeLabel = Handshake.handshakeLabel;
+  export const frameKeyLabel = Handshake.frameKeyLabel;
+  export const frameAadToHost = Handshake.frameAadToHost;
+  export const frameAadToMachine = Handshake.frameAadToMachine;
+  export const helloTranscript = Handshake.helloTranscript;
+  export const acceptTranscript = Handshake.acceptTranscript;
+  export const sessionTranscript = Handshake.sessionTranscript;
   export const releaseTagPrefix = Contract.releaseTagPrefix;
   export const ReleaseArtifact = ReleaseContract.ReleaseArtifact;
   export type ReleaseArtifact = ReleaseContract.ReleaseArtifact;

@@ -315,7 +315,10 @@ fn reconnect_offer_contains_generation_and_exact_supplied_capabilities() {
         value["offeredCapabilities"],
         json!(["fs.read", "pty.session"])
     );
-    assert_eq!(value["peer"], json!({"kind":"client","contractVersion":5}));
+    assert_eq!(
+        value["peer"],
+        json!({"kind":"client","contractVersion":oni_protocol::CONTRACT_VERSION})
+    );
     assert_eq!(value["resources"], json!({"cpus":4,"memoryBytes":1024}));
     assert_eq!(value["exports"], json!([{"name":"home","path":"/home/me"}]));
     assert!(attach::now_ms() > 0);
@@ -3521,4 +3524,332 @@ async fn run_without_config_uses_the_home_client_path() {
     tokio::time::timeout(Duration::from_secs(10), scenario)
         .await
         .expect("default service shuts down");
+}
+
+/// The signed handshake on the client side (#1832): the hello the host saw,
+/// the receipt the client kept, and the frames after the acceptance.
+mod handshake {
+    use super::*;
+    use oni_machine_client::transport::{
+        classes::{classify, FailureClass},
+        handshake::{HandshakeError, Refusal},
+    };
+    use support::responder::{self, Answer};
+    use tokio::{io::AsyncReadExt, net::TcpListener};
+
+    fn client_static_key_pin(hello_static_key: &str) -> String {
+        use base64::Engine;
+        use sha2::Digest;
+        let spki = base64::engine::general_purpose::STANDARD
+            .decode(hello_static_key)
+            .expect("the hello carries a base64 SPKI");
+        config::encode_pin(&sha2::Sha256::digest(spki).into())
+    }
+
+    async fn attach_once(
+        host: &mut FakeHost,
+        settings: &ClientConfig,
+        directory: &Path,
+    ) -> Outcome {
+        let hooks = hooks(Arc::new(NoRetention));
+        let probe = FixedProbe::new(0);
+        let capabilities = ["fs.read".to_owned()];
+        let mut attachment =
+            Attachment::new(settings, directory, &capabilities, &hooks, &probe).expect("new");
+        let exchange = async {
+            let request = expect(host, "machine.attach").await;
+            host.send(attached(&request, 9)).await;
+            let report = expect(host, "machine.report").await;
+            host.send(reply(
+                &report,
+                json!({"status":"refused","reason":"machine_not_attached"}),
+            ))
+            .await;
+        };
+        let (outcome, ()) = tokio::join!(attachment.once(), exchange);
+        outcome.expect("attached over the sealed channel")
+    }
+
+    fn assert_handshake_receipt(host: &FakeHost, settings: &ClientConfig, directory: &Path) {
+        let seen = host
+            .handshake_seen()
+            .expect("the host read the hello first");
+        assert!(
+            seen.signature_verified,
+            "the hello is signed by the key it names"
+        );
+        assert_eq!(seen.hello.machine_id, settings.machine_id);
+        assert_eq!(seen.hello.contract_version, oni_protocol::CONTRACT_VERSION);
+        assert_eq!(
+            client_static_key_pin(&seen.hello.static_key),
+            config::encode_pin(&pin_of(&host.certificate)),
+            "the static key is the enrolled client certificate's key"
+        );
+        let state: Value = serde_json::from_slice(
+            &std::fs::read(directory.join("state.json")).expect("attach receipt"),
+        )
+        .expect("json");
+        assert_eq!(state["generation"], 9);
+        assert_eq!(
+            state["handshake"],
+            json!({
+                "contractVersion": oni_protocol::CONTRACT_VERSION,
+                "hostKey": config::encode_pin(&pin_of(&host.certificate)),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn tcp_attach_opens_with_a_signed_hello_and_keeps_the_handshake_in_the_receipt() {
+        let mut host = FakeHost::tls().await;
+        let (directory, settings) = tls_client(&host, pin_of(&host.certificate)).await;
+        assert!(matches!(
+            attach_once(&mut host, &settings, directory.path()).await,
+            Outcome::Ended(_)
+        ));
+        assert_handshake_receipt(&host, &settings, directory.path());
+    }
+
+    #[tokio::test]
+    async fn wss_attach_opens_with_a_signed_hello_and_keeps_the_handshake_in_the_receipt() {
+        let mut host = FakeHost::ws().await;
+        let (directory, mut settings) = tls_client(&host, pin_of(&host.certificate)).await;
+        settings.host = host.ws_endpoint().url();
+        settings.mode = Some(Mode::Domain);
+        assert!(matches!(
+            attach_once(&mut host, &settings, directory.path()).await,
+            Outcome::Ended(_)
+        ));
+        assert_handshake_receipt(&host, &settings, directory.path());
+    }
+
+    async fn raw_line<S: tokio::io::AsyncRead + Unpin>(
+        stream: &mut S,
+        carried: &mut Vec<u8>,
+    ) -> Vec<u8> {
+        loop {
+            if let Some(end) = carried.iter().position(|byte| *byte == b'\n') {
+                let rest = carried.split_off(end + 1);
+                let mut line = std::mem::replace(carried, rest);
+                line.pop();
+                return line;
+            }
+            let mut chunk = [0; 4096];
+            let read = stream.read(&mut chunk).await.expect("read the wire");
+            assert!(read > 0, "the client hung up mid-attach");
+            carried.extend_from_slice(&chunk[..read]);
+        }
+    }
+
+    #[tokio::test]
+    async fn every_frame_after_the_acceptance_is_ciphertext_on_the_wire() {
+        let identity = support::fake_host::foreign_identity();
+        let (certificate, private_key) = (identity.0.clone(), identity.1.clone());
+        let acceptor =
+            support::tls::acceptor(&certificate, &private_key, &[&rustls::version::TLS13]);
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let address = listener.local_addr().expect("address").to_string();
+        let (seen, _) = tokio::sync::watch::channel(None);
+        let wire = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.expect("accept");
+            let stream = acceptor.accept(tcp).await.expect("TLS accept");
+            let (mut stream, mut seal, mut carried) =
+                responder::respond_raw(stream, &certificate, &private_key, Answer::Accept, &seen)
+                    .await
+                    .expect("accepted");
+            let attach_line = raw_line(&mut stream, &mut carried).await;
+            let attach: Value = serde_json::from_slice(
+                &seal
+                    .open(&attach_line)
+                    .expect("the responder keys open the client's frame"),
+            )
+            .expect("the opened frame is the attach request");
+            assert_eq!(attach["method"], "machine.attach");
+            let response = seal
+                .seal(format!("{}\n", attached(&attach, 4)).as_bytes())
+                .expect("seal the acceptance");
+            tokio::io::AsyncWriteExt::write_all(&mut stream, &response)
+                .await
+                .expect("write the sealed response");
+            let report_line = raw_line(&mut stream, &mut carried).await;
+            let report: Value =
+                serde_json::from_slice(&seal.open(&report_line).expect("open the report"))
+                    .expect("the opened frame is the report");
+            assert_eq!(report["method"], "machine.report");
+            let refusal = seal
+                .seal(
+                    format!(
+                        "{}\n",
+                        reply(
+                            &report,
+                            json!({"status":"refused","reason":"machine_not_attached"})
+                        )
+                    )
+                    .as_bytes(),
+                )
+                .expect("seal the refusal");
+            tokio::io::AsyncWriteExt::write_all(&mut stream, &refusal)
+                .await
+                .expect("write the sealed refusal");
+            (attach_line, report_line)
+        });
+        let directory = tempfile::tempdir().expect("client directory");
+        let mut settings = config();
+        settings.host = address;
+        std::fs::write(directory.path().join("client-cert.pem"), &identity.0).expect("cert");
+        std::fs::write(directory.path().join("client-key.pem"), &identity.1).expect("key");
+        std::fs::write(
+            directory.path().join("host-pin"),
+            config::encode_pin(&pin_of(&identity.0)),
+        )
+        .expect("pin");
+        let hooks = hooks(Arc::new(NoRetention));
+        let probe = FixedProbe::new(0);
+        let capabilities = ["fs.read".to_owned()];
+        let mut attachment =
+            Attachment::new(&settings, directory.path(), &capabilities, &hooks, &probe)
+                .expect("new");
+        let (outcome, lines) = tokio::join!(attachment.once(), wire);
+        assert!(matches!(outcome.expect("attached"), Outcome::Ended(_)));
+        let (attach_line, report_line) = lines.expect("the wire task");
+        for line in [&attach_line, &report_line] {
+            assert!(!line.is_empty());
+            assert!(
+                line.iter()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"+/=".contains(byte)),
+                "a sealed line is base64, never JSON: {}",
+                String::from_utf8_lossy(line)
+            );
+            assert!(!line.starts_with(b"{"));
+        }
+    }
+
+    async fn once_over(host: &FakeHost, wss: bool) -> Result<Outcome, AttachError> {
+        let (directory, mut settings) = tls_client(host, pin_of(&host.certificate)).await;
+        if wss {
+            settings.host = host.ws_endpoint().url();
+            settings.mode = Some(Mode::Domain);
+        }
+        let hooks = hooks(Arc::new(NoRetention));
+        let probe = FixedProbe::new(0);
+        let capabilities = ["fs.read".to_owned()];
+        let mut attachment =
+            Attachment::new(&settings, directory.path(), &capabilities, &hooks, &probe)
+                .expect("new");
+        let outcome = attachment.once().await;
+        assert!(
+            !directory.path().join("state.json").exists(),
+            "no receipt without an admission"
+        );
+        outcome
+    }
+
+    async fn no_attach_reached(host: &mut FakeHost) {
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_millis(200), host.incoming.recv()).await,
+            Err(_) | Ok(None)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_not_admitted_handshake_ends_the_one_shot_as_an_authentication_refusal() {
+        let mut tcp = FakeHost::tls_answering(Answer::Refuse("not_admitted")).await;
+        let mut wss = FakeHost::ws_answering(Answer::Refuse("not_admitted")).await;
+        let errors = [
+            once_over(&tcp, false).await.expect_err("refused over tcp"),
+            once_over(&wss, true).await.expect_err("refused over wss"),
+        ];
+        for error in errors {
+            assert!(matches!(
+                error,
+                AttachError::Transport(TransportError::Handshake(HandshakeError::Refused(
+                    Refusal::NotAdmitted
+                )))
+            ));
+            assert_eq!(
+                (error.exit_code(), error.reason().as_str()),
+                (3, "not_admitted")
+            );
+            assert_eq!(classify(&error), FailureClass::Authentication);
+        }
+        for host in [&mut tcp, &mut wss] {
+            assert!(host
+                .handshake_seen()
+                .is_some_and(|seen| seen.signature_verified));
+            no_attach_reached(host).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unsupported_contract_refusal_ends_the_one_shot_as_a_configuration_error() {
+        let host = FakeHost::tls_answering(Answer::Refuse("unsupported_contract")).await;
+        let error = once_over(&host, false).await.expect_err("refused");
+        assert!(matches!(
+            error,
+            AttachError::Transport(TransportError::Handshake(HandshakeError::Refused(
+                Refusal::UnsupportedContract
+            )))
+        ));
+        assert_eq!(
+            (error.exit_code(), error.reason().as_str()),
+            (3, "unsupported_contract")
+        );
+        assert_eq!(classify(&error), FailureClass::Configuration);
+    }
+
+    #[tokio::test]
+    async fn a_replay_refusal_or_a_hang_up_on_the_hello_reprobes_without_a_terminal_error() {
+        for answer in [Answer::Refuse("replay"), Answer::Close] {
+            let tcp = FakeHost::tls_answering(answer).await;
+            let wss = FakeHost::ws_answering(answer).await;
+            assert!(matches!(
+                once_over(&tcp, false).await.expect("reprobe later"),
+                Outcome::Unreachable
+            ));
+            assert!(matches!(
+                once_over(&wss, true).await.expect("reprobe later"),
+                Outcome::Unreachable
+            ));
+        }
+        let replay = AttachError::Transport(TransportError::Handshake(HandshakeError::Refused(
+            Refusal::Replay,
+        )));
+        assert_eq!(classify(&replay), FailureClass::RemoteUnavailable);
+        assert_eq!(replay.reason().as_str(), "replay");
+    }
+
+    #[tokio::test]
+    async fn an_acceptance_under_a_foreign_or_unverifiable_host_key_is_refused_before_attach() {
+        for (answer, expected) in [
+            (Answer::ForeignKey, "HostKey"),
+            (Answer::BadSignature, "HostSignature"),
+        ] {
+            let mut tcp = FakeHost::tls_answering(answer).await;
+            let mut wss = FakeHost::ws_answering(answer).await;
+            let errors = [
+                once_over(&tcp, false).await.expect_err("refused over tcp"),
+                once_over(&wss, true).await.expect_err("refused over wss"),
+            ];
+            for error in errors {
+                let variant = match &error {
+                    AttachError::Transport(TransportError::Handshake(HandshakeError::HostKey)) => {
+                        "HostKey"
+                    }
+                    AttachError::Transport(TransportError::Handshake(
+                        HandshakeError::HostSignature,
+                    )) => "HostSignature",
+                    other => panic!("unexpected error: {other:?}"),
+                };
+                assert_eq!(variant, expected);
+                assert_eq!(
+                    (error.exit_code(), error.reason().as_str()),
+                    (3, "peer_key_mismatch")
+                );
+                assert_eq!(classify(&error), FailureClass::Authentication);
+            }
+            for host in [&mut tcp, &mut wss] {
+                no_attach_reached(host).await;
+            }
+        }
+    }
 }

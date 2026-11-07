@@ -4,8 +4,10 @@ pub mod connection;
 pub mod envelope;
 pub mod events;
 pub mod framing;
+pub mod handshake;
 pub mod request_table;
 pub mod retry;
+pub mod seal;
 #[cfg(target_os = "macos")]
 pub mod wake;
 pub mod ws;

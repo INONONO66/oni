@@ -184,6 +184,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for Frames<S> {
                     )));
                 }
                 Some(Ok(Message::Close(_))) | None => return Poll::Ready(Ok(())),
+                // The carrier's own failure keeps its kind: a TLS hang-up
+                // without close_notify stays `UnexpectedEof` for the handshake.
+                Some(Err(WsError::Io(error))) => return Poll::Ready(Err(error)),
                 Some(Err(error)) => return Poll::Ready(Err(io::Error::other(error))),
             }
         }

@@ -250,6 +250,7 @@ async fn public_virtual_computer_serves_opaque_pixels_input_and_window_refusals(
         generation: std::num::NonZeroU64::MIN,
         capabilities: vec!["computer.use".into()],
         exports: vec![],
+        handshake: None,
     });
     let hooks = service.hooks(Duration::from_secs(60));
     let listed = (hooks.service)("machine.screen.list".into(), Some(json!({"windows":true})))

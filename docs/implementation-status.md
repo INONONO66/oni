@@ -1,5 +1,92 @@
 # Implementation Status
 
+## #1832 signed handshake, session keys and sealed frames
+
+Branch `feat/1832-signed-handshake` (epic #1829 Phase 3, merged with
+`2c5e2714a` for #1837). Every network connection to the machine host opens
+with one signed call, derives a per-attach session key, and seals every
+later frame, so a relay, CDN or proxy that terminates TLS in front of the
+host admits nothing and reads nothing. `docs/machines-and-delegation.md`
+§2.3.0 is the wire description.
+
+- Contract: machine contract v6 (`packages/protocol/src/machine/contract.ts`:
+  `contractVersion = 6`, `supportedContractVersions = [3, 4, 5, 6]`,
+  `handshakeContractVersion = 6`, `consentContractVersion` stays 5).
+  `machine/handshake.ts` owns `Machine.HandshakeHello` /
+  `Machine.HandshakeResult` (`machine.handshake`, `Machine.WireMethod.
+  Handshake`), the labels `oni-machine-handshake/6`, `oni-machine-frames/6`,
+  `c2h`, `h2c`, and the pure `helloTranscript` / `acceptTranscript` /
+  `sessionTranscript` folds both peers sign (length-prefixed wire
+  spellings); `schema/machine/Handshake{Hello,Result}.json` and the valid /
+  invalid fixtures under `fixtures/machine/` are regenerated.
+- Host (`packages/machines/src/handshake.ts`, `src/ipc/seal.ts`, `src/host.ts`):
+  the TLS-TCP and WebSocket doors serve the handshake, signed with the key
+  of the host TLS identity (P-256 required, refused at `host.listen`
+  otherwise); the Unix door serves none (`invalid_method`) and admits every
+  supported version. Judgement order: `unsupported_contract` (peer below
+  v6; an attach without a handshake from such a peer gets the same typed
+  attach refusal), `replay` (a nonce the bounded `NonceLedger` already
+  accepted), then `not_admitted` as the ONE byte-identical reply for an
+  unenrolled id, a static key that is not the enrolled `publicKey`, and a
+  signature that does not verify. Any other request before an accepted
+  handshake on a network door is the typed `handshake_required` error, and
+  `machine.attach` refuses `peer_key_mismatch` when the proven key is not
+  the enrolled one at attach time. Session keys: X25519 over fresh
+  ephemerals, HKDF-SHA256 (salt = sha256 of the session transcript, info =
+  the frames label), AES-256-GCM per direction with the frame counter as
+  the nonce, received strictly in order; a sealed line is base64 of
+  `nonce || ciphertext || tag` under the unchanged newline framing. On a
+  plaintext `ws://` door (tests only) the handshake alone admits and seals.
+- Client (`clients/machine-client/src/transport/{handshake,seal,connection}.rs`,
+  `attach.rs`): after the carrier connects (TLS-TCP under the pinned host
+  key, or `wss://`), `Client::connect` sends the hello first (ephemeral
+  X25519 key, nonce, contract version, transcript signed with the
+  enrollment key), verifies the acceptance against the pinned host key and
+  never a key learned on the wire (`HostKey` / `HostSignature`, surfaced as
+  the terminal `peer_key_mismatch`), derives the keys exactly as `seal.ts`
+  does and seals every frame from then on; `machine.attach` rides the
+  sealed channel. `not_admitted` and `unsupported_contract` are terminal
+  typed refusals (exit 3, `Authentication` / `Configuration` classes);
+  `replay` and a host that closes on the hello reprobe with the ordinary
+  backoff. The attach receipt (`state.json`) carries `handshake:
+  { contractVersion, hostKey }`; `mclient join` is unchanged (TLS-verified
+  pin, no handshake until the first `run`). The one crate added is `ring`
+  (`=0.17.14`, the crypto crate rustls already builds): X25519, HKDF-SHA256,
+  AES-256-GCM and P-256 ECDSA.
+- Verification: `packages/machines/test/handshake.test.ts` over a plaintext
+  `ws://` door (an unenrolled key is refused by the handshake alone; the
+  unenrolled, key-mismatch and bad-signature refusals are byte-identical;
+  a replayed hello is refused `replay`; a peer below v6 is refused
+  `unsupported_contract` at attach; frames after the acceptance are
+  ciphertext; attach before the handshake is `handshake_required`),
+  `packages/machines/test/host-listen.test.ts` and `test/host-admission.test.ts`
+  (TypeScript peers handshake before attach; intruders are refused at the
+  handshake), `clients/machine-client/tests/attach.rs` `handshake::*`
+  (`tcp_attach_opens_with_a_signed_hello_and_keeps_the_handshake_in_the_receipt`,
+  `wss_attach_opens_with_a_signed_hello_and_keeps_the_handshake_in_the_receipt`,
+  `every_frame_after_the_acceptance_is_ciphertext_on_the_wire`,
+  `a_not_admitted_handshake_ends_the_one_shot_as_an_authentication_refusal`,
+  `an_unsupported_contract_refusal_ends_the_one_shot_as_a_configuration_error`,
+  `a_replay_refusal_or_a_hang_up_on_the_hello_reprobes_without_a_terminal_error`,
+  `an_acceptance_under_a_foreign_or_unverifiable_host_key_is_refused_before_attach`),
+  `tests/transport/connection.rs` (every tcp/wss connection handshakes;
+  a text WebSocket message is refused inside the handshake;
+  `signed_handshake::*` reads the hello the host saw on both carriers
+  (fresh nonce and ephemeral per dial, verified signature), and pins the
+  typed outcome of every answer: each refusal reason, a foreign key, a
+  signature that does not verify, and a carrier that ends on the hello,
+  with or without a TLS `close_notify`, as `Closed`), the `seal.rs` unit
+  tests (sealed lines the host sends in the same segment as its acceptance
+  are opened before the carrier is polled again),
+  `script/check-clients-conformance.ts` and the real-`mclient` tests in
+  `packages/machines/test/host-listen.test.ts` and `apps/oni` (the Rust
+  client attaches to the TypeScript host over the sealed channel, which is
+  the cross-language proof of the shared transcript and key schedule).
+  Not established: a live handshake against the oni host over the [ino]
+  443/ACME path (#1836); the nonce ledger is per host process, so a replay
+  across a host restart is refused only by the fresh host ephemeral (the
+  replayed hello cannot derive the new session key).
+
 ## #1837 explicit attach mode `tailnet|domain` with Tailscale setup
 
 PR #1861 on `feat/1837-attach-mode` (epic #1829 Phase 3, base `aad16eeed`,

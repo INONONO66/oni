@@ -42,6 +42,16 @@ const notificationSchema = baseMessage.extend({
  */
 const methods = {
   /**
+   * Machine client → machine host, before any other method (#1832): the
+   * client proves its enrollment key inside the signed hello, the host proves
+   * the pinned key inside the signed accept, and every later frame on the
+   * connection is sealed under the session key both derive.
+   */
+  [Machine.WireMethod.Handshake]: {
+    params: Machine.HandshakeHello,
+    result: Machine.HandshakeResult,
+  },
+  /**
    * Machine client → machine host (docs/machines-and-delegation.md §2):
    * the client offers its capability set, the host answers with the
    * enrollment∩offer effective set or a typed refusal. The localhost slice

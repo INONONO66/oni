@@ -54,6 +54,7 @@ async fn service() -> (Arc<Service>, Client, tempfile::TempDir) {
         generation: NonZeroU64::MIN,
         capabilities: vec!["kernel.py".to_owned()],
         exports: vec![],
+        handshake: None,
     });
     (service, client, root)
 }
@@ -171,6 +172,7 @@ async fn cell_tool_call_round_trips_through_host() {
         generation: NonZeroU64::MIN,
         capabilities: vec!["kernel.py".into()],
         exports: vec![],
+        handshake: None,
     });
 
     let code = serve(
@@ -215,6 +217,7 @@ async fn host_tool_refusal_is_catchable_inside_the_cell() {
         generation: NonZeroU64::MIN,
         capabilities: vec!["kernel.py".into()],
         exports: vec![],
+        handshake: None,
     });
     let code = serve(
         &service,
@@ -269,6 +272,7 @@ async fn stop_while_cell_waits_for_tool_returns_cancelled() {
         generation: NonZeroU64::MIN,
         capabilities: vec!["kernel.py".into()],
         exports: vec![],
+        handshake: None,
     });
     let code = serve(
         &service,
@@ -381,6 +385,7 @@ async fn detach_kills_the_tenant_interpreter() {
         generation: NonZeroU64::MIN,
         capabilities: vec!["kernel.py".into()],
         exports: vec![],
+        handshake: None,
     });
     let pid = serve(
         &service,
@@ -431,6 +436,7 @@ async fn blocked_service() -> Blocked {
         generation: NonZeroU64::MIN,
         capabilities: vec!["kernel.py".into()],
         exports: vec![],
+        handshake: None,
     });
     (service, client, reader, writer, root)
 }
