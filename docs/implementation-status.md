@@ -2,7 +2,7 @@
 
 ## #1837 explicit attach mode `tailnet|domain` with Tailscale setup
 
-PR #TBD on `feat/1837-attach-mode` (epic #1829 Phase 3, base `aad16eeed`,
+PR #1861 on `feat/1837-attach-mode` (epic #1829 Phase 3, base `aad16eeed`,
 merged with `e5835b8ab` for #1842). A machine reaches its host in exactly
 one explicit mode; nothing falls back from one mode to the other.
 
