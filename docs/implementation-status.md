@@ -17,6 +17,9 @@ one explicit mode; nothing falls back from one mode to the other.
   `tailnet` with `wss://`, any mode with `--unix`) is `mode_mismatch`, and
   both are typed configuration refusals with a `nextStep`. The mode is saved
   in `client.json` and rides the attach offer; the unix carrier takes none.
+  `mclient status` prints it (`--json`: `mode`, null before the first join
+  or over unix) and refuses a saved config in the wrong mode the way `run`
+  does (`tests/cli.rs::status_reports_the_saved_mode_and_refuses_a_config_in_the_wrong_one`).
 - Host: `Machine.AttachMode` (`packages/protocol/src/machine/index.ts`,
   `schema/machine/AttachMode.json`) on `Machine.Offer.mode` and
   `Machine.Info.mode` (optional, absent for older peers), and `machine_list`
