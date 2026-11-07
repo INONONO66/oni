@@ -458,6 +458,7 @@ fn status_record(
     let directory = config::agent_registry_directory();
     let consent = attach::pending_consent(&directory)?;
     let identity = config::identity_pin(&directory)?;
+    let mode = config::saved_mode(&directory)?;
     Ok(serde_json::json!({
         "ok": !verdict.needs.iter().any(|row| !row.on_screen),
         "version": VERSION,
@@ -466,6 +467,7 @@ fn status_record(
         "blockers": verdict.blockers,
         "needs": verdict.needs,
         "identity": identity,
+        "mode": mode,
         "consentRequired": consent,
     }))
 }
@@ -488,6 +490,9 @@ fn print_status(
         }
         if let Some(pin) = record["identity"].as_str() {
             println!("identity: {pin}");
+        }
+        if let Some(mode) = record["mode"].as_str() {
+            println!("mode: {mode}");
         }
         for capability in consent_rows(&record["consentRequired"]["capabilities"]) {
             println!("consent required: capability {capability} — mclient grant {capability}");

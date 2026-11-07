@@ -542,6 +542,18 @@ pub fn saved_declared(directory: &Path) -> Result<Option<Vec<String>>, ConfigErr
     }
 }
 
+/// The attach mode the saved config holds, `None` before the first join or
+/// on the unix carrier. A saved config that names no mode for its network
+/// host, or the wrong one, is refused here exactly as `run` refuses it, so
+/// `status` shows the typed reason instead of a blank mode.
+pub fn saved_mode(directory: &Path) -> Result<Option<Mode>, ConfigError> {
+    match load(&directory.join(CONFIG_FILE)) {
+        Ok(config) => Ok(config.mode),
+        Err(ConfigError::Io(error)) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// The declared set `join` records: the operator's selection, else the set
 /// the saved config already declares (consent survives a re-join), else
 /// every supported capability. A name this client cannot serve is refused.

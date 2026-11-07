@@ -1,8 +1,6 @@
 {
   "machineId": "mac-0",
-  "offeredCapabilities": [
-    "fs.read"
-  ],
+  "offeredCapabilities": ["fs.read"],
   "daemonVersion": "0.1.0",
   "platform": "darwin-arm64",
   "offeredAt": 1,

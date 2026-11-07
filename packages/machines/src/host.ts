@@ -333,6 +333,14 @@ function attachedResult(
   };
 }
 
+/** The offer's optional facts as `machine_list` carries them; each is absent when the peer declared none. */
+function offerFacts(offer: Machine.Offer): Pick<MachineInfo, "resources" | "mode"> {
+  return {
+    ...(offer.resources === undefined ? {} : { resources: { ...offer.resources } }),
+    ...(offer.mode === undefined ? {} : { mode: offer.mode }),
+  };
+}
+
 function matchesGeneration(offer: Machine.Offer, current: number | undefined): boolean {
   return offer.generation === undefined || offer.generation === current;
 }
@@ -1087,8 +1095,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           peer: { ...offer.peer },
           os: offer.platform.split("-")[0] ?? offer.platform,
           arch: offer.platform.split("-").slice(1).join("-"),
-          ...(offer.resources === undefined ? {} : { resources: { ...offer.resources } }),
-          ...(offer.mode === undefined ? {} : { mode: offer.mode }),
+          ...offerFacts(offer),
         };
         if (latest === undefined) return info;
         const { machineId: _machineId, streams: _streams, ...facts } = latest.report;

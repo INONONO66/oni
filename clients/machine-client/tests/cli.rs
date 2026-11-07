@@ -852,6 +852,57 @@ fn join_refuses_a_network_host_without_a_mode_or_in_the_wrong_one() {
 }
 
 #[test]
+fn status_reports_the_saved_mode_and_refuses_a_config_in_the_wrong_one() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let client = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&client).expect("client directory");
+    let status = |json: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_mclient"));
+        command.env("HOME", home.path()).arg("status");
+        if json {
+            command.arg("--json");
+        }
+        command.output().expect("status")
+    };
+    let saved = |mode: &str| {
+        let settings = serde_json::json!({
+            "machineId": "desk", "name": "desk", "host": "wss://host.example/machine",
+            "exports": [], "tags": [], "memoryBudgetMb": 512, "mode": mode
+        });
+        std::fs::write(client.join("client.json"), settings.to_string()).expect("client.json");
+    };
+
+    let unjoined = status(true);
+    assert_eq!(unjoined.status.code(), Some(0));
+    let record: serde_json::Value = serde_json::from_slice(&unjoined.stdout).expect("status JSON");
+    assert_eq!(record["mode"], serde_json::Value::Null);
+    assert!(!String::from_utf8_lossy(&status(false).stdout).contains("mode:"));
+
+    saved("domain");
+    let joined = status(true);
+    assert_eq!(joined.status.code(), Some(0));
+    let record: serde_json::Value = serde_json::from_slice(&joined.stdout).expect("status JSON");
+    assert_eq!(record["mode"], "domain");
+    let text = status(false);
+    assert_eq!(text.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&text.stdout)
+        .lines()
+        .any(|line| line == "mode: domain"));
+
+    saved("tailnet");
+    let refused = status(true);
+    assert_eq!(refused.status.code(), Some(3));
+    assert!(refused.stdout.is_empty());
+    let refusal: serde_json::Value = serde_json::from_slice(&refused.stderr).expect("JSON refusal");
+    assert_eq!(refusal["reason"], "mode_mismatch");
+    assert_eq!(refusal["class"], "configuration");
+    assert_eq!(
+        refusal["nextStep"],
+        "--mode tailnet does not dial the wss carrier this host address selects; re-join with the address tailnet mode takes, or the mode that dials it"
+    );
+}
+
+#[test]
 fn join_in_tailnet_mode_reports_the_tailscale_setup_it_could_not_finish() {
     let home = tempfile::tempdir().expect("isolated home");
     let bin = tailscale_on_path(
