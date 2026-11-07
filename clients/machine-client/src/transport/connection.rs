@@ -8,6 +8,7 @@ use rustls::{
 };
 use sha2::{Digest, Sha256};
 use tokio::{
+    io::{AsyncRead, AsyncWrite},
     net::{TcpStream, UnixStream},
     time::timeout,
 };
@@ -15,6 +16,8 @@ use tokio_rustls::{client::TlsStream, TlsConnector};
 
 use super::{
     client::{Client, Handler, TransportError},
+    handshake::{self, Handshaken, StaticKey},
+    seal::Sealed,
     ws::{self, WsEndpoint},
 };
 
@@ -149,6 +152,83 @@ async fn secure<E: Into<TransportError>>(
     Ok((stream, pin))
 }
 
+/// The identity a network connection carries: the TLS client certificate
+/// and the same key signing the handshake hello.
+#[derive(Clone, Copy)]
+pub struct Identity<'a> {
+    pub machine_id: &'a str,
+    pub certificate_pem: &'a [u8],
+    pub private_key_pem: &'a [u8],
+}
+
+/// A network door before the upgrade: the TCP address, through a proxy for
+/// `wss`, and the name TLS verifies.
+pub enum Door {
+    Tcp {
+        address: String,
+        server_name: String,
+    },
+    Wss {
+        endpoint: WsEndpoint,
+        proxy: Option<String>,
+    },
+}
+
+async fn secure_door(
+    door: &Door,
+    pin: HostPin,
+    identity: Identity<'_>,
+) -> Result<(TlsStream<TcpStream>, [u8; 32]), TransportError> {
+    let connector = tls_connector(pin, identity.certificate_pem, identity.private_key_pem)?;
+    match door {
+        Door::Tcp {
+            address,
+            server_name,
+        } => secure(&connector, server_name, TcpStream::connect(address)).await,
+        Door::Wss { endpoint, proxy } => {
+            let tcp = async move {
+                match proxy {
+                    Some(proxy) => ws::connect_through_proxy(proxy, &endpoint.address).await,
+                    None => Ok(TcpStream::connect(&endpoint.address).await?),
+                }
+            };
+            secure(&connector, &endpoint.server_name, tcp).await
+        }
+    }
+}
+
+/// Connects once to verify the host key TLS presents against `pin` and hangs
+/// up without a handshake: what `join` does before the operator approves the
+/// key, when the machine is not yet enrolled and no handshake could succeed.
+pub async fn verify_host_key(
+    door: &Door,
+    pin: HostPin,
+    identity: Identity<'_>,
+) -> Result<[u8; 32], TransportError> {
+    let (stream, observed) = secure_door(door, pin, identity).await?;
+    drop(stream);
+    Ok(observed)
+}
+
+async fn sealed<S>(
+    mut stream: S,
+    pin: HostPin,
+    identity: Identity<'_>,
+) -> Result<(Sealed<S>, Handshaken), TransportError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let key = StaticKey::from_pem(identity.certificate_pem, identity.private_key_pem)
+        .map_err(TransportError::Handshake)?;
+    let (seal, carried, handshaken) = timeout(
+        CONNECT_TIMEOUT,
+        handshake::initiate(&mut stream, identity.machine_id, &key, pin),
+    )
+    .await
+    .map_err(|_| TransportError::ConnectTimeout)??;
+    Ok((Sealed::new(stream, seal, carried), handshaken))
+}
+
 impl Client {
     pub async fn connect_unix(path: &Path, handler: Handler) -> Result<Self, TransportError> {
         let stream = timeout(CONNECT_TIMEOUT, UnixStream::connect(path))
@@ -157,40 +237,67 @@ impl Client {
         Ok(Self::from_stream(stream, handler))
     }
 
+    /// Connects through a network door: TLS pinned to `pin`, then the signed
+    /// handshake, then every frame sealed (#1832).
+    pub async fn connect(
+        door: &Door,
+        pin: HostPin,
+        identity: Identity<'_>,
+        handler: Handler,
+    ) -> Result<(Self, Handshaken), TransportError> {
+        let (stream, _) = secure_door(door, pin, identity).await?;
+        match door {
+            Door::Tcp { .. } => {
+                let (stream, handshaken) = sealed(stream, pin, identity).await?;
+                Ok((Self::from_stream(stream, handler), handshaken))
+            }
+            Door::Wss { endpoint, .. } => {
+                let socket = timeout(CONNECT_TIMEOUT, ws::upgrade(stream, endpoint))
+                    .await
+                    .map_err(|_| TransportError::ConnectTimeout)?
+                    .map_err(TransportError::Upgrade)?;
+                let (stream, handshaken) = sealed(ws::Frames::new(socket), pin, identity).await?;
+                Ok((Self::from_stream(stream, handler), handshaken))
+            }
+        }
+    }
+
     pub async fn connect_tls(
         address: &str,
         server_name: &str,
         pin: HostPin,
-        client_cert_pem: &[u8],
-        client_key_pem: &[u8],
+        identity: Identity<'_>,
         handler: Handler,
-    ) -> Result<(Self, [u8; 32]), TransportError> {
-        let connector = tls_connector(pin, client_cert_pem, client_key_pem)?;
-        let (stream, pin) = secure(&connector, server_name, TcpStream::connect(address)).await?;
-        Ok((Self::from_stream(stream, handler), pin))
+    ) -> Result<(Self, Handshaken), TransportError> {
+        Self::connect(
+            &Door::Tcp {
+                address: address.to_owned(),
+                server_name: server_name.to_owned(),
+            },
+            pin,
+            identity,
+            handler,
+        )
+        .await
     }
 
     pub async fn connect_wss(
         endpoint: &WsEndpoint,
         proxy: Option<&str>,
         pin: HostPin,
-        client_cert_pem: &[u8],
-        client_key_pem: &[u8],
+        identity: Identity<'_>,
         handler: Handler,
-    ) -> Result<(Self, [u8; 32]), TransportError> {
-        let connector = tls_connector(pin, client_cert_pem, client_key_pem)?;
-        let tcp = async move {
-            match proxy {
-                Some(proxy) => ws::connect_through_proxy(proxy, &endpoint.address).await,
-                None => Ok(TcpStream::connect(&endpoint.address).await?),
-            }
-        };
-        let (stream, pin) = secure(&connector, &endpoint.server_name, tcp).await?;
-        let socket = timeout(CONNECT_TIMEOUT, ws::upgrade(stream, endpoint))
-            .await
-            .map_err(|_| TransportError::ConnectTimeout)?
-            .map_err(TransportError::Upgrade)?;
-        Ok((Self::from_stream(ws::Frames::new(socket), handler), pin))
+    ) -> Result<(Self, Handshaken), TransportError> {
+        Self::connect(
+            &Door::Wss {
+                endpoint: endpoint.clone(),
+                proxy: proxy.map(str::to_owned),
+            },
+            pin,
+            identity,
+            handler,
+        )
+        .await
     }
 }
 

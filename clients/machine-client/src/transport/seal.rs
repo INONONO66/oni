@@ -167,11 +167,7 @@ impl<S> Sealed<S> {
     }
 
     fn open_lines(&mut self) -> io::Result<()> {
-        while let Some(end) = self
-            .sealed_inbound
-            .iter()
-            .position(|byte| *byte == b'\n')
-        {
+        while let Some(end) = self.sealed_inbound.iter().position(|byte| *byte == b'\n') {
             let line = self.sealed_inbound.drain(..=end).collect::<Vec<u8>>();
             let line = &line[..line.len() - 1];
             if line.is_empty() {
@@ -193,10 +189,7 @@ impl<S> Sealed<S> {
             .iter()
             .position(|byte| *byte == b'\n')
         {
-            let frame = self
-                .partial_plaintext
-                .drain(..=end)
-                .collect::<Vec<u8>>();
+            let frame = self.partial_plaintext.drain(..=end).collect::<Vec<u8>>();
             let line = self.seal.seal(&frame).map_err(Self::invalid)?;
             self.sealed_outbound.extend_from_slice(&line);
         }
@@ -235,8 +228,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for Sealed<S> {
 impl<S: AsyncWrite + Unpin> Sealed<S> {
     fn drain_outbound(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         while !self.sealed_outbound.is_empty() {
-            let written =
-                ready!(Pin::new(&mut self.inner).poll_write(cx, &self.sealed_outbound))?;
+            let written = ready!(Pin::new(&mut self.inner).poll_write(cx, &self.sealed_outbound))?;
             if written == 0 {
                 return Poll::Ready(Err(io::Error::from(io::ErrorKind::WriteZero)));
             }
@@ -304,10 +296,14 @@ mod tests {
         let first = initiator.seal(b"{\"v\":2}\n").expect("seal");
         let second = initiator.seal(b"{\"v\":2}\n").expect("seal");
         assert_eq!(first.last(), Some(&b'\n'));
-        let body = BASE64.decode(&first[..first.len() - 1]).expect("base64 body");
+        let body = BASE64
+            .decode(&first[..first.len() - 1])
+            .expect("base64 body");
         assert_eq!(body.len(), NONCE_BYTES + 8 + TAG_BYTES);
         assert_eq!(&body[..NONCE_BYTES], &[0; NONCE_BYTES]);
-        let second_body = BASE64.decode(&second[..second.len() - 1]).expect("base64 body");
+        let second_body = BASE64
+            .decode(&second[..second.len() - 1])
+            .expect("base64 body");
         assert_eq!(second_body[NONCE_BYTES - 1], 1);
         assert_ne!(body[NONCE_BYTES..], second_body[NONCE_BYTES..]);
         assert_eq!(
@@ -369,7 +365,10 @@ mod tests {
         let (left, right) = tokio::io::duplex(64 * 1024);
         let mut client = Sealed::new(left, initiator, Vec::new());
         let mut host = Sealed::new(right, responder, Vec::new());
-        client.write_all(b"{\"id\":1}\n{\"id\":").await.expect("write");
+        client
+            .write_all(b"{\"id\":1}\n{\"id\":")
+            .await
+            .expect("write");
         client.write_all(b"2}\n").await.expect("write");
         client.flush().await.expect("flush");
         let mut buf = vec![0; 64];
@@ -381,7 +380,10 @@ mod tests {
         assert_eq!(&buf[..count], b"{\"ok\":true}\n");
         host.inner.write_all(b"AAAA\n").await.expect("raw write");
         host.inner.flush().await.expect("raw flush");
-        let error = client.read(&mut buf).await.expect_err("a forged line ends the read");
+        let error = client
+            .read(&mut buf)
+            .await
+            .expect_err("a forged line ends the read");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 

@@ -5,7 +5,11 @@ use tokio_tungstenite::tungstenite::Error as WsError;
 
 use crate::{
     attach::AttachError,
-    transport::{client::TransportError, request_table::CallError},
+    transport::{
+        client::TransportError,
+        handshake::{HandshakeError, Refusal},
+        request_table::CallError,
+    },
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -83,6 +87,7 @@ pub fn classify(error: &AttachError) -> FailureClass {
             | TransportError::Proxy(_),
         ) => FailureClass::Configuration,
         AttachError::Transport(TransportError::Upgrade(error)) => classify_upgrade(error),
+        AttachError::Transport(TransportError::Handshake(error)) => classify_handshake(error),
         AttachError::Transport(TransportError::ConnectTimeout)
         | AttachError::Call(CallError::Timeout(_)) => FailureClass::Timeout,
         AttachError::Transport(TransportError::Connect(error)) => classify_io(error),
@@ -102,6 +107,27 @@ pub fn classify(error: &AttachError) -> FailureClass {
         }
         AttachError::EventsClosed => FailureClass::RemoteUnavailable,
         AttachError::MemoryBudget => FailureClass::Configuration,
+    }
+}
+
+/// The host's `not_admitted` and a host that cannot sign for the pinned key
+/// are identity failures; a contract the host no longer speaks is
+/// configuration; a replayed nonce or a malformed answer is retried with a
+/// fresh hello, like any other remote failure (#1832).
+fn classify_handshake(error: &HandshakeError) -> FailureClass {
+    match error {
+        HandshakeError::Refused(Refusal::NotAdmitted)
+        | HandshakeError::HostKey
+        | HandshakeError::HostSignature => FailureClass::Authentication,
+        HandshakeError::Refused(Refusal::UnsupportedContract) | HandshakeError::StaticKey => {
+            FailureClass::Configuration
+        }
+        HandshakeError::Refused(Refusal::Replay)
+        | HandshakeError::Random
+        | HandshakeError::Malformed(_)
+        | HandshakeError::Closed
+        | HandshakeError::Frame(_) => FailureClass::RemoteUnavailable,
+        HandshakeError::Io(error) => classify_io(error),
     }
 }
 
