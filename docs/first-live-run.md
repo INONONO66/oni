@@ -136,13 +136,42 @@ record in #1702.
   ad-hoc signing and grants may need to be renewed after each update.
   The host-self supervisor deployment and update recipe is tracked in #1699;
   live MacBook grant retention and PVE bootstrap are tracked in #1702.
-- `mclient join <host>` selects the carrier by the address scheme:
-  `unix:<path>` dials the host's unix listener; `tcp://host[:port]` or a
-  bare `host[:port]` dials the raw TLS-TCP listener (port 7643 by default,
-  a bare name without a dot resolved through Tailscale);
+- `mclient join <host> --mode <tailnet|domain>` names how this machine
+  reaches the host, and the address scheme must agree with it (#1837).
+  Tailnet mode: `tcp://host[:port]` or a bare `host[:port]` dials the raw
+  TLS-TCP listener (port 7643 by default) through Tailscale, a bare name
+  resolved through `tailscale status --json`. Domain mode:
   `wss://host[:port][/machine]` dials the host's WebSocket listener
-  (`machines.listen.ws`, port 443 and path `/machine` by default) over the
-  same client identity and host pin as TLS-TCP. With `HTTPS_PROXY` or
+  (`machines.listen.ws`, port 443 and path `/machine` by default) by its
+  public DNS name, over the same client identity and host pin as TLS-TCP.
+  The two modes are each explicit — there is no domain-then-tailnet
+  fallback — and one host may keep both listeners open, but one machine
+  holds exactly one mode: a network host without `--mode` is refused
+  `mode_required`, a mode that does not dial the address it was given
+  (`--mode domain` with a `tcp://` host, `--mode tailnet` with `wss://`,
+  any mode with `--unix`) is refused `mode_mismatch` before any dial, and a
+  saved `client.json` whose mode disagrees with its host is refused the same
+  way when `run` loads it. The mode rides the attach offer, and
+  `machine_list` reports it per machine. `unix:<path>` dials the host's
+  unix listener and takes no mode.
+- In tailnet mode the client gets Tailscale up itself before the dial: it
+  looks for the `tailscale` CLI on `PATH` and in the platform's locations,
+  installs it when absent (`brew install --cask tailscale` on macOS,
+  Tailscale's `install.sh` on Linux), starts the daemon when it does not
+  answer (`open -a Tailscale` / `sudo systemctl start tailscaled`), runs
+  `tailscale up` when the node is logged out (an auth key from
+  `ONI_MCLIENT_TAILSCALE_AUTH_KEY` or `--tailscale-auth-key` is presented
+  and never recorded; without one `tailscale up` prints its login URL on
+  the operator's terminal and the join waits for the login, bounded) and
+  attaches only once `tailscale status` reports `Running`. Every step
+  lands in the join receipt as `tailscale.steps` (`{step, via, ok}` —
+  `locate`, `install`, `start`, `status`, `up` via `auth-key` or `login`;
+  the receipt names commands and states, never a key), and a step the client
+  cannot finish is one typed refusal naming what the Owner does by hand:
+  `tailscale_absent` (no install recipe for this platform),
+  `tailscale_install_failed`, `tailscale_down`, `tailscale_login_failed`,
+  `tailscale_login_timeout` and `tailscale_not_ready`, each with the steps
+  taken so far and a `nextStep`. Domain mode never touches Tailscale. With `HTTPS_PROXY` or
   `https_proxy` set (`http://proxy:3128`, `proxy:3128` or `proxy` for port
   80), the `wss://` dial opens an HTTP CONNECT tunnel through that proxy
   first; TLS and the host pin are verified end to end inside the tunnel.
@@ -151,11 +180,17 @@ record in #1702.
   read. A plaintext `ws://` address is refused as `plaintext_ws_refused`
   before any dial.
 - On a fresh machine, one command installs the client and joins (#1838):
-  `curl -fsSL http://<host>:3000/machine/install | sh -s -- http://<host>:3000`
-  (or `oni machine bootstrap http://<host>:3000` where the Oni CLI is
-  installed), with `--token <join token>` once #1833 issues tokens (the
-  token reaches `mclient join` as `ONI_MCLIENT_JOIN_TOKEN` in its
-  environment and is never written to `client.json`). The
+  `curl -fsSL http://<host>:3000/machine/install | sh -s -- http://<host>:3000
+  --mode <tailnet|domain> --host-pin <pin>` (or `oni machine bootstrap
+  http://<host>:3000 --mode <tailnet|domain> --host-pin <pin>` where the
+  Oni CLI is installed), with `--token <join token>` once #1833 issues
+  tokens (the token reaches `mclient join` as `ONI_MCLIENT_JOIN_TOKEN` in
+  its environment and is never written to `client.json`). Both take the
+  mode and the host pin the Owner read from the host, and run the join as
+  `mclient join <address> --mode <mode> --host-pin <pin> --yes` — the
+  address is the origin's host name in tailnet mode and `wss://<name>` in
+  domain mode; a missing or unknown mode or a missing pin is the usage
+  refusal before anything is downloaded (#1837). The
   download is verified against the host's `/machine/release` answer and
   `mclient join` runs from a staging copy, so join's own install path is the
   only thing that writes `~/.oni/bin/mclient` (a rerun keeps a joined

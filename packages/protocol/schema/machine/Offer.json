@@ -43,6 +43,13 @@
       "minLength": 1,
       "type": "string"
     },
+    "mode": {
+      "enum": [
+        "tailnet",
+        "domain"
+      ],
+      "type": "string"
+    },
     "offeredAt": {
       "minimum": 0,
       "type": "number"

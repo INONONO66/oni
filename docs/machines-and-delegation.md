@@ -721,9 +721,9 @@ certificate renewed or re-chained for the same key keeps attaching without
 a new join. A pin mismatch at connect time is `peer_key_mismatch` and
 terminal, refused before any frame is sent.
 
-**Join and run.** `mclient join <host> [--name] [--tag]* [--export
-name=/abs/path]* [--host-pin base64 | --unix path] [--memory-budget-mb N]
-[--token <join token>]` writes `~/.oni/machine-client/`
+**Join and run.** `mclient join <host> --mode <tailnet|domain> [--name]
+[--tag]* [--export name=/abs/path]* [--host-pin base64 | --unix path]
+[--memory-budget-mb N] [--token <join token>]` writes `~/.oni/machine-client/`
 (directory 0700; `client.json`, `client-key.pem`, `client-cert.pem`,
 `host-pin`, `state.json` and `metrics.jsonl` all 0600), prints the
 enrollment receipt `{machineId, name, publicKey, allowedCapabilities,
@@ -747,7 +747,8 @@ agents and is hidden from `--help`.
 **Install (#1838).** `GET /machine/install` is a POSIX `sh` script served
 by the host itself, so one command on a fresh machine needs nothing but the
 host: `curl -fsSL http://<host>:<port>/machine/install | sh -s --
-http://<host>:<port> [--token <join token>] [--force]`. The script reads the platform
+http://<host>:<port> --mode <tailnet|domain> --host-pin <pin> [--token <join
+token>] [--force]`. The script reads the platform
 from `uname` (`darwin-universal` for either macOS architecture,
 `linux-x86_64`, `linux-arm64`; anything else is `unsupported platform:
 <os>-<arch>`), fetches the host's `/machine/release` answer, downloads the
@@ -756,7 +757,9 @@ refuses the download unless its byte count and SHA-256 match that answer:
 `checksum_mismatch: <url>` on stderr, exit 1, nothing written. A verified
 archive is unpacked (0755) into a throwaway stage under
 `~/.oni/machine-client/` and the script prints `verified <tag> (<platform>):
-mclient join <host>` and runs `mclient join <host>` from that stage, the
+mclient join <address> --mode <mode>` and runs `mclient join <address>
+--mode <mode> --host-pin <pin> --yes` from that stage (#1837: the address is
+the origin's host name in tailnet mode and `wss://<name>` in domain mode), the
 token handed over as `ONI_MCLIENT_JOIN_TOKEN` in join's environment: join's own install/update path is the only writer of
 `~/.oni/bin/mclient`, so a rerun on a joined machine keeps its pin and
 binary, a failed join changes nothing under `bin/`, and the stage is removed
@@ -764,10 +767,12 @@ either way. When the host's release is older than the machine's
 `pin.json` the script stops with `downgrade_refused: the host's <version> is
 older than the pinned <version> (pass --force)` before downloading; `--force`
 is the explicit intent to go down. `oni machine bootstrap
-<http(s)://host[:port]> [--token <join token>] [--force]` does the same from
-the TypeScript CLI with the same messages and the join's exit code; both
-take only the host's HTTP origin (IPv6 literals bracketed, one trailing
-slash tolerated), the optional token and `--force`. The trust root is the
+<http(s)://host[:port]> --mode <tailnet|domain> --host-pin <pin> [--token
+<join token>] [--force]` does the same from the TypeScript CLI with the same
+messages and the join's exit code; both take the host's HTTP origin (IPv6
+literals bracketed, one trailing slash tolerated), the mode, the host pin,
+the optional token and `--force`, and a missing or unknown mode or a missing
+pin is the usage refusal before any download. The trust root is the
 host channel itself: the digest and the archive come from the same origin,
 so the check defends against a corrupted or swapped download, not against
 a host that is already dishonest; reach the host over `https://` or a

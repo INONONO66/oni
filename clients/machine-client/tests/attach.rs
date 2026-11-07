@@ -21,11 +21,12 @@ use oni_machine_client::{
         Hooks, Outcome,
     },
     budget::{self, Budget, BudgetAction, Metrics, NoRetention, Pressure, Retained, StreamTotals},
-    config::{self, ClientConfig, Export, JoinOptions},
+    config::{self, ClientConfig, Export, JoinOptions, Mode},
     handlers::{available, Service},
     input::watch::{InputEvent, Kind, TapState},
     pty::ops::Pty,
     report::{append_metrics, Load, Probe},
+    tailnet::{Platform, Reason, Setup, Step},
     transport::{
         client::{handler, TransportError},
         connection::HostPin,
@@ -47,6 +48,7 @@ fn config() -> ClientConfig {
         }],
         memory_budget_mb: 96,
         unix: None,
+        mode: Some(Mode::Tailnet),
         tmux_socket: None,
         declared: None,
     }
@@ -68,9 +70,20 @@ fn optional_tmux_socket_round_trips_without_changing_default_settings() {
     assert_eq!(parsed.tmux_socket.as_deref(), Some("oni-private-server"));
 }
 
+/// Join options in the mode the host address selects: `wss://` is a domain
+/// join, a unix socket has no mode, anything else is a tailnet join.
 fn join_options(host: &str) -> JoinOptions {
+    let mode = if host.starts_with("wss://") || host.starts_with("ws://") {
+        Some(Mode::Domain)
+    } else if host.starts_with("unix:") {
+        None
+    } else {
+        Some(Mode::Tailnet)
+    };
     JoinOptions {
         host: host.into(),
+        mode,
+        tailscale_auth_key: None,
         json: false,
         name: Some("Work-Mac".into()),
         tags: vec![],
@@ -86,6 +99,70 @@ fn join_options(host: &str) -> JoinOptions {
         no_open: true,
         token: None,
     }
+}
+
+/// A `tailscale` that answers `status --json` as a running node whose one
+/// peer `laptop` is this machine.
+const RUNNING_TAILSCALE: &str = "#!/bin/sh\n[ \"$1 $2\" = \"status --json\" ] && printf '%s' '{\"BackendState\":\"Running\",\"Peer\":{\"id\":{\"HostName\":\"laptop\",\"DNSName\":\"laptop.tailnet.example.\",\"TailscaleIPs\":[\"127.0.0.1\"]}}}'\n";
+
+fn tailnet_setup(search_path: PathBuf, platform: Platform) -> Setup {
+    Setup {
+        search_path: search_path.into_os_string(),
+        platform,
+        auth_key: None,
+        login_deadline: Duration::from_secs(5),
+        ready_deadline: Duration::ZERO,
+        ready_poll: Duration::from_millis(1),
+    }
+}
+
+fn running_tailnet(home: &Path) -> Setup {
+    let bin = home.join("tailnet-bin");
+    std::fs::create_dir_all(&bin).expect("tailnet bin");
+    script::script(&bin, "tailscale", RUNNING_TAILSCALE);
+    tailnet_setup(bin, Platform::default())
+}
+
+/// A search path with no `tailscale` on it and no platform recipe to install one.
+fn absent_tailnet(home: &Path) -> Setup {
+    let bin = home.join("empty-bin");
+    std::fs::create_dir_all(&bin).expect("empty bin");
+    tailnet_setup(bin, Platform::default())
+}
+
+fn tailscale_steps(receipt: &Value) -> Vec<(String, Option<String>, bool)> {
+    receipt["tailscale"]["steps"]
+        .as_array()
+        .expect("tailscale steps")
+        .iter()
+        .map(|step| {
+            (
+                step["step"].as_str().expect("step name").to_owned(),
+                step["via"].as_str().map(str::to_owned),
+                step["ok"].as_bool().expect("step outcome"),
+            )
+        })
+        .collect()
+}
+
+fn step(name: &str, via: Option<&Path>, ok: bool) -> (String, Option<String>, bool) {
+    (
+        name.to_owned(),
+        via.map(|path| path.display().to_string()),
+        ok,
+    )
+}
+
+fn state(name: &str, state: &str) -> (String, Option<String>, bool) {
+    (name.to_owned(), Some(state.to_owned()), true)
+}
+
+fn saved_config(home: &Path) -> ClientConfig {
+    config::load(&home.join("machine-client/client.json")).expect("saved config")
+}
+
+fn port_of(endpoint: &str) -> &str {
+    endpoint.rsplit(':').next().expect("endpoint port")
 }
 
 /// The operator answer every scripted join uses; `join_options` also sets
@@ -217,6 +294,7 @@ impl Pressure for CountingPressure {
 async fn unix_settings(host: &FakeHost, directory: &Path) -> ClientConfig {
     let mut settings = config();
     settings.unix = Some(host.endpoint.clone().into());
+    settings.mode = None;
     config::save(&settings, directory).expect("save");
     settings
 }
@@ -848,11 +926,18 @@ async fn join_unix_records_no_pin_and_clears_saved_generation() {
     let options = JoinOptions {
         unix: Some("/tmp/oni.sock".into()),
         exports: vec!["notes=/tmp".into()],
+        mode: None,
         ..join_options("localhost")
     };
-    let enrollment = attach::join(&options, home.path(), &["fs.read"], trusted)
-        .await
-        .expect("join");
+    let enrollment = attach::join(
+        &options,
+        home.path(),
+        &["fs.read"],
+        trusted,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect("join");
     assert_eq!(enrollment.receipt["machineId"], "work-mac");
     assert_eq!(
         enrollment.receipt["allowedCapabilities"],
@@ -863,11 +948,25 @@ async fn join_unix_records_no_pin_and_clears_saved_generation() {
     assert!(!directory.join("host-pin").exists());
     std::fs::create_dir(directory.join("state.json")).expect("blocking directory");
     assert!(matches!(
-        attach::join(&options, home.path(), &[], trusted).await,
+        attach::join(
+            &options,
+            home.path(),
+            &[],
+            trusted,
+            &running_tailnet(home.path())
+        )
+        .await,
         Err(AttachError::Io(_))
     ));
     assert!(matches!(
-        attach::join(&join_options("127.0.0.1"), home.path(), &[], trusted).await,
+        attach::join(
+            &join_options("127.0.0.1"),
+            home.path(),
+            &[],
+            trusted,
+            &running_tailnet(home.path())
+        )
+        .await,
         Err(AttachError::Config(config::ConfigError::PinRequired))
     ));
 }
@@ -881,9 +980,15 @@ async fn pinned_join_records_the_verified_host_pin() {
         host_pin: Some(expected.clone()),
         ..join_options(&host.endpoint)
     };
-    let enrollment = attach::join(&options, home.path(), &[], trusted)
-        .await
-        .expect("join");
+    let enrollment = attach::join(
+        &options,
+        home.path(),
+        &[],
+        trusted,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect("join");
     assert_eq!(enrollment.receipt["machineId"], "work-mac");
     let recorded =
         std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin");
@@ -901,9 +1006,15 @@ async fn join_accepts_a_host_certificate_renewed_for_the_pinned_key() {
         host_pin: Some(pin.clone()),
         ..join_options(&host.endpoint)
     };
-    let enrollment = attach::join(&options, home.path(), &[], trusted)
-        .await
-        .expect("the renewed certificate carries the pinned key");
+    let enrollment = attach::join(
+        &options,
+        home.path(),
+        &[],
+        trusted,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect("the renewed certificate carries the pinned key");
     assert_eq!(enrollment.receipt["machineId"], "work-mac");
     assert_eq!(
         std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
@@ -922,9 +1033,15 @@ async fn join_accepts_an_issued_chain_for_the_pinned_key() {
         host_pin: Some(pin.clone()),
         ..join_options(&host.endpoint)
     };
-    attach::join(&options, home.path(), &[], trusted)
-        .await
-        .expect("the chain's leaf carries the pinned key");
+    attach::join(
+        &options,
+        home.path(),
+        &[],
+        trusted,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect("the chain's leaf carries the pinned key");
     assert_eq!(
         std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
         pin
@@ -945,9 +1062,15 @@ async fn wss_join_records_the_pin_over_the_websocket_carrier() {
     std::fs::create_dir_all(&directory).expect("client directory");
     std::fs::write(directory.join("client-cert.pem"), &host.certificate).expect("cert");
     std::fs::write(directory.join("client-key.pem"), &host.private_key).expect("key");
-    let enrollment = attach::join(&options, home.path(), &[], trusted)
-        .await
-        .expect("join over wss");
+    let enrollment = attach::join(
+        &options,
+        home.path(),
+        &[],
+        trusted,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect("join over wss");
     let saved =
         config::load(&home.path().join("machine-client/client.json")).expect("saved config");
     assert_eq!(saved.host, format!("wss://{}/machine", host.endpoint));
@@ -964,9 +1087,15 @@ async fn unix_scheme_join_selects_the_unix_carrier_without_a_pin() {
     let host = FakeHost::unix().await;
     let home = tempfile::tempdir().expect("home");
     let options = join_options(&format!("unix:{}", host.endpoint));
-    let enrollment = attach::join(&options, home.path(), &[], trusted)
-        .await
-        .expect("join over unix:");
+    let enrollment = attach::join(
+        &options,
+        home.path(),
+        &[],
+        trusted,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect("join over unix:");
     let saved =
         config::load(&home.path().join("machine-client/client.json")).expect("saved config");
     assert_eq!(saved.unix, Some(PathBuf::from(&host.endpoint)));
@@ -982,9 +1111,15 @@ async fn plaintext_ws_join_is_refused_before_any_dial() {
         host_pin: Some(config::encode_pin(&pin_of(&host.certificate))),
         ..join_options(&format!("ws://{}/machine", host.endpoint))
     };
-    let error = attach::join(&options, home.path(), &[], trusted)
-        .await
-        .expect_err("plaintext ws refused");
+    let error = attach::join(
+        &options,
+        home.path(),
+        &[],
+        trusted,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect_err("plaintext ws refused");
     assert!(matches!(
         error,
         AttachError::Config(config::ConfigError::PlaintextWs)
@@ -1009,9 +1144,15 @@ async fn join_without_operator_approval_is_refused_host_untrusted() {
         *shown.lock().expect("prompt") = Some((host.to_owned(), pin.to_owned()));
         false
     };
-    let error = attach::join(&options, home.path(), &[], decline)
-        .await
-        .expect_err("declined host");
+    let error = attach::join(
+        &options,
+        home.path(),
+        &[],
+        decline,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect_err("declined host");
     assert!(matches!(
         error,
         AttachError::Config(config::ConfigError::HostUntrusted)
@@ -1033,9 +1174,15 @@ async fn join_without_operator_approval_is_refused_host_untrusted() {
     assert!(!client.join("client.json").exists());
     let host = FakeHost::tls().await;
     let expected = config::encode_pin(&pin_of(&host.certificate));
-    let approved = attach::join(&prompted(&host), home.path(), &[], |_, pin| pin == expected)
-        .await
-        .expect("operator approved the shown pin");
+    let approved = attach::join(
+        &prompted(&host),
+        home.path(),
+        &[],
+        |_, pin| pin == expected,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect("operator approved the shown pin");
     assert_eq!(approved.receipt["machineId"], "work-mac");
     assert_eq!(
         std::fs::read_to_string(client.join("host-pin")).expect("pin"),
@@ -1057,6 +1204,7 @@ async fn declined_or_failed_rekey_leaves_the_enrolled_identity_intact() {
         home.path(),
         &[],
         trusted,
+        &absent_tailnet(home.path()),
     )
     .await
     .expect("first join");
@@ -1083,9 +1231,15 @@ async fn declined_or_failed_rekey_leaves_the_enrolled_identity_intact() {
         yes: false,
         ..join_options(&host.endpoint)
     };
-    let error = attach::join(&declined, home.path(), &[], |_, _| false)
-        .await
-        .expect_err("declined host");
+    let error = attach::join(
+        &declined,
+        home.path(),
+        &[],
+        |_, _| false,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect_err("declined host");
     assert!(matches!(
         error,
         AttachError::Config(config::ConfigError::HostUntrusted)
@@ -1099,9 +1253,15 @@ async fn declined_or_failed_rekey_leaves_the_enrolled_identity_intact() {
         rekey: true,
         ..join_options(&host.endpoint)
     };
-    let error = attach::join(&failed, home.path(), &[], trusted)
-        .await
-        .expect_err("pin mismatch");
+    let error = attach::join(
+        &failed,
+        home.path(),
+        &[],
+        trusted,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect_err("pin mismatch");
     assert_eq!(error.reason(), "peer_key_mismatch");
     unchanged(&first.receipt);
 
@@ -1114,9 +1274,15 @@ async fn declined_or_failed_rekey_leaves_the_enrolled_identity_intact() {
         yes: false,
         ..join_options(&host.endpoint)
     };
-    let rotated = attach::join(&approved, home.path(), &[], |_, pin| pin == expected)
-        .await
-        .expect("approved rotation");
+    let rotated = attach::join(
+        &approved,
+        home.path(),
+        &[],
+        |_, pin| pin == expected,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect("approved rotation");
     assert_ne!(rotated.receipt["publicKey"], first.receipt["publicKey"]);
     assert_ne!(
         std::fs::read(client.join("client-key.pem")).expect("rotated key"),
@@ -1138,12 +1304,365 @@ async fn pin_mismatch_join_is_refused_as_terminal() {
         host_pin: Some(config::encode_pin(&[0; 32])),
         ..join_options(&host.endpoint)
     };
-    let error = attach::join(&options, home.path(), &[], trusted)
-        .await
-        .expect_err("join failure");
+    let error = attach::join(
+        &options,
+        home.path(),
+        &[],
+        trusted,
+        &running_tailnet(home.path()),
+    )
+    .await
+    .expect_err("join failure");
     assert_eq!(
         (error.exit_code(), error.reason().as_str()),
         (3, "peer_key_mismatch")
+    );
+}
+
+#[tokio::test]
+async fn tailnet_mode_join_resolves_the_peer_through_tailscale_and_records_its_steps() {
+    let host = FakeHost::tls().await;
+    let home = tempfile::tempdir().expect("home");
+    let pin = config::encode_pin(&pin_of(&host.certificate));
+    let options = JoinOptions {
+        host_pin: Some(pin.clone()),
+        mode: Some(Mode::Tailnet),
+        ..join_options(&format!("laptop:{}", port_of(&host.endpoint)))
+    };
+    let setup = running_tailnet(home.path());
+    let enrollment = attach::join(&options, home.path(), &[], trusted, &setup)
+        .await
+        .expect("tailnet join");
+    assert_eq!(enrollment.receipt["mode"], "tailnet");
+    assert_eq!(enrollment.receipt["hostPin"], json!(pin));
+    assert_eq!(enrollment.receipt["tailscale"]["state"], "Running");
+    assert_eq!(enrollment.receipt["tailscale"].get("cli"), None);
+    let cli = home.path().join("tailnet-bin/tailscale");
+    assert_eq!(
+        tailscale_steps(&enrollment.receipt),
+        [step("locate", Some(&cli), true), state("status", "Running")]
+    );
+    let saved = saved_config(home.path());
+    assert_eq!(
+        saved.host, host.endpoint,
+        "laptop resolved through the peer list"
+    );
+    assert_eq!(saved.mode, Some(Mode::Tailnet));
+    let written: Value = serde_json::from_slice(
+        &std::fs::read(home.path().join("machine-client/client.json")).expect("client.json"),
+    )
+    .expect("json");
+    assert_eq!(written["mode"], "tailnet");
+}
+
+#[tokio::test]
+async fn tailnet_mode_attach_offers_tailnet_over_the_tcp_carrier() {
+    let mut host = FakeHost::tls().await;
+    let (directory, settings) = tls_client(&host, pin_of(&host.certificate)).await;
+    assert_eq!(settings.mode, Some(Mode::Tailnet));
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let capabilities = ["fs.read".to_owned()];
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &capabilities, &hooks, &probe).expect("new");
+    let exchange = async {
+        let request = expect(&mut host, "machine.attach").await;
+        assert_eq!(request["params"]["mode"], "tailnet");
+        oni_protocol::decode::<oni_protocol::Offer>(request["params"].clone())
+            .expect("an offer naming its mode validates");
+        host.send(attached(&request, 1)).await;
+        let report = expect(&mut host, "machine.report").await;
+        host.send(reply(
+            &report,
+            json!({"status":"refused","reason":"machine_not_attached"}),
+        ))
+        .await;
+    };
+    let (outcome, ()) = tokio::join!(attachment.once(), exchange);
+    assert!(matches!(
+        outcome.expect("attached in tailnet mode"),
+        Outcome::Ended(_)
+    ));
+}
+
+#[tokio::test]
+async fn domain_mode_join_dials_the_wss_name_without_tailscale() {
+    let host = FakeHost::ws().await;
+    let home = tempfile::tempdir().expect("home");
+    let options = JoinOptions {
+        host_pin: Some(config::encode_pin(&pin_of(&host.certificate))),
+        mode: Some(Mode::Domain),
+        ..join_options(&host.ws_endpoint().url())
+    };
+    let directory = home.path().join("machine-client");
+    std::fs::create_dir_all(&directory).expect("client directory");
+    std::fs::write(directory.join("client-cert.pem"), &host.certificate).expect("cert");
+    std::fs::write(directory.join("client-key.pem"), &host.private_key).expect("key");
+    let enrollment = attach::join(
+        &options,
+        home.path(),
+        &[],
+        trusted,
+        &absent_tailnet(home.path()),
+    )
+    .await
+    .expect("a domain join needs no Tailscale");
+    assert_eq!(enrollment.receipt["mode"], "domain");
+    assert_eq!(enrollment.receipt["tailscale"], Value::Null);
+    let saved = saved_config(home.path());
+    assert_eq!(saved.host, host.ws_endpoint().url());
+    assert_eq!(saved.mode, Some(Mode::Domain));
+}
+
+#[tokio::test]
+async fn domain_mode_attach_offers_domain_over_the_wss_carrier() {
+    let mut host = FakeHost::ws().await;
+    let (directory, mut settings) = tls_client(&host, pin_of(&host.certificate)).await;
+    settings.host = host.ws_endpoint().url();
+    settings.mode = Some(Mode::Domain);
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let capabilities = ["fs.read".to_owned()];
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &capabilities, &hooks, &probe).expect("new");
+    let exchange = async {
+        let request = expect(&mut host, "machine.attach").await;
+        assert_eq!(request["params"]["mode"], "domain");
+        oni_protocol::decode::<oni_protocol::Offer>(request["params"].clone())
+            .expect("an offer naming its mode validates");
+        host.send(attached(&request, 1)).await;
+        let report = expect(&mut host, "machine.report").await;
+        host.send(reply(
+            &report,
+            json!({"status":"refused","reason":"machine_not_attached"}),
+        ))
+        .await;
+    };
+    let (outcome, ()) = tokio::join!(attachment.once(), exchange);
+    assert!(matches!(
+        outcome.expect("attached in domain mode"),
+        Outcome::Ended(_)
+    ));
+}
+
+#[tokio::test]
+async fn join_refuses_a_mode_that_does_not_dial_the_address_it_was_given() {
+    let home = tempfile::tempdir().expect("home");
+    let setup = running_tailnet(home.path());
+    let pin = Some(config::encode_pin(&[1; 32]));
+    let socket = home.path().join("oni.sock");
+    let cases = [
+        (
+            JoinOptions {
+                mode: Some(Mode::Domain),
+                host_pin: pin.clone(),
+                ..join_options("127.0.0.1:7643")
+            },
+            "mode_mismatch",
+            "--mode domain does not dial the tcp carrier",
+        ),
+        (
+            JoinOptions {
+                mode: Some(Mode::Tailnet),
+                host_pin: pin.clone(),
+                ..join_options("wss://host.example/machine")
+            },
+            "mode_mismatch",
+            "--mode tailnet does not dial the wss carrier",
+        ),
+        (
+            JoinOptions {
+                mode: Some(Mode::Tailnet),
+                unix: Some(socket.clone()),
+                ..join_options("localhost")
+            },
+            "mode_mismatch",
+            "--mode tailnet does not dial the unix carrier",
+        ),
+        (
+            JoinOptions {
+                mode: Some(Mode::Domain),
+                ..join_options(&format!("unix:{}", socket.display()))
+            },
+            "mode_mismatch",
+            "--mode domain does not dial the unix carrier",
+        ),
+        (
+            JoinOptions {
+                mode: None,
+                host_pin: pin.clone(),
+                ..join_options("127.0.0.1:7643")
+            },
+            "mode_required",
+            "re-join with: mclient join <host> --mode tailnet|domain",
+        ),
+        (
+            JoinOptions {
+                mode: None,
+                host_pin: pin,
+                ..join_options("wss://host.example/machine")
+            },
+            "mode_required",
+            "re-join with: mclient join <host> --mode tailnet|domain",
+        ),
+    ];
+    for (options, reason, next_step) in cases {
+        let error = attach::join(&options, home.path(), &[], trusted, &setup)
+            .await
+            .expect_err(reason);
+        assert_eq!(
+            (error.exit_code(), error.reason().as_str()),
+            (3, reason),
+            "{options:?}"
+        );
+        assert!(
+            error.next_step().contains(next_step),
+            "{}",
+            error.next_step()
+        );
+        assert!(!home.path().join("machine-client/client.json").exists());
+    }
+}
+
+#[test]
+fn saved_config_is_refused_when_its_mode_does_not_match_its_carrier() {
+    let directory = tempfile::tempdir().expect("client directory");
+    let path = directory.path().join("client.json");
+    let mut settings = config();
+    let saved = |settings: &ClientConfig| {
+        config::save(settings, directory.path()).expect("save");
+        config::load(&path)
+    };
+    assert_eq!(saved(&settings).expect("tailnet").mode, Some(Mode::Tailnet));
+    settings.host = "wss://host.example/machine".into();
+    assert!(matches!(
+        saved(&settings),
+        Err(config::ConfigError::ModeMismatch {
+            mode: Mode::Tailnet,
+            carrier: "wss"
+        })
+    ));
+    settings.mode = Some(Mode::Domain);
+    assert_eq!(saved(&settings).expect("domain").mode, Some(Mode::Domain));
+    settings.unix = Some("/tmp/oni.sock".into());
+    assert!(matches!(
+        saved(&settings),
+        Err(config::ConfigError::ModeMismatch {
+            mode: Mode::Domain,
+            carrier: "unix"
+        })
+    ));
+    settings.mode = None;
+    assert_eq!(saved(&settings).expect("unix").mode, None);
+    settings.unix = None;
+    settings.host = "127.0.0.1:7643".into();
+    assert!(matches!(
+        saved(&settings),
+        Err(config::ConfigError::ModeRequired)
+    ));
+    std::fs::write(
+        &path,
+        r#"{"machineId":"laptop","name":"Laptop","host":"127.0.0.1:7643","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null}"#,
+    )
+    .expect("a client.json from before #1837");
+    let error = config::load(&path).expect_err("a pre-#1837 network config re-joins with --mode");
+    assert!(matches!(error, config::ConfigError::ModeRequired));
+    assert_eq!(error.to_string(), "mode_required");
+}
+
+#[tokio::test]
+async fn tailnet_mode_join_refuses_with_the_setup_step_when_tailscale_is_absent() {
+    let host = FakeHost::tls().await;
+    let home = tempfile::tempdir().expect("home");
+    let options = JoinOptions {
+        host_pin: Some(config::encode_pin(&pin_of(&host.certificate))),
+        mode: Some(Mode::Tailnet),
+        ..join_options(&host.endpoint)
+    };
+    let error = attach::join(
+        &options,
+        home.path(),
+        &[],
+        trusted,
+        &absent_tailnet(home.path()),
+    )
+    .await
+    .expect_err("no tailscale, no recipe");
+    assert!(matches!(
+        &error,
+        AttachError::Tailnet(refusal)
+            if refusal.reason == Reason::Absent
+                && refusal.steps.len() == 1
+                && refusal.steps[0].step == "locate"
+                && !refusal.steps[0].ok
+    ));
+    assert_eq!(
+        (error.exit_code(), error.reason().as_str()),
+        (3, "tailscale_absent")
+    );
+    assert_eq!(
+        error.next_step(),
+        "install Tailscale (https://tailscale.com/download) and re-join"
+    );
+    assert!(!home.path().join("machine-client/client.json").exists());
+    assert!(!home.path().join("machine-client/host-pin").exists());
+}
+
+#[tokio::test]
+async fn tailnet_mode_join_installs_tailscale_and_resolves_through_the_installed_cli() {
+    let host = FakeHost::tls().await;
+    let home = tempfile::tempdir().expect("home");
+    let bin = home.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("bin");
+    let staged = script::script(home.path(), "staged-tailscale", RUNNING_TAILSCALE);
+    let installed = home.path().join("installed/tailscale");
+    script::script(
+        &bin,
+        "install-tailscale",
+        &format!(
+            "#!/bin/sh\nmkdir -p \"{}\" && cp \"{}\" \"{}\"\n",
+            home.path().join("installed").display(),
+            staged.display(),
+            installed.display()
+        ),
+    );
+    let platform = Platform {
+        install: vec![Step::new("install-tailscale", &[])],
+        installed: vec![installed.clone()],
+        start: vec![],
+        elevate: vec![],
+    };
+    let options = JoinOptions {
+        host_pin: Some(config::encode_pin(&pin_of(&host.certificate))),
+        mode: Some(Mode::Tailnet),
+        ..join_options(&format!("laptop:{}", port_of(&host.endpoint)))
+    };
+    let enrollment = attach::join(
+        &options,
+        home.path(),
+        &[],
+        trusted,
+        &tailnet_setup(bin, platform),
+    )
+    .await
+    .expect("installed, then joined");
+    assert_eq!(
+        tailscale_steps(&enrollment.receipt),
+        [
+            step("locate", None, false),
+            (
+                "install".to_owned(),
+                Some("install-tailscale".to_owned()),
+                true
+            ),
+            step("locate", Some(&installed), true),
+            state("status", "Running"),
+        ]
+    );
+    assert_eq!(
+        saved_config(home.path()).host,
+        host.endpoint,
+        "laptop resolved through the tailscale the recipe installed"
     );
 }
 
@@ -2155,7 +2674,14 @@ async fn join_refuses_an_unwritable_host_pin() {
         ..join_options(&host.endpoint)
     };
     assert!(matches!(
-        attach::join(&options, home.path(), &[], trusted).await,
+        attach::join(
+            &options,
+            home.path(),
+            &[],
+            trusted,
+            &running_tailnet(home.path())
+        )
+        .await,
         Err(AttachError::Io(_))
     ));
 }
@@ -2179,7 +2705,13 @@ async fn join_reports_permission_denied_when_host_pin_directory_is_read_only() {
 
     let outcome = tokio::time::timeout(
         Duration::from_secs(5),
-        attach::join(&options, home.path(), &[], trusted),
+        attach::join(
+            &options,
+            home.path(),
+            &[],
+            trusted,
+            &running_tailnet(home.path()),
+        ),
     )
     .await;
     std::fs::set_permissions(&pins, std::fs::Permissions::from_mode(0o700))
@@ -2199,6 +2731,7 @@ fn exported(host: &FakeHost, root: &Path, directory: &Path) -> ClientConfig {
         path: root.to_str().expect("utf8 root").into(),
     }];
     settings.unix = Some(host.endpoint.clone().into());
+    settings.mode = None;
     config::save(&settings, directory).expect("save");
     settings
 }

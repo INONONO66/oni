@@ -17,22 +17,34 @@ export function releasePlatform(os: string, arch: string): Machine.ReleasePlatfo
 /** The host's address as the install surfaces take it: the HTTP origin `GET /machine/release` is served from, one trailing slash allowed. */
 export const HOST_ORIGIN = /^https?:\/\/[^/\s]+\/?$/;
 
-/** The name `mclient join` attaches to: the origin's hostname (IPv6 keeps its brackets), the machine plane on its own default port. */
-export function joinHost(origin: string): string {
-  return new URL(origin).hostname;
+/**
+ * The address `mclient join` dials for one mode (#1837): the origin's hostname
+ * (IPv6 keeps its brackets) on the machine plane's own default port. Tailnet
+ * mode dials the bare name over TLS-TCP; domain mode dials it as `wss://`.
+ */
+export function joinAddress(origin: string, mode: Machine.AttachMode): string {
+  const { hostname } = new URL(origin);
+  return mode === "domain" ? `wss://${hostname}` : hostname;
 }
 
 /** The client reads the join token from this variable; it never rides argv or `client.json`. */
 export const JOIN_TOKEN_VARIABLE = "ONI_MCLIENT_JOIN_TOKEN";
 
-/** Shell twin of `oni machine bootstrap`, served at `GET /machine/install`: trusts only the host's `/machine/release` digest, exits 1 on `checksum_mismatch: <url>` before writing anything, and leaves `~/.oni/bin/mclient` to join. */
+/**
+ * Shell twin of `oni machine bootstrap`, served at `GET /machine/install`:
+ * trusts only the host's `/machine/release` digest, exits 1 on
+ * `checksum_mismatch: <url>` before writing anything, and leaves
+ * `~/.oni/bin/mclient` to join. The mode and the host pin are the operator's
+ * (#1837, #1842): join verifies the host's key against the pin and takes
+ * `--yes` because a piped script has no terminal for its prompt.
+ */
 export const MACHINE_INSTALL_SCRIPT = `#!/bin/sh
 # oni machine install: served by the host at GET /machine/install.
-#   curl -fsSL http://<host>:<port>/machine/install | sh -s -- http://<host>:<port> [--token <join token>] [--force]
+#   curl -fsSL http://<host>:<port>/machine/install | sh -s -- http://<host>:<port> --mode <tailnet|domain> --host-pin <pin> [--token <join token>] [--force]
 set -eu
 
 usage() {
-  echo "usage: sh -s -- <http(s)://host[:port]> [--token <join token>] [--force]" >&2
+  echo "usage: sh -s -- <http(s)://host[:port]> --mode <tailnet|domain> --host-pin <pin> [--token <join token>] [--force]" >&2
   exit 2
 }
 
@@ -56,11 +68,23 @@ HOST="\${1:-}"
 shift
 TOKEN=""
 FORCE=0
+MODE=""
+HOST_PIN=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --token)
       [ $# -ge 2 ] || usage
       TOKEN="$2"
+      shift 2
+      ;;
+    --mode)
+      [ $# -ge 2 ] || usage
+      MODE="$2"
+      shift 2
+      ;;
+    --host-pin)
+      [ $# -ge 2 ] || usage
+      HOST_PIN="$2"
       shift 2
       ;;
     --force)
@@ -74,11 +98,21 @@ case "$HOST" in
   http://*|https://*) ;;
   *) usage ;;
 esac
+case "$MODE" in
+  tailnet|domain) ;;
+  *) usage ;;
+esac
+[ -n "$HOST_PIN" ] || usage
 HOST="\${HOST%/}"
 JOIN_HOST="\${HOST#*://}"
 case "$JOIN_HOST" in
   \\[*) JOIN_HOST="\${JOIN_HOST%%]*}]" ;;
   *) JOIN_HOST="\${JOIN_HOST%:*}" ;;
+esac
+# Tailnet mode dials the bare name over TLS-TCP; domain mode dials it as wss://.
+case "$MODE" in
+  domain) JOIN_ADDRESS="wss://$JOIN_HOST" ;;
+  *) JOIN_ADDRESS="$JOIN_HOST" ;;
 esac
 
 case "$(uname -s)" in
@@ -152,12 +186,12 @@ STAGE=$(mktemp -d "$CLIENT/bootstrap.XXXXXX")
 trap 'rm -rf "$WORK" "$STAGE"' EXIT
 tar -xzf "$WORK/archive.tar.gz" -C "$STAGE" mclient
 chmod 0755 "$STAGE/mclient"
-echo "verified $TAG ($PLATFORM): mclient join $JOIN_HOST"
+echo "verified $TAG ($PLATFORM): mclient join $JOIN_ADDRESS --mode $MODE"
 
 # The token reaches join through its environment, never argv or client.json.
 if [ -n "$TOKEN" ]; then
-  ${JOIN_TOKEN_VARIABLE}="$TOKEN" "$STAGE/mclient" join "$JOIN_HOST"
+  ${JOIN_TOKEN_VARIABLE}="$TOKEN" "$STAGE/mclient" join "$JOIN_ADDRESS" --mode "$MODE" --host-pin "$HOST_PIN" --yes
 else
-  "$STAGE/mclient" join "$JOIN_HOST"
+  "$STAGE/mclient" join "$JOIN_ADDRESS" --mode "$MODE" --host-pin "$HOST_PIN" --yes
 fi
 `;

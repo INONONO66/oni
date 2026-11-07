@@ -3,11 +3,11 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { Machine } from "@oni/protocol";
 import { z } from "zod";
-import { HOST_ORIGIN, JOIN_TOKEN_VARIABLE, joinHost, releasePlatform } from "../composition/machine-install";
+import { HOST_ORIGIN, JOIN_TOKEN_VARIABLE, joinAddress, releasePlatform } from "../composition/machine-install";
 import type { DaemonIo, ExecResult } from "./daemon";
 import { CliError } from "./errors";
 
-export const BOOTSTRAP_USAGE = "usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>] [--force]";
+export const BOOTSTRAP_USAGE = "usage: oni machine bootstrap <http(s)://host[:port]> --mode <tailnet|domain> --host-pin <pin> [--token <join token>] [--force]";
 
 /** Mirrors the client's `UpdateError` kinds: one typed refusal per failure path, the message always `<kind>: <detail>`. */
 export type BootstrapRefusalKind = "unsupported_platform" | "release_unavailable" | "checksum_mismatch" | "download_failed" | "extract_failed" | "unreadable_pin" | "downgrade_refused";
@@ -21,6 +21,10 @@ export class BootstrapRefusal extends Error {
 
 export interface BootstrapOptions {
   readonly host: string;
+  /** The one mode this machine attaches in (#1837); join refuses a network host without it. */
+  readonly mode: Machine.AttachMode;
+  /** The host key's pin the operator took from the host (#1842): join verifies the key against it and trusts nothing else. */
+  readonly hostPin: string;
   readonly token?: string;
   readonly force?: boolean;
 }
@@ -41,6 +45,7 @@ export interface BootstrapReceipt {
   readonly version: string;
   readonly tag: string | undefined;
   readonly platform: Machine.ReleasePlatform;
+  readonly mode: Machine.AttachMode;
   readonly joinArgv: readonly string[];
   readonly tokenPresented: boolean;
   readonly join: ExecResult;
@@ -54,6 +59,8 @@ export function parseBootstrapArgs(args: readonly string[]): BootstrapOptions {
   if (host === undefined || !HOST_ORIGIN.test(host)) throw new CliError(BOOTSTRAP_USAGE);
   let token: string | undefined;
   let force = false;
+  let mode: Machine.AttachMode | undefined;
+  let hostPin: string | undefined;
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     const value = rest[index + 1];
@@ -62,11 +69,20 @@ export function parseBootstrapArgs(args: readonly string[]): BootstrapOptions {
     } else if (flag === "--token" && value !== undefined) {
       token = value;
       index += 1;
+    } else if (flag === "--mode") {
+      const parsed = Machine.AttachMode.safeParse(value);
+      if (!parsed.success) throw new CliError(BOOTSTRAP_USAGE);
+      mode = parsed.data;
+      index += 1;
+    } else if (flag === "--host-pin" && value !== undefined) {
+      hostPin = value;
+      index += 1;
     } else {
       throw new CliError(BOOTSTRAP_USAGE);
     }
   }
-  return { host: host.replace(/\/$/, ""), ...(token === undefined ? {} : { token }), ...(force ? { force } : {}) };
+  if (mode === undefined || hostPin === undefined) throw new CliError(BOOTSTRAP_USAGE);
+  return { host: host.replace(/\/$/, ""), mode, hostPin, ...(token === undefined ? {} : { token }), ...(force ? { force } : {}) };
 }
 
 async function hostedRelease(host: string, deps: BootstrapDeps): Promise<{ readonly release: Machine.Release; readonly url: string }> {
@@ -130,7 +146,10 @@ function stageBinary(archive: Uint8Array, home: string, io: DaemonIo): { readonl
  * staged and runs `mclient join` from there: join's own update path is the
  * only writer of `~/.oni/bin/mclient`, so a rerun on a joined machine keeps
  * its pin and binary, and a failed join changes nothing. A host release
- * older than the machine's pin is refused unless `--force` says so.
+ * older than the machine's pin is refused unless `--force` says so. Join
+ * dials the address the mode selects (#1837) and verifies the host against
+ * the operator's pin; it takes `--yes` because the CLI runs it without a
+ * terminal for the prompt, and the explicit pin is the operator's approval.
  */
 export async function runBootstrap(options: BootstrapOptions, deps: BootstrapDeps): Promise<BootstrapReceipt> {
   const platform = releasePlatform(deps.os, deps.arch);
@@ -146,9 +165,9 @@ export async function runBootstrap(options: BootstrapOptions, deps: BootstrapDep
   const archive = await verifiedArchive(archiveUrl, artifact, deps);
   const staged = stageBinary(archive, deps.home, deps.io);
   try {
-    const joinArgv = [staged.binary, "join", joinHost(options.host)];
+    const joinArgv = [staged.binary, "join", joinAddress(options.host, options.mode), "--mode", options.mode, "--host-pin", options.hostPin, "--yes"];
     const join = options.token === undefined ? deps.io.exec(joinArgv) : deps.io.exec(joinArgv, { [JOIN_TOKEN_VARIABLE]: options.token });
-    return { version: release.version, tag: release.tag, platform, joinArgv, tokenPresented: options.token !== undefined, join };
+    return { version: release.version, tag: release.tag, platform, mode: options.mode, joinArgv, tokenPresented: options.token !== undefined, join };
   } finally {
     rmSync(staged.directory, { recursive: true, force: true });
   }
@@ -160,7 +179,7 @@ export async function bootstrapCommand(
 ): Promise<number> {
   try {
     const receipt = await runBootstrap(parseBootstrapArgs(args), deps);
-    out.stdout(`verified ${receipt.tag ?? receipt.version} (${receipt.platform}): mclient join ${receipt.joinArgv[2]}`);
+    out.stdout(`verified ${receipt.tag ?? receipt.version} (${receipt.platform}): mclient join ${receipt.joinArgv[2]} --mode ${receipt.mode}`);
     if (receipt.join.stdout !== "") out.stdout(receipt.join.stdout.trimEnd());
     if (receipt.join.stderr !== "") out.stderr(receipt.join.stderr.trimEnd());
     return receipt.join.code;

@@ -8,7 +8,7 @@ import { Machine } from "@oni/protocol";
 import { CliError } from "../src/cli/errors";
 import { BootstrapRefusal, type BootstrapRefusalKind, bootstrapCommand, parseBootstrapArgs, runBootstrap } from "../src/cli/bootstrap";
 import type { DaemonIo } from "../src/cli/daemon";
-import { HOST_ORIGIN, joinHost, MACHINE_INSTALL_SCRIPT, releasePlatform } from "../src/composition/machine-install";
+import { HOST_ORIGIN, joinAddress, MACHINE_INSTALL_SCRIPT, releasePlatform } from "../src/composition/machine-install";
 import { Bus } from "./helpers/bus";
 import { startOni } from "../src/index";
 import { testMachinesPlane } from "./helpers/self-machine";
@@ -29,6 +29,25 @@ function tempDir(prefix: string): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   directories.push(directory);
   return directory;
+}
+
+/** A well-formed host pin (base64 of 32 bytes) the fake client never verifies; the real join would. */
+const PIN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+const USAGE = "usage: oni machine bootstrap <http(s)://host[:port]> --mode <tailnet|domain> --host-pin <pin> [--token <join token>] [--force]";
+
+/** The bootstrap options for one host in tailnet mode, the pin as the operator passed it. */
+function tailnet(host: string, extra: { readonly token?: string; readonly force?: boolean } = {}): { readonly host: string; readonly mode: "tailnet"; readonly hostPin: string; readonly token?: string; readonly force?: boolean } {
+  return { host, mode: "tailnet", hostPin: PIN, ...extra };
+}
+
+/** The same as argv: `<host> --mode tailnet --host-pin <pin> ...`. */
+function tailnetArgs(host: string, ...extra: string[]): string[] {
+  return [host, "--mode", "tailnet", "--host-pin", PIN, ...extra];
+}
+
+/** What the fake client records for one join: the address, the mode, the pin and `--yes`, one per line. */
+function recordedJoin(address: string, mode = "tailnet"): string {
+  return `join\n${address}\n--mode\n${mode}\n--host-pin\n${PIN}\n--yes\n`;
 }
 
 /** A stand-in `mclient` run from the bootstrap stage: it records its argv and its own path beside the stage, under `~/.oni/machine-client`. */
@@ -165,22 +184,36 @@ describe("release platform and host forms", () => {
     expect(releasePlatform("linux", "ia32")).toBeUndefined();
   });
 
-  test("the host is an HTTP origin; join takes its name without the HTTP port", () => {
+  test("the host is an HTTP origin; join takes its name without the HTTP port, as wss:// in domain mode", () => {
     expect(HOST_ORIGIN.test("http://oni-host:3000")).toBe(true);
     expect(HOST_ORIGIN.test("https://oni.example.com")).toBe(true);
     expect(HOST_ORIGIN.test("oni-host:3000")).toBe(false);
     expect(HOST_ORIGIN.test("http://oni-host:3000/machine")).toBe(false);
-    expect(joinHost("http://oni-host:3000")).toBe("oni-host");
-    expect(joinHost("https://oni.example.com")).toBe("oni.example.com");
-    expect(joinHost("http://[::1]:3000")).toBe("[::1]");
-    expect(parseBootstrapArgs(["http://oni-host:3000"])).toEqual({ host: "http://oni-host:3000" });
-    expect(parseBootstrapArgs(["http://oni-host:3000/"])).toEqual({ host: "http://oni-host:3000" });
-    expect(parseBootstrapArgs(["http://oni-host:3000", "--token", "jt"])).toEqual({ host: "http://oni-host:3000", token: "jt" });
-    expect(parseBootstrapArgs(["http://oni-host:3000", "--force"])).toEqual({ host: "http://oni-host:3000", force: true });
-    expect(parseBootstrapArgs(["http://oni-host:3000", "--force", "--token", "jt"])).toEqual({ host: "http://oni-host:3000", token: "jt", force: true });
-    for (const args of [[], ["oni-host"], ["http://oni-host", "--token"], ["http://oni-host", "--name", "x"], ["http://oni-host", "--token", "jt", "extra"]]) {
-      expect(() => parseBootstrapArgs(args)).toThrow(new CliError("usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>] [--force]"));
-    }
+    expect(joinAddress("http://oni-host:3000", "tailnet")).toBe("oni-host");
+    expect(joinAddress("https://oni.example.com", "tailnet")).toBe("oni.example.com");
+    expect(joinAddress("https://oni.example.com", "domain")).toBe("wss://oni.example.com");
+    expect(joinAddress("http://[::1]:3000", "tailnet")).toBe("[::1]");
+    expect(joinAddress("http://[::1]:3000", "domain")).toBe("wss://[::1]");
+    expect(parseBootstrapArgs(tailnetArgs("http://oni-host:3000"))).toEqual(tailnet("http://oni-host:3000"));
+    expect(parseBootstrapArgs(tailnetArgs("http://oni-host:3000/"))).toEqual(tailnet("http://oni-host:3000"));
+    expect(parseBootstrapArgs(["https://oni.example.com", "--host-pin", PIN, "--mode", "domain"])).toEqual({ host: "https://oni.example.com", mode: "domain", hostPin: PIN });
+    expect(parseBootstrapArgs(tailnetArgs("http://oni-host:3000", "--token", "jt"))).toEqual(tailnet("http://oni-host:3000", { token: "jt" }));
+    expect(parseBootstrapArgs(tailnetArgs("http://oni-host:3000", "--force"))).toEqual(tailnet("http://oni-host:3000", { force: true }));
+    expect(parseBootstrapArgs(tailnetArgs("http://oni-host:3000", "--force", "--token", "jt"))).toEqual(tailnet("http://oni-host:3000", { token: "jt", force: true }));
+    const refused = [
+      [],
+      ["oni-host"],
+      ["http://oni-host"],
+      ["http://oni-host", "--mode", "tailnet"],
+      ["http://oni-host", "--host-pin", PIN],
+      ["http://oni-host", "--mode", "lan", "--host-pin", PIN],
+      ["http://oni-host", "--host-pin", PIN, "--mode"],
+      ["http://oni-host", "--mode", "tailnet", "--host-pin"],
+      tailnetArgs("http://oni-host", "--token"),
+      tailnetArgs("http://oni-host", "--name", "x"),
+      tailnetArgs("http://oni-host", "--token", "jt", "extra"),
+    ];
+    for (const args of refused) expect(() => parseBootstrapArgs(args)).toThrow(new CliError(USAGE));
   });
 });
 
@@ -190,17 +223,18 @@ describe("oni machine bootstrap", () => {
     const { origin } = fakeHost(packArchive(tempDir("oni-bootstrap-archive-")), { tamper: true });
     const err: string[] = [];
     const out: string[] = [];
-    expect(await bootstrapCommand([origin], bootstrapDeps(home), { stdout: (line) => out.push(line), stderr: (line) => err.push(line) })).toBe(1);
+    expect(await bootstrapCommand(tailnetArgs(origin), bootstrapDeps(home), { stdout: (line) => out.push(line), stderr: (line) => err.push(line) })).toBe(1);
     expect(err).toEqual([`checksum_mismatch: ${origin}/mclient.tar.gz`]);
-    await expect(runBootstrap({ host: origin }, bootstrapDeps(home))).rejects.toThrow(refusal("checksum_mismatch", `${origin}/mclient.tar.gz`));
+    await expect(runBootstrap(tailnet(origin), bootstrapDeps(home))).rejects.toThrow(refusal("checksum_mismatch", `${origin}/mclient.tar.gz`));
     const short = fakeHost(packArchive(tempDir("oni-bootstrap-archive-")), { shortBytes: true });
-    await expect(runBootstrap({ host: short.origin }, bootstrapDeps(home))).rejects.toThrow(refusal("checksum_mismatch", `${short.origin}/mclient.tar.gz`));
-    expect((await installScript(tempDir("oni-install-home-"), [short.origin])).stderr).toBe(`checksum_mismatch: ${short.origin}/mclient.tar.gz\n`);
+    await expect(runBootstrap(tailnet(short.origin), bootstrapDeps(home))).rejects.toThrow(refusal("checksum_mismatch", `${short.origin}/mclient.tar.gz`));
+    expect((await installScript(tempDir("oni-install-home-"), tailnetArgs(short.origin))).stderr).toBe(`checksum_mismatch: ${short.origin}/mclient.tar.gz\n`);
     const usage: string[] = [];
     expect(await bootstrapCommand(["oni-host"], bootstrapDeps(home), { stdout: () => undefined, stderr: (line) => usage.push(line) })).toBe(1);
-    expect(usage).toEqual(["usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>] [--force]"]);
+    expect(await bootstrapCommand([origin], bootstrapDeps(home), { stdout: () => undefined, stderr: (line) => usage.push(line) })).toBe(1);
+    expect(usage).toEqual([USAGE, USAGE]);
     const broken = { ...bootstrapDeps(home), fetch: () => Promise.reject(new TypeError("socket hang up")) };
-    await expect(bootstrapCommand([origin], broken, { stdout: () => undefined, stderr: () => undefined })).rejects.toThrow(new TypeError("socket hang up"));
+    await expect(bootstrapCommand(tailnetArgs(origin), broken, { stdout: () => undefined, stderr: () => undefined })).rejects.toThrow(new TypeError("socket hang up"));
     expect(out).toEqual([]);
     expect(existsSync(join(home, ".oni"))).toBe(false);
   });
@@ -216,32 +250,37 @@ describe("oni machine bootstrap", () => {
       if (argv[1] === "join") stagedMode = statSync(argv[0] ?? "").mode & 0o777;
       return io.exec(argv, env);
     } } };
-    expect(await bootstrapCommand([origin, "--token", "join-token"], deps, { stdout: (line) => out.push(line), stderr: (line) => err.push(line) })).toBe(0);
-    expect(out).toEqual(["verified mclient-v0.1.0 (darwin-universal): mclient join 127.0.0.1"]);
+    expect(await bootstrapCommand(tailnetArgs(origin, "--token", "join-token"), deps, { stdout: (line) => out.push(line), stderr: (line) => err.push(line) })).toBe(0);
+    expect(out).toEqual(["verified mclient-v0.1.0 (darwin-universal): mclient join 127.0.0.1 --mode tailnet"]);
     expect(err).toEqual([]);
     expect(stagedMode).toBe(0o755);
-    expect(joinArgv(home)).toBe("join\n127.0.0.1\n");
+    expect(joinArgv(home)).toBe(recordedJoin("127.0.0.1"));
     expect(joinToken(home)).toBe("join-token");
     expect(stagedJoin(home)).toEqual({ staged: true, removed: true });
     expect(existsSync(join(home, ".oni", "bin"))).toBe(false);
   });
 
-  test("without a token the join carries only the host; the join exit code and output are the command's", async () => {
+  test("without a token the join carries the address its mode dials, the pin and --yes; the join exit code and output are the command's", async () => {
     const home = tempDir("oni-bootstrap-home-");
     const { origin } = fakeHost(packArchive(tempDir("oni-bootstrap-archive-")));
-    const receipt = await runBootstrap({ host: origin }, bootstrapDeps(home));
-    expect(receipt.joinArgv.slice(1)).toEqual(["join", "127.0.0.1"]);
+    const receipt = await runBootstrap(tailnet(origin), bootstrapDeps(home));
+    expect(receipt.joinArgv.slice(1)).toEqual(["join", "127.0.0.1", "--mode", "tailnet", "--host-pin", PIN, "--yes"]);
     expect(receipt.joinArgv[0]?.startsWith(clientFile(home, "bootstrap-"))).toBe(true);
     expect(receipt.join.code).toBe(0);
+    expect(receipt.mode).toBe("tailnet");
     expect(receipt.tokenPresented).toBe(false);
-    expect(joinArgv(home)).toBe("join\n127.0.0.1\n");
+    expect(joinArgv(home)).toBe(recordedJoin("127.0.0.1"));
     expect(joinToken(home)).toBe("");
+    const domain = await runBootstrap({ host: origin, mode: "domain", hostPin: PIN }, bootstrapDeps(home));
+    expect(domain.joinArgv.slice(1)).toEqual(["join", "wss://127.0.0.1", "--mode", "domain", "--host-pin", PIN, "--yes"]);
+    expect(domain.mode).toBe("domain");
+    expect(joinArgv(home)).toBe(recordedJoin("wss://127.0.0.1", "domain"));
     const out: string[] = [];
     const err: string[] = [];
     const io = realIo();
     const loud = { ...bootstrapDeps(home), io: { ...io, exec: (argv: readonly string[]) => (argv[1] === "join" ? { code: 3, stdout: "enrolled\n", stderr: "pin recorded\n" } : io.exec(argv)) } };
-    expect(await bootstrapCommand([origin], loud, { stdout: (line) => out.push(line), stderr: (line) => err.push(line) })).toBe(3);
-    expect(out).toEqual(["verified mclient-v0.1.0 (linux-x86_64): mclient join 127.0.0.1", "enrolled"]);
+    expect(await bootstrapCommand(tailnetArgs(origin), loud, { stdout: (line) => out.push(line), stderr: (line) => err.push(line) })).toBe(3);
+    expect(out).toEqual(["verified mclient-v0.1.0 (linux-x86_64): mclient join 127.0.0.1 --mode tailnet", "enrolled"]);
     expect(err).toEqual(["pin recorded"]);
   });
 
@@ -250,13 +289,13 @@ describe("oni machine bootstrap", () => {
     const { origin } = fakeHost(packArchive(tempDir("oni-bootstrap-archive-")));
     pinClient(home, "0.1.0");
     const binary = join(home, ".oni", "bin", "mclient");
-    const receipt = await runBootstrap({ host: origin }, bootstrapDeps(home));
+    const receipt = await runBootstrap(tailnet(origin), bootstrapDeps(home));
     expect(receipt.join.code).toBe(0);
     expect(readFileSync(binary, "utf-8")).toBe("installed-binary\n");
     expect(JSON.parse(readFileSync(clientFile(home, "pin.json"), "utf-8"))).toEqual({ pinnedVersion: "0.1.0", pinned: true });
     expect(stagedJoin(home)).toEqual({ staged: true, removed: true });
     const failing = fakeHost(packArchive(tempDir("oni-bootstrap-archive-"), FAILING_MCLIENT));
-    const failed = await runBootstrap({ host: failing.origin }, bootstrapDeps(home));
+    const failed = await runBootstrap(tailnet(failing.origin), bootstrapDeps(home));
     expect(failed.join.code).toBe(5);
     expect(readFileSync(binary, "utf-8")).toBe("installed-binary\n");
     expect(stagedJoin(home)).toEqual({ staged: true, removed: true });
@@ -266,28 +305,28 @@ describe("oni machine bootstrap", () => {
     const home = tempDir("oni-bootstrap-home-");
     const { origin, downloads } = fakeHost(packArchive(tempDir("oni-bootstrap-archive-")));
     pinClient(home, "0.2.0");
-    await expect(runBootstrap({ host: origin }, bootstrapDeps(home))).rejects.toThrow(refusal("downgrade_refused", "the host's 0.1.0 is older than the pinned 0.2.0 (pass --force)"));
+    await expect(runBootstrap(tailnet(origin), bootstrapDeps(home))).rejects.toThrow(refusal("downgrade_refused", "the host's 0.1.0 is older than the pinned 0.2.0 (pass --force)"));
     expect(downloads()).toBe(0);
     expect(existsSync(clientFile(home, "join-argv"))).toBe(false);
-    expect((await runBootstrap({ host: origin, force: true }, bootstrapDeps(home))).join.code).toBe(0);
-    expect(joinArgv(home)).toBe("join\n127.0.0.1\n");
+    expect((await runBootstrap(tailnet(origin, { force: true }), bootstrapDeps(home))).join.code).toBe(0);
+    expect(joinArgv(home)).toBe(recordedJoin("127.0.0.1"));
     pinClient(home, "0.0.9");
-    expect((await runBootstrap({ host: origin }, bootstrapDeps(home))).join.code).toBe(0);
+    expect((await runBootstrap(tailnet(origin), bootstrapDeps(home))).join.code).toBe(0);
     expect(downloads()).toBe(2);
     writeFileSync(clientFile(home, "pin.json"), "{}");
-    await expect(runBootstrap({ host: origin }, bootstrapDeps(home))).rejects.toThrow(refusal("unreadable_pin", clientFile(home, "pin.json")));
+    await expect(runBootstrap(tailnet(origin), bootstrapDeps(home))).rejects.toThrow(refusal("unreadable_pin", clientFile(home, "pin.json")));
   });
 
   test("an unsupported platform, a missing release, a bad record and a broken archive are each one typed refusal", async () => {
     const home = tempDir("oni-bootstrap-home-");
     const archive = packArchive(tempDir("oni-bootstrap-archive-"));
     const { origin } = fakeHost(archive);
-    await expect(runBootstrap({ host: origin }, bootstrapDeps(home, { os: "win32", arch: "x64" }))).rejects.toThrow(refusal("unsupported_platform", "win32-x64"));
+    await expect(runBootstrap(tailnet(origin), bootstrapDeps(home, { os: "win32", arch: "x64" }))).rejects.toThrow(refusal("unsupported_platform", "win32-x64"));
     const absent = fakeHost(archive, { release: false });
-    await expect(runBootstrap({ host: absent.origin }, bootstrapDeps(home))).rejects.toThrow(refusal("release_unavailable", `${absent.origin}/machine/release answered 404`));
+    await expect(runBootstrap(tailnet(absent.origin), bootstrapDeps(home))).rejects.toThrow(refusal("release_unavailable", `${absent.origin}/machine/release answered 404`));
     const invalid = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ version: "1" }) });
     servers.push(invalid);
-    await expect(runBootstrap({ host: `http://127.0.0.1:${invalid.port}` }, bootstrapDeps(home))).rejects.toThrow(refusal("release_unavailable", `http://127.0.0.1:${invalid.port}/machine/release is not a release record`));
+    await expect(runBootstrap(tailnet(`http://127.0.0.1:${invalid.port}`), bootstrapDeps(home))).rejects.toThrow(refusal("release_unavailable", `http://127.0.0.1:${invalid.port}/machine/release is not a release record`));
     const gone = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -296,11 +335,11 @@ describe("oni machine bootstrap", () => {
         : new Response("Not found", { status: 404 })),
     });
     servers.push(gone);
-    await expect(runBootstrap({ host: `http://127.0.0.1:${gone.port}` }, bootstrapDeps(home))).rejects.toThrow(refusal("release_unavailable", "no linux-x86_64 artifact in the host's release"));
-    await expect(runBootstrap({ host: `http://127.0.0.1:${gone.port}` }, bootstrapDeps(home, { os: "linux", arch: "arm64" }))).rejects.toThrow(refusal("download_failed", `http://127.0.0.1:${gone.port}/a.tar.gz answered 404`));
+    await expect(runBootstrap(tailnet(`http://127.0.0.1:${gone.port}`), bootstrapDeps(home))).rejects.toThrow(refusal("release_unavailable", "no linux-x86_64 artifact in the host's release"));
+    await expect(runBootstrap(tailnet(`http://127.0.0.1:${gone.port}`), bootstrapDeps(home, { os: "linux", arch: "arm64" }))).rejects.toThrow(refusal("download_failed", `http://127.0.0.1:${gone.port}/a.tar.gz answered 404`));
     const broken = new TextEncoder().encode("not an archive");
     const { origin: brokenOrigin } = fakeHost(broken);
-    await expect(runBootstrap({ host: brokenOrigin }, bootstrapDeps(home))).rejects.toThrow(/^extract_failed: tar .*mclient\.tar\.gz: /);
+    await expect(runBootstrap(tailnet(brokenOrigin), bootstrapDeps(home))).rejects.toThrow(/^extract_failed: tar .*mclient\.tar\.gz: /);
     expect(existsSync(join(home, ".oni", "bin"))).toBe(false);
     expect(readdirSync(clientFile(home, ""))).toEqual([]);
   });
@@ -333,29 +372,34 @@ describe("GET /machine/install", () => {
     const archive = packArchive(tempDir("oni-install-archive-"));
     const tampered = fakeHost(archive, { tamper: true });
     const home = tempDir("oni-install-home-");
-    const refused = await installScript(home, [tampered.origin]);
+    const refused = await installScript(home, tailnetArgs(tampered.origin));
     expect(refused).toEqual({ code: 1, stdout: "", stderr: `checksum_mismatch: ${tampered.origin}/mclient.tar.gz\n` });
     expect(existsSync(join(home, ".oni"))).toBe(false);
     const { origin } = fakeHost(archive);
-    const installed = await installScript(home, [origin, "--token", "join-token"]);
-    expect(installed).toEqual({ code: 0, stdout: `verified mclient-v0.1.0 (${releasePlatform(process.platform, process.arch)}): mclient join 127.0.0.1\n`, stderr: "" });
-    expect(joinArgv(home)).toBe("join\n127.0.0.1\n");
+    const installed = await installScript(home, tailnetArgs(origin, "--token", "join-token"));
+    expect(installed).toEqual({ code: 0, stdout: `verified mclient-v0.1.0 (${releasePlatform(process.platform, process.arch)}): mclient join 127.0.0.1 --mode tailnet\n`, stderr: "" });
+    expect(joinArgv(home)).toBe(recordedJoin("127.0.0.1"));
     expect(joinToken(home)).toBe("join-token");
     expect(stagedJoin(home)).toEqual({ staged: true, removed: true });
     expect(existsSync(join(home, ".oni", "bin"))).toBe(false);
     const plainHome = tempDir("oni-install-home-");
-    expect((await installScript(plainHome, [origin])).code).toBe(0);
-    expect(joinArgv(plainHome)).toBe("join\n127.0.0.1\n");
+    expect((await installScript(plainHome, tailnetArgs(origin))).code).toBe(0);
+    expect(joinArgv(plainHome)).toBe(recordedJoin("127.0.0.1"));
     expect(joinToken(plainHome)).toBe("");
     const slashHome = tempDir("oni-install-home-");
-    expect((await installScript(slashHome, [`${origin}/`])).code).toBe(0);
-    expect(joinArgv(slashHome)).toBe("join\n127.0.0.1\n");
+    expect((await installScript(slashHome, tailnetArgs(`${origin}/`))).code).toBe(0);
+    expect(joinArgv(slashHome)).toBe(recordedJoin("127.0.0.1"));
+    const domainHome = tempDir("oni-install-home-");
+    const domain = await installScript(domainHome, [origin, "--host-pin", PIN, "--mode", "domain"]);
+    expect(domain).toEqual({ code: 0, stdout: `verified mclient-v0.1.0 (${releasePlatform(process.platform, process.arch)}): mclient join wss://127.0.0.1 --mode domain\n`, stderr: "" });
+    expect(joinArgv(domainHome)).toBe(recordedJoin("wss://127.0.0.1", "domain"));
     const six = fakeHost(packArchive(tempDir("oni-install-archive-")), { hostname: "::1" });
     const sixHome = tempDir("oni-install-home-");
-    expect((await installScript(sixHome, [six.origin])).code).toBe(0);
-    expect(joinArgv(sixHome)).toBe("join\n[::1]\n");
+    expect((await installScript(sixHome, tailnetArgs(six.origin))).code).toBe(0);
+    expect(joinArgv(sixHome)).toBe(recordedJoin("[::1]"));
     const sixCli = tempDir("oni-install-home-");
-    expect((await runBootstrap({ host: six.origin }, bootstrapDeps(sixCli))).joinArgv.slice(1)).toEqual(["join", "[::1]"]);
+    expect((await runBootstrap(tailnet(six.origin), bootstrapDeps(sixCli))).joinArgv.slice(1, 3)).toEqual(["join", "[::1]"]);
+    expect((await runBootstrap({ host: six.origin, mode: "domain", hostPin: PIN }, bootstrapDeps(sixCli))).joinArgv.slice(1, 3)).toEqual(["join", "wss://[::1]"]);
   });
 
   test("the script keeps a joined machine's pinned binary, refuses a downgrade unless --force, and cleans its stage after a failed join", async () => {
@@ -363,28 +407,34 @@ describe("GET /machine/install", () => {
     const home = tempDir("oni-install-home-");
     pinClient(home, "0.1.0");
     const binary = join(home, ".oni", "bin", "mclient");
-    expect((await installScript(home, [origin])).code).toBe(0);
+    expect((await installScript(home, tailnetArgs(origin))).code).toBe(0);
     expect(readFileSync(binary, "utf-8")).toBe("installed-binary\n");
     expect(stagedJoin(home)).toEqual({ staged: true, removed: true });
     pinClient(home, "0.2.0");
-    expect(await installScript(home, [origin])).toEqual({ code: 1, stdout: "", stderr: "downgrade_refused: the host's 0.1.0 is older than the pinned 0.2.0 (pass --force)\n" });
-    expect((await installScript(home, [origin, "--force"])).code).toBe(0);
+    expect(await installScript(home, tailnetArgs(origin))).toEqual({ code: 1, stdout: "", stderr: "downgrade_refused: the host's 0.1.0 is older than the pinned 0.2.0 (pass --force)\n" });
+    expect((await installScript(home, tailnetArgs(origin, "--force"))).code).toBe(0);
     pinClient(home, "0.0.9");
-    expect((await installScript(home, [origin])).code).toBe(0);
+    expect((await installScript(home, tailnetArgs(origin))).code).toBe(0);
     const failing = fakeHost(packArchive(tempDir("oni-install-archive-"), FAILING_MCLIENT));
-    expect((await installScript(home, [failing.origin])).code).toBe(5);
+    expect((await installScript(home, tailnetArgs(failing.origin))).code).toBe(5);
     expect(readFileSync(binary, "utf-8")).toBe("installed-binary\n");
     expect(stagedJoin(home)).toEqual({ staged: true, removed: true });
   });
 
   test("the script's argument and host refusals exit before any download", async () => {
     const home = tempDir("oni-install-home-");
-    const usage = "usage: sh -s -- <http(s)://host[:port]> [--token <join token>] [--force]\n";
-    expect(await installScript(home, ["oni-host:3000"])).toEqual({ code: 2, stdout: "", stderr: usage });
-    expect(await installScript(home, ["http://oni-host:3000", "--token"])).toEqual({ code: 2, stdout: "", stderr: usage });
-    expect(await installScript(home, ["http://oni-host:3000", "--name", "x"])).toEqual({ code: 2, stdout: "", stderr: usage });
+    const usage = "usage: sh -s -- <http(s)://host[:port]> --mode <tailnet|domain> --host-pin <pin> [--token <join token>] [--force]\n";
+    expect(await installScript(home, tailnetArgs("oni-host:3000"))).toEqual({ code: 2, stdout: "", stderr: usage });
+    expect(await installScript(home, tailnetArgs("http://oni-host:3000", "--token"))).toEqual({ code: 2, stdout: "", stderr: usage });
+    expect(await installScript(home, tailnetArgs("http://oni-host:3000", "--name", "x"))).toEqual({ code: 2, stdout: "", stderr: usage });
     expect(await installScript(home, [])).toEqual({ code: 2, stdout: "", stderr: usage });
-    const unreachable = await installScript(home, ["http://127.0.0.1:1"]);
+    expect(await installScript(home, ["http://oni-host:3000"])).toEqual({ code: 2, stdout: "", stderr: usage });
+    expect(await installScript(home, ["http://oni-host:3000", "--mode", "tailnet"])).toEqual({ code: 2, stdout: "", stderr: usage });
+    expect(await installScript(home, ["http://oni-host:3000", "--host-pin", PIN])).toEqual({ code: 2, stdout: "", stderr: usage });
+    expect(await installScript(home, ["http://oni-host:3000", "--mode", "lan", "--host-pin", PIN])).toEqual({ code: 2, stdout: "", stderr: usage });
+    expect(await installScript(home, ["http://oni-host:3000", "--host-pin", PIN, "--mode"])).toEqual({ code: 2, stdout: "", stderr: usage });
+    expect(await installScript(home, ["http://oni-host:3000", "--mode", "tailnet", "--host-pin"])).toEqual({ code: 2, stdout: "", stderr: usage });
+    const unreachable = await installScript(home, tailnetArgs("http://127.0.0.1:1"));
     expect(unreachable.code).toBe(1);
     expect(unreachable.stderr.trimEnd().split("\n").at(-1)).toBe("release unavailable at http://127.0.0.1:1/machine/release");
     expect(existsSync(join(home, ".oni"))).toBe(false);

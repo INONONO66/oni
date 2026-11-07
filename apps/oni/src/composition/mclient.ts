@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { MachinesFailure } from "@oni/machines";
+import type { Machine } from "@oni/protocol";
 import { Effect } from "effect";
 import { resolveMclientBin } from "../config";
 import { foreignFailure } from "./failure";
@@ -17,6 +18,8 @@ export interface MclientSettings {
   readonly exports: readonly { readonly name: string; readonly path: string }[];
   readonly tags: readonly string[];
   readonly memoryBudgetMb: number;
+  /** The one mode a network host is joined in (#1837); the unix carrier takes none. */
+  readonly mode?: Machine.AttachMode;
   readonly tmuxSocket?: string;
 }
 

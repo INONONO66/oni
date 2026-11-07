@@ -74,7 +74,8 @@ pub fn classify(error: &AttachError) -> FailureClass {
         | AttachError::Computer(_)
         | AttachError::Update(_)
         | AttachError::GrantRestart
-        | AttachError::ServiceUnavailable => FailureClass::Configuration,
+        | AttachError::ServiceUnavailable
+        | AttachError::Tailnet(_) => FailureClass::Configuration,
         AttachError::Once(class) => *class,
         AttachError::Transport(
             TransportError::HostKeyMismatch
