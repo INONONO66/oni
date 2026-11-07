@@ -12,7 +12,7 @@ use oni_machine_client::{
     config::{self, JoinOptions},
     handlers,
     release::{self, Identity, Layout, UpdateError, VERSION},
-    service,
+    service, tailnet,
     transport::classes,
 };
 
@@ -151,8 +151,16 @@ async fn main() -> ExitCode {
                 AttachError::Update(update) => serde_json::json!({
                     "reason": error.reason(), "class": update.class(), "detail": update.to_string()
                 }),
-                AttachError::Config(config::ConfigError::LegacyHostPin) => serde_json::json!({
+                AttachError::Config(
+                    config::ConfigError::LegacyHostPin
+                    | config::ConfigError::ModeRequired
+                    | config::ConfigError::ModeMismatch { .. },
+                ) => serde_json::json!({
                     "reason": error.reason(), "class": classes::classify(&error), "nextStep": error.next_step()
+                }),
+                AttachError::Tailnet(refusal) => serde_json::json!({
+                    "reason": error.reason(), "class": classes::classify(&error), "nextStep": error.next_step(),
+                    "tailscale": {"steps": refusal.steps}
                 }),
                 _ => serde_json::json!({"reason": error.reason()}),
             };
@@ -333,7 +341,8 @@ fn reconnect(config_path: Option<&Path>) -> Result<(), AttachError> {
 }
 
 async fn join(options: &JoinOptions) -> Result<(), AttachError> {
-    let enrollment = attach::join(options, &config::root(), &handlers::SUPPORTED).await?;
+    let setup = tailnet::Setup::from_env(options, &|name| std::env::var(name).ok());
+    let enrollment = attach::join(options, &config::root(), &handlers::SUPPORTED, &setup).await?;
     let layout = Layout::new(config::root());
     let path = layout.client().join("client.json");
     if !options.json {
@@ -523,6 +532,7 @@ mod tests {
                 tags: vec![],
                 memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
                 unix: Some(socket),
+                mode: None,
                 tmux_socket: None,
             },
             &layout.client(),
@@ -722,6 +732,8 @@ mod tests {
         let _proxy = RestoreEnv::set("HTTPS_PROXY", "https://proxy.example:3128".as_ref());
         let options = JoinOptions {
             host: "wss://127.0.0.1:1/machine".into(),
+            mode: Some(config::Mode::Domain),
+            tailscale_auth_key: None,
             token: None,
             json: false,
             name: None,

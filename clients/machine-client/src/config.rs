@@ -14,9 +14,12 @@ use rcgen::PublicKeyData;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::transport::{
-    connection::{public_key_pin, HostPin},
-    ws::{self, WsEndpoint},
+use crate::{
+    tailnet,
+    transport::{
+        connection::{public_key_pin, HostPin},
+        ws::{self, WsEndpoint},
+    },
 };
 
 pub const DEFAULT_PORT: &str = "7643";
@@ -68,6 +71,72 @@ pub fn carrier(host: &str) -> Result<Carrier, ConfigError> {
     })
 }
 
+/// How a machine reaches its host (#1837). A join names one mode explicitly
+/// and the mode binds one carrier and one resolver: `tailnet` dials the raw
+/// TLS-TCP listener over Tailscale and resolves a bare name through
+/// `tailscale status`; `domain` dials the `wss://` listener behind a public
+/// DNS name the system resolver answers. Neither falls back to the other, a
+/// machine holds exactly one, and the unix carrier takes none.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+#[clap(rename_all = "lowercase")]
+pub enum Mode {
+    Tailnet,
+    Domain,
+}
+
+impl Mode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tailnet => "tailnet",
+            Self::Domain => "domain",
+        }
+    }
+
+    /// The one carrier this mode dials.
+    fn carrier_name(self) -> &'static str {
+        match self {
+            Self::Tailnet => "tcp",
+            Self::Domain => "wss",
+        }
+    }
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// The mode a carrier belongs to: `None` for the unix carrier.
+fn carrier_mode(carrier: Option<&Carrier>) -> Option<Mode> {
+    match carrier {
+        Some(Carrier::Tcp { .. }) => Some(Mode::Tailnet),
+        Some(Carrier::Wss(_)) => Some(Mode::Domain),
+        None => None,
+    }
+}
+
+/// The one check that keeps a machine in exactly one mode (#1837): a network
+/// carrier needs the mode that dials it, and the unix carrier takes none. A
+/// join checks its options here before any dial; a saved configuration is
+/// checked here when it is loaded.
+pub fn check_mode(mode: Option<Mode>, carrier: Option<&Carrier>) -> Result<(), ConfigError> {
+    let expected = carrier_mode(carrier);
+    match (mode, expected) {
+        (None, Some(_)) => Err(ConfigError::ModeRequired),
+        (Some(mode), Some(expected)) if mode != expected => Err(ConfigError::ModeMismatch {
+            mode,
+            carrier: expected.carrier_name(),
+        }),
+        (Some(mode), None) => Err(ConfigError::ModeMismatch {
+            mode,
+            carrier: "unix",
+        }),
+        _ => Ok(()),
+    }
+}
+
 /// One Retina `screen()` capture retains ~103 MB RSS that the allocator does
 /// not return (#1775); 512 covers that plus encode-buffer headroom.
 pub const DEFAULT_MEMORY_BUDGET_MB: u64 = 512;
@@ -80,6 +149,10 @@ pub enum ConfigError {
     PlaintextWs,
     #[error("pin_required")]
     PinRequired,
+    #[error("mode_required")]
+    ModeRequired,
+    #[error("mode_mismatch")]
+    ModeMismatch { mode: Mode, carrier: &'static str },
     #[error("invalid host pin")]
     InvalidPin,
     #[error("the recorded host-pin predates the SPKI pin and is not verified; re-join with: mclient join <host> --host-pin <pin>")]
@@ -113,8 +186,21 @@ pub struct ClientConfig {
     pub tags: Vec<String>,
     pub memory_budget_mb: u64,
     pub unix: Option<PathBuf>,
+    /// The attach mode the join chose; absent only on the unix carrier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<Mode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tmux_socket: Option<String>,
+}
+
+impl ClientConfig {
+    /// The carrier the saved host selects: `None` for the unix carrier.
+    pub fn network_carrier(&self) -> Result<Option<Carrier>, ConfigError> {
+        if self.unix.is_some() || unix_path(&self.host).is_some() {
+            return Ok(None);
+        }
+        carrier(&self.host).map(Some)
+    }
 }
 
 #[derive(Debug, clap::Args)]
@@ -145,6 +231,24 @@ pub struct JoinOptions {
     pub unix: Option<PathBuf>,
     #[arg(long, default_value_t = DEFAULT_MEMORY_BUDGET_MB)]
     pub memory_budget_mb: u64,
+    /// How this machine reaches the host: required for a network host, refused with `--unix`.
+    #[arg(long, value_enum)]
+    pub mode: Option<Mode>,
+    /// Explicit override of `ONI_MCLIENT_TAILSCALE_AUTH_KEY`, consumed by
+    /// `tailscale up` when a tailnet-mode join finds Tailscale logged out.
+    #[arg(long)]
+    pub tailscale_auth_key: Option<String>,
+}
+
+impl JoinOptions {
+    /// The carrier the join dials: `None` for the unix carrier (`--unix` or
+    /// a `unix:` host), else the scheme's network carrier.
+    pub fn network_carrier(&self) -> Result<Option<Carrier>, ConfigError> {
+        if self.unix.is_some() || unix_path(&self.host).is_some() {
+            return Ok(None);
+        }
+        carrier(&self.host).map(Some)
+    }
 }
 
 pub fn home() -> PathBuf {
@@ -259,6 +363,14 @@ pub fn resolve_address(value: &str) -> Result<String, ConfigError> {
     Ok(port.map_or_else(|| address.clone(), |port| with_port(&address, port)))
 }
 
+/// `resolve_address` through the one `tailscale` CLI a tailnet join brought
+/// to `Running`, so the peer lookup and the readiness check agree on the binary.
+pub fn resolve_address_through(value: &str, cli: &Path) -> Result<String, ConfigError> {
+    let (host, port) = split_port(value.strip_prefix("tcp://").unwrap_or(value));
+    let address = resolve_through(host, cli)?;
+    Ok(port.map_or_else(|| address.clone(), |port| with_port(&address, port)))
+}
+
 #[derive(Deserialize)]
 struct Peer {
     #[serde(rename = "HostName")]
@@ -283,15 +395,16 @@ pub fn resolve_with(host: &str, search_path: &OsStr) -> Result<String, ConfigErr
     if host.parse::<IpAddr>().is_ok() || host.contains('.') {
         return Ok(host.to_owned());
     }
-    let binary = std::env::split_paths(search_path)
-        .map(|dir| dir.join("tailscale"))
-        .chain([
-            PathBuf::from("/usr/bin/tailscale"),
-            PathBuf::from("/Applications/Tailscale.app/Contents/MacOS/Tailscale"),
-        ])
-        .find(|path| path.is_file())
+    let binary = tailnet::locate(search_path, &tailnet::Platform::current().installed)
         .ok_or(ConfigError::HostUnresolved)?;
-    let output = Command::new(binary)
+    resolve_through(host, &binary)
+}
+
+fn resolve_through(host: &str, cli: &Path) -> Result<String, ConfigError> {
+    if host.parse::<IpAddr>().is_ok() || host.contains('.') {
+        return Ok(host.to_owned());
+    }
+    let output = Command::new(cli)
         .args(["status", "--json"])
         .output()
         .map_err(|_| ConfigError::HostUnresolved)?;
@@ -377,8 +490,14 @@ pub fn save(config: &ClientConfig, directory: &Path) -> Result<(), ConfigError> 
     Ok(())
 }
 
+/// Loads saved settings and refuses a network configuration that names no
+/// mode or the wrong one: a machine joined before #1837 re-joins with
+/// `--mode`, and a hand-edited `client.json` never dials in a mode its host
+/// address cannot serve.
 pub fn load(path: &Path) -> Result<ClientConfig, ConfigError> {
-    Ok(serde_json::from_slice(&fs::read(path)?)?)
+    let config: ClientConfig = serde_json::from_slice(&fs::read(path)?)?;
+    check_mode(config.mode, config.network_carrier()?.as_ref())?;
+    Ok(config)
 }
 
 pub fn identity(directory: &Path, name: &str) -> Result<String, ConfigError> {

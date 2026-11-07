@@ -1422,6 +1422,7 @@ mod private_tests {
             exports: vec![],
             memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
+            mode: Some(crate::config::Mode::Tailnet),
             tmux_socket: None,
         };
         let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
@@ -1501,6 +1502,7 @@ mod private_tests {
             exports: vec![],
             memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
+            mode: Some(crate::config::Mode::Tailnet),
             tmux_socket: None,
         };
         let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;

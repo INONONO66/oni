@@ -21,4 +21,5 @@ pub mod report;
 pub mod screen;
 pub mod service;
 pub mod stream;
+pub mod tailnet;
 pub mod transport;
