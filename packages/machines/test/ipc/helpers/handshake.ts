@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { Machine } from "@oni/protocol";
+import { type Ipc, Machine } from "@oni/protocol";
 import type { IpcClient as NativeClient, IpcTlsIdentity } from "../../../src";
 import { sealSchedule } from "../../../src/handshake";
 import { ephemeralKey, signTranscript, staticKeyOf, verifyTranscript, type EphemeralKey } from "../../../src/ipc/keys";
@@ -50,7 +50,7 @@ export function acceptedSeal(sent: Hello, accepted: Machine.HandshakeAccepted, h
 
 type HandshakeClient = {
   readonly native: Pick<NativeClient, "seal">;
-  call(method: string, params?: Machine.HandshakeHello): Promise<unknown>;
+  call(method: string, params?: Machine.HandshakeHello): Promise<Ipc.Response["result"]>;
 };
 
 /** Runs the handshake on a connected client and, once accepted, seals its frames. */

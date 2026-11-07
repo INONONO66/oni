@@ -177,8 +177,12 @@ describe("signed machine handshake over a plaintext carrier (#1832)", () => {
         if (accepted.status !== "accepted") throw new Error(`expected acceptance, got ${accepted.reason}`);
         client.native.seal(acceptedSeal(sent, accepted, hostPin));
         expect(await client.call(Machine.WireMethod.Attach, offer("pinned", "/tmp"))).toMatchObject({ status: "attached" });
-        // The responder's keys are the mirror image: sealing with them is a frame the host cannot authenticate.
-        client.native.seal(new FrameSeal(deriveSealKeys(sealSchedule(sent.ephemeral, accepted.ephemeralKey, sent.hello, accepted), "responder")));
+        // Send under the responder's mirror-image key (a frame the host cannot authenticate) while still
+        // receiving under the right one, so the only outcome left is the host's close, never a torn inbound frame.
+        const schedule = sealSchedule(sent.ephemeral, accepted.ephemeralKey, sent.hello, accepted);
+        const mirrored = deriveSealKeys(schedule, "responder");
+        const own = deriveSealKeys(schedule, "initiator");
+        client.native.seal(new FrameSeal({ ...own, send: mirrored.send, sendAad: mirrored.sendAad }));
         const detached = events.next(Machine.Events.Detached.name);
         await expect(client.call(Machine.WireMethod.Attach, offer("pinned", "/tmp"))).rejects.toMatchObject({ _tag: "IpcConnectionError" });
         await disconnected;
