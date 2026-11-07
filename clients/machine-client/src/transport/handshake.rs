@@ -355,10 +355,16 @@ pub async fn read_line<S: AsyncRead + Unpin>(
         if pending.len() > MAX_FRAME_BYTES {
             return Err(FrameError::Oversize.into());
         }
-        let read = stream.read(&mut chunk).await?;
-        if read == 0 {
-            return Err(HandshakeError::Closed);
-        }
+        // A carrier that ends before the line is complete, with or without a
+        // TLS close_notify, is the same outcome: the host never answered.
+        let read = match stream.read(&mut chunk).await {
+            Ok(0) => return Err(HandshakeError::Closed),
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Err(HandshakeError::Closed)
+            }
+            Err(error) => return Err(error.into()),
+        };
         pending.extend_from_slice(&chunk[..read]);
     }
 }

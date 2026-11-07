@@ -564,3 +564,133 @@ fn proxy_address_normalizes_the_environment_value() {
         ));
     }
 }
+
+/// The handshake at the connection level (#1832): what the host saw in the
+/// hello, and the typed outcome of every answer it can give, on both carriers.
+mod signed_handshake {
+    use super::*;
+    use oni_machine_client::transport::handshake::{Handshaken, Refusal};
+    use support::fake_host::FakeHost;
+    use support::responder::Answer;
+
+    async fn dial(host: &FakeHost, wss: bool) -> Result<(Client, Handshaken), TransportError> {
+        let identity = identity(&host.certificate, &host.private_key);
+        if wss {
+            Client::connect_wss(&host.ws_endpoint(), None, host.pin(), identity, service()).await
+        } else {
+            Client::connect_tls(&host.endpoint, "localhost", host.pin(), identity, service()).await
+        }
+    }
+
+    /// The handshake error a dial ended with; an accepted dial is the failure.
+    fn handshake_error(dialed: Result<(Client, Handshaken), TransportError>) -> HandshakeError {
+        match dialed {
+            Err(TransportError::Handshake(error)) => error,
+            Err(other) => panic!("expected a handshake error, got {other:?}"),
+            Ok(_) => panic!("the host accepted a handshake it should have refused"),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_hello_names_the_machine_the_contract_and_fresh_material_under_a_valid_signature() {
+        for wss in [false, true] {
+            let mut host = if wss {
+                FakeHost::ws().await
+            } else {
+                FakeHost::tls().await
+            };
+            let (client, _) = dial(&host, wss).await.expect("accepted");
+            let seen = host.handshake_seen().expect("the host saw the hello");
+            assert!(seen.signature_verified);
+            assert_eq!(seen.hello.machine_id, "machine-test");
+            assert_eq!(seen.hello.contract_version, oni_protocol::CONTRACT_VERSION);
+            assert_eq!(seen.hello.ephemeral_key.len(), 44);
+            assert_eq!(seen.hello.nonce.len(), 44);
+            assert_ne!(seen.hello.ephemeral_key, seen.hello.nonce);
+            assert!(!seen.hello.static_key.is_empty());
+            exchange_over(&client, &mut host, json!({"sealed": wss})).await;
+            drop(client);
+            let again = if wss {
+                FakeHost::ws().await
+            } else {
+                FakeHost::tls().await
+            };
+            let (_client, _) = dial(&again, wss).await.expect("accepted again");
+            let fresh = again.handshake_seen().expect("the second hello");
+            assert_ne!(
+                fresh.hello.nonce, seen.hello.nonce,
+                "every hello carries a fresh nonce"
+            );
+            assert_ne!(
+                fresh.hello.ephemeral_key, seen.hello.ephemeral_key,
+                "and a fresh ephemeral"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn every_refusal_reason_is_typed_and_ends_the_connection_before_any_frame() {
+        for (reason, expected) in [
+            ("not_admitted", Refusal::NotAdmitted),
+            ("replay", Refusal::Replay),
+            ("unsupported_contract", Refusal::UnsupportedContract),
+        ] {
+            for wss in [false, true] {
+                let host = if wss {
+                    FakeHost::ws_answering(Answer::Refuse(reason)).await
+                } else {
+                    FakeHost::tls_answering(Answer::Refuse(reason)).await
+                };
+                let error = handshake_error(dial(&host, wss).await);
+                assert!(
+                    matches!(&error, HandshakeError::Refused(refusal) if *refusal == expected),
+                    "{reason} over {}: {error:?}",
+                    if wss { "wss" } else { "tcp" }
+                );
+                assert_eq!(
+                    error.to_string(),
+                    format!("the host refused the handshake: {reason}")
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_acceptance_under_a_key_the_client_never_pinned_is_refused() {
+        for wss in [false, true] {
+            let host = if wss {
+                FakeHost::ws_answering(Answer::ForeignKey).await
+            } else {
+                FakeHost::tls_answering(Answer::ForeignKey).await
+            };
+            let error = handshake_error(dial(&host, wss).await);
+            assert!(matches!(error, HandshakeError::HostKey), "{error:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_acceptance_whose_signature_does_not_verify_is_refused() {
+        for wss in [false, true] {
+            let host = if wss {
+                FakeHost::ws_answering(Answer::BadSignature).await
+            } else {
+                FakeHost::tls_answering(Answer::BadSignature).await
+            };
+            let error = handshake_error(dial(&host, wss).await);
+            assert!(matches!(error, HandshakeError::HostSignature), "{error:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_host_that_hangs_up_on_the_hello_is_a_closed_handshake() {
+        for wss in [false, true] {
+            let host = if wss {
+                FakeHost::ws_answering(Answer::Close).await
+            } else {
+                FakeHost::tls_answering(Answer::Close).await
+            };
+            let error = handshake_error(dial(&host, wss).await);
+            assert!(matches!(error, HandshakeError::Closed), "{error:?}");
+        }
+    }
+}
