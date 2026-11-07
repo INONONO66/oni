@@ -1127,6 +1127,123 @@ fn grant_records_consent_in_the_saved_config() {
         .contains("declared capabilities: fs.read, shell.exec\n"));
 }
 
+const UNPINNED_CONFIG: &str = r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null,"declared":["fs.read"]}"#;
+
+/// Consent is recorded before the service is signalled, so a service state
+/// that cannot be read is reported after the declared set rather than
+/// instead of it; only a missing service is tolerated as "not running".
+#[test]
+fn grant_reports_an_unreadable_service_state_after_recording_consent() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let directory = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&directory).expect("client directory");
+    std::fs::write(directory.join("client.json"), UNPINNED_CONFIG).expect("config");
+    let state = directory.join("state.json");
+    let grant = |capability: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(["grant", capability])
+            .output()
+            .expect("mclient runs")
+    };
+
+    std::fs::write(&state, "{").expect("corrupt state");
+    let corrupt = grant("shell.exec");
+    assert_eq!(corrupt.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8(corrupt.stdout).expect("stdout"),
+        "declared capabilities: fs.read, shell.exec\n"
+    );
+    let error: serde_json::Value = serde_json::from_slice(&corrupt.stderr).expect("JSON refusal");
+    assert!(
+        error["reason"]
+            .as_str()
+            .expect("reason")
+            .starts_with("invalid saved generation:"),
+        "{error}"
+    );
+
+    std::fs::remove_file(&state).expect("remove state");
+    std::fs::create_dir(&state).expect("blocking state");
+    let unreadable = grant("pty.session");
+    assert_eq!(unreadable.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8(unreadable.stdout).expect("stdout"),
+        "declared capabilities: fs.read, shell.exec, pty.session\n"
+    );
+    let error: serde_json::Value =
+        serde_json::from_slice(&unreadable.stderr).expect("JSON refusal");
+    assert!(
+        error["reason"]
+            .as_str()
+            .expect("reason")
+            .starts_with("I/O:"),
+        "{error}"
+    );
+
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.join("client.json")).expect("config"))
+            .expect("json");
+    assert_eq!(
+        config["declared"],
+        serde_json::json!(["fs.read", "shell.exec", "pty.session"])
+    );
+}
+
+/// `mclient grant` reaches the running service through the reconnect signal
+/// and says so: the service re-attaches at once instead of waiting out its
+/// reprobe timer, so the host sees the wider offer now.
+#[tokio::test]
+async fn grant_signals_the_running_service_to_reconnect() {
+    use tokio::io::AsyncBufReadExt;
+    let home = tempfile::tempdir().expect("isolated home");
+    let directory = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&directory).expect("client directory");
+    std::fs::write(directory.join("client.json"), UNPINNED_CONFIG).expect("config");
+    let mut service = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["run", "--allow-unpinned"])
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("service starts");
+    let stderr = service.stderr.take().expect("service stderr");
+    let mut lines = tokio::io::BufReader::new(stderr).lines();
+    let first = tokio::time::timeout(std::time::Duration::from_secs(10), lines.next_line())
+        .await
+        .expect("first configuration observation")
+        .expect("stderr")
+        .expect("line");
+    let fact: serde_json::Value = serde_json::from_str(&first).expect("class fact");
+    assert_eq!(fact["class"], "configuration");
+
+    let grant = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["grant", "shell.exec"])
+        .output()
+        .await
+        .expect("grant command");
+    assert_eq!(
+        grant.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&grant.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(grant.stdout).expect("stdout"),
+        "declared capabilities: fs.read, shell.exec\nservice: reconnecting\n"
+    );
+
+    let second = tokio::time::timeout(std::time::Duration::from_secs(10), lines.next_line())
+        .await
+        .expect("immediate reprobe")
+        .expect("stderr")
+        .expect("line");
+    let fact: serde_json::Value = serde_json::from_str(&second).expect("reprobe class");
+    assert_eq!(fact["class"], "configuration");
+    service.kill().await.expect("stop service");
+}
+
 /// `status` surfaces the host's outstanding wish so the operator can answer
 /// it, naming the exact `grant` command per capability.
 #[test]

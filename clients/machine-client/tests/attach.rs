@@ -1870,6 +1870,127 @@ fn identity_refuses_an_unwritable_key_path() {
     assert!(!directory.path().join("client-cert.pem").exists());
 }
 
+/// A rotation whose staged key cannot be written fails as I/O and leaves no
+/// staged certificate behind: the identity is built before either file so
+/// its drop removes what did get written.
+#[test]
+fn staging_an_identity_whose_key_cannot_be_written_drops_the_staged_certificate() {
+    let directory = tempfile::tempdir().expect("directory");
+    std::fs::create_dir(directory.path().join("client-key.pem.next")).expect("blocking staged key");
+    assert!(matches!(
+        config::Identity::stage(directory.path(), "laptop"),
+        Err(config::ConfigError::Io(error)) if error.kind() == std::io::ErrorKind::IsADirectory
+    ));
+    assert!(!directory.path().join("client-cert.pem.next").exists());
+    assert!(directory.path().join("client-key.pem.next").is_dir());
+}
+
+#[test]
+fn identity_pin_refuses_an_unreadable_certificate() {
+    let directory = tempfile::tempdir().expect("directory");
+    std::fs::create_dir(directory.path().join("client-cert.pem")).expect("blocking certificate");
+    assert!(matches!(
+        config::identity_pin(directory.path()),
+        Err(config::ConfigError::Io(error)) if error.kind() == std::io::ErrorKind::IsADirectory
+    ));
+}
+
+/// A saved config that no longer loads is refused rather than read as
+/// "nothing declared yet", so a re-join cannot widen consent past it.
+#[test]
+fn saved_declared_refuses_a_corrupt_or_unreadable_config() {
+    let directory = tempfile::tempdir().expect("directory");
+    let path = directory.path().join("client.json");
+    std::fs::write(&path, "{").expect("corrupt config");
+    assert!(matches!(
+        config::saved_declared(directory.path()),
+        Err(config::ConfigError::Json(_))
+    ));
+    std::fs::remove_file(&path).expect("remove config");
+    std::fs::create_dir(&path).expect("blocking config");
+    assert!(matches!(
+        config::saved_declared(directory.path()),
+        Err(config::ConfigError::Io(error)) if error.kind() == std::io::ErrorKind::IsADirectory
+    ));
+}
+
+/// Granting on a config saved without a declared set first declares every
+/// supported capability, which is what such a config already offered.
+#[test]
+fn grant_on_a_config_without_a_declared_set_declares_every_supported_capability() {
+    let directory = tempfile::tempdir().expect("directory");
+    config::save(&config(), directory.path()).expect("config without consent");
+    let supported = oni_machine_client::handlers::SUPPORTED
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect::<Vec<_>>();
+    let declared = config::grant(
+        directory.path(),
+        "shell.exec",
+        &oni_machine_client::handlers::SUPPORTED,
+    )
+    .expect("grant");
+    assert_eq!(declared, supported);
+    let saved = config::load(&directory.path().join("client.json")).expect("saved config");
+    assert_eq!(saved.declared, Some(supported));
+}
+
+#[test]
+fn pending_consent_refuses_an_unreadable_record() {
+    let directory = tempfile::tempdir().expect("directory");
+    std::fs::create_dir(directory.path().join("consent.json")).expect("blocking record");
+    assert!(matches!(
+        attach::pending_consent(directory.path()),
+        Err(config::ConfigError::Io(error)) if error.kind() == std::io::ErrorKind::IsADirectory
+    ));
+}
+
+/// A recorded host pin that cannot be read or parsed refuses the network
+/// host before any connection: trust is never downgraded to "unpinned".
+#[tokio::test]
+async fn release_refuses_an_unreadable_or_corrupt_host_pin() {
+    let directory = tempfile::tempdir().expect("client directory");
+    let settings = config();
+    let pin = directory.path().join("host-pin");
+    std::fs::create_dir(&pin).expect("blocking pin");
+    assert!(matches!(
+        attach::release(&settings, directory.path()).await,
+        Err(AttachError::Io(error)) if error.kind() == std::io::ErrorKind::IsADirectory
+    ));
+    std::fs::remove_dir(&pin).expect("unblock pin");
+    std::fs::write(&pin, "not a pin").expect("corrupt pin");
+    assert!(matches!(
+        attach::release(&settings, directory.path()).await,
+        Err(AttachError::Config(config::ConfigError::InvalidPin))
+    ));
+}
+
+/// Each attempt re-reads the consent `mclient grant` may have recorded; a
+/// config that no longer loads stops the attempt before it connects.
+#[tokio::test]
+async fn once_refuses_a_saved_config_that_no_longer_loads() {
+    let directory = tempfile::tempdir().expect("client directory");
+    let mut settings = config();
+    settings.unix = Some(directory.path().join("missing.sock"));
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("new");
+    let path = directory.path().join("client.json");
+    std::fs::write(&path, "{").expect("corrupt config");
+    assert!(matches!(
+        attachment.once().await,
+        Err(AttachError::Config(config::ConfigError::Json(_)))
+    ));
+    std::fs::remove_file(&path).expect("remove config");
+    std::fs::create_dir(&path).expect("blocking config");
+    assert!(matches!(
+        attachment.once().await,
+        Err(AttachError::Config(config::ConfigError::Io(error)))
+            if error.kind() == std::io::ErrorKind::IsADirectory
+    ));
+}
+
 #[test]
 fn malformed_attach_result_and_saved_generation_are_typed_errors() {
     assert!(matches!(
