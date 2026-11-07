@@ -59,24 +59,32 @@ The unix socket stays bound regardless; same-box clients can join over Unix.
 }
 ```
 
-Run `mclient join <host> --host-pin <pin>` before starting the
-client. It persists the TLS identity and host pin separately from settings;
-`unix` names a same-box socket instead of TCP. Host enrollment bounds
+Run `mclient join <host> --mode <tailnet|domain> --host-pin <pin>` before
+starting the client. It persists the TLS identity and host pin separately
+from settings; `unix` names a same-box socket instead of TCP and takes no
+mode. Host enrollment bounds
 effective capabilities; no second capability filter lives in these settings.
 
 ## Client join (`mclient join`, #1626)
 
-The Rust client needs none of the openssl steps above. `mclient join <host>`
-generates its own identity and records the host's key in one run:
+The Rust client needs none of the openssl steps above. `mclient join <host>
+--mode <tailnet|domain>` generates its own identity and records the host's
+key in one run:
 
 1. `<host>` is `name`, `name:port`, `ip`, `[ipv6]:port` or a bare peer
-   name. An IP address or a dotted name is used as given; a bare name is
+   name in tailnet mode, `wss://host[:port][/machine]` in domain mode; the
+   mode is explicit, must agree with the address (`mode_required`,
+   `mode_mismatch`, #1837) and is saved with the connection. In tailnet
+   mode an IP address or a dotted name is used as given; a bare name is
    looked up through `tailscale status --json` (searched on `PATH`, then
    `/usr/bin/tailscale`, then the macOS app bundle) by `HostName` or the
-   first label of `DNSName`, and its first tailnet IP is taken. No resolver
+   first label of `DNSName`, and its first tailnet IP is taken, after the
+   join has installed, started and logged Tailscale in as needed (typed
+   `tailscale_*` refusals name the step it could not finish). No resolver
    found, a failed lookup or an unknown name refuses `host_unresolved`. The
    port defaults to 7643. `--unix <socket>` skips resolution and trust
-   entirely (same-box use; the unix door carries no peer key).
+   entirely (same-box use; the unix door carries no peer key) and takes no
+   mode.
 2. Host trust is the pin alone: `--host-pin <base64>` (the host key's SPKI
    SHA-256; a value that is not 32 base64 bytes is `invalid host pin`). No
    certificate file stands in for it. A TLS join without it is

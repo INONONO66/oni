@@ -1,5 +1,73 @@
 # Implementation Status
 
+## #1837 explicit attach mode `tailnet|domain` with Tailscale setup
+
+PR #TBD on `feat/1837-attach-mode` (epic #1829 Phase 3, base `aad16eeed`,
+merged with `e5835b8ab` for #1842). A machine reaches its host in exactly
+one explicit mode; nothing falls back from one mode to the other.
+
+- Mode: `mclient join <host> --mode <tailnet|domain>` (`clients/machine-
+  client/src/config.rs`, `Mode`, `check_mode`). Tailnet mode dials the raw
+  TLS-TCP listener (`tcp://` or a bare `host[:port]`, a bare name resolved
+  through `tailscale status --json`); domain mode dials the WebSocket
+  listener by its public DNS name (`wss://`). The one check that keeps a
+  machine in one mode runs before any dial and again when `run` loads
+  `client.json`: a network host without a mode is `mode_required`, a mode
+  that does not dial the address it was given (`domain` with `tcp://`,
+  `tailnet` with `wss://`, any mode with `--unix`) is `mode_mismatch`, and
+  both are typed configuration refusals with a `nextStep`. The mode is saved
+  in `client.json` and rides the attach offer; the unix carrier takes none.
+- Host: `Machine.AttachMode` (`packages/protocol/src/machine/index.ts`,
+  `schema/machine/AttachMode.json`) on `Machine.Offer.mode` and
+  `Machine.Info.mode` (optional, absent for older peers), and `machine_list`
+  reports each machine's mode (`packages/machines/src/host.ts`). One host
+  keeps both listeners open at once and each attached machine holds its
+  own mode; the client's `check_mode` is the one enforcement layer, and the
+  host records the mode the offer declares.
+- Tailscale setup (`clients/machine-client/src/tailnet.rs`): a tailnet-mode
+  join locates the `tailscale` CLI (`PATH`, then the platform's locations),
+  installs it through the platform recipe when absent (`brew install --cask
+  tailscale`; Tailscale's `install.sh` on Linux), starts the daemon when it
+  does not answer (`open -a Tailscale`; `sudo systemctl start tailscaled`),
+  runs `tailscale up` when the node is logged out (`--tailscale-auth-key` or
+  `ONI_MCLIENT_TAILSCALE_AUTH_KEY` is presented and never recorded or
+  echoed; without one the CLI's login URL reaches the operator's terminal and
+  the join waits, bounded) and dials only once the backend reports
+  `Running`. The join receipt carries `tailscale: {state, steps}` with one
+  `{step, via, ok}` per step (`locate`, `install`, `start`, `status`, `up`),
+  and a step the client cannot finish is one typed refusal with the steps so
+  far and a `nextStep`: `tailscale_absent` (no recipe for the platform),
+  `tailscale_install_failed`, `tailscale_down`, `tailscale_login_failed`,
+  `tailscale_login_timeout`, `tailscale_not_ready`. Domain mode never runs
+  this path.
+- Bootstrap (#1838 surfaces): `GET /machine/install | sh -s -- <origin>
+  --mode <tailnet|domain> --host-pin <pin> [--token] [--force]` and `oni
+  machine bootstrap <origin> --mode <tailnet|domain> --host-pin <pin>
+  [--token] [--force]` (`apps/oni/src/composition/machine-install.ts`,
+  `apps/oni/src/cli/bootstrap.ts`) require both, derive the join address
+  from the mode (the origin's host name; `wss://<name>` in domain mode) and
+  run `mclient join <address> --mode <mode> --host-pin <pin> --yes`; a
+  missing or unknown mode or a missing pin is the usage refusal before any
+  download. The conformance join receipt (`script/check-clients-
+  conformance.ts`) carries `mode` and `tailscale`, both null over unix.
+- Verification: `clients/machine-client/tests/attach.rs`
+  (`tailnet_mode_join_resolves_the_peer_through_tailscale_and_records_its_steps`,
+  `tailnet_mode_attach_offers_tailnet_over_the_tcp_carrier`,
+  `domain_mode_join_dials_the_wss_name_without_tailscale`,
+  `domain_mode_attach_offers_domain_over_the_wss_carrier`,
+  `join_refuses_a_mode_that_does_not_dial_the_address_it_was_given`,
+  `saved_config_is_refused_when_its_mode_does_not_match_its_carrier`,
+  `tailnet_mode_join_refuses_with_the_setup_step_when_tailscale_is_absent`,
+  `tailnet_mode_join_installs_tailscale_and_resolves_through_the_installed_cli`),
+  `tests/cli.rs` (`join_refuses_a_network_host_without_a_mode_or_in_the_wrong_one`,
+  `join_in_tailnet_mode_reports_the_tailscale_setup_it_could_not_finish`),
+  `tests/tailnet.rs` (one test per setup step and refusal),
+  `clients/protocol/tests/fixtures.rs` over the `AttachMode.*` and
+  `Offer`/`Info` mode fixtures, `packages/machines/test/host-listen.test.ts`
+  (one host serving a tailnet-mode attach over tcp and a domain-mode attach
+  over wss at once), `apps/oni/test/machine-bootstrap.test.ts` (both
+  surfaces in both modes, the usage refusals).
+
 ## #1842 mutual approval on machine attach
 
 PR #1858 on `feat/1842-mutual-approval` (epic #1829 Phase 2). Trust is
@@ -90,9 +158,11 @@ sha256-verified before it is written.
 
 - Install: the host serves a POSIX script at `GET /machine/install`
   (`apps/oni/src/composition/machine-install.ts`); `curl -fsSL
-  <host>/machine/install | sh -s -- <host> [--token]` and the CLI verb
-  `oni machine bootstrap <http(s)://host[:port]> [--token]`
-  (`apps/oni/src/cli/bootstrap.ts`) walk the same path: read
+  <host>/machine/install | sh -s -- <host> --mode <tailnet|domain>
+  --host-pin <pin> [--token]` and the CLI verb `oni machine bootstrap
+  <http(s)://host[:port]> --mode <tailnet|domain> --host-pin <pin> [--token]`
+  (`apps/oni/src/cli/bootstrap.ts`; the mode and pin since #1837) walk the
+  same path: read
   `/machine/release` (renamed from `/machine-client/release`, now carrying
   the release tag), pick the artifact by platform (macOS universal, Linux by
   architecture, nothing else), stage the archive and run `mclient join` from
