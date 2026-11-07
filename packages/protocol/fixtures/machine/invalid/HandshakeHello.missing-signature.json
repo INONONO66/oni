@@ -1,0 +1,10 @@
+{
+  "machineId": "mac-0",
+  "peer": {
+    "kind": "client",
+    "contractVersion": 6
+  },
+  "staticKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEPGdzsDeb6rrQSGuLWxC5I+FNvZI67wKemzxsGw770DLLgDbs2HafULN6dl2DqoogFrMQ+apCCZ6Zr1jx4qrKLw==",
+  "ephemeralKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+}

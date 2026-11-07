@@ -95,6 +95,8 @@ describe("machine wire contract fixtures", () => {
       "WindowTarget.unknown-field.json",
       "TransportFailureClass.unsupported.json",
       "PeerLeaseOp.unknown.json",
+      "HandshakeHello.extra-field.json",
+      "HandshakeResult.refused-with-key.json",
     ];
     const rootFailure = rootFailures.includes(file);
     expect(issue?.path.length).toBeGreaterThan(rootFailure ? -1 : 0);
@@ -120,7 +122,8 @@ describe("machine JSON Schema export", () => {
       .filter((file) => file.endsWith(".json") && file !== "index.json")
       .sort();
     expect(index.contractVersion).toBe(Machine.contractVersion);
-    expect(Machine.supportedContractVersions).toEqual([3, 4, Machine.contractVersion]);
+    expect(Machine.supportedContractVersions).toEqual([Machine.contractVersion]);
+    expect(Machine.handshakeContractVersion).toBe(Machine.contractVersion);
     expect(index.schemas.map((entry) => entry.file).sort()).toEqual(onDisk);
     expect(onDisk).toEqual([...schemas.keys()].map((name) => `${name}.json`).sort());
   });

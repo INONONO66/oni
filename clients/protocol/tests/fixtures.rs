@@ -85,6 +85,8 @@ macro_rules! decode_fixture {
                 FsResult,
                 FsStreamRequest,
                 FsStreamResult,
+                HandshakeHello,
+                HandshakeResult,
                 HumanInput,
                 HumanInputNotification,
                 Info,

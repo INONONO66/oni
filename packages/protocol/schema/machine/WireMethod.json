@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "enum": [
+    "machine.handshake",
     "machine.attach",
     "machine.report",
     "machine.event.human_input",

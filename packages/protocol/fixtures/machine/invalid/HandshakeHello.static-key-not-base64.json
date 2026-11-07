@@ -1,0 +1,11 @@
+{
+  "machineId": "mac-0",
+  "peer": {
+    "kind": "client",
+    "contractVersion": 6
+  },
+  "staticKey": "not base64!",
+  "ephemeralKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  "signature": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=="
+}
