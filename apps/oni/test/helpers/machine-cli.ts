@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Machine, ObservationSink } from "@oni/protocol";
 import { createMemoryGenerationStore, type createMachineHost, type MachineHost } from "@oni/machines";
-import { daemonFingerprint, daemonIdentity, hostFingerprint, hostIdentity } from "../../../../packages/machines/test/ipc/helpers/tls-fixtures";
+import { daemonFingerprint, daemonIdentity, hostIdentity, hostPin } from "../../../../packages/machines/test/ipc/helpers/tls-fixtures";
 import { writeMclientSettings } from "../../src/composition/mclient";
 import { refusingToolPort } from "./tool-port";
 import { mclientAttached, mclientBinary } from "./mclient";
@@ -55,7 +55,7 @@ export function writeClientDirectory(directory: string, options: {
   });
   if (unix !== null) return path;
   for (const [name, value] of [
-    ["host-pin", hostFingerprint],
+    ["host-pin", hostPin],
     ["client-cert.pem", daemonIdentity.certificate],
     ["client-key.pem", daemonIdentity.privateKey],
   ] as const) writeFileSync(join(directory, name), value, { mode: 0o600 });

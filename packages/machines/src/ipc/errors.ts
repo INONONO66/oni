@@ -16,20 +16,22 @@ export class IpcProtocolError extends Data.TaggedError("IpcProtocolError")<{
   readonly cause?: string;
 }> {}
 /**
- * The server failed host-identity verification (#1270): either the TLS chain
- * did not validate against the configured host certificate (`code` carries
- * the OpenSSL X509 verify code, `presented` is the literal "unverified"
- * because the handshake aborted before a peer certificate was readable), or
- * the chain validated but the presented key's fingerprint differs from the
- * host certificate's. Raised by the client BEFORE any frame is sent; there is
- * no fallback path.
+ * The host presented a key whose pin (`hostPinOf`) is not the one the
+ * client holds (#1270). Raised by the client the moment the handshake
+ * completes and BEFORE any frame is sent; there is no fallback path.
  */
 export class IpcPeerKeyMismatchError extends Data.TaggedError("IpcPeerKeyMismatchError")<{
   readonly message: string;
   readonly expected: string;
   readonly presented: string;
-  /** The OpenSSL X509 verify code when chain validation itself failed. */
-  readonly code?: string;
+}> {}
+/**
+ * A connect spec that cannot be dialed as written (`field` names the
+ * setting): judged before any socket exists, never as a peer mismatch.
+ */
+export class IpcConfigurationError extends Data.TaggedError("IpcConfigurationError")<{
+  readonly message: string;
+  readonly field: string;
 }> {}
 export class IpcRemoteError extends Data.TaggedError("IpcRemoteError")<{
   readonly message: string;
@@ -48,4 +50,4 @@ export class IpcQueueFullError extends Data.TaggedError("IpcQueueFullError")<{
   readonly bound: number;
 }> {}
 
-export type IpcError = MachinesFailure | IpcConnectionError | IpcTimeoutError | IpcProtocolError | IpcRemoteError | IpcPeerKeyMismatchError | IpcQueueFullError;
+export type IpcError = MachinesFailure | IpcConnectionError | IpcTimeoutError | IpcProtocolError | IpcRemoteError | IpcPeerKeyMismatchError | IpcConfigurationError | IpcQueueFullError;

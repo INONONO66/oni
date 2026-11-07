@@ -25,12 +25,12 @@ use oni_machine_client::{
     report::{append_metrics, Load, Probe},
     transport::{
         client::{handler, TransportError},
-        connection::{public_key_pin, HostTrust},
+        connection::HostPin,
         retry::Event,
     },
 };
 use serde_json::{json, Value};
-use support::fake_host::FakeHost;
+use support::fake_host::{pin_of, FakeHost};
 
 fn config() -> ClientConfig {
     ClientConfig {
@@ -71,7 +71,6 @@ fn join_options(host: &str) -> JoinOptions {
         name: Some("Work-Mac".into()),
         tags: vec![],
         exports: vec![],
-        host_cert: None,
         host_pin: None,
         unix: None,
         memory_budget_mb: 96,
@@ -121,14 +120,6 @@ fn hooks(pressure: Arc<dyn Pressure>) -> Hooks {
         input: Arc::new(oni_machine_client::input::Input::absent()),
         heartbeat: Duration::from_millis(1),
     }
-}
-
-fn host_pin(certificate: &str) -> [u8; 32] {
-    let der = rustls_pemfile::certs(&mut std::io::Cursor::new(certificate.as_bytes()))
-        .next()
-        .expect("certificate")
-        .expect("DER");
-    public_key_pin(der.as_ref()).expect("pin")
 }
 
 fn attached(request: &Value, generation: u64) -> Value {
@@ -338,37 +329,30 @@ fn saved_config_has_private_directory_and_keeps_budget() {
 }
 
 #[test]
-fn trust_selection_uses_pin_then_certificate_then_shared_pem_and_refuses_unpinned() {
-    let dir = tempfile::tempdir().expect("home");
-    let supplied = dir.path().join("supplied.pem");
-    std::fs::write(&supplied, "supplied").expect("certificate");
+fn trust_is_the_supplied_base64_pin_alone_and_refuses_an_unpinned_join() {
     let options = JoinOptions {
-        host_cert: Some(supplied),
-        host_pin: Some("ab".repeat(32)),
+        host_pin: Some(config::encode_pin(&[0xab; 32])),
         ..join_options("127.0.0.1")
     };
-    assert!(
-        matches!(config::trust(&options, dir.path()), Ok(HostTrust::Pin(pin)) if pin == [0xab; 32])
+    assert_eq!(
+        options.host_pin.as_deref(),
+        Some("q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=")
     );
+    assert!(matches!(
+        config::trust(&options),
+        Ok(HostPin(pin)) if pin == [0xab; 32]
+    ));
     let options = JoinOptions {
         host_pin: None,
         ..options
     };
-    assert!(
-        matches!(config::trust(&options, dir.path()), Ok(HostTrust::CertPem(pem)) if pem == b"supplied")
-    );
-    let options = JoinOptions {
-        host_cert: None,
-        ..options
-    };
     assert!(matches!(
-        config::trust(&options, dir.path()),
+        config::trust(&options),
         Err(config::ConfigError::PinRequired)
     ));
-    std::fs::create_dir(dir.path().join("tls")).expect("tls directory");
-    std::fs::write(dir.path().join("tls/host-cert.pem"), "certificate").expect("certificate");
-    assert!(
-        matches!(config::trust(&options, dir.path()), Ok(HostTrust::CertPem(pem)) if pem == b"certificate")
+    assert_eq!(
+        config::parse_pin(&format!("{}\n", config::encode_pin(&[7; 32]))).expect("trimmed pin"),
+        [7; 32]
     );
     assert!(matches!(
         config::parse_pin("not a pin"),
@@ -378,6 +362,71 @@ fn trust_selection_uses_pin_then_certificate_then_shared_pem_and_refuses_unpinne
         config::parse_pin("abcd"),
         Err(config::ConfigError::InvalidPin)
     ));
+}
+
+#[tokio::test]
+async fn a_legacy_hex_host_pin_fails_typed_with_the_rejoin_command() {
+    for legacy in [
+        "ab".repeat(32),
+        "AB".repeat(32),
+        format!("{}\n", "09".repeat(32)),
+    ] {
+        assert!(matches!(
+            config::parse_pin(&legacy),
+            Err(config::ConfigError::LegacyHostPin)
+        ));
+    }
+    // 64 base64 characters that are not all hex are an ordinary invalid pin.
+    assert!(matches!(
+        config::parse_pin(&"a+".repeat(32)),
+        Err(config::ConfigError::InvalidPin)
+    ));
+    let error = AttachError::from(config::ConfigError::LegacyHostPin);
+    assert_eq!(error.reason(), "host_pin_legacy");
+    assert_eq!(error.exit_code(), 3);
+    assert_eq!(
+        oni_machine_client::transport::classes::classify(&error),
+        oni_machine_client::transport::classes::FailureClass::Configuration
+    );
+    assert!(
+        error.to_string().contains("predates the SPKI pin"),
+        "{error}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("mclient join <host> --host-pin <pin>"),
+        "{error}"
+    );
+    assert_eq!(error.next_step(), error.to_string());
+    assert_eq!(
+        AttachError::from(config::ConfigError::PinRequired).next_step(),
+        "correct client configuration and host pin"
+    );
+
+    // A recorded legacy pin is never compared with the host: the one-shot
+    // attach fails typed before dialing, and the file is left for the re-join.
+    let mut host = FakeHost::tls().await;
+    let (directory, settings) = tls_client(&host, [0; 32]).await;
+    std::fs::write(directory.path().join("host-pin"), "ab".repeat(32)).expect("legacy pin");
+    let hooks = hooks(Arc::new(NoRetention));
+    let probe = FixedProbe::new(0);
+    let mut attachment =
+        Attachment::new(&settings, directory.path(), &[], &hooks, &probe).expect("attachment");
+    let outcome = attachment.once().await;
+    assert!(matches!(
+        outcome,
+        Err(AttachError::Config(config::ConfigError::LegacyHostPin))
+    ));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), host.incoming.recv())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("host-pin")).expect("pin"),
+        "ab".repeat(32)
+    );
 }
 
 #[test]
@@ -607,7 +656,7 @@ async fn join_unix_records_no_pin_and_clears_saved_generation() {
 async fn pinned_join_records_the_verified_host_pin() {
     let host = FakeHost::tls().await;
     let home = tempfile::tempdir().expect("home");
-    let expected = hex::encode(host_pin(&host.certificate));
+    let expected = config::encode_pin(&pin_of(&host.certificate));
     let options = JoinOptions {
         host_pin: Some(expected.clone()),
         ..join_options(&host.endpoint)
@@ -616,9 +665,49 @@ async fn pinned_join_records_the_verified_host_pin() {
         .await
         .expect("join");
     assert_eq!(enrollment.receipt["machineId"], "work-mac");
+    let recorded =
+        std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin");
+    assert_eq!(recorded, expected);
+    assert_eq!(enrollment.receipt["hostPin"], json!(recorded));
+    assert_eq!(recorded.len(), 44);
+}
+
+#[tokio::test]
+async fn join_accepts_a_host_certificate_renewed_for_the_pinned_key() {
+    let (host, replaced) = FakeHost::tls_renewed().await;
+    let home = tempfile::tempdir().expect("home");
+    let pin = config::encode_pin(&pin_of(&replaced));
+    let options = JoinOptions {
+        host_pin: Some(pin.clone()),
+        ..join_options(&host.endpoint)
+    };
+    let enrollment = attach::join(&options, home.path(), &[])
+        .await
+        .expect("the renewed certificate carries the pinned key");
+    assert_eq!(enrollment.receipt["machineId"], "work-mac");
     assert_eq!(
         std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
-        expected
+        pin
+    );
+    assert_eq!(enrollment.receipt["hostPin"], json!(pin));
+}
+
+#[tokio::test]
+async fn join_accepts_an_issued_chain_for_the_pinned_key() {
+    let (host, replaced) = FakeHost::tls_chain().await;
+    let home = tempfile::tempdir().expect("home");
+    assert_eq!(host.pin(), HostPin(pin_of(&replaced)));
+    let pin = config::encode_pin(&pin_of(&replaced));
+    let options = JoinOptions {
+        host_pin: Some(pin.clone()),
+        ..join_options(&host.endpoint)
+    };
+    attach::join(&options, home.path(), &[])
+        .await
+        .expect("the chain's leaf carries the pinned key");
+    assert_eq!(
+        std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
+        pin
     );
 }
 
@@ -627,17 +716,16 @@ async fn wss_join_records_the_pin_over_the_websocket_carrier() {
     let host = FakeHost::ws().await;
     let home = tempfile::tempdir().expect("home");
     let options = JoinOptions {
-        host_cert: Some(home.path().join("host-cert.pem")),
+        host_pin: Some(config::encode_pin(&pin_of(&host.certificate))),
         ..join_options(&host.ws_endpoint().url())
     };
-    std::fs::write(home.path().join("host-cert.pem"), &host.certificate).expect("host cert");
     // The upgrade reads the host's answer, so the fixture's client verifier must
     // trust the presented identity: seed the one it issued, as tls_client does.
     let directory = home.path().join("machine-client");
     std::fs::create_dir_all(&directory).expect("client directory");
     std::fs::write(directory.join("client-cert.pem"), &host.certificate).expect("cert");
     std::fs::write(directory.join("client-key.pem"), &host.private_key).expect("key");
-    attach::join(&options, home.path(), &[])
+    let enrollment = attach::join(&options, home.path(), &[])
         .await
         .expect("join over wss");
     let saved =
@@ -645,10 +733,10 @@ async fn wss_join_records_the_pin_over_the_websocket_carrier() {
     assert_eq!(saved.host, format!("wss://{}/machine", host.endpoint));
     assert_eq!(saved.host, host.ws_endpoint().url());
     assert_eq!(saved.unix, None);
-    assert_eq!(
-        std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin"),
-        hex::encode(host_pin(&host.certificate))
-    );
+    let recorded =
+        std::fs::read_to_string(home.path().join("machine-client/host-pin")).expect("pin");
+    assert_eq!(recorded, config::encode_pin(&pin_of(&host.certificate)));
+    assert_eq!(enrollment.receipt["hostPin"], json!(recorded));
 }
 
 #[tokio::test]
@@ -656,13 +744,14 @@ async fn unix_scheme_join_selects_the_unix_carrier_without_a_pin() {
     let host = FakeHost::unix().await;
     let home = tempfile::tempdir().expect("home");
     let options = join_options(&format!("unix:{}", host.endpoint));
-    attach::join(&options, home.path(), &[])
+    let enrollment = attach::join(&options, home.path(), &[])
         .await
         .expect("join over unix:");
     let saved =
         config::load(&home.path().join("machine-client/client.json")).expect("saved config");
     assert_eq!(saved.unix, Some(PathBuf::from(&host.endpoint)));
     assert!(!home.path().join("machine-client/host-pin").exists());
+    assert_eq!(enrollment.receipt["hostPin"], Value::Null);
 }
 
 #[tokio::test]
@@ -670,7 +759,7 @@ async fn plaintext_ws_join_is_refused_before_any_dial() {
     let host = FakeHost::ws().await;
     let home = tempfile::tempdir().expect("home");
     let options = JoinOptions {
-        host_pin: Some(hex::encode(host_pin(&host.certificate))),
+        host_pin: Some(config::encode_pin(&pin_of(&host.certificate))),
         ..join_options(&format!("ws://{}/machine", host.endpoint))
     };
     let error = attach::join(&options, home.path(), &[])
@@ -688,7 +777,7 @@ async fn pin_mismatch_join_is_refused_as_terminal() {
     let host = FakeHost::tls().await;
     let home = tempfile::tempdir().expect("home");
     let options = JoinOptions {
-        host_pin: Some("00".repeat(32)),
+        host_pin: Some(config::encode_pin(&[0; 32])),
         ..join_options(&host.endpoint)
     };
     let error = attach::join(&options, home.path(), &[])
@@ -706,7 +795,7 @@ async fn tls_client(host: &FakeHost, pin: [u8; 32]) -> (tempfile::TempDir, Clien
     settings.host = host.endpoint.clone();
     std::fs::write(directory.path().join("client-cert.pem"), &host.certificate).expect("cert");
     std::fs::write(directory.path().join("client-key.pem"), &host.private_key).expect("key");
-    std::fs::write(directory.path().join("host-pin"), hex::encode(pin)).expect("pin");
+    std::fs::write(directory.path().join("host-pin"), config::encode_pin(&pin)).expect("pin");
     (directory, settings)
 }
 
@@ -719,7 +808,7 @@ async fn release_query_uses_unix_and_pinned_tls_without_attaching() {
             FakeHost::unix().await
         };
         let (directory, settings) = if tls {
-            tls_client(&host, host_pin(&host.certificate)).await
+            tls_client(&host, pin_of(&host.certificate)).await
         } else {
             let directory = tempfile::tempdir().expect("client directory");
             let settings = unix_settings(&host, directory.path()).await;
@@ -779,7 +868,7 @@ async fn release_query_refusals_do_not_save_a_generation() {
 async fn tls_attach_uses_recorded_pin_and_refuses_mismatch() {
     for host in [FakeHost::tls().await, FakeHost::tls12().await] {
         let mut host = host;
-        let (directory, settings) = tls_client(&host, host_pin(&host.certificate)).await;
+        let (directory, settings) = tls_client(&host, pin_of(&host.certificate)).await;
         let hooks = hooks(Arc::new(NoRetention));
         let probe = FixedProbe::new(0);
         let capabilities = ["fs.read".to_owned()];
@@ -1481,7 +1570,7 @@ async fn malformed_host_attach_reply_never_saves_a_generation() {
 #[tokio::test]
 async fn tls_attach_without_client_identity_files_is_an_io_error() {
     let host = FakeHost::tls().await;
-    let (directory, settings) = tls_client(&host, host_pin(&host.certificate)).await;
+    let (directory, settings) = tls_client(&host, pin_of(&host.certificate)).await;
     let hooks = hooks(Arc::new(NoRetention));
     let probe = FixedProbe::new(0);
     let mut attachment =
@@ -1504,7 +1593,7 @@ async fn join_refuses_an_unwritable_host_pin() {
     let home = tempfile::tempdir().expect("home");
     std::fs::create_dir_all(home.path().join("machine-client/host-pin")).expect("blocking pin");
     let options = JoinOptions {
-        host_pin: Some(hex::encode(host_pin(&host.certificate))),
+        host_pin: Some(config::encode_pin(&pin_of(&host.certificate))),
         ..join_options(&host.endpoint)
     };
     assert!(matches!(
@@ -1526,7 +1615,7 @@ async fn join_reports_permission_denied_when_host_pin_directory_is_read_only() {
     std::fs::set_permissions(&pins, std::fs::Permissions::from_mode(0o500))
         .expect("read-only directory");
     let options = JoinOptions {
-        host_pin: Some(hex::encode(host_pin(&host.certificate))),
+        host_pin: Some(config::encode_pin(&pin_of(&host.certificate))),
         ..join_options(&host.endpoint)
     };
 

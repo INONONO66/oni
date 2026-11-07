@@ -4,7 +4,7 @@ export type { IpcClient, IpcTcpConnectSpec } from "./client";
 export * from "./errors";
 export { createIpcServer, createIpcTcpServer } from "./server";
 export type { IpcServer, IpcTcpServer, IpcTcpListenSpec } from "./server";
-export { certificateKeyFingerprint } from "./tls";
+export { certificateKeyFingerprint, hostPinOf } from "./tls";
 export type { IpcTlsIdentity } from "./tls";
 export { createIpcWsServer, IPC_WS_PATH } from "./ws-server";
 export type { IpcWsListenSpec, IpcWsServer } from "./ws-server";

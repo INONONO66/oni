@@ -20,14 +20,17 @@ use super::{
 
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(5_000);
 
+/// The one trust a client holds for the host: the sha256 over the
+/// SubjectPublicKeyInfo DER of the certificate the host presents. It names
+/// the key, never the certificate, so a certificate reissued for the same
+/// key (an ACME renewal, a chain with new intermediates) keeps the pin and
+/// a different key never matches it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HostPin(pub [u8; 32]);
+
 struct HostKeyVerifier {
     expected: [u8; 32],
     algorithms: WebPkiSupportedAlgorithms,
-}
-
-pub enum HostTrust {
-    Pin([u8; 32]),
-    CertPem(Vec<u8>),
 }
 
 impl std::fmt::Debug for HostKeyVerifier {
@@ -102,20 +105,10 @@ fn classify_handshake_error(error: std::io::Error) -> TransportError {
 }
 
 fn tls_connector(
-    trust: HostTrust,
+    pin: HostPin,
     client_cert_pem: &[u8],
     client_key_pem: &[u8],
 ) -> Result<TlsConnector, TransportError> {
-    let expected = match trust {
-        HostTrust::Pin(pin) => pin,
-        HostTrust::CertPem(pem) => {
-            let cert = rustls_pemfile::certs(&mut Cursor::new(pem))
-                .next()
-                .transpose()?
-                .ok_or(TransportError::HostCertificate)?;
-            public_key_pin(cert.as_ref())?
-        }
-    };
     let certs =
         rustls_pemfile::certs(&mut Cursor::new(client_cert_pem)).collect::<Result<Vec<_>, _>>()?;
     let key = rustls_pemfile::private_key(&mut Cursor::new(client_key_pem))?
@@ -124,7 +117,7 @@ fn tls_connector(
     let config = ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(HostKeyVerifier {
-            expected,
+            expected: pin.0,
             algorithms,
         }))
         .with_client_auth_cert(certs, key)?;
@@ -167,12 +160,12 @@ impl Client {
     pub async fn connect_tls(
         address: &str,
         server_name: &str,
-        trust: HostTrust,
+        pin: HostPin,
         client_cert_pem: &[u8],
         client_key_pem: &[u8],
         handler: Handler,
     ) -> Result<(Self, [u8; 32]), TransportError> {
-        let connector = tls_connector(trust, client_cert_pem, client_key_pem)?;
+        let connector = tls_connector(pin, client_cert_pem, client_key_pem)?;
         let (stream, pin) = secure(&connector, server_name, TcpStream::connect(address)).await?;
         Ok((Self::from_stream(stream, handler), pin))
     }
@@ -180,12 +173,12 @@ impl Client {
     pub async fn connect_wss(
         endpoint: &WsEndpoint,
         proxy: Option<&str>,
-        trust: HostTrust,
+        pin: HostPin,
         client_cert_pem: &[u8],
         client_key_pem: &[u8],
         handler: Handler,
     ) -> Result<(Self, [u8; 32]), TransportError> {
-        let connector = tls_connector(trust, client_cert_pem, client_key_pem)?;
+        let connector = tls_connector(pin, client_cert_pem, client_key_pem)?;
         let tcp = async move {
             match proxy {
                 Some(proxy) => ws::connect_through_proxy(proxy, &endpoint.address).await,

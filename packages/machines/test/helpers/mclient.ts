@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Machine } from "@oni/protocol";
@@ -46,7 +46,7 @@ export function mclientBinary(): Promise<string> {
 }
 
 /** Mirrors `ClientConfig` in `clients/machine-client/src/config.rs`. */
-export interface MclientSettings {
+interface MclientSettings {
   readonly machineId: string;
   readonly name: string;
   readonly host: string;
@@ -93,14 +93,69 @@ function unixCarrier(options: {
   return { host: "localhost", unix: options.unix ?? unix };
 }
 
-function wssCarrier(
-  directory: string,
-  wss: { readonly port: number; readonly hostPin: string; readonly identity: { readonly certificate: string; readonly privateKey: string } },
-): Pick<MclientSettings, "host" | "unix"> {
-  writeFileSync(join(directory, "host-pin"), wss.hostPin, { mode: 0o600 });
-  writeFileSync(join(directory, "client-cert.pem"), wss.identity.certificate, { mode: 0o600 });
-  writeFileSync(join(directory, "client-key.pem"), wss.identity.privateKey, { mode: 0o600 });
-  return { host: `wss://127.0.0.1:${wss.port}/machine`, unix: null };
+/** What `mclient join --json` prints as `receipt`: the client's own identity and the host pin it recorded. */
+interface MclientJoinReceipt {
+  readonly machineId: string;
+  readonly name: string;
+  readonly publicKey: Machine.KeyFingerprint;
+  readonly hostPin: string | null;
+  readonly allowedCapabilities: readonly string[];
+  readonly allowedExports: readonly string[];
+}
+
+export interface JoinedMclient {
+  /** `<home>/.oni/machine-client`: `client.json`, the client identity and `host-pin`, all written by the join. */
+  readonly directory: string;
+  readonly configPath: string;
+  readonly receipt: MclientJoinReceipt;
+  /** The `host-pin` file as the join left it. */
+  recordedHostPin(): string;
+  remove(): void;
+}
+
+/**
+ * Runs the real `mclient join` against a network host under a private HOME,
+ * so every later `run` over `configPath` reads the trust the join recorded
+ * rather than anything a test wrote.
+ */
+export async function joinMclient(options: {
+  readonly host: string;
+  readonly hostPin: string;
+  readonly machineId: string;
+  readonly root: string;
+}): Promise<JoinedMclient> {
+  const binary = await mclientBinary();
+  const home = mkdtempSync(join(tmpdir(), "oni-mclient-join-"));
+  const child = Bun.spawn([
+    binary, "join", options.host, "--host-pin", options.hostPin, "--name", options.machineId,
+    "--export", `workspace=${options.root}`, "--json", "--no-service", "--no-open",
+  ], { env: { ...process.env, HOME: home }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+  ]);
+  if (exitCode !== 0) {
+    rmSync(home, { recursive: true, force: true });
+    throw new Error(`mclient join exited ${exitCode}: ${stderr}`);
+  }
+  const directory = join(home, ".oni", "machine-client");
+  const { receipt } = JSON.parse(stdout) as { readonly receipt: MclientJoinReceipt };
+  return {
+    directory,
+    configPath: join(directory, "client.json"),
+    receipt,
+    recordedHostPin: () => readFileSync(join(directory, "host-pin"), "utf8"),
+    remove: () => rmSync(home, { recursive: true, force: true }),
+  };
+}
+
+/** One `mclient run --once` over recorded settings, for an attachment the client itself must refuse. */
+export async function mclientRunOnce(configPath: string): Promise<{ readonly exitCode: number; readonly refusal: { readonly reason: string } }> {
+  const binary = await mclientBinary();
+  const child = Bun.spawn([binary, "run", "--allow-unpinned", "--once", "--config", configPath], {
+    stdin: "ignore", stdout: "ignore", stderr: "pipe",
+  });
+  const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  return { exitCode, refusal: JSON.parse(stderr) as { readonly reason: string } };
 }
 
 function admission(options: {
@@ -133,8 +188,7 @@ export interface AttachedMclient {
   stop(): Promise<void>;
 }
 
-/** `events` must be the collector wired as the host's sink; admission is read there, never from stdout. */
-export async function attachMclient(options: {
+interface AttachOptions {
   readonly host: { readonly list: () => readonly MachineInfo[]; readonly endpoints: { readonly unix?: string } };
   readonly events: Reports;
   readonly machineId: string;
@@ -145,26 +199,31 @@ export async function attachMclient(options: {
   readonly computer?: MclientSettings["computer"];
   /** Optional forwarding endpoint; admission still comes from the real host. */
   readonly unix?: string;
-  /** Dial the host's ws listener instead of its unix socket, presenting `identity` and pinning `hostPin`. */
-  readonly wss?: {
-    readonly port: number;
-    readonly hostPin: string;
-    readonly identity: { readonly certificate: string; readonly privateKey: string };
-  };
-}): Promise<AttachedMclient> {
-  const binary = await mclientBinary();
+  /** Run over the settings and trust a real `mclient join` recorded; nothing is written or removed here. */
+  readonly joined?: Pick<JoinedMclient, "configPath">;
+}
+
+/** The settings `run` reads: the join's own, or unix settings written for this attachment and removed with it. */
+function settingsFor(options: AttachOptions): { readonly configPath: string; remove(): void } {
+  if (options.joined !== undefined) return { configPath: options.joined.configPath, remove: () => undefined };
   const configRoot = mkdtempSync(join(tmpdir(), "oni-mclient-test-"));
   const configPath = join(configRoot, "client.json");
-  const carrier = options.wss === undefined ? unixCarrier(options) : wssCarrier(configRoot, options.wss);
   writeMclientSettings(configPath, {
-    machineId: options.machineId, name: options.machineId, ...carrier,
+    machineId: options.machineId, name: options.machineId, ...unixCarrier(options),
     exports: options.exports ?? [{ name: "workspace", path: options.root }],
     tags: options.tags ?? [], memoryBudgetMb: 96,
     ...(options.tmuxSocket === undefined ? {} : { tmuxSocket: options.tmuxSocket }),
     ...(options.computer === undefined ? {} : { computer: options.computer }),
   });
+  return { configPath, remove: () => rmSync(configRoot, { recursive: true, force: true }) };
+}
+
+/** `events` must be the collector wired as the host's sink; admission is read there, never from stdout. */
+export async function attachMclient(options: AttachOptions): Promise<AttachedMclient> {
+  const binary = await mclientBinary();
+  const settings = settingsFor(options);
   const pending = admission({ list: options.host.list, events: options.events, machineId: options.machineId });
-  const child = Bun.spawn([binary, "run", "--allow-unpinned", "--config", configPath], {
+  const child = Bun.spawn([binary, "run", "--allow-unpinned", "--config", settings.configPath], {
     stdin: "ignore", stdout: "inherit", stderr: "inherit", detached: true,
   });
   const exited = child.exited.finally(() => signalGroup(child.pid, "SIGKILL"));
@@ -173,7 +232,7 @@ export async function attachMclient(options: {
     exited.then((code) => { throw new Error(`mclient exited before attachment: ${code}`); }),
   ]).catch((error: Error) => {
     signalGroup(child.pid, "SIGKILL");
-    rmSync(configRoot, { recursive: true, force: true });
+    settings.remove();
     throw error;
   });
   return {
@@ -185,7 +244,7 @@ export async function attachMclient(options: {
         const deadline = setTimeout(() => signalGroup(child.pid, "SIGKILL"), 1000);
         try { await exited; } finally { clearTimeout(deadline); }
       } finally {
-        rmSync(configRoot, { recursive: true, force: true });
+        settings.remove();
       }
     },
   };
