@@ -252,6 +252,16 @@ export const Peer = z
 export const AttachGeneration = z.number().int().min(1);
 
 /**
+ * How a machine reaches its host (#1837): `tailnet` over the raw-TLS carrier
+ * on the tailnet, `domain` over `wss://` behind a public DNS name. Each is
+ * chosen explicitly at join; one machine holds exactly one. A host may serve
+ * both, so the offer carries the mode for `machine_list`. Absent for a peer
+ * on the unix carrier or a client older than this field.
+ */
+export const AttachMode = z.enum(["tailnet", "domain"]);
+export type AttachMode = z.infer<typeof AttachMode>;
+
+/**
  * Daemon-side attach report: what this machine CAN do right now.
  * May be empty — a daemon is allowed to attach before any capability module
  * is ready; it simply yields an empty effective set until it re-offers.
@@ -285,6 +295,7 @@ export const Offer = z
      * on a fresh attach, which mints a new generation.
      */
     generation: AttachGeneration.optional(),
+    mode: AttachMode.optional(),
   })
   .strict();
 export type Offer = z.infer<typeof Offer>;

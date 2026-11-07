@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { EpochMs } from "../time.js";
-import { AttachGeneration, CapabilityId, Enrollment, Load, MemoryBudget, Peer, Resources } from "./schema.js";
+import { AttachGeneration, AttachMode, CapabilityId, Enrollment, Load, MemoryBudget, Peer, Resources } from "./schema.js";
 import { HumanInput, Session, TransportFacts } from "./facts.js";
 import { Screen } from "./probe.js";
 import { ComputerWindow } from "./lease.js";
@@ -15,6 +15,8 @@ export const Info = Enrollment.extend({
   resources: Resources.optional(),
   generation: AttachGeneration.optional(),
   peer: Peer.optional(),
+  /** The attach mode the peer offered (#1837); absent on the unix carrier. */
+  mode: AttachMode.optional(),
   live: z.object({
     reportedAt: EpochMs, load: Load, screen: Screen.optional(),
     humanInput: HumanInput.optional(),
