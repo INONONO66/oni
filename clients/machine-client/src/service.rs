@@ -525,6 +525,9 @@ mod tests {
                     host_pin: None,
                     unix: None,
                     memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,
+                    capabilities: vec![],
+                    rekey: false,
+                    yes: false,
                 };
                 let state = install(
                     &options,

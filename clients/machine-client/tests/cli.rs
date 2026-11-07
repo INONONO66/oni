@@ -1,3 +1,6 @@
+#[path = "support/tls.rs"]
+mod tls;
+
 use std::{
     io::Write,
     os::unix::fs::PermissionsExt,
@@ -420,7 +423,8 @@ fn update_check_verifies_release_contract_without_connecting_or_switching() {
             .output()
             .expect("update --check")
     };
-    let accepted = check(&["--host-contract", "4"]);
+    let own = oni_protocol::CONTRACT_VERSION.to_string();
+    let accepted = check(&["--host-contract", &own]);
     assert_eq!(accepted.status.code(), Some(0));
     let response: serde_json::Value = serde_json::from_slice(&accepted.stdout).expect("check");
     assert_eq!(response["status"], "compatible");
@@ -441,7 +445,7 @@ fn update_check_verifies_release_contract_without_connecting_or_switching() {
     // calls `probe --release`; the hidden alias answers exactly like the check.
     let legacy = Command::new(env!("CARGO_BIN_EXE_mclient"))
         .env("HOME", home.path())
-        .args(["probe", "--release", path, "--host-contract", "4"])
+        .args(["probe", "--release", path, "--host-contract", &own])
         .output()
         .expect("probe --release");
     assert_eq!(legacy.status.code(), Some(0));
@@ -640,6 +644,120 @@ fn run_admits_a_saved_offline_pin_before_loading_config() {
         .as_str()
         .expect("reason")
         .contains("configuration I/O"));
+}
+
+/// A network host is shown to the operator with its verified pin and the
+/// answer comes from stdin: a closed stdin records nothing and refuses typed,
+/// `y` records exactly the pin that was shown, and `--yes` never prompts.
+#[tokio::test]
+async fn join_prompts_for_the_host_pin_unless_yes() {
+    struct TlsHost {
+        endpoint: String,
+        pin: String,
+    }
+    /// A host for one `join` to verify: it answers one TLS handshake with a
+    /// fresh identity and serves nothing after it. The client's own key is
+    /// not enrolled here, so the acceptor refuses it once the server
+    /// certificate (all the join reads) has gone out.
+    async fn tls_host() -> TlsHost {
+        let identity = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()])
+            .expect("generate test identity");
+        let certificate = identity.cert.pem();
+        let private_key = identity.signing_key.serialize_pem();
+        let pin = oni_machine_client::config::encode_pin(
+            &oni_machine_client::transport::connection::public_key_pin(identity.cert.der())
+                .expect("host pin"),
+        );
+        let acceptor = tls::acceptor(&certificate, &private_key, &[&rustls::version::TLS13]);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind TCP socket");
+        let endpoint = listener.local_addr().expect("listener address").to_string();
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.expect("accept TCP peer");
+            let _ = acceptor.accept(tcp).await;
+        });
+        TlsHost { endpoint, pin }
+    }
+    /// Joins `host` over `--host-pin` with stdin closed, or answering `answer`.
+    async fn join(
+        home: &std::path::Path,
+        host: &TlsHost,
+        yes: bool,
+        answer: Option<&[u8]>,
+    ) -> Output {
+        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"));
+        command
+            .env("HOME", home)
+            .args([
+                "join",
+                &host.endpoint,
+                "--host-pin",
+                &host.pin,
+                "--no-service",
+                "--no-open",
+            ])
+            .args(if yes { &["--yes"][..] } else { &[] })
+            .stdin(if answer.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().expect("mclient spawns");
+        if let Some(answer) = answer {
+            let mut stdin = child.stdin.take().expect("stdin");
+            tokio::io::AsyncWriteExt::write_all(&mut stdin, answer)
+                .await
+                .expect("answer");
+        }
+        child.wait_with_output().await.expect("mclient runs")
+    }
+    let home = tempfile::tempdir().expect("home");
+    let client = home.path().join(".oni/machine-client");
+    let host = tls_host().await;
+    let declined = join(home.path(), &host, false, None).await;
+    assert_eq!(declined.status.code(), Some(3));
+    assert!(declined.stdout.is_empty());
+    let stderr = String::from_utf8(declined.stderr).expect("stderr");
+    let mut lines = stderr.lines();
+    assert_eq!(
+        lines.next(),
+        Some(format!("host: {}", host.endpoint).as_str())
+    );
+    let shown = lines
+        .next()
+        .and_then(|line| line.strip_prefix("host pin: "))
+        .expect("pin line");
+    assert_eq!(shown, host.pin);
+    assert_eq!(lines.next(), Some("trust this host? [y/N] "));
+    let refusal: serde_json::Value =
+        serde_json::from_str(lines.next().expect("refusal")).expect("JSON refusal");
+    assert_eq!(refusal["reason"], "host_untrusted");
+    assert!(!client.join("host-pin").exists());
+    assert!(!client.join("client.json").exists());
+
+    let host = tls_host().await;
+    let approved = join(home.path(), &host, false, Some(b"y\n")).await;
+    let stderr = String::from_utf8(approved.stderr).expect("stderr");
+    assert_eq!(approved.status.code(), Some(0), "{stderr}");
+    let shown = stderr
+        .lines()
+        .nth(1)
+        .and_then(|line| line.strip_prefix("host pin: "))
+        .expect("pin line");
+    assert_eq!(
+        std::fs::read_to_string(client.join("host-pin")).expect("recorded pin"),
+        shown
+    );
+    assert!(client.join("client.json").exists());
+
+    let host = tls_host().await;
+    let scripted = join(home.path(), &host, true, None).await;
+    let stderr = String::from_utf8(scripted.stderr).expect("stderr");
+    assert_eq!(scripted.status.code(), Some(0), "{stderr}");
+    assert!(!stderr.contains("trust this host?"));
 }
 
 #[test]
@@ -872,24 +990,419 @@ fn join_unix_persists_private_identity_and_enrollment() {
         serde_json::from_slice(&std::fs::read(client.join("client.json")).expect("config"))
             .expect("json");
     assert_eq!(config["memoryBudgetMb"], 64);
+    assert_eq!(
+        config["declared"],
+        serde_json::json!(oni_machine_client::handlers::SUPPORTED),
+        "a join without --capability declares exactly what this client serves"
+    );
+    // Key custody: the private key stays in its 0600 file; neither the
+    // receipt nor the prompts carry its bytes, only the public-key pin.
+    let key = std::fs::read_to_string(client.join("client-key.pem")).expect("private key");
+    let key_body = key
+        .lines()
+        .find(|line| !line.starts_with("-----"))
+        .expect("key body");
+    assert!(key.contains("PRIVATE KEY"));
+    assert!(!stdout.contains(key_body) && !stdout.contains("PRIVATE KEY"));
+    let stderr = String::from_utf8(output.stderr).expect("stderr");
+    assert!(!stderr.contains(key_body) && !stderr.contains("PRIVATE KEY"));
+    let public_key = receipt["publicKey"].as_str().expect("public key pin");
+    assert_eq!(public_key.len(), 64);
+    let status = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", directory.path())
+        .args(["status", "--json"])
+        .output()
+        .expect("status");
+    let record: serde_json::Value = serde_json::from_slice(&status.stdout).expect("status JSON");
+    assert_eq!(record["identity"], public_key);
+    assert_eq!(record["consentRequired"], serde_json::Value::Null);
+}
+
+/// Consent is the operator's choice at `join`: the declared set bounds the
+/// enrollment receipt, and a capability this client cannot serve is refused.
+#[test]
+fn join_declares_only_the_selected_capabilities() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let join = |capabilities: &[&str]| {
+        let mut args = vec![
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--no-service",
+            "--no-open",
+        ];
+        for capability in capabilities {
+            args.extend(["--capability", capability]);
+        }
+        Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(args)
+            .output()
+            .expect("mclient runs")
+    };
+    let refused = join(&["fs.read", "mind.read"]);
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("unsupported_capability: mind.read"));
+    assert!(!home.path().join(".oni/machine-client/client.json").exists());
+
+    let output = join(&["fs.read", "shell.exec", "fs.read"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout");
+    let receipt: serde_json::Value =
+        serde_json::from_str(stdout.lines().next().expect("enrollment JSON"))
+            .expect("enrollment JSON");
+    assert_eq!(
+        receipt["allowedCapabilities"],
+        serde_json::json!(["fs.read", "shell.exec"])
+    );
+    assert!(stdout.contains("offered capabilities: fs.read, shell.exec\n"));
+    let config: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(home.path().join(".oni/machine-client/client.json")).expect("config"),
+    )
+    .expect("json");
+    assert_eq!(
+        config["declared"],
+        serde_json::json!(["fs.read", "shell.exec"])
+    );
+}
+
+/// `mclient grant` is the only way the offer grows: it records consent in
+/// the saved config, reports the declared set, and tells a stopped service
+/// nothing needs restarting. Unknown names are refused.
+#[test]
+fn grant_records_consent_in_the_saved_config() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let join = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args([
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--capability",
+            "fs.read",
+            "--no-service",
+            "--no-open",
+        ])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(join.status.code(), Some(0));
+    let grant = |capability: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(["grant", capability])
+            .output()
+            .expect("mclient runs")
+    };
+    let refused = grant("mind.read");
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("unsupported_capability: mind.read"));
+
+    let granted = grant("shell.exec");
+    assert_eq!(
+        granted.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&granted.stderr)
+    );
+    let stdout = String::from_utf8(granted.stdout).expect("stdout");
+    assert!(stdout.contains("declared capabilities: fs.read, shell.exec\n"));
+    assert!(stdout.contains("service: not running\n"));
+    let config: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(home.path().join(".oni/machine-client/client.json")).expect("config"),
+    )
+    .expect("json");
+    assert_eq!(
+        config["declared"],
+        serde_json::json!(["fs.read", "shell.exec"])
+    );
+    // Granting again keeps the set as it is.
+    let again = grant("shell.exec");
+    assert!(String::from_utf8_lossy(&again.stdout)
+        .contains("declared capabilities: fs.read, shell.exec\n"));
+}
+
+const UNPINNED_CONFIG: &str = r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null,"declared":["fs.read"]}"#;
+
+/// Consent is recorded before the service is signalled, so a service state
+/// that cannot be read is reported after the declared set rather than
+/// instead of it; only a missing service is tolerated as "not running".
+#[test]
+fn grant_reports_an_unreadable_service_state_after_recording_consent() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let directory = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&directory).expect("client directory");
+    std::fs::write(directory.join("client.json"), UNPINNED_CONFIG).expect("config");
+    let state = directory.join("state.json");
+    let grant = |capability: &str| {
+        Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(["grant", capability])
+            .output()
+            .expect("mclient runs")
+    };
+
+    std::fs::write(&state, "{").expect("corrupt state");
+    let corrupt = grant("shell.exec");
+    assert_eq!(corrupt.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8(corrupt.stdout).expect("stdout"),
+        "declared capabilities: fs.read, shell.exec\n"
+    );
+    let error: serde_json::Value = serde_json::from_slice(&corrupt.stderr).expect("JSON refusal");
+    assert!(
+        error["reason"]
+            .as_str()
+            .expect("reason")
+            .starts_with("invalid saved generation:"),
+        "{error}"
+    );
+
+    std::fs::remove_file(&state).expect("remove state");
+    std::fs::create_dir(&state).expect("blocking state");
+    let unreadable = grant("pty.session");
+    assert_eq!(unreadable.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8(unreadable.stdout).expect("stdout"),
+        "declared capabilities: fs.read, shell.exec, pty.session\n"
+    );
+    let error: serde_json::Value =
+        serde_json::from_slice(&unreadable.stderr).expect("JSON refusal");
+    assert!(
+        error["reason"]
+            .as_str()
+            .expect("reason")
+            .starts_with("I/O:"),
+        "{error}"
+    );
+
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.join("client.json")).expect("config"))
+            .expect("json");
+    assert_eq!(
+        config["declared"],
+        serde_json::json!(["fs.read", "shell.exec", "pty.session"])
+    );
+}
+
+/// `mclient grant` reaches the running service through the reconnect signal
+/// and says so: the service re-attaches at once instead of waiting out its
+/// reprobe timer, so the host sees the wider offer now.
+#[tokio::test]
+async fn grant_signals_the_running_service_to_reconnect() {
+    use tokio::io::AsyncBufReadExt;
+    let home = tempfile::tempdir().expect("isolated home");
+    let directory = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&directory).expect("client directory");
+    std::fs::write(directory.join("client.json"), UNPINNED_CONFIG).expect("config");
+    let mut service = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["run", "--allow-unpinned"])
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("service starts");
+    let stderr = service.stderr.take().expect("service stderr");
+    let mut lines = tokio::io::BufReader::new(stderr).lines();
+    let first = tokio::time::timeout(std::time::Duration::from_secs(10), lines.next_line())
+        .await
+        .expect("first configuration observation")
+        .expect("stderr")
+        .expect("line");
+    let fact: serde_json::Value = serde_json::from_str(&first).expect("class fact");
+    assert_eq!(fact["class"], "configuration");
+
+    let grant = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["grant", "shell.exec"])
+        .output()
+        .await
+        .expect("grant command");
+    assert_eq!(
+        grant.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&grant.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(grant.stdout).expect("stdout"),
+        "declared capabilities: fs.read, shell.exec\nservice: reconnecting\n"
+    );
+
+    let second = tokio::time::timeout(std::time::Duration::from_secs(10), lines.next_line())
+        .await
+        .expect("immediate reprobe")
+        .expect("stderr")
+        .expect("line");
+    let fact: serde_json::Value = serde_json::from_str(&second).expect("reprobe class");
+    assert_eq!(fact["class"], "configuration");
+    service.kill().await.expect("stop service");
+}
+
+/// `status` surfaces the host's outstanding wish so the operator can answer
+/// it, naming the exact `grant` command per capability.
+#[test]
+fn status_reports_the_consent_the_host_still_wants() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let client = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&client).expect("client directory");
+    std::fs::write(
+        client.join("consent.json"),
+        br#"{"status":"consent_required","capabilities":["shell.exec"],"exports":["notes"]}"#,
+    )
+    .expect("consent record");
+    let json = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["status", "--json"])
+        .output()
+        .expect("status");
+    let record: serde_json::Value = serde_json::from_slice(&json.stdout).expect("status JSON");
+    assert_eq!(
+        record["consentRequired"],
+        serde_json::json!({"capabilities":["shell.exec"],"exports":["notes"]})
+    );
+    assert_eq!(record["identity"], serde_json::Value::Null);
+    let text = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["status"])
+        .output()
+        .expect("status");
+    let stdout = String::from_utf8(text.stdout).expect("stdout");
+    assert!(stdout.contains("consent required: capability shell.exec — mclient grant shell.exec\n"));
+    assert!(
+        stdout.contains("consent required: export notes — re-join with --export notes=<path>\n")
+    );
+}
+
+/// Consent survives a re-join: without `--capability` the saved declared set
+/// is kept (including what `grant` added), and an explicit selection
+/// replaces it.
+#[test]
+fn rejoin_without_capability_keeps_the_declared_set() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let join = |capabilities: &[&str]| {
+        let mut args = vec![
+            "join",
+            "localhost",
+            "--unix",
+            "/tmp/oni.sock",
+            "--no-service",
+            "--no-open",
+        ];
+        for capability in capabilities {
+            args.extend(["--capability", capability]);
+        }
+        let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(args)
+            .output()
+            .expect("mclient runs");
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).expect("stdout");
+        let receipt: serde_json::Value =
+            serde_json::from_str(stdout.lines().next().expect("receipt")).expect("JSON receipt");
+        receipt["allowedCapabilities"].clone()
+    };
+    let declared = || -> serde_json::Value {
+        let config: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(home.path().join(".oni/machine-client/client.json")).expect("config"),
+        )
+        .expect("json");
+        config["declared"].clone()
+    };
+    assert_eq!(join(&["fs.read"]), serde_json::json!(["fs.read"]));
+    assert_eq!(join(&[]), serde_json::json!(["fs.read"]));
+    assert_eq!(declared(), serde_json::json!(["fs.read"]));
+
+    let granted = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["grant", "shell.exec"])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(granted.status.code(), Some(0));
+    assert_eq!(join(&[]), serde_json::json!(["fs.read", "shell.exec"]));
+    assert_eq!(declared(), serde_json::json!(["fs.read", "shell.exec"]));
+
+    assert_eq!(join(&["pty.session"]), serde_json::json!(["pty.session"]));
+    assert_eq!(declared(), serde_json::json!(["pty.session"]));
+}
+
+/// A consent record or saved identity that no longer parses is a typed
+/// refusal from `status`, never a report that reads as healthy.
+#[test]
+fn status_refuses_a_corrupt_consent_record_or_identity() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let client = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&client).expect("client directory");
+    let status = || {
+        Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", home.path())
+            .args(["status", "--json"])
+            .output()
+            .expect("status")
+    };
+    std::fs::write(client.join("consent.json"), b"{not json").expect("corrupt consent");
+    let refused = status();
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(refused.stdout.is_empty());
+    let refusal: serde_json::Value = serde_json::from_slice(&refused.stderr).expect("JSON refusal");
+    assert_eq!(
+        refusal["reason"],
+        "invalid consent record (consent.json); delete it and reconnect"
+    );
+
+    std::fs::remove_file(client.join("consent.json")).expect("remove consent");
+    std::fs::write(client.join("client-cert.pem"), b"not a certificate").expect("corrupt cert");
+    let refused = status();
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(refused.stdout.is_empty());
+    let refusal: serde_json::Value = serde_json::from_slice(&refused.stderr).expect("JSON refusal");
+    assert_eq!(
+        refusal["reason"]
+            .as_str()
+            .map(|reason| reason.starts_with("invalid saved client identity")),
+        Some(true)
+    );
+
+    std::fs::remove_file(client.join("client-cert.pem")).expect("remove certificate");
+    let healthy = status();
+    assert_eq!(healthy.status.code(), Some(0));
+    let record: serde_json::Value = serde_json::from_slice(&healthy.stdout).expect("status JSON");
+    assert_eq!(record["identity"], serde_json::Value::Null);
+    assert_eq!(record["consentRequired"], serde_json::Value::Null);
 }
 
 #[test]
-fn rejoin_preserves_enrolled_identity_and_receipt() {
+fn rejoin_preserves_enrolled_identity_and_receipt_until_rekey() {
     let home = tempfile::tempdir().expect("isolated home");
-    let join = || {
+    let join = |rekey: bool| {
+        let mut args = vec![
+            "join",
+            "localhost",
+            "--name",
+            "macbook",
+            "--unix",
+            "/tmp/oni.sock",
+            "--no-service",
+            "--no-open",
+        ];
+        if rekey {
+            args.push("--rekey");
+        }
         let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
             .env("HOME", home.path())
-            .args([
-                "join",
-                "localhost",
-                "--name",
-                "macbook",
-                "--unix",
-                "/tmp/oni.sock",
-                "--no-service",
-                "--no-open",
-            ])
+            .args(args)
             .output()
             .expect("mclient runs");
         assert_eq!(
@@ -906,11 +1419,11 @@ fn rejoin_preserves_enrolled_identity_and_receipt() {
             .expect("public key")
             .to_owned()
     };
-    let first = join();
+    let first = join(false);
     let directory = home.path().join(".oni/machine-client");
     let key = std::fs::read(directory.join("client-key.pem")).expect("first key");
     let cert = std::fs::read(directory.join("client-cert.pem")).expect("first certificate");
-    let second = join();
+    let second = join(false);
     assert_eq!(second, first);
     assert_eq!(
         std::fs::read(directory.join("client-key.pem")).expect("rejoined key"),
@@ -920,6 +1433,29 @@ fn rejoin_preserves_enrolled_identity_and_receipt() {
         std::fs::read(directory.join("client-cert.pem")).expect("rejoined certificate"),
         cert
     );
+    // Rotation is a re-invitation: the receipt carries a new pin the host does
+    // not know yet, and the rotated pair has replaced the old one on disk.
+    let rotated = join(true);
+    assert_ne!(rotated, first);
+    assert_eq!(rotated.len(), 64);
+    let rotated_key = std::fs::read(directory.join("client-key.pem")).expect("rotated key");
+    assert_ne!(rotated_key, key);
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(directory.join("client-key.pem"))
+            .expect("rotated key")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    let status = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .args(["status", "--json"])
+        .output()
+        .expect("status");
+    let record: serde_json::Value = serde_json::from_slice(&status.stdout).expect("status JSON");
+    assert_eq!(record["identity"], rotated);
 }
 
 #[test]

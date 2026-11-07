@@ -1,5 +1,5 @@
 {
-  "contractVersion": 4,
+  "contractVersion": 5,
   "schemas": [
     {
       "file": "AbsolutePath.json",
@@ -212,6 +212,10 @@
     {
       "file": "EventAttached.json",
       "name": "EventAttached"
+    },
+    {
+      "file": "EventConsentRequired.json",
+      "name": "EventConsentRequired"
     },
     {
       "file": "EventDetached.json",

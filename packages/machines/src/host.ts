@@ -304,8 +304,33 @@ function negotiate(offer: Machine.Offer, found: Machine.Enrollment | undefined, 
     const exports = Machine.effectiveExports(enrollment, offer);
     if (capabilities.kind === "machine_mismatch" || exports.kind === "machine_mismatch")
       return { status: "refused", reason: "machine_mismatch" } as const;
-    return { enrollment, capabilities: capabilities.capabilities, exports: exports.exports };
+    return { enrollment, capabilities: capabilities.capabilities, exports: exports.exports, consent: consentFor(offer, enrollment) };
   });
+}
+
+/**
+ * The enrollment's excess over the offer, told only to peers whose contract
+ * knows the field. The host never widens the effective set from it: the
+ * machine's operator consents (declares) and the next offer carries it.
+ */
+function consentFor(offer: Machine.Offer, enrollment: Machine.Enrollment): ConsentRequired {
+  if (offer.peer.contractVersion < Machine.consentContractVersion) return undefined;
+  return Machine.consentRequired(enrollment, offer);
+}
+
+type ConsentRequired = Extract<Machine.AttachResult, { status: "attached" }>["consentRequired"];
+
+function attachedResult(
+  generation: number,
+  negotiated: { readonly capabilities: readonly Machine.CapabilityId[]; readonly exports: readonly Machine.ExportName[]; readonly consent: ConsentRequired },
+): Machine.AttachResult {
+  return {
+    status: "attached",
+    generation,
+    effectiveCapabilities: [...negotiated.capabilities],
+    effectiveExports: [...negotiated.exports],
+    ...(negotiated.consent === undefined ? {} : { consentRequired: negotiated.consent }),
+  };
 }
 
 function matchesGeneration(offer: Machine.Offer, current: number | undefined): boolean {
@@ -460,6 +485,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       readonly enrollment: Machine.Enrollment;
       readonly capabilities: readonly Machine.CapabilityId[];
       readonly exports: readonly Machine.ExportName[];
+      readonly consent: ConsentRequired;
     }): void {
       if (incumbent !== undefined) supersede(incumbent, source);
       supersede(source.key, source);
@@ -471,6 +497,8 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       computerWindows.set(offer.machineId, new ComputerWindows());
       computerRelays.set(offer.machineId, new ComputerRelay());
       options.events.publish(Machine.Events.Attached, { machineId: offer.machineId, time: options.now(), effectiveCapabilities: [...negotiated.capabilities] });
+      if (negotiated.consent !== undefined)
+        options.events.publish(Machine.Events.ConsentRequired, { machineId: offer.machineId, time: options.now(), ...negotiated.consent });
     }
     function recordExcess(offer: Machine.Offer, enrollment: Machine.Enrollment): Effect.Effect<void, MachineError> {
       const excess = offer.offeredCapabilities.filter((capability) => !enrollment.allowedCapabilities.includes(capability));
@@ -503,7 +531,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           return;
         }
         publishAttachment(offer, source, incumbent, generation, negotiated);
-        respond({ status: "attached", generation, effectiveCapabilities: [...negotiated.capabilities], effectiveExports: [...negotiated.exports] } satisfies Machine.AttachResult);
+        respond(attachedResult(generation, negotiated));
       }).pipe(admission.withPermits(1));
     }
     /**

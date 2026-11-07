@@ -19,5 +19,6 @@ pub fn client_config(root: &Path, export: Option<&str>) -> ClientConfig {
         memory_budget_mb: 96,
         unix: None,
         tmux_socket: None,
+        declared: None,
     }
 }

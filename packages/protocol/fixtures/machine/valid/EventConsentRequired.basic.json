@@ -1,0 +1,6 @@
+{
+  "machineId": "mac-0",
+  "time": 1,
+  "capabilities": ["shell.exec"],
+  "exports": ["work"]
+}

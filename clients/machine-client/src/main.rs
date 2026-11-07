@@ -1,5 +1,6 @@
 use std::{
     env::consts::{ARCH, OS},
+    io::{BufRead, Write},
     path::{Path, PathBuf},
     process::ExitCode,
     time::{SystemTime, UNIX_EPOCH},
@@ -75,6 +76,13 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    /// Consent to offer one more capability the host's enrollment allows;
+    /// the running service re-attaches with it.
+    Grant {
+        capability: String,
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
     /// Plumbing for launched CLI agents; not a user entry point.
     #[command(subcommand, hide = true)]
     Hook(Hook),
@@ -98,10 +106,7 @@ async fn main() -> ExitCode {
     }
     let result = match cli.command {
         Some(Command::Join(options)) => join(&options).await,
-        Some(Command::Status { json }) => {
-            status(json);
-            Ok(())
-        }
+        Some(Command::Status { json }) => status(json),
         Some(Command::Run {
             config,
             allow_unpinned,
@@ -119,6 +124,7 @@ async fn main() -> ExitCode {
             host_contract,
         }) => check(None, Some(release), host_contract).await,
         Some(Command::Reconnect { config }) => reconnect(config.as_deref()),
+        Some(Command::Grant { capability, config }) => grant(&capability, config.as_deref()),
         Some(Command::Hook(Hook::Permission { cli })) => {
             let socket = config::agent_hook_socket();
             let outcome =
@@ -319,21 +325,57 @@ async fn update(from: Option<String>, file: Option<PathBuf>) -> Result<(), Attac
     Ok(())
 }
 
+fn config_directory(config_path: Option<&Path>) -> PathBuf {
+    config_path
+        .and_then(Path::parent)
+        .map_or_else(config::agent_registry_directory, Path::to_path_buf)
+}
+
 fn reconnect(config_path: Option<&Path>) -> Result<(), AttachError> {
     use nix::{
         sys::signal::{kill, Signal},
         unistd::Pid,
     };
-    let directory = config_path
-        .and_then(Path::parent)
-        .map_or_else(config::agent_registry_directory, Path::to_path_buf);
+    let directory = config_directory(config_path);
     let pid = attach::service_pid(&directory)?.ok_or(AttachError::ServiceUnavailable)?;
     let pid = i32::try_from(pid).map_err(|_| AttachError::ServiceUnavailable)?;
     kill(Pid::from_raw(pid), Signal::SIGUSR1).map_err(|_| AttachError::ServiceUnavailable)
 }
 
+/// Records the operator's consent and prints the declared set; a running
+/// service is asked to re-attach so the host sees the wider offer now.
+fn grant(capability: &str, config_path: Option<&Path>) -> Result<(), AttachError> {
+    let directory = config_directory(config_path);
+    let declared = config::grant(&directory, capability, &handlers::SUPPORTED)?;
+    println!("declared capabilities: {}", declared.join(", "));
+    match reconnect(config_path) {
+        Ok(()) => println!("service: reconnecting"),
+        Err(AttachError::ServiceUnavailable) => println!("service: not running"),
+        Err(error) => return Err(error),
+    }
+    Ok(())
+}
+
+/// Shows the operator the host they are about to trust and reads one line
+/// from stdin; only `y`/`yes` approves, a closed stdin leaves it untrusted.
+/// The prompt goes to stderr so stdout stays the receipt; the refusal that
+/// follows an unanswered prompt starts on its own line.
+fn confirm_host(host: &str, pin: &str) -> bool {
+    eprintln!("host: {host}");
+    eprintln!("host pin: {pin}");
+    eprint!("trust this host? [y/N] ");
+    let _ = std::io::stderr().flush();
+    let mut answer = String::new();
+    let _ = std::io::stdin().lock().read_line(&mut answer);
+    if !answer.ends_with('\n') {
+        eprintln!();
+    }
+    matches!(answer.trim(), "y" | "Y" | "yes")
+}
+
 async fn join(options: &JoinOptions) -> Result<(), AttachError> {
-    let enrollment = attach::join(options, &config::root(), &handlers::SUPPORTED).await?;
+    let enrollment =
+        attach::join(options, &config::root(), &handlers::SUPPORTED, confirm_host).await?;
     let layout = Layout::new(config::root());
     let path = layout.client().join("client.json");
     if !options.json {
@@ -359,17 +401,17 @@ async fn join(options: &JoinOptions) -> Result<(), AttachError> {
             )
         })?;
     if options.json {
-        let mut record = status_record(options.service_dir.as_deref(), options.no_service);
+        let mut record = status_record(options.service_dir.as_deref(), options.no_service)?;
         record["receipt"] = enrollment.receipt;
         println!("{record}");
+        Ok(())
     } else {
         println!("service: {} ({})", state.name, state.state);
-        println!("offered capabilities: {}", handlers::SUPPORTED.join(", "));
+        println!("offered capabilities: {}", enrollment.declared.join(", "));
         println!("{}", service::screen(options.no_open, &service_binary)?);
         println!("{}", pin_line(&pin));
-        print_status(false, options.service_dir.as_deref(), options.no_service);
+        print_status(false, options.service_dir.as_deref(), options.no_service)
     }
-    Ok(())
 }
 
 /// The binary the service runs: on macOS the published real path, so TCC
@@ -385,26 +427,40 @@ fn service_binary(_layout: &Layout, selected: PathBuf) -> std::io::Result<PathBu
     Ok(selected)
 }
 
-fn status(json: bool) {
-    print_status(json, None, false);
+fn status(json: bool) -> Result<(), AttachError> {
+    print_status(json, None, false)
 }
 
-fn status_record(service_dir: Option<&Path>, no_service: bool) -> serde_json::Value {
+/// A consent record or identity that no longer parses is a refusal, not a
+/// blank line: the operator sees the typed reason instead of a healthy report.
+fn status_record(
+    service_dir: Option<&Path>,
+    no_service: bool,
+) -> Result<serde_json::Value, AttachError> {
     let (screen, input) = oni_machine_client::computer::platform();
     let mut verdict = screen.capability(input.ready());
     service::setup_needs(&mut verdict, &config::home(), service_dir, no_service);
-    serde_json::json!({
+    let directory = config::agent_registry_directory();
+    let consent = attach::pending_consent(&directory)?;
+    let identity = config::identity_pin(&directory)?;
+    Ok(serde_json::json!({
         "ok": !verdict.needs.iter().any(|row| !row.on_screen),
         "version": VERSION,
         "os": OS,
         "verdict": verdict.verdict,
         "blockers": verdict.blockers,
         "needs": verdict.needs,
-    })
+        "identity": identity,
+        "consentRequired": consent,
+    }))
 }
 
-fn print_status(json: bool, service_dir: Option<&Path>, no_service: bool) {
-    let record = status_record(service_dir, no_service);
+fn print_status(
+    json: bool,
+    service_dir: Option<&Path>,
+    no_service: bool,
+) -> Result<(), AttachError> {
+    let record = status_record(service_dir, no_service)?;
     if json {
         println!("{record}");
     } else {
@@ -415,7 +471,25 @@ fn print_status(json: bool, service_dir: Option<&Path>, no_service: bool) {
         {
             println!("setup: {} — {}", need["step"], need["action"]);
         }
+        if let Some(pin) = record["identity"].as_str() {
+            println!("identity: {pin}");
+        }
+        for capability in consent_rows(&record["consentRequired"]["capabilities"]) {
+            println!("consent required: capability {capability} — mclient grant {capability}");
+        }
+        for export in consent_rows(&record["consentRequired"]["exports"]) {
+            println!("consent required: export {export} — re-join with --export {export}=<path>");
+        }
     }
+    Ok(())
+}
+
+/// The names in one consent list, or nothing when no consent is pending.
+fn consent_rows(list: &serde_json::Value) -> impl Iterator<Item = &str> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
 }
 
 fn selected_binary(
@@ -524,6 +598,7 @@ mod tests {
                 memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
                 unix: Some(socket),
                 tmux_socket: None,
+                declared: None,
             },
             &layout.client(),
         )
@@ -733,6 +808,9 @@ mod tests {
             no_service: true,
             service_dir: None,
             no_open: true,
+            capabilities: vec![],
+            rekey: false,
+            yes: false,
         };
         let error = join(&options).await.expect_err("proxy refused");
         assert!(matches!(
