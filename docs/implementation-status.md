@@ -70,7 +70,14 @@ host admits nothing and reads nothing. `docs/machines-and-delegation.md`
   `a_replay_refusal_or_a_hang_up_on_the_hello_reprobes_without_a_terminal_error`,
   `an_acceptance_under_a_foreign_or_unverifiable_host_key_is_refused_before_attach`),
   `tests/transport/connection.rs` (every tcp/wss connection handshakes;
-  a text WebSocket message is refused inside the handshake),
+  a text WebSocket message is refused inside the handshake;
+  `signed_handshake::*` reads the hello the host saw on both carriers
+  (fresh nonce and ephemeral per dial, verified signature), and pins the
+  typed outcome of every answer: each refusal reason, a foreign key, a
+  signature that does not verify, and a carrier that ends on the hello,
+  with or without a TLS `close_notify`, as `Closed`), the `seal.rs` unit
+  tests (sealed lines the host sends in the same segment as its acceptance
+  are opened before the carrier is polled again),
   `script/check-clients-conformance.ts` and the real-`mclient` tests in
   `packages/machines/test/host-listen.test.ts` and `apps/oni` (the Rust
   client attaches to the TypeScript host over the sealed channel, which is
