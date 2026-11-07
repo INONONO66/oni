@@ -107,6 +107,8 @@ export namespace Machine {
   export const FS_WRITE_MAX_BYTES = Schema.FS_WRITE_MAX_BYTES;
   export const EXEC_MAX_BYTES = Schema.EXEC_MAX_BYTES;
   export const EXEC_TIMEOUT_MS = Schema.EXEC_TIMEOUT_MS;
+  export const AttachMode = Schema.AttachMode;
+  export type AttachMode = Schema.AttachMode;
   export const Enrollment = Schema.Enrollment;
   export type Enrollment = Schema.Enrollment;
   export const Offer = Schema.Offer;
