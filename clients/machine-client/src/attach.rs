@@ -24,11 +24,12 @@ use crate::grant_restart::{Decision as GrantDecision, GrantRestart};
 use crate::{
     agent::{hook, launcher::HookTarget},
     budget::{self, Budget, BudgetAction, Metrics, Pressure},
-    config::{self, Carrier, ClientConfig, JoinOptions},
+    config::{self, Carrier, ClientConfig, JoinOptions, Mode},
     handlers::{AgentOptions, Service},
     input::watch::{InputProducer, InputWatch, Source},
     pty::ops::Pty,
     report::{self, Probe},
+    tailnet,
     transport::{
         classes::{self, FailureClass},
         client::{handler, Caller, Client, Handler, TransportError},
@@ -84,6 +85,8 @@ pub enum AttachError {
     EventsClosed,
     #[error("attach failed: {0:?}")]
     Once(FailureClass),
+    #[error(transparent)]
+    Tailnet(#[from] tailnet::Refusal),
 }
 
 impl AttachError {
@@ -98,7 +101,12 @@ impl AttachError {
                 | HandshakeError::HostKey
                 | HandshakeError::HostSignature,
             ))
-            | Self::Config(config::ConfigError::LegacyHostPin)
+            | Self::Config(
+                config::ConfigError::LegacyHostPin
+                | config::ConfigError::ModeRequired
+                | config::ConfigError::ModeMismatch { .. },
+            )
+            | Self::Tailnet(_)
             | Self::Once(
                 FailureClass::Authentication
                 | FailureClass::Configuration
@@ -130,10 +138,19 @@ impl AttachError {
     }
 
     /// What corrects this failure: the class's step, except for a legacy
-    /// host-pin, which names the one re-join that records an SPKI pin.
+    /// host-pin, which names the one re-join that records an SPKI pin, a
+    /// mode refusal, which names the mode or address to re-join with, and a
+    /// Tailscale refusal, which names the setup step the Owner finishes.
     pub fn next_step(&self) -> String {
         match self {
             Self::Config(config::ConfigError::LegacyHostPin) => self.to_string(),
+            Self::Config(config::ConfigError::ModeRequired) => {
+                "a network host joins in exactly one mode; re-join with: mclient join <host> --mode tailnet|domain".to_owned()
+            }
+            Self::Config(config::ConfigError::ModeMismatch { mode, carrier }) => format!(
+                "--mode {mode} does not dial the {carrier} carrier this host address selects; re-join with the address {mode} mode takes, or the mode that dials it"
+            ),
+            Self::Tailnet(refusal) => refusal.reason.next_step(),
             _ => classes::classify(self).next_step().to_owned(),
         }
     }
@@ -291,6 +308,9 @@ pub fn offer(
     // attach must omit the key or the host refuses the frame as invalid params.
     if let Some(generation) = generation {
         offered["generation"] = json!(generation);
+    }
+    if let Some(mode) = config.mode {
+        offered["mode"] = json!(mode);
     }
     offered
 }
@@ -494,7 +514,12 @@ pub async fn release(
     Ok((document["status"] == "available").then(|| document["release"].clone()))
 }
 
-/// Enrolls this machine with a host. A network host is shown to the operator
+/// Enrolls this machine with one host in exactly one mode (#1837). The
+/// options are checked before anything runs: the carrier the address selects
+/// must be the one `--mode` dials, and a network host needs a pin. A tailnet
+/// join then brings Tailscale to `Running` through `tailnet` and resolves a
+/// bare name through it; a domain join dials the `wss://` name as given.
+/// A network host is shown to the operator
 /// as `(host, pin)` through `approve` once its key is verified against the
 /// configured trust; a declined or unanswered prompt leaves it untrusted and
 /// records nothing. `--yes` skips the prompt for scripts.
@@ -503,19 +528,26 @@ pub async fn join(
     home: &Path,
     capabilities: &[&str],
     approve: impl FnOnce(&str, &str) -> bool,
+    tailnet: &tailnet::Setup,
 ) -> Result<Enrollment, AttachError> {
     let directory = home.join("machine-client");
     let unix = options
         .unix
         .clone()
         .or_else(|| config::unix_path(&options.host));
-    let trust = match unix {
-        Some(_) => None,
-        None => Some(config::trust(options)?),
+    let carrier = options.network_carrier()?;
+    config::check_mode(options.mode, carrier.as_ref())?;
+    let trust = match carrier {
+        None => None,
+        Some(_) => Some(config::trust(options)?),
     };
-    let host = match (&unix, config::carrier(&options.host)?) {
-        (None, Carrier::Tcp { .. }) => config::resolve_address(&options.host)?,
-        (Some(_), _) | (None, Carrier::Wss(_)) => options.host.clone(),
+    let (host, tailscale) = match options.mode {
+        Some(Mode::Tailnet) => {
+            let ready = tailnet::ensure(tailnet).await?;
+            let host = config::resolve_address_through(&options.host, &ready.cli)?;
+            (host, Some(ready))
+        }
+        Some(Mode::Domain) | None => (options.host.clone(), None),
     };
     let name = options.name.clone().unwrap_or_else(config::hostname);
     let declared = config::declared(
@@ -531,6 +563,7 @@ pub async fn join(
         exports: config::parse_exports(&options.exports)?,
         memory_budget_mb: options.memory_budget_mb,
         unix,
+        mode: options.mode,
         tmux_socket: None,
         declared: Some(declared.clone()),
     };
@@ -568,7 +601,9 @@ pub async fn join(
             "hostPin": host_pin,
             "allowedCapabilities": declared,
             "allowedExports": allowed_exports.collect::<Vec<_>>(),
-            "tokenPresented": token.is_some()
+            "tokenPresented": token.is_some(),
+            "mode": config.mode,
+            "tailscale": tailscale
         }),
         declared,
     })
@@ -1394,6 +1429,7 @@ mod tests {
             }],
             memory_budget_mb: config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
+            mode: Some(config::Mode::Tailnet),
             tmux_socket: None,
             declared: None,
         };

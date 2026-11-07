@@ -44,6 +44,7 @@ macro_rules! decode_fixture {
                 AgentSessionInfo,
                 AgentSessionListRequest,
                 AgentSessionListResult,
+                AttachMode,
                 AgentSessionOpenRequest,
                 AgentSessionOpenResult,
                 AgentSessionSendRequest,

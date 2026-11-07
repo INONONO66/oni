@@ -807,7 +807,7 @@ describe("cli dispatch", () => {
     const { deps: cli, err } = deps();
     expect(await runCli(["machine"], cli)).toBe(1);
     expect(await runCli(["machine", "attach", "config.json"], cli)).toBe(1);
-    const usage = "usage: oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]\nusage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>] [--force]";
+    const usage = "usage: oni machine probe <machine-id> <display-id> [--reconnect-after-ms <ms>]\nusage: oni machine bootstrap <http(s)://host[:port]> --mode <tailnet|domain> --host-pin <pin> [--token <join token>] [--force]";
     expect(err).toEqual([usage, usage]);
   });
 
@@ -815,7 +815,8 @@ describe("cli dispatch", () => {
     const { deps: cli, err } = deps();
     expect(await runCli(["machine", "bootstrap", "oni-host:3000"], cli)).toBe(1);
     expect(await runCli(["machine", "bootstrap", "http://oni-host:3000", "--token"], cli)).toBe(1);
-    expect(err).toEqual(["usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>] [--force]", "usage: oni machine bootstrap <http(s)://host[:port]> [--token <join token>] [--force]"]);
+    const usage = "usage: oni machine bootstrap <http(s)://host[:port]> --mode <tailnet|domain> --host-pin <pin> [--token <join token>] [--force]";
+    expect(err).toEqual([usage, usage]);
   });
 
   test("machine probe dispatch reports invalid options without opening a socket", async () => {

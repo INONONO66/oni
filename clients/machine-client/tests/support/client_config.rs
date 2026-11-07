@@ -18,6 +18,7 @@ pub fn client_config(root: &Path, export: Option<&str>) -> ClientConfig {
             .collect(),
         memory_budget_mb: 96,
         unix: None,
+        mode: Some(oni_machine_client::config::Mode::Tailnet),
         tmux_socket: None,
         declared: None,
     }

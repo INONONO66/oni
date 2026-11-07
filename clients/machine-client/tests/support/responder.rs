@@ -6,10 +6,10 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use oni_machine_client::transport::{
     handshake::{
         accept_transcript, decode_fixed, derive_frame_keys, hello_transcript, random_nonce,
-        read_line, session_transcript, verify_with_spki, Accept, Ephemeral, Hello, SealKeys,
-        StaticKey, EPHEMERAL_KEY_BYTES,
+        read_line, session_transcript, verify_with_spki, Accept, Ephemeral, Hello, StaticKey,
+        EPHEMERAL_KEY_BYTES,
     },
-    seal::{FrameSeal, Sealed},
+    seal::{FrameSeal, SealKeys, Sealed},
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
@@ -61,12 +61,26 @@ fn hello_of(request: &Value) -> Option<(Hello, String)> {
 /// carrier the fake host serves frames over; `None` ends the connection, which
 /// is what every refusal and every failure to parse the hello does.
 pub async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
-    mut stream: S,
+    stream: S,
     certificate_pem: &str,
     private_key_pem: &str,
     answer: Answer,
     seen: &tokio::sync::watch::Sender<Option<Seen>>,
 ) -> Option<Sealed<S>> {
+    let (stream, seal, carried) =
+        respond_raw(stream, certificate_pem, private_key_pem, answer, seen).await?;
+    Some(Sealed::new(stream, seal, carried))
+}
+
+/// `respond` without the wrap: the raw carrier after the acceptance, the
+/// responder seal, and the bytes read past the hello's newline.
+pub async fn respond_raw<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
+    certificate_pem: &str,
+    private_key_pem: &str,
+    answer: Answer,
+    seen: &tokio::sync::watch::Sender<Option<Seen>>,
+) -> Option<(S, FrameSeal, Vec<u8>)> {
     let (line, carried) = read_line(&mut stream).await.ok()?;
     let request: Value = serde_json::from_slice(&line).ok()?;
     if request["method"] != "machine.handshake" {
@@ -133,5 +147,5 @@ pub async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
     )
     .ok()?;
     let seal = FrameSeal::new(&SealKeys::responder(&okm)).ok()?;
-    Some(Sealed::new(stream, seal, carried))
+    Some((stream, seal, carried))
 }

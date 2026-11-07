@@ -777,6 +777,7 @@ fn settings(root: &Path) -> ClientConfig {
         exports: vec![],
         memory_budget_mb: 96,
         unix: Some(root.join("host.sock")),
+        mode: None,
         tmux_socket: None,
         declared: None,
     }
@@ -840,6 +841,7 @@ impl Machine {
             generation: NonZeroU64::MIN,
             capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
             exports: vec![],
+            handshake: None,
         });
     }
 

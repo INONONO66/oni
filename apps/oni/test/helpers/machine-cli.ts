@@ -38,7 +38,9 @@ export function pinnedTcpHostOptions(
 /**
  * One client directory as `mclient join` leaves it: client.json beside the
  * host pin and the client's TLS identity (the committed daemon fixture, which
- * `pinnedTcpHostOptions` enrolls). A unix endpoint needs no pin or identity.
+ * `pinnedTcpHostOptions` enrolls). A tcp endpoint is joined in tailnet mode,
+ * the one mode that dials it (#1837); a unix endpoint needs no pin, identity
+ * or mode.
  */
 export function writeClientDirectory(directory: string, options: {
   readonly machineId: string;
@@ -52,6 +54,7 @@ export function writeClientDirectory(directory: string, options: {
     host: "tcp" in options.endpoint ? `${options.endpoint.tcp.host}:${options.endpoint.tcp.port}` : "localhost",
     unix,
     exports: [{ name: "data", path: options.root }], tags: [], memoryBudgetMb: 96,
+    ...(unix === null ? { mode: "tailnet" as const } : {}),
   });
   if (unix !== null) return path;
   for (const [name, value] of [

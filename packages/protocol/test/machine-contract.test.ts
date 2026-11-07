@@ -52,6 +52,7 @@ describe("machine wire contract fixtures", () => {
       "AgentSessionTailRequest.json",
       "AgentSessionStopResult.json",
       "AgentTranscriptRecord.json",
+      "AttachMode.lan.json",
       "CancelResult.positional-array.json",
       "CapabilityId.wrong-type.json",
       "ExecRequest.positional-array.json",

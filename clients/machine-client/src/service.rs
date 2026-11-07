@@ -514,6 +514,7 @@ mod tests {
                 assert_eq!(verdict.verdict, "partial");
                 let options = JoinOptions {
                     host: "localhost".into(),
+                    mode: Some(crate::config::Mode::Tailnet),
                     token: None,
                     json: false,
                     name: None,
@@ -528,6 +529,7 @@ mod tests {
                     capabilities: vec![],
                     rekey: false,
                     yes: false,
+                    tailscale_auth_key: None,
                 };
                 let state = install(
                     &options,

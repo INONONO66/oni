@@ -1,5 +1,155 @@
 # Implementation Status
 
+## #1832 signed handshake, session keys and sealed frames
+
+Branch `feat/1832-signed-handshake` (epic #1829 Phase 3, merged with
+`2c5e2714a` for #1837). Every network connection to the machine host opens
+with one signed call, derives a per-attach session key, and seals every
+later frame, so a relay, CDN or proxy that terminates TLS in front of the
+host admits nothing and reads nothing. `docs/machines-and-delegation.md`
+§2.3.0 is the wire description.
+
+- Contract: machine contract v6 (`packages/protocol/src/machine/contract.ts`:
+  `contractVersion = 6`, `supportedContractVersions = [3, 4, 5, 6]`,
+  `handshakeContractVersion = 6`, `consentContractVersion` stays 5).
+  `machine/handshake.ts` owns `Machine.HandshakeHello` /
+  `Machine.HandshakeResult` (`machine.handshake`, `Machine.WireMethod.
+  Handshake`), the labels `oni-machine-handshake/6`, `oni-machine-frames/6`,
+  `c2h`, `h2c`, and the pure `helloTranscript` / `acceptTranscript` /
+  `sessionTranscript` folds both peers sign (length-prefixed wire
+  spellings); `schema/machine/Handshake{Hello,Result}.json` and the valid /
+  invalid fixtures under `fixtures/machine/` are regenerated.
+- Host (`packages/machines/src/handshake.ts`, `src/ipc/seal.ts`, `src/host.ts`):
+  the TLS-TCP and WebSocket doors serve the handshake, signed with the key
+  of the host TLS identity (P-256 required, refused at `host.listen`
+  otherwise); the Unix door serves none (`invalid_method`) and admits every
+  supported version. Judgement order: `unsupported_contract` (peer below
+  v6; an attach without a handshake from such a peer gets the same typed
+  attach refusal), `replay` (a nonce the bounded `NonceLedger` already
+  accepted), then `not_admitted` as the ONE byte-identical reply for an
+  unenrolled id, a static key that is not the enrolled `publicKey`, and a
+  signature that does not verify. Any other request before an accepted
+  handshake on a network door is the typed `handshake_required` error, and
+  `machine.attach` refuses `peer_key_mismatch` when the proven key is not
+  the enrolled one at attach time. Session keys: X25519 over fresh
+  ephemerals, HKDF-SHA256 (salt = sha256 of the session transcript, info =
+  the frames label), AES-256-GCM per direction with the frame counter as
+  the nonce, received strictly in order; a sealed line is base64 of
+  `nonce || ciphertext || tag` under the unchanged newline framing. On a
+  plaintext `ws://` door (tests only) the handshake alone admits and seals.
+- Client (`clients/machine-client/src/transport/{handshake,seal,connection}.rs`,
+  `attach.rs`): after the carrier connects (TLS-TCP under the pinned host
+  key, or `wss://`), `Client::connect` sends the hello first (ephemeral
+  X25519 key, nonce, contract version, transcript signed with the
+  enrollment key), verifies the acceptance against the pinned host key and
+  never a key learned on the wire (`HostKey` / `HostSignature`, surfaced as
+  the terminal `peer_key_mismatch`), derives the keys exactly as `seal.ts`
+  does and seals every frame from then on; `machine.attach` rides the
+  sealed channel. `not_admitted` and `unsupported_contract` are terminal
+  typed refusals (exit 3, `Authentication` / `Configuration` classes);
+  `replay` and a host that closes on the hello reprobe with the ordinary
+  backoff. The attach receipt (`state.json`) carries `handshake:
+  { contractVersion, hostKey }`; `mclient join` is unchanged (TLS-verified
+  pin, no handshake until the first `run`). New pinned crates: `x25519-dalek`,
+  `hkdf`, `aes-gcm`, `ring` (P-256 signatures), `rand_core`.
+- Verification: `packages/machines/test/handshake.test.ts` over a plaintext
+  `ws://` door (an unenrolled key is refused by the handshake alone; the
+  unenrolled, key-mismatch and bad-signature refusals are byte-identical;
+  a replayed hello is refused `replay`; a peer below v6 is refused
+  `unsupported_contract` at attach; frames after the acceptance are
+  ciphertext; attach before the handshake is `handshake_required`),
+  `packages/machines/test/host-listen.test.ts` and `test/host-admission.test.ts`
+  (TypeScript peers handshake before attach; intruders are refused at the
+  handshake), `clients/machine-client/tests/attach.rs` `handshake::*`
+  (`tcp_attach_opens_with_a_signed_hello_and_keeps_the_handshake_in_the_receipt`,
+  `wss_attach_opens_with_a_signed_hello_and_keeps_the_handshake_in_the_receipt`,
+  `every_frame_after_the_acceptance_is_ciphertext_on_the_wire`,
+  `a_not_admitted_handshake_ends_the_one_shot_as_an_authentication_refusal`,
+  `an_unsupported_contract_refusal_ends_the_one_shot_as_a_configuration_error`,
+  `a_replay_refusal_or_a_hang_up_on_the_hello_reprobes_without_a_terminal_error`,
+  `an_acceptance_under_a_foreign_or_unverifiable_host_key_is_refused_before_attach`),
+  `tests/transport/connection.rs` (every tcp/wss connection handshakes;
+  a text WebSocket message is refused inside the handshake),
+  `script/check-clients-conformance.ts` and the real-`mclient` tests in
+  `packages/machines/test/host-listen.test.ts` and `apps/oni` (the Rust
+  client attaches to the TypeScript host over the sealed channel, which is
+  the cross-language proof of the shared transcript and key schedule).
+  Not established: a live handshake against the oni host over the [ino]
+  443/ACME path (#1836); the nonce ledger is per host process, so a replay
+  across a host restart is refused only by the fresh host ephemeral (the
+  replayed hello cannot derive the new session key).
+
+## #1837 explicit attach mode `tailnet|domain` with Tailscale setup
+
+PR #1861 on `feat/1837-attach-mode` (epic #1829 Phase 3, base `aad16eeed`,
+merged with `e5835b8ab` for #1842). A machine reaches its host in exactly
+one explicit mode; nothing falls back from one mode to the other.
+
+- Mode: `mclient join <host> --mode <tailnet|domain>` (`clients/machine-
+  client/src/config.rs`, `Mode`, `check_mode`). Tailnet mode dials the raw
+  TLS-TCP listener (`tcp://` or a bare `host[:port]`, a bare name resolved
+  through `tailscale status --json`); domain mode dials the WebSocket
+  listener by its public DNS name (`wss://`). The one check that keeps a
+  machine in one mode runs before any dial and again when `run` loads
+  `client.json`: a network host without a mode is `mode_required`, a mode
+  that does not dial the address it was given (`domain` with `tcp://`,
+  `tailnet` with `wss://`, any mode with `--unix`) is `mode_mismatch`, and
+  both are typed configuration refusals with a `nextStep`. The mode is saved
+  in `client.json` and rides the attach offer; the unix carrier takes none.
+  `mclient status` prints it (`--json`: `mode`, null before the first join
+  or over unix) and refuses a saved config in the wrong mode the way `run`
+  does (`tests/cli.rs::status_reports_the_saved_mode_and_refuses_a_config_in_the_wrong_one`).
+- Host: `Machine.AttachMode` (`packages/protocol/src/machine/index.ts`,
+  `schema/machine/AttachMode.json`) on `Machine.Offer.mode` and
+  `Machine.Info.mode` (optional, absent for older peers), and `machine_list`
+  reports each machine's mode (`packages/machines/src/host.ts`). One host
+  keeps both listeners open at once and each attached machine holds its
+  own mode; the client's `check_mode` is the one enforcement layer, and the
+  host records the mode the offer declares.
+- Tailscale setup (`clients/machine-client/src/tailnet.rs`): a tailnet-mode
+  join locates the `tailscale` CLI (`PATH`, then the platform's locations),
+  installs it through the platform recipe when absent (`brew install --cask
+  tailscale`; Tailscale's `install.sh` on Linux), starts the daemon when it
+  does not answer (`open -a Tailscale`; `sudo systemctl start tailscaled`),
+  runs `tailscale up` when the node is logged out (`--tailscale-auth-key` or
+  `ONI_MCLIENT_TAILSCALE_AUTH_KEY` is presented and never recorded or
+  echoed; without one the CLI's login URL reaches the operator's terminal and
+  the join waits, bounded) and dials only once the backend reports
+  `Running`. The join receipt carries `tailscale: {state, steps}` with one
+  `{step, via, ok}` per step (`locate`, `install`, `start`, `status`, `up`),
+  and a step the client cannot finish is one typed refusal with the steps so
+  far and a `nextStep`: `tailscale_absent` (no recipe for the platform),
+  `tailscale_install_failed`, `tailscale_down`, `tailscale_login_failed`,
+  `tailscale_login_timeout`, `tailscale_not_ready`. Domain mode never runs
+  this path.
+- Bootstrap (#1838 surfaces): `GET /machine/install | sh -s -- <origin>
+  --mode <tailnet|domain> --host-pin <pin> [--token] [--force]` and `oni
+  machine bootstrap <origin> --mode <tailnet|domain> --host-pin <pin>
+  [--token] [--force]` (`apps/oni/src/composition/machine-install.ts`,
+  `apps/oni/src/cli/bootstrap.ts`) require both, derive the join address
+  from the mode (the origin's host name; `wss://<name>` in domain mode) and
+  run `mclient join <address> --mode <mode> --host-pin <pin> --yes`; a
+  missing or unknown mode or a missing pin is the usage refusal before any
+  download. The conformance join receipt (`script/check-clients-
+  conformance.ts`) carries `mode` and `tailscale`, both null over unix.
+- Verification: `clients/machine-client/tests/attach.rs`
+  (`tailnet_mode_join_resolves_the_peer_through_tailscale_and_records_its_steps`,
+  `tailnet_mode_attach_offers_tailnet_over_the_tcp_carrier`,
+  `domain_mode_join_dials_the_wss_name_without_tailscale`,
+  `domain_mode_attach_offers_domain_over_the_wss_carrier`,
+  `join_refuses_a_mode_that_does_not_dial_the_address_it_was_given`,
+  `saved_config_is_refused_when_its_mode_does_not_match_its_carrier`,
+  `tailnet_mode_join_refuses_with_the_setup_step_when_tailscale_is_absent`,
+  `tailnet_mode_join_installs_tailscale_and_resolves_through_the_installed_cli`),
+  `tests/cli.rs` (`join_refuses_a_network_host_without_a_mode_or_in_the_wrong_one`,
+  `join_in_tailnet_mode_reports_the_tailscale_setup_it_could_not_finish`),
+  `tests/tailnet.rs` (one test per setup step and refusal),
+  `clients/protocol/tests/fixtures.rs` over the `AttachMode.*` and
+  `Offer`/`Info` mode fixtures, `packages/machines/test/host-listen.test.ts`
+  (one host serving a tailnet-mode attach over tcp and a domain-mode attach
+  over wss at once), `apps/oni/test/machine-bootstrap.test.ts` (both
+  surfaces in both modes, the usage refusals).
+
 ## #1842 mutual approval on machine attach
 
 PR #1858 on `feat/1842-mutual-approval` (epic #1829 Phase 2). Trust is
@@ -90,9 +240,11 @@ sha256-verified before it is written.
 
 - Install: the host serves a POSIX script at `GET /machine/install`
   (`apps/oni/src/composition/machine-install.ts`); `curl -fsSL
-  <host>/machine/install | sh -s -- <host> [--token]` and the CLI verb
-  `oni machine bootstrap <http(s)://host[:port]> [--token]`
-  (`apps/oni/src/cli/bootstrap.ts`) walk the same path: read
+  <host>/machine/install | sh -s -- <host> --mode <tailnet|domain>
+  --host-pin <pin> [--token]` and the CLI verb `oni machine bootstrap
+  <http(s)://host[:port]> --mode <tailnet|domain> --host-pin <pin> [--token]`
+  (`apps/oni/src/cli/bootstrap.ts`; the mode and pin since #1837) walk the
+  same path: read
   `/machine/release` (renamed from `/machine-client/release`, now carrying
   the release tag), pick the artifact by platform (macOS universal, Linux by
   architecture, nothing else), stage the archive and run `mclient join` from

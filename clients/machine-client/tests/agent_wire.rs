@@ -130,6 +130,7 @@ impl Fixture {
             generation: NonZeroU64::new(generation).expect("generation"),
             capabilities: capabilities.iter().map(|&id| id.to_owned()).collect(),
             exports: vec!["work".to_owned()],
+            handshake: None,
         });
     }
 
@@ -217,6 +218,7 @@ async fn agent_session_is_offered_with_terminals_and_exports_and_routed_only_whe
         generation: NonZeroU64::MIN,
         capabilities: vec![AGENT.to_owned()],
         exports: vec!["work".to_owned()],
+        handshake: None,
     });
     let hooks = plain.hooks(Duration::from_secs(60));
     assert_eq!(

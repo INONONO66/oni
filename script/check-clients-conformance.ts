@@ -157,9 +157,16 @@ export async function finished(
   return { code, stdout, stderr };
 }
 
+/** One Tailscale readiness step a tailnet join took (#1837), as the receipt prints it. */
+const TailscaleStep = z.object({ step: z.string().min(1), via: z.string().optional(), ok: z.boolean() }).strict();
+
 const JoinReceipt = Machine.Enrollment.omit({ enrolledAt: true }).extend({
   tokenPresented: z.boolean(),
   hostPin: z.string().nullable(),
+  // The mode a network join fixed and the Tailscale steps a tailnet join
+  // took (#1837): both null over the unix carrier, which has neither.
+  mode: Machine.AttachMode.nullable(),
+  tailscale: z.object({ state: z.string().min(1), steps: z.array(TailscaleStep) }).strict().nullable(),
 });
 
 export async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
@@ -189,11 +196,13 @@ export async function enroll(setup: Fixture): Promise<Machine.Enrollment> {
   // The receipt is the enrollment plus what the join itself presented and
   // recorded: the host pin is null over the unix carrier, which has no TLS
   // peer to pin.
-  const { tokenPresented, hostPin, ...receipt } = JoinReceipt.parse(JSON.parse(receiptLine));
+  const { tokenPresented, hostPin, mode, tailscale, ...receipt } = JoinReceipt.parse(JSON.parse(receiptLine));
   check(!tokenPresented, "mclient join reported a token it was never given");
   check(hostPin === null, `a unix join recorded a host pin: ${hostPin}`);
+  check(mode === null, `a unix join fixed an attach mode: ${mode}`);
+  check(tailscale === null, "a unix join reported Tailscale steps");
   record(
-    `join wrote ${setup.config} and receipt for ${receipt.machineId} [${receipt.allowedCapabilities.join(", ")}] with no host pin`,
+    `join wrote ${setup.config} and receipt for ${receipt.machineId} [${receipt.allowedCapabilities.join(", ")}] with no host pin and no mode`,
   );
   return { ...receipt, enrolledAt: Date.now() };
 }

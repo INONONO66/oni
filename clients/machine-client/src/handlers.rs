@@ -1422,6 +1422,7 @@ mod private_tests {
             exports: vec![],
             memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
+            mode: Some(crate::config::Mode::Tailnet),
             tmux_socket: None,
             declared: None,
         };
@@ -1502,6 +1503,7 @@ mod private_tests {
             exports: vec![],
             memory_budget_mb: crate::config::DEFAULT_MEMORY_BUDGET_MB,
             unix: None,
+            mode: Some(crate::config::Mode::Tailnet),
             tmux_socket: None,
             declared: None,
         };

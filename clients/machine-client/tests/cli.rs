@@ -689,9 +689,12 @@ async fn join_prompts_for_the_host_pin_unless_yes() {
         let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_mclient"));
         command
             .env("HOME", home)
+            .env("PATH", tailscale_on_path(home, RUNNING_TAILSCALE))
             .args([
                 "join",
                 &host.endpoint,
+                "--mode",
+                "tailnet",
                 "--host-pin",
                 &host.pin,
                 "--no-service",
@@ -765,13 +768,181 @@ fn join_requires_an_explicit_pin_or_certificate_for_a_network_host() {
     let directory = tempfile::tempdir().expect("isolated home");
     let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
         .env("HOME", directory.path())
-        .args(["join", "127.0.0.1"])
+        .args(["join", "127.0.0.1", "--mode", "tailnet"])
         .output()
         .expect("mclient runs");
     assert_eq!(output.status.code(), Some(2));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
     assert_eq!(error["reason"], "pin_required");
     assert!(output.stdout.is_empty());
+}
+
+/// A well-formed pin that no host presents: the mode checks run before any dial.
+const UNMATCHED_PIN: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+/// A `tailscale` whose `status --json` reports a running node: a tailnet join
+/// on this search path finds Tailscale up and dials at once.
+const RUNNING_TAILSCALE: &[u8] =
+    b"#!/bin/sh\ncase \"$1\" in status) printf '%s' '{\"BackendState\":\"Running\"}' ;; esac\n";
+
+/// Writes `body` as the one `tailscale` on a fresh search path under `home`
+/// and returns that directory, for a join's `PATH`.
+fn tailscale_on_path(home: &std::path::Path, body: &[u8]) -> std::path::PathBuf {
+    let bin = home.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin");
+    let mut writer = Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod 700 \"$1\"", "sh"])
+        .arg(bin.join("tailscale"))
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("script writer");
+    writer
+        .stdin
+        .take()
+        .expect("stdin configured as piped")
+        .write_all(body)
+        .expect("script body");
+    assert!(writer.wait().expect("script writer exit").success());
+    bin
+}
+
+#[test]
+fn join_refuses_a_network_host_without_a_mode_or_in_the_wrong_one() {
+    let directory = tempfile::tempdir().expect("isolated home");
+    let cases = [
+        (
+            vec!["join", "127.0.0.1", "--host-pin", UNMATCHED_PIN],
+            "mode_required",
+            "a network host joins in exactly one mode; re-join with: mclient join <host> --mode tailnet|domain",
+        ),
+        (
+            vec!["join", "127.0.0.1", "--mode", "domain", "--host-pin", UNMATCHED_PIN],
+            "mode_mismatch",
+            "--mode domain does not dial the tcp carrier this host address selects; re-join with the address domain mode takes, or the mode that dials it",
+        ),
+        (
+            vec!["join", "wss://host.example/machine", "--mode", "tailnet", "--host-pin", UNMATCHED_PIN],
+            "mode_mismatch",
+            "--mode tailnet does not dial the wss carrier this host address selects; re-join with the address tailnet mode takes, or the mode that dials it",
+        ),
+        (
+            vec!["join", "localhost", "--unix", "/tmp/oni.sock", "--mode", "tailnet"],
+            "mode_mismatch",
+            "--mode tailnet does not dial the unix carrier this host address selects; re-join with the address tailnet mode takes, or the mode that dials it",
+        ),
+    ];
+    for (args, reason, next_step) in cases {
+        let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+            .env("HOME", directory.path())
+            .args(&args)
+            .output()
+            .expect("mclient runs");
+        assert_eq!(output.status.code(), Some(3), "{args:?}");
+        let error: serde_json::Value =
+            serde_json::from_slice(&output.stderr).expect("JSON refusal");
+        assert_eq!(error["reason"], reason, "{args:?}");
+        assert_eq!(error["class"], "configuration");
+        assert_eq!(error["nextStep"], next_step);
+        assert!(output.stdout.is_empty());
+    }
+    assert!(!directory
+        .path()
+        .join(".oni/machine-client/client.json")
+        .exists());
+}
+
+#[test]
+fn status_reports_the_saved_mode_and_refuses_a_config_in_the_wrong_one() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let client = home.path().join(".oni/machine-client");
+    std::fs::create_dir_all(&client).expect("client directory");
+    let status = |json: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_mclient"));
+        command.env("HOME", home.path()).arg("status");
+        if json {
+            command.arg("--json");
+        }
+        command.output().expect("status")
+    };
+    let saved = |mode: &str| {
+        let settings = serde_json::json!({
+            "machineId": "desk", "name": "desk", "host": "wss://host.example/machine",
+            "exports": [], "tags": [], "memoryBudgetMb": 512, "mode": mode
+        });
+        std::fs::write(client.join("client.json"), settings.to_string()).expect("client.json");
+    };
+
+    let unjoined = status(true);
+    assert_eq!(unjoined.status.code(), Some(0));
+    let record: serde_json::Value = serde_json::from_slice(&unjoined.stdout).expect("status JSON");
+    assert_eq!(record["mode"], serde_json::Value::Null);
+    assert!(!String::from_utf8_lossy(&status(false).stdout).contains("mode:"));
+
+    saved("domain");
+    let joined = status(true);
+    assert_eq!(joined.status.code(), Some(0));
+    let record: serde_json::Value = serde_json::from_slice(&joined.stdout).expect("status JSON");
+    assert_eq!(record["mode"], "domain");
+    let text = status(false);
+    assert_eq!(text.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&text.stdout)
+        .lines()
+        .any(|line| line == "mode: domain"));
+
+    saved("tailnet");
+    let refused = status(true);
+    assert_eq!(refused.status.code(), Some(3));
+    assert!(refused.stdout.is_empty());
+    let refusal: serde_json::Value = serde_json::from_slice(&refused.stderr).expect("JSON refusal");
+    assert_eq!(refusal["reason"], "mode_mismatch");
+    assert_eq!(refusal["class"], "configuration");
+    assert_eq!(
+        refusal["nextStep"],
+        "--mode tailnet does not dial the wss carrier this host address selects; re-join with the address tailnet mode takes, or the mode that dials it"
+    );
+}
+
+#[test]
+fn join_in_tailnet_mode_reports_the_tailscale_setup_it_could_not_finish() {
+    let home = tempfile::tempdir().expect("isolated home");
+    let bin = tailscale_on_path(
+        home.path(),
+        b"#!/bin/sh\ncase \"$1\" in status) printf '%s' '{\"BackendState\":\"NeedsLogin\"}' ;; up) exit 1 ;; esac\n",
+    );
+    let tailscale = bin.join("tailscale");
+    let output = Command::new(env!("CARGO_BIN_EXE_mclient"))
+        .env("HOME", home.path())
+        .env("PATH", &bin)
+        .args([
+            "join",
+            "127.0.0.1",
+            "--mode",
+            "tailnet",
+            "--host-pin",
+            UNMATCHED_PIN,
+            "--no-service",
+            "--json",
+        ])
+        .output()
+        .expect("mclient runs");
+    assert_eq!(output.status.code(), Some(3));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).expect("JSON refusal");
+    assert_eq!(error["reason"], "tailscale_login_failed");
+    assert_eq!(error["class"], "configuration");
+    assert_eq!(
+        error["nextStep"],
+        "`tailscale up` failed; log the node in (or pass --tailscale-auth-key) and re-join"
+    );
+    assert_eq!(
+        error["tailscale"]["steps"],
+        serde_json::json!([
+            {"step":"locate","via":tailscale.display().to_string(),"ok":true},
+            {"step":"status","via":"NeedsLogin","ok":true},
+            {"step":"up","via":"login","ok":false}
+        ])
+    );
+    assert!(output.stdout.is_empty());
+    assert!(!home.path().join(".oni/machine-client/client.json").exists());
 }
 
 #[test]
@@ -1128,7 +1299,7 @@ fn grant_records_consent_in_the_saved_config() {
         .contains("declared capabilities: fs.read, shell.exec\n"));
 }
 
-const UNPINNED_CONFIG: &str = r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null,"declared":["fs.read"]}"#;
+const UNPINNED_CONFIG: &str = r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null,"mode":"tailnet","declared":["fs.read"]}"#;
 
 /// Consent is recorded before the service is signalled, so a service state
 /// that cannot be read is reported after the declared set rather than
@@ -2015,7 +2186,7 @@ fn one_shot_without_recorded_host_pin_refuses_configuration() {
     let path = directory.path().join("client.json");
     std::fs::write(
         &path,
-        r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null}"#,
+        r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null,"mode":"tailnet"}"#,
     )
     .expect("config");
     let output = mclient(&[
@@ -2036,7 +2207,7 @@ fn legacy_hex_host_pin_refuses_with_the_rejoin_command() {
     let path = directory.path().join("client.json");
     std::fs::write(
         &path,
-        r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null}"#,
+        r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null,"mode":"tailnet"}"#,
     )
     .expect("config");
     std::fs::write(directory.path().join("host-pin"), "ab".repeat(32)).expect("legacy pin");
@@ -2070,7 +2241,7 @@ async fn service_with_a_legacy_host_pin_reports_the_rejoin_command_and_waits() {
     let path = directory.path().join("client.json");
     std::fs::write(
         &path,
-        r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null}"#,
+        r#"{"machineId":"m","name":"m","host":"127.0.0.1:9","exports":[],"tags":[],"memoryBudgetMb":96,"unix":null,"mode":"tailnet"}"#,
     )
     .expect("config");
     std::fs::write(directory.path().join("host-pin"), "ab".repeat(32)).expect("legacy pin");

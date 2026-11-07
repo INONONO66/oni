@@ -86,6 +86,10 @@
       "name": "AppQuitResult"
     },
     {
+      "file": "AttachMode.json",
+      "name": "AttachMode"
+    },
+    {
       "file": "AttachResult.json",
       "name": "AttachResult"
     },
