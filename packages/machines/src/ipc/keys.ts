@@ -8,8 +8,8 @@ import { createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, 
  * 32-byte X25519 public keys.
  */
 const X25519_SPKI_PREFIX = Buffer.from("302a300506032b656e032100", "hex");
-export const EPHEMERAL_KEY_BYTES = 32;
-export const SIGNATURE_BYTES = 64;
+const EPHEMERAL_KEY_BYTES = 32;
+const SIGNATURE_BYTES = 64;
 const STATIC_CURVE = "prime256v1";
 
 export type EphemeralKey = {

@@ -55,7 +55,7 @@ export function sealSchedule(own: EphemeralKey, peerEphemeralKey: string, hello:
   };
 }
 
-export type HandshakeRefused = Extract<Machine.HandshakeResult, { status: "refused" }>;
+type HandshakeRefused = Extract<Machine.HandshakeResult, { status: "refused" }>;
 
 export type HandshakeOutcome =
   | {
