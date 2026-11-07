@@ -172,7 +172,8 @@ issue's six candidates are deleted with their call sites; item 2 (the legacy
   expected host key; `join` persists only a key it verified against
   `--host-pin`, `--host-cert` or `~/.oni/tls/host-cert.pem`, and a host with
   none of those is refused `pin_required`. The one-time `{"hostPin"}` stderr
-  notice went with it.
+  notice went with it. (Superseded by #1831 above: `--host-cert` and the
+  `host-cert.pem` path are gone; `--host-pin` is the only trust input.)
 - CLI: `probe --release` is `update --check [--file <release>]
   [--host-contract <n>]` (with no file it fetches the host's release); `retry`
   is `reconnect`; `hook` is hidden from `--help`. A hidden `probe --release`
@@ -1618,7 +1619,8 @@ pinning with handshake signature checks (`connection.rs`). `config.rs` owns
 `join` parsing: host resolution (IP or dotted name as given; a bare name
 through the tailnet status peer list, else `host_unresolved`; port default
 7643), trust precedence `--host-pin` > `--host-cert` >
-`~/.oni/tls/host-cert.pem` > `pin_required`,
+`~/.oni/tls/host-cert.pem` > `pin_required` (superseded by #1831: the
+base64 SPKI `--host-pin` alone),
 export validation, the 0700 directory and 0600 files, and the ten-year
 self-signed EC P-256 client identity. `attach.rs` owns the loop: the Offer
 with `peer.kind = "client"` (the `generation` key omitted on a first
