@@ -1060,6 +1060,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           os: offer.platform.split("-")[0] ?? offer.platform,
           arch: offer.platform.split("-").slice(1).join("-"),
           ...(offer.resources === undefined ? {} : { resources: { ...offer.resources } }),
+          ...(offer.mode === undefined ? {} : { mode: offer.mode }),
         };
         if (latest === undefined) return info;
         const { machineId: _machineId, streams: _streams, ...facts } = latest.report;

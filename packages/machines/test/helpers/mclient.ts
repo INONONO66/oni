@@ -11,6 +11,8 @@ import type { eventCollector } from "./events";
 const CLIENTS = join(import.meta.dir, "../../../../clients");
 const ATTACH_DEADLINE_MS = 10_000;
 type Reports = Pick<ReturnType<typeof eventCollector>, "next">;
+/** The one mode a machine joins and attaches in (#1837); `AttachMode` is schema-local like `Peer`, so it is read off `Info`. */
+export type AttachMode = NonNullable<MachineInfo["mode"]>;
 
 /** Every capability `handlers::SUPPORTED` can offer; the host enrollment bounds it. */
 const MCLIENT_CAPABILITIES: readonly Machine.CapabilityId[] = [
@@ -54,6 +56,7 @@ interface MclientSettings {
   readonly exports: readonly { readonly name: string; readonly path: string }[];
   readonly tags: readonly string[];
   readonly memoryBudgetMb: number;
+  readonly mode?: AttachMode;
   readonly tmuxSocket?: string;
   readonly computer?: { readonly layout: string; readonly recorder: string };
 }
@@ -93,7 +96,7 @@ function unixCarrier(options: {
   return { host: "localhost", unix: options.unix ?? unix };
 }
 
-/** What `mclient join --json` prints as `receipt`: the client's own identity and the host pin it recorded. */
+/** What `mclient join --json` prints as `receipt`: the client's own identity, the host pin it recorded, and the mode it joined in (#1837). */
 interface MclientJoinReceipt {
   readonly machineId: string;
   readonly name: string;
@@ -101,6 +104,9 @@ interface MclientJoinReceipt {
   readonly hostPin: string | null;
   readonly allowedCapabilities: readonly string[];
   readonly allowedExports: readonly string[];
+  readonly mode: AttachMode | null;
+  /** The Tailscale readiness steps a tailnet join took; `null` for a domain join. */
+  readonly tailscale: { readonly state: string; readonly steps: readonly { readonly step: string; readonly via?: string; readonly ok: boolean }[] } | null;
 }
 
 export interface JoinedMclient {
@@ -123,13 +129,17 @@ export async function joinMclient(options: {
   readonly hostPin: string;
   readonly machineId: string;
   readonly root: string;
+  /** The one mode this machine joins in (#1837): a tailnet join brings Tailscale up through the `tailscale` on `PATH`. */
+  readonly mode: AttachMode;
+  /** Environment overrides for the join process, such as a `PATH` holding the `tailscale` a tailnet join finds. */
+  readonly env?: Readonly<Record<string, string>>;
 }): Promise<JoinedMclient> {
   const binary = await mclientBinary();
   const home = mkdtempSync(join(tmpdir(), "oni-mclient-join-"));
   const child = Bun.spawn([
-    binary, "join", options.host, "--host-pin", options.hostPin, "--name", options.machineId,
+    binary, "join", options.host, "--mode", options.mode, "--host-pin", options.hostPin, "--name", options.machineId,
     "--export", `workspace=${options.root}`, "--json", "--no-service", "--no-open",
-  ], { env: { ...process.env, HOME: home }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  ], { env: { ...process.env, ...options.env, HOME: home }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   const [exitCode, stdout, stderr] = await Promise.all([
     child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
   ]);

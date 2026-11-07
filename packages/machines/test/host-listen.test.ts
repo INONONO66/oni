@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import fs, { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -180,7 +180,7 @@ describe("host listener set (#1270)", () => {
     const host = await wsHostForJoin({ identity: hostIdentity, port: 0, machineId: "desk-wss", joined: () => joined, events });
     let client: AttachedMclient | undefined;
     try {
-      joined = await joinMclient({ host: `wss://127.0.0.1:${host.endpoints.ws?.port ?? 0}/machine`, hostPin, machineId: "desk-wss", root });
+      joined = await joinMclient({ host: `wss://127.0.0.1:${host.endpoints.ws?.port ?? 0}/machine`, hostPin, machineId: "desk-wss", root, mode: "domain" });
       // The receipt names the pin the join recorded, in the host-pin file's exact bytes.
       expect(joined.receipt.hostPin).toBe(hostPin);
       expect(joined.recordedHostPin()).toBe(hostPin);
@@ -213,7 +213,7 @@ describe("host listener set (#1270)", () => {
     let listening: Awaited<ReturnType<typeof serve>> | undefined = await serve(hostIdentity, 0);
     const port = listening.endpoints.ws?.port ?? 0;
     try {
-      joined = await joinMclient({ host: `wss://127.0.0.1:${port}/machine`, hostPin, machineId: "desk-rotate", root });
+      joined = await joinMclient({ host: `wss://127.0.0.1:${port}/machine`, hostPin, machineId: "desk-rotate", root, mode: "domain" });
       expect(joined.receipt.hostPin).toBe(hostPin);
       const recorded = joined.recordedHostPin();
       expect(recorded).toBe(hostPin);
@@ -243,6 +243,68 @@ describe("host listener set (#1270)", () => {
     } finally {
       await listening?.close();
       joined?.remove();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("one host serves a tailnet-mode attach over tcp and a domain-mode attach over wss at once; each machine holds exactly its own mode and a saved config mixing them is refused mode_mismatch (#1837)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "om-listen-modes-"));
+    writeFileSync(join(root, "note"), "two-modes");
+    // The `tailscale` a tailnet join finds on PATH: a running node whose status answers at once.
+    const tailnetBin = mkdtempSync(join(tmpdir(), "om-tailnet-bin-"));
+    writeFileSync(join(tailnetBin, "tailscale"), '#!/bin/sh\n[ "$1 $2" = "status --json" ] && printf \'%s\' \'{"BackendState":"Running","Peer":{}}\'\n', { mode: 0o755 });
+    const events = eventCollector();
+    const joins = new Map<string, JoinedMclient>();
+    const host = await createMachineHost({
+      listen: { tcp: { host: "127.0.0.1", port: 0 }, ws: { host: "127.0.0.1", port: 0 } },
+      tls: hostIdentity,
+      enrollment: (id) => {
+        const joined = joins.get(id);
+        return joined === undefined ? undefined : mclientEnrollment(id, { publicKey: joined.receipt.publicKey });
+      },
+      events: events.sink,
+      now: () => 5,
+    });
+    const clients: AttachedMclient[] = [];
+    try {
+      const tcpPort = host.endpoints.tcp?.port ?? 0;
+      const wsPort = host.endpoints.ws?.port ?? 0;
+      expect(tcpPort).toBeGreaterThan(0);
+      expect(wsPort).toBeGreaterThan(0);
+      const tailnet = await joinMclient({
+        host: `127.0.0.1:${tcpPort}`, hostPin, machineId: "desk-tailnet", root, mode: "tailnet",
+        env: { PATH: `${tailnetBin}:${process.env.PATH ?? ""}` },
+      });
+      joins.set("desk-tailnet", tailnet);
+      const domain = await joinMclient({ host: `wss://127.0.0.1:${wsPort}/machine`, hostPin, machineId: "desk-domain", root, mode: "domain" });
+      joins.set("desk-domain", domain);
+      // The tailnet join brought Tailscale to Running before it dialed; the domain join never touched it.
+      expect(tailnet.receipt).toMatchObject({ mode: "tailnet", hostPin, tailscale: { state: "Running" } });
+      expect(tailnet.receipt.tailscale?.steps.map((step) => step.step)).toEqual(["locate", "status"]);
+      expect(domain.receipt).toMatchObject({ mode: "domain", hostPin, tailscale: null });
+      const tailnetSettings = JSON.parse(readFileSync(tailnet.configPath, "utf8")) as { mode: string; host: string };
+      const domainSettings = JSON.parse(readFileSync(domain.configPath, "utf8")) as { mode: string; host: string };
+      expect(tailnetSettings).toMatchObject({ mode: "tailnet", host: `127.0.0.1:${tcpPort}` });
+      expect(domainSettings).toMatchObject({ mode: "domain", host: `wss://127.0.0.1:${wsPort}/machine` });
+      clients.push(await attachMclient({ host, events, machineId: "desk-tailnet", root, joined: tailnet }));
+      clients.push(await attachMclient({ host, events, machineId: "desk-domain", root, joined: domain }));
+      expect(host.list().map((machine) => [machine.machineId, machine.mode])).toEqual([
+        ["desk-domain", "domain"], ["desk-tailnet", "tailnet"],
+      ]);
+      for (const id of ["desk-tailnet", "desk-domain"]) {
+        const read = await host.get(id).fs.read(join(root, "note"));
+        expect(Buffer.from(read.data).toString()).toBe("two-modes");
+      }
+      // The domain machine's settings rewritten to claim the tailnet mode: refused before any dial.
+      const mixed = join(root, "mixed.json");
+      writeFileSync(mixed, JSON.stringify({ ...domainSettings, mode: "tailnet" }), { mode: 0o600 });
+      expect(await mclientRunOnce(mixed)).toMatchObject({ exitCode: 3, refusal: { reason: "mode_mismatch", class: "configuration" } });
+      expect(host.list()).toHaveLength(2);
+    } finally {
+      for (const client of clients) await client.stop();
+      await host.close();
+      for (const joined of joins.values()) joined.remove();
+      rmSync(tailnetBin, { recursive: true, force: true });
       rmSync(root, { recursive: true, force: true });
     }
   });
