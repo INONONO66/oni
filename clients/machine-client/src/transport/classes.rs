@@ -66,6 +66,7 @@ pub fn classify(error: &AttachError) -> FailureClass {
         }
         AttachError::Terminal(reason) if reason == "stale_generation" => FailureClass::Superseded,
         AttachError::Terminal(_)
+        | AttachError::ConsentRequired
         | AttachError::Config(_)
         | AttachError::Io(_)
         | AttachError::Decode(_)

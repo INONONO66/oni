@@ -417,6 +417,19 @@ export const ReportResult = z.discriminatedUnion("status", [
 export type ReportResult = z.infer<typeof ReportResult>;
 
 /**
+ * allowed − offered: what the enrollment grants beyond what the machine
+ * offered. The host never grants past the offer; the machine's operator
+ * consents (declares) and the next offer carries it. Told to the peer in
+ * `AttachResult.consentRequired` and to the Owner as `machine.consent_required`.
+ */
+export const ConsentDelta = z
+  .object({
+    capabilities: z.array(CapabilityId).superRefine(uniqueCapabilities),
+    exports: z.array(ExportName).superRefine(uniqueExports),
+  })
+  .strict();
+
+/**
  * Host reply to a daemon's `machine.attach` wire call. `refused` is a typed
  * outcome, not a transport error: the connection stays open and the daemon
  * may re-offer after the Owner fixes the enrollment.
@@ -429,6 +442,8 @@ export const AttachResult = z.discriminatedUnion("status", [
       effectiveExports: z.array(ExportName).superRefine(uniqueExports),
       /** The generation this attachment holds; present it on reconnect. */
       generation: AttachGeneration,
+      /** Sent to `consentContractVersion` peers and only when non-empty. */
+      consentRequired: ConsentDelta.optional(),
     })
     .strict(),
   z

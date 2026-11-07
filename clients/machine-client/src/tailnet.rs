@@ -344,7 +344,11 @@ impl Run<'_> {
         let started = Instant::now();
         loop {
             let state = self.status(binary).await;
-            self.record("status", state.map(|state| format!("{state:?}")), state.is_some());
+            self.record(
+                "status",
+                state.map(|state| format!("{state:?}")),
+                state.is_some(),
+            );
             if state == Some(State::Running) || started.elapsed() >= self.setup.ready_deadline {
                 return state;
             }
@@ -354,7 +358,10 @@ impl Run<'_> {
 
     async fn up(&mut self, binary: &Path) -> Result<(), Reason> {
         let (via, mut args) = match &self.setup.auth_key {
-            Some(key) => ("auth-key", vec!["up".to_owned(), format!("--auth-key={key}")]),
+            Some(key) => (
+                "auth-key",
+                vec!["up".to_owned(), format!("--auth-key={key}")],
+            ),
             None => ("login", vec!["up".to_owned()]),
         };
         let program = match self.setup.platform.elevate.split_first() {

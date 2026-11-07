@@ -1,5 +1,50 @@
 # Implementation Status
 
+## #1842 mutual approval on machine attach
+
+PR #1858 on `feat/1842-mutual-approval` (epic #1829 Phase 2). Trust is
+established in both directions, and nothing is trusted on first use.
+
+- Machine approves the host: `mclient join` (`clients/machine-client/src/
+  attach.rs`, `config.rs`) completes the TLS handshake, shows the host's
+  SPKI pin and records it only after the operator answers (`--yes` for
+  scripts); declining or a non-interactive join without `--yes` is the
+  typed `host_untrusted` configuration refusal and nothing is written.
+- Host approves the machine: admission stays enrolled-key-only
+  (`packages/machines/src/host.ts`), and a pinned machine presenting a
+  different key stays `peer_key_mismatch`.
+- Consent delta: machine contract v5 (`packages/protocol/src/machine/
+  contract.ts`); `AttachResult.attached.consentRequired` is
+  `Machine.consentRequired` (`fold.ts`: enrollment minus the machine's
+  declared offer, sorted, for capabilities and exports), omitted for peers
+  below contract 5, and the host publishes the same delta as
+  `machine.consent_required` (`events.ts`). The client declares only the
+  capabilities the operator selected, records the delta in `consent.json`
+  (0600), `mclient status` names the exact `mclient grant <capability>`
+  answer, and a grant widens a running service's next offer on the
+  reconnect signal; a grant beyond the declared set is `consent_required`.
+- Key custody: the identity key stays under the client config directory
+  (0700/0600); receipts, prompts and the wire carry only the public-key
+  pin. `join --rekey` mints a new identity and swaps it in only after the
+  host enrolled the new key; a declined or failed rekey leaves the enrolled
+  identity intact.
+- Verification: `clients/machine-client/tests/attach.rs`
+  (`join_without_operator_approval_is_refused_host_untrusted`,
+  `join_prompts_for_the_host_pin_unless_yes`,
+  `attach_records_the_consent_delta_the_host_still_wants`,
+  `grant_widens_the_running_offer_on_the_reconnect_signal`,
+  `declined_or_failed_rekey_leaves_the_enrolled_identity_intact`),
+  `clients/machine-client/tests/cli.rs` (`grant_beyond_the_offer_is_refused_consent_required`,
+  `status_refuses_a_corrupt_consent_record_or_identity`),
+  `clients/protocol/tests/fixtures.rs` over the `AttachResult.consent-required`
+  and `EventConsentRequired` fixtures, `packages/machines/test/attach.test.ts`
+  (contract-5 delta without widened authority, the published
+  `machine.consent_required`, no field for an older peer),
+  `packages/protocol/test/machine/machine-fs.test.ts` (`consentRequired`
+  fold), `docs/first-live-run.md` (interactive join, consent to-do,
+  `--rekey`). Not established: a live join against the oni host over the
+  [ino] 443/ACME path (#1836).
+
 ## #1831 host identity by SPKI pin
 
 PR #1859 on `feat/1831-spki-pin` (epic #1829 Phase 2). A joined client

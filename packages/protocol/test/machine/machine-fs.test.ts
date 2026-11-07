@@ -169,6 +169,30 @@ describe("machine wire compatibility", () => {
   });
 });
 
+describe("Machine.consentRequired", () => {
+  test("allowed − offered, sorted, for capabilities and exports", () => {
+    const widened: Machine.Enrollment = {
+      ...enrollment,
+      allowedCapabilities: ["shell.exec", "fs.read", "computer.use"],
+      allowedExports: ["work", "notes"],
+    };
+    expect(Machine.consentRequired(widened, offer)).toEqual({
+      capabilities: ["computer.use", "shell.exec"],
+      exports: ["work"],
+    });
+  });
+
+  test("an enrollment inside the offer needs no consent", () => {
+    expect(Machine.consentRequired({ ...enrollment, allowedExports: ["notes"] }, offer)).toBeUndefined();
+  });
+
+  test("an absent allowlist and offer need no consent", () => {
+    const { allowedExports: _allowed, ...withoutAllowed } = enrollment;
+    const { exports: _offered, ...withoutOffered } = offer;
+    expect(Machine.consentRequired({ ...withoutAllowed, allowedCapabilities: ["fs.read"] }, withoutOffered)).toBeUndefined();
+  });
+});
+
 describe("Machine.effectiveExports", () => {
   test("effective = enrollment ∩ offer, sorted ascending", () => {
     expect(Machine.effectiveExports(enrollment, offer)).toEqual({

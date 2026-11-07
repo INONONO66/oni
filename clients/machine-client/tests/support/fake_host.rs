@@ -1,4 +1,4 @@
-use std::{io::Cursor, path::PathBuf, sync::Arc, time::Duration};
+use std::{io::Cursor, path::PathBuf, time::Duration};
 
 use oni_machine_client::transport::{
     connection::{public_key_pin, HostPin},
@@ -8,7 +8,6 @@ use oni_machine_client::transport::{
 use rcgen::{
     BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, PKCS_ECDSA_P256_SHA256,
 };
-use rustls::{server::WebPkiClientVerifier, RootCertStore, ServerConfig};
 use serde_json::Value;
 use tokio::{
     io::{split, AsyncRead, AsyncWrite, AsyncWriteExt},
@@ -16,7 +15,6 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
 };
-use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::{
     tungstenite::{protocol::WebSocketConfig, Error as WsError},
     WebSocketStream,
@@ -174,33 +172,11 @@ impl FakeHost {
     /// the one client it accepts must present an identity those certificates
     /// anchor, which is why tests hand the host's own identity to the client.
     async fn listen(listener_kind: Listener, certificate: String, private_key: String) -> Self {
-        let mut roots = RootCertStore::empty();
-        for cert in rustls_pemfile::certs(&mut Cursor::new(certificate.as_bytes())) {
-            roots
-                .add(cert.expect("test certificate"))
-                .expect("trust test certificate");
-        }
-        let verifier = WebPkiClientVerifier::builder(Arc::new(roots))
-            .build()
-            .expect("client certificate verifier");
-        let certs = rustls_pemfile::certs(&mut Cursor::new(certificate.as_bytes()))
-            .collect::<Result<Vec<_>, _>>()
-            .expect("parse test certificate");
-        let key = rustls_pemfile::private_key(&mut Cursor::new(private_key.as_bytes()))
-            .expect("parse test key")
-            .expect("test key present");
         let versions = match listener_kind {
             Listener::Tls12 => &[&rustls::version::TLS12][..],
             Listener::Tls13 | Listener::WebSocket => &[&rustls::version::TLS13][..],
         };
-        let config =
-            ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-                .with_protocol_versions(versions)
-                .expect("TLS version")
-                .with_client_cert_verifier(verifier)
-                .with_single_cert(certs, key)
-                .expect("TLS server config");
-        let acceptor = TlsAcceptor::from(Arc::new(config));
+        let acceptor = super::tls::acceptor(&certificate, &private_key, versions);
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind TCP socket");

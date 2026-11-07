@@ -81,6 +81,76 @@ describe("machine attach handshake", () => {
     } finally { peer.close(); await host.close(); }
   });
 
+  test("attached tells a contract-5 peer the enrollment delta it must consent to, without widening authority", async () => {
+    await withHost(
+      () => ({ ...enrollment, allowedExports: ["work"] }),
+      async ({ host, path }) => {
+        const peer = await connectIpcClient(path);
+        try {
+          expect(await peer.call(Machine.WireMethod.Attach, {
+            ...offer(), peer: { kind: "client", contractVersion: Machine.contractVersion },
+          })).toEqual({
+            status: "attached",
+            generation: 1,
+            effectiveCapabilities: ["fs.read"],
+            effectiveExports: [],
+            consentRequired: { capabilities: ["shell.exec"], exports: ["work"] },
+          });
+          expect(host.list().map((entry) => entry.capabilities)).toEqual([["fs.read"]]);
+        } finally { peer.close(); }
+      },
+    );
+  });
+
+  test("the host publishes machine.consent_required with the same delta it told the peer", async () => {
+    await withHost(
+      () => ({ ...enrollment, allowedExports: ["work"] }),
+      async ({ path, collector }) => {
+        const peer = await connectIpcClient(path);
+        try {
+          await peer.call(Machine.WireMethod.Attach, {
+            ...offer(), peer: { kind: "client", contractVersion: Machine.contractVersion },
+          });
+          expect(collector.events.map((event) => event.name)).toEqual([Machine.Events.Attached.name, Machine.Events.ConsentRequired.name]);
+          expect(collector.events[1]).toEqual({
+            name: Machine.Events.ConsentRequired.name,
+            payload: { machineId: "mac-studio", time: 5000, capabilities: ["shell.exec"], exports: ["work"] },
+          });
+        } finally { peer.close(); }
+      },
+    );
+  });
+
+  test("an offer that covers the enrollment publishes no machine.consent_required", async () => {
+    await withHost(
+      () => enrollment,
+      async ({ path, collector }) => {
+        const peer = await connectIpcClient(path);
+        try {
+          await peer.call(Machine.WireMethod.Attach, {
+            ...offer({ offeredCapabilities: ["fs.read", "shell.exec"] }), peer: { kind: "client", contractVersion: Machine.contractVersion },
+          });
+          expect(collector.events.map((event) => event.name)).toEqual([Machine.Events.Attached.name]);
+        } finally { peer.close(); }
+      },
+    );
+  });
+
+  test("a peer below contract 5 is attached without the consent field it cannot decode, and no consent receipt is published", async () => {
+    await withHost(
+      () => enrollment,
+      async ({ path, collector }) => {
+        const peer = await connectIpcClient(path);
+        try {
+          expect(await peer.call(Machine.WireMethod.Attach, {
+            ...offer(), peer: { kind: "daemon", contractVersion: 4 },
+          })).toEqual({ status: "attached", generation: 1, effectiveCapabilities: ["fs.read"], effectiveExports: [] });
+          expect(collector.events.map((event) => event.name)).toEqual([Machine.Events.Attached.name]);
+        } finally { peer.close(); }
+      },
+    );
+  });
+
   test("failed durable capability recording refuses attach without publishing authority", async () => {
     const path = socketPath();
     const host = await createMachineHost({
@@ -498,6 +568,7 @@ describe("machine attach handshake", () => {
           generation: 2,
           effectiveCapabilities: ["shell.exec"],
           effectiveExports: [],
+          consentRequired: { capabilities: ["fs.read"], exports: [] },
         });
         expect(host.list().find((entry) => entry.machineId === "mac-studio")?.capabilities).toEqual(
           ["shell.exec"],

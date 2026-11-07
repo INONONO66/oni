@@ -122,7 +122,8 @@ export interface JoinedMclient {
 /**
  * Runs the real `mclient join` against a network host under a private HOME,
  * so every later `run` over `configPath` reads the trust the join recorded
- * rather than anything a test wrote.
+ * rather than anything a test wrote. `--yes` stands in for the operator's
+ * approval of the verified host pin (stdin is closed here).
  */
 export async function joinMclient(options: {
   readonly host: string;
@@ -137,7 +138,7 @@ export async function joinMclient(options: {
   const binary = await mclientBinary();
   const home = mkdtempSync(join(tmpdir(), "oni-mclient-join-"));
   const child = Bun.spawn([
-    binary, "join", options.host, "--mode", options.mode, "--host-pin", options.hostPin, "--name", options.machineId,
+    binary, "join", options.host, "--mode", options.mode, "--host-pin", options.hostPin, "--yes", "--name", options.machineId,
     "--export", `workspace=${options.root}`, "--json", "--no-service", "--no-open",
   ], { env: { ...process.env, ...options.env, HOME: home }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   const [exitCode, stdout, stderr] = await Promise.all([

@@ -20,5 +20,6 @@ pub fn client_config(root: &Path, export: Option<&str>) -> ClientConfig {
         unix: None,
         mode: Some(oni_machine_client::config::Mode::Tailnet),
         tmux_socket: None,
+        declared: None,
     }
 }

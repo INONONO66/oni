@@ -61,7 +61,11 @@ fn up_args(home: &Path) -> Vec<String> {
 async fn running_node_needs_only_locate_and_status() {
     let home = tempfile::tempdir().expect("home");
     let bin = bin(home.path());
-    let cli = script::script(&bin, "tailscale", &format!("#!/bin/sh\nprintf '%s' '{RUNNING}'\n"));
+    let cli = script::script(
+        &bin,
+        "tailscale",
+        &format!("#!/bin/sh\nprintf '%s' '{RUNNING}'\n"),
+    );
     let receipt = tailnet::ensure(&setup(&bin)).await.expect("running node");
     assert_eq!(receipt.state, State::Running);
     assert_eq!(receipt.cli, cli);
@@ -75,7 +79,10 @@ async fn running_node_needs_only_locate_and_status() {
     let json = serde_json::to_value(&receipt).expect("receipt json");
     assert_eq!(json["state"], "Running");
     assert_eq!(json.get("cli"), None);
-    assert_eq!(json["steps"][1], serde_json::json!({"step":"status","via":"Running","ok":true}));
+    assert_eq!(
+        json["steps"][1],
+        serde_json::json!({"step":"status","via":"Running","ok":true})
+    );
 }
 
 #[tokio::test]
@@ -106,7 +113,9 @@ async fn auth_key_is_presented_to_up_and_never_recorded() {
         auth_key: Some("tskey-auth-secret".into()),
         ..setup(&bin)
     };
-    let receipt = tailnet::ensure(&setup).await.expect("logged in with the key");
+    let receipt = tailnet::ensure(&setup)
+        .await
+        .expect("logged in with the key");
     assert_eq!(receipt.steps[2], step("up", Some("auth-key"), true));
     assert_eq!(up_args(home.path()), ["up", "--auth-key=tskey-auth-secret"]);
     let json = serde_json::to_string(&receipt).expect("receipt json");
@@ -149,7 +158,9 @@ async fn absent_tailscale_is_installed_by_the_platform_recipe_then_logged_in() {
         },
         ..setup(&bin)
     };
-    let receipt = tailnet::ensure(&setup).await.expect("installed and logged in");
+    let receipt = tailnet::ensure(&setup)
+        .await
+        .expect("installed and logged in");
     assert_eq!(receipt.cli, installed);
     assert_eq!(
         receipt.steps,
@@ -170,7 +181,10 @@ async fn install_step_failure_refuses_tailscale_install_failed() {
     let bin = bin(home.path());
     script::script(&bin, "fail-install", "#!/bin/sh\nexit 1\n");
     for (recipe, via) in [
-        (Step::new("brew", &["install", "--cask", "tailscale"]), "brew install --cask tailscale"),
+        (
+            Step::new("brew", &["install", "--cask", "tailscale"]),
+            "brew install --cask tailscale",
+        ),
         (Step::new("fail-install", &[]), "fail-install"),
     ] {
         let setup = Setup {
@@ -182,9 +196,19 @@ async fn install_step_failure_refuses_tailscale_install_failed() {
         };
         let refusal = tailnet::ensure(&setup).await.expect_err("install failed");
         assert_eq!(refusal.reason, Reason::InstallFailed { via: via.into() });
-        assert_eq!(refusal.steps, [step("locate", None, false), step("install", Some(via), false)]);
+        assert_eq!(
+            refusal.steps,
+            [
+                step("locate", None, false),
+                step("install", Some(via), false)
+            ]
+        );
         assert_eq!(refusal.to_string(), "tailscale_install_failed");
-        assert!(refusal.reason.next_step().contains(via), "{}", refusal.reason.next_step());
+        assert!(
+            refusal.reason.next_step().contains(via),
+            "{}",
+            refusal.reason.next_step()
+        );
     }
 }
 
@@ -201,7 +225,9 @@ async fn install_that_leaves_no_binary_refuses_tailscale_install_failed() {
         },
         ..setup(&bin)
     };
-    let refusal = tailnet::ensure(&setup).await.expect_err("nothing installed");
+    let refusal = tailnet::ensure(&setup)
+        .await
+        .expect_err("nothing installed");
     assert_eq!(
         refusal.reason,
         Reason::InstallFailed {
@@ -260,9 +286,15 @@ async fn start_step_failure_refuses_tailscale_down_naming_the_step() {
             via: Some("open -a Tailscale".into())
         }
     );
-    assert_eq!(refusal.steps[2], step("start", Some("open -a Tailscale"), false));
+    assert_eq!(
+        refusal.steps[2],
+        step("start", Some("open -a Tailscale"), false)
+    );
     assert!(
-        refusal.reason.next_step().starts_with("`open -a Tailscale` did not bring tailscaled up"),
+        refusal
+            .reason
+            .next_step()
+            .starts_with("`open -a Tailscale` did not bring tailscaled up"),
         "{}",
         refusal.reason.next_step()
     );
@@ -310,7 +342,11 @@ async fn started_daemon_is_polled_until_it_runs() {
             "#!/bin/sh\n[ -f \"{dir}/started\" ] || exit 1\nn=$(cat \"{dir}/n\" 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > \"{dir}/n\"\nif [ \"$n\" -ge 2 ]; then printf '%s' '{RUNNING}'; else printf '%s' '{{\"BackendState\":\"Starting\"}}'; fi\n"
         ),
     );
-    script::script(&bin, "start-tailscaled", &format!("#!/bin/sh\n: > \"{dir}/started\"\n"));
+    script::script(
+        &bin,
+        "start-tailscaled",
+        &format!("#!/bin/sh\n: > \"{dir}/started\"\n"),
+    );
     let setup = Setup {
         platform: Platform {
             start: vec![Step::new("start-tailscaled", &[])],
@@ -340,11 +376,16 @@ async fn failed_login_refuses_tailscale_login_failed() {
         "tailscale",
         "#!/bin/sh\ncase \"$1\" in status) printf '%s' '{\"BackendState\":\"NeedsLogin\"}' ;; up) exit 1 ;; esac\n",
     );
-    let refusal = tailnet::ensure(&setup(&bin)).await.expect_err("login failed");
+    let refusal = tailnet::ensure(&setup(&bin))
+        .await
+        .expect_err("login failed");
     assert_eq!(refusal.reason, Reason::LoginFailed);
     assert_eq!(refusal.steps[2], step("up", Some("login"), false));
     assert_eq!(refusal.to_string(), "tailscale_login_failed");
-    assert!(refusal.reason.next_step().starts_with("`tailscale up` failed"));
+    assert!(refusal
+        .reason
+        .next_step()
+        .starts_with("`tailscale up` failed"));
 }
 
 #[tokio::test]
@@ -363,7 +404,10 @@ async fn login_past_the_deadline_refuses_tailscale_login_timeout() {
     let refusal = tailnet::ensure(&setup).await.expect_err("login timed out");
     assert_eq!(refusal.reason, Reason::LoginTimeout);
     assert_eq!(refusal.to_string(), "tailscale_login_timeout");
-    assert!(refusal.reason.next_step().starts_with("finish the browser login"));
+    assert!(refusal
+        .reason
+        .next_step()
+        .starts_with("finish the browser login"));
 }
 
 #[tokio::test]
@@ -410,7 +454,9 @@ async fn missing_or_unexecutable_elevation_program_refuses_tailscale_login_faile
     assert_eq!(refusal.reason, Reason::LoginFailed);
     assert_eq!(refusal.steps[2], step("up", Some("login"), false));
     std::fs::write(bin.join("sudo"), "not executable").expect("plain file");
-    let refusal = tailnet::ensure(&setup).await.expect_err("unexecutable sudo");
+    let refusal = tailnet::ensure(&setup)
+        .await
+        .expect_err("unexecutable sudo");
     assert_eq!(refusal.reason, Reason::LoginFailed);
     assert!(!home.path().join("up").exists());
 }
@@ -467,18 +513,29 @@ async fn daemon_lost_after_login_refuses_tailscale_down() {
 #[test]
 fn platform_recipes_name_the_os_install_start_and_elevation() {
     let macos = Platform::for_os("macos");
-    assert_eq!(macos.install, [Step::new("brew", &["install", "--cask", "tailscale"])]);
+    assert_eq!(
+        macos.install,
+        [Step::new("brew", &["install", "--cask", "tailscale"])]
+    );
     assert_eq!(
         macos.installed,
-        [PathBuf::from("/Applications/Tailscale.app/Contents/MacOS/Tailscale")]
+        [PathBuf::from(
+            "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+        )]
     );
     assert_eq!(macos.start, [Step::new("open", &["-a", "Tailscale"])]);
     assert!(macos.elevate.is_empty());
     let linux = Platform::for_os("linux");
-    assert_eq!(linux.install[0].display(), "sh -c curl -fsSL https://tailscale.com/install.sh | sh");
+    assert_eq!(
+        linux.install[0].display(),
+        "sh -c curl -fsSL https://tailscale.com/install.sh | sh"
+    );
     assert_eq!(
         linux.installed,
-        [PathBuf::from("/usr/bin/tailscale"), PathBuf::from("/usr/sbin/tailscale")]
+        [
+            PathBuf::from("/usr/bin/tailscale"),
+            PathBuf::from("/usr/sbin/tailscale")
+        ]
     );
     assert_eq!(linux.start[0].display(), "sudo systemctl start tailscaled");
     assert_eq!(linux.elevate, ["sudo"]);
@@ -491,9 +548,13 @@ fn locate_prefers_the_search_path_over_platform_locations() {
     let home = tempfile::tempdir().expect("home");
     let bin = bin(home.path());
     let installed = script::script(home.path(), "tailscale", "#!/bin/sh\n");
-    let path = OsString::from(format!("{}:{}", home.path().join("absent").display(), bin.display()));
+    let path = OsString::from(format!(
+        "{}:{}",
+        home.path().join("absent").display(),
+        bin.display()
+    ));
     assert_eq!(
-        tailnet::locate(&path, &[installed.clone()]),
+        tailnet::locate(&path, std::slice::from_ref(&installed)),
         Some(installed.clone())
     );
     let on_path = script::script(&bin, "tailscale", "#!/bin/sh\n");
@@ -511,7 +572,10 @@ fn setup_from_env_reads_the_search_path_and_auth_key() {
         name: None,
         tags: vec![],
         exports: vec![],
+        capabilities: vec![],
         host_pin: None,
+        yes: true,
+        rekey: false,
         unix: None,
         memory_budget_mb: DEFAULT_MEMORY_BUDGET_MB,
         no_service: true,

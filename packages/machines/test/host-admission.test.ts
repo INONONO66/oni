@@ -101,7 +101,7 @@ test.each([
   } finally { await f.close(); }
 });
 
-test.each([1, 2, 5])("contract %s is refused before generation admission", async (contractVersion) => {
+test.each([1, 2, 6])("contract %s is refused before generation admission", async (contractVersion) => {
   const f = await fixture();
   try {
     const client = await f.connect();

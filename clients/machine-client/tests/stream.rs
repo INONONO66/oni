@@ -779,6 +779,7 @@ fn settings(root: &Path) -> ClientConfig {
         unix: Some(root.join("host.sock")),
         mode: None,
         tmux_socket: None,
+        declared: None,
     }
 }
 

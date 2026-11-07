@@ -2,6 +2,7 @@ import { type BusEvent, Machine } from "@oni/protocol";
 
 type MachineEventPayload =
   | ReturnType<typeof Machine.Events.Attached.schema.parse>
+  | ReturnType<typeof Machine.Events.ConsentRequired.schema.parse>
   | ReturnType<typeof Machine.Events.Detached.schema.parse>
   | ReturnType<typeof Machine.Events.LeaseRefused.schema.parse>
   | ReturnType<typeof Machine.Events.Reported.schema.parse>
@@ -23,6 +24,7 @@ function parseEvent<T>(name: string, payload: T): RecordedEvent {
   if (name === Machine.Events.Enrolled.name) return { name, payload: Machine.Events.Enrolled.schema.parse(payload) };
   if (name === Machine.Events.Unenrolled.name) return { name, payload: Machine.Events.Unenrolled.schema.parse(payload) };
   if (name === Machine.Events.Attached.name) return { name, payload: Machine.Events.Attached.schema.parse(payload) };
+  if (name === Machine.Events.ConsentRequired.name) return { name, payload: Machine.Events.ConsentRequired.schema.parse(payload) };
   if (name === Machine.Events.Reported.name) return { name, payload: Machine.Events.Reported.schema.parse(payload) };
   if (name === Machine.Events.HumanInput.name) return { name, payload: Machine.Events.HumanInput.schema.parse(payload) };
   if (name === Machine.Events.PtyOutput.name) return { name, payload: Machine.Events.PtyOutput.schema.parse(payload) };

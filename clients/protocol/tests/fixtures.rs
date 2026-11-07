@@ -66,6 +66,7 @@ macro_rules! decode_fixture {
                 CompletionRequest,
                 Enrollment,
                 EventAttached,
+                EventConsentRequired,
                 EventDetached,
                 EventEnrolled,
                 EventHumanInput,

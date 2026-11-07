@@ -1424,6 +1424,7 @@ mod private_tests {
             unix: None,
             mode: Some(crate::config::Mode::Tailnet),
             tmux_socket: None,
+            declared: None,
         };
         let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
         let screen = Screen::new(Box::new(Fixture::display(32, 16, 1.0)), 1).observing(observer);
@@ -1504,6 +1505,7 @@ mod private_tests {
             unix: None,
             mode: Some(crate::config::Mode::Tailnet),
             tmux_socket: None,
+            declared: None,
         };
         let pty = Pty::new("/definitely/missing/tmux", None, "g".into()).await;
         let service = Service::open_with(&config, pty, screen).expect("service");
